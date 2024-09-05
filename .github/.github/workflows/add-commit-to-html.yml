@@ -1,0 +1,31 @@
+name: Add Commit Hash to HTML
+
+on:
+  push:
+    branches:
+      - main  # Substitua pela branch principal do seu projeto, se diferente de 'main'
+
+jobs:
+  update-html:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@v2
+
+      - name: Get the current commit hash
+        id: vars
+        run: echo "::set-output name=commit_hash::$(git rev-parse HEAD)"
+
+      - name: Update index.html with commit hash
+        run: |
+          COMMIT_HASH=${{ steps.vars.outputs.commit_hash }}
+          sed -i "s/COMMIT_HASH_PLACEHOLDER/${COMMIT_HASH}/g" index.html
+
+      - name: Commit the updated HTML file
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add index.html
+          git commit -m "Update index.html with commit hash ${{ steps.vars.outputs.commit_hash }}"
+          git push

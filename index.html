@@ -41,41 +41,26 @@
     <div id="kanban" class="tabcontent">
         <h2>Kanban Board</h2>
         <div class="kanban-board">
-               <!-- Kanban Board -->
-    <div class="kanban-board">
-        <!-- Coluna Backlog -->
-        <div class="kanban-column" id="backlog">
-            <h2>Backlog</h2>
-             <div class="kanban-item" draggable="true" ondragstart="drag(event)" id="task1">
+            <div class="kanban-column" id="todo" ondrop="drop(event)" ondragover="allowDrop(event)">
+                <h2>A Fazer</h2>
+                <div class="kanban-item" draggable="true" ondragstart="drag(event)" id="task1">
                     Task 1
                 </div>
-            <!--<div class="kanban-items" id="backlog-items"></div>-->
-        </div>
-        <!-- Coluna A Fazer -->
-        <div class="kanban-column" id="todo">
-            <h2>A Fazer</h2>
-  <div class="kanban-item" draggable="true" ondragstart="drag(event)" id="task2">
+            </div>
+
+            <div class="kanban-column" id="in-progress" ondrop="drop(event)" ondragover="allowDrop(event)">
+                <h2>Em Progresso</h2>
+                <div class="kanban-item" draggable="true" ondragstart="drag(event)" id="task2">
                     Task 2
                 </div>
-            <!--<div class="kanban-items" id="todo-items"></div>-->
-        </div>
-        <!-- Coluna Em Progresso -->
-        <div class="kanban-column" id="in-progress">
-            <h2>Em Progresso</h2>
-              <div class="kanban-item" draggable="true" ondragstart="drag(event)" id="task3">
+            </div>
+
+            <div class="kanban-column" id="done" ondrop="drop(event)" ondragover="allowDrop(event)">
+                <h2>Concluído</h2>
+                <div class="kanban-item" draggable="true" ondragstart="drag(event)" id="task3">
                     Task 3
                 </div>
-            <!--<div class="kanban-items" id="in-progress-items"></div>-->
-        </div>
-        <!-- Coluna Revisão -->
-        <div class="kanban-column" id="review">
-            <h2>Revisão</h2>
-            <div class="kanban-items" id="review-items"></div>
-        </div>
-        <!-- Coluna Concluído -->
-        <div class="kanban-column" id="done">
-            <h2>Concluído</h2>
-            <div class="kanban-items" id="done-items"></div>
+            </div>
         </div>
     </div>
 

@@ -29,3 +29,8 @@ jobs:
           git add index.html
           git commit -m "Update index.html with commit hash ${{ steps.vars.outputs.commit_hash }}"
           git push
+     - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./  # Diretório onde está o seu site, geralmente é a raiz

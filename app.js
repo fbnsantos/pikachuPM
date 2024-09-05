@@ -130,3 +130,65 @@ document.addEventListener('DOMContentLoaded', loadTaskState);
 document.querySelectorAll('.kanban-column').forEach(column => {
     column.addEventListener('drop', saveTaskState);
 });
+
+// Função para manipular a resposta do Google Sign-In
+function handleCredentialResponse(response) {
+    const idToken = response.credential;
+    console.log('ID Token:', idToken);
+
+    // Enviar o token para o backend para verificação
+    fetch('/api/auth/google', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ token: idToken })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Armazenar o token no localStorage e mostrar o conteúdo da PWA
+            localStorage.setItem('token', idToken);
+            showContent();
+        } else {
+            console.log('Erro ao fazer login:', data);
+        }
+    })
+    .catch((error) => {
+        console.error('Erro:', error);
+    });
+}
+
+// Função para exibir o conteúdo da PWA após o login
+function showContent() {
+    document.getElementById('login-section').classList.add('hidden');
+    document.getElementById('content').classList.remove('hidden');
+}
+
+// Função para esconder o conteúdo da PWA
+function hideContent() {
+    document.getElementById('login-section').classList.remove('hidden');
+    document.getElementById('content').classList.add('hidden');
+}
+
+// Verificar se o usuário já está logado
+function checkLogin() {
+    const token = localStorage.getItem('token');
+    if (token) {
+        // Se o token existir, mostramos o conteúdo da PWA
+        showContent();
+    } else {
+        // Se não houver token, escondemos o conteúdo
+        hideContent();
+    }
+}
+
+// Função para logout
+function signOut() {
+    localStorage.removeItem('token');
+    hideContent();
+    console.log('Usuário deslogado.');
+}
+
+// Checar login ao carregar a página
+document.addEventListener('DOMContentLoaded', checkLogin);

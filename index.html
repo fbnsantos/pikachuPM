@@ -46,20 +46,26 @@
         <!-- Coluna Backlog -->
         <div class="kanban-column" id="backlog">
             <h2>Backlog</h2>
-            <div class="kanban-items" id="backlog-items"></div>
+             <div class="kanban-item" draggable="true" ondragstart="drag(event)" id="task1">
+                    Task 1
+                </div>
+            <!--<div class="kanban-items" id="backlog-items"></div>-->
         </div>
         <!-- Coluna A Fazer -->
         <div class="kanban-column" id="todo">
             <h2>A Fazer</h2>
-            <div class="kanban-item" draggable="true" ondragstart="drag(event)" id="task1">
-                    Task 1
+  <div class="kanban-item" draggable="true" ondragstart="drag(event)" id="task2">
+                    Task 2
                 </div>
-            <div class="kanban-items" id="todo-items"></div>
+            <!--<div class="kanban-items" id="todo-items"></div>-->
         </div>
         <!-- Coluna Em Progresso -->
         <div class="kanban-column" id="in-progress">
             <h2>Em Progresso</h2>
-            <div class="kanban-items" id="in-progress-items"></div>
+              <div class="kanban-item" draggable="true" ondragstart="drag(event)" id="task3">
+                    Task 3
+                </div>
+            <!--<div class="kanban-items" id="in-progress-items"></div>-->
         </div>
         <!-- Coluna Revisão -->
         <div class="kanban-column" id="review">

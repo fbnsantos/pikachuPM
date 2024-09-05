@@ -38,6 +38,33 @@ function closeModal() {
     taskModal.style.display = 'none';
 }
 
+// Function to open tabs
+function openTab(evt, tabName) {
+    var i, tabcontent, tablinks;
+    tabcontent = document.getElementsByClassName("tabcontent");
+    for (i = 0; i < tabcontent.length; i++) {
+        tabcontent[i].style.display = "none";
+    }
+    tablinks = document.getElementsByClassName("tablinks");
+    for (i = 0; i < tablinks.length; i++) {
+        tablinks[i].className = tablinks[i].className.replace(" active", "");
+    }
+    document.getElementById(tabName).style.display = "block";
+    evt.currentTarget.className += " active";
+}
+
+// Open the first tab by default
+document.getElementsByClassName("tablinks")[0].click();
+
+// Google Login - Sign Out Function
+function signOut() {
+    const auth2 = gapi.auth2.getAuthInstance();
+    auth2.signOut().then(function () {
+        console.log('User signed out.');
+    });
+}
+
+
 // Submissão de nova tarefa
 document.getElementById('taskForm').addEventListener('submit', function(e) {
     e.preventDefault();
@@ -60,3 +87,4 @@ document.getElementById('taskForm').addEventListener('submit', function(e) {
     closeModal();
     renderTasks();
 });
+

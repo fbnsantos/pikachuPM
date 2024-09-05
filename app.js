@@ -39,6 +39,7 @@ function closeModal() {
 }
 
 // Function to open tabs
+// Abre as Tabs
 function openTab(evt, tabName) {
     var i, tabcontent, tablinks;
     tabcontent = document.getElementsByClassName("tabcontent");
@@ -53,6 +54,24 @@ function openTab(evt, tabName) {
     evt.currentTarget.className += " active";
 }
 
+// Drag and Drop
+function allowDrop(ev) {
+    ev.preventDefault();  // Permitir soltar o item
+}
+
+function drag(ev) {
+    ev.dataTransfer.setData("text", ev.target.id);  // Armazenar o ID da tarefa que está sendo arrastada
+}
+
+function drop(ev) {
+    ev.preventDefault();
+    var data = ev.dataTransfer.getData("text");
+    var draggedElement = document.getElementById(data);
+    ev.target.appendChild(draggedElement);  // Adicionar o elemento arrastado na nova coluna
+}
+
+// Exibir a primeira tab por padrão
+document.getElementsByClassName("tablinks")[0].click();
 // Open the first tab by default
 document.getElementsByClassName("tablinks")[0].click();
 
@@ -88,3 +107,26 @@ document.getElementById('taskForm').addEventListener('submit', function(e) {
     renderTasks();
 });
 
+
+function saveTaskState() {
+    var todoTasks = document.getElementById('todo').innerHTML;
+    var inProgressTasks = document.getElementById('in-progress').innerHTML;
+    var doneTasks = document.getElementById('done').innerHTML;
+    localStorage.setItem('todoTasks', todoTasks);
+    localStorage.setItem('inProgressTasks', inProgressTasks);
+    localStorage.setItem('doneTasks', doneTasks);
+}
+
+function loadTaskState() {
+    document.getElementById('todo').innerHTML = localStorage.getItem('todoTasks');
+    document.getElementById('in-progress').innerHTML = localStorage.getItem('inProgressTasks');
+    document.getElementById('done').innerHTML = localStorage.getItem('doneTasks');
+}
+
+// Chame essa função quando a página for carregada
+document.addEventListener('DOMContentLoaded', loadTaskState);
+
+// Salve o estado sempre que a tarefa for movida
+document.querySelectorAll('.kanban-column').forEach(column => {
+    column.addEventListener('drop', saveTaskState);
+});

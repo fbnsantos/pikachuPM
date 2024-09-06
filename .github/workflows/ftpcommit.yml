@@ -24,6 +24,6 @@ jobs:
         FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
         FTP_PORT: ${{ secrets.FTP_PORT }}
       run: 
-        lftp -e "set ssl:verify-certificate no; open $FTP_HOST; user $FTP_USER $FTP_PASSWORD; mirror -X .* -X .*/ --reverse --verbose --delete . test/; bye"
+        lftp -e "set ssl:verify-certificate no; open $FTP_HOST; user $FTP_USER $FTP_PASSWORD; mirror -X .* -X .*/ --reverse --verbose --delete . test/;
         bye
         "

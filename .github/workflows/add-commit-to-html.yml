@@ -5,7 +5,7 @@ on:
     branches:
       - main  # Substitua pela branch principal do seu projeto, se diferente de 'main'
 jobs:
-  update-html:
+  updatehtml:
     runs-on: ubuntu-latest
 
     steps:

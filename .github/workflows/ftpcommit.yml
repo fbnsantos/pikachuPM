@@ -1,0 +1,31 @@
+name: FTP Deploy
+
+on:
+  push:
+    branches:
+      - main  # Ou a branch que você deseja monitorar para o deploy
+
+jobs:
+  deploy:
+    name: Deploy via FTP
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3  # Faz o checkout do código do repositório
+
+    - name: Install lftp
+      run: sudo apt-get install -y lftp  # Instala o cliente lftp no ambiente
+
+    - name: Deploy to FTP server
+      env:
+        FTP_HOST: ${{ secrets.FTP_HOST }}
+        FTP_USER: ${{ secrets.FTP_USER }}
+        FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+        FTP_PORT: ${{ secrets.FTP_PORT }}
+      run: |
+        lftp -f "
+        open -u $FTP_USER,$FTP_PASSWORD $FTP_HOST
+        mirror --reverse --delete --verbose ./ test/
+        bye
+        "

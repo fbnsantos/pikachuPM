@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main  # Substitua pela branch principal do seu projeto, se diferente de 'main'
-
 jobs:
   update-html:
     runs-on: ubuntu-latest
@@ -29,6 +28,7 @@ jobs:
           git add index.html
           git commit -m "Update index.html with commit hash ${{ steps.vars.outputs.commit_hash }}"
           git push
+          
      - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:

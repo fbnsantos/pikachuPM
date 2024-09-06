@@ -1,42 +1,235 @@
-// Tarefas armazenadas em localStorage
-const taskList = JSON.parse(localStorage.getItem('tasks')) || [];
+const addBtns = document.querySelectorAll(".add-btn:not(.solid)");
+const saveItemBtns = document.querySelectorAll(".solid");
+const addItemContainers = document.querySelectorAll(".add-container");
+const addItems = document.querySelectorAll(".add-item");
 
-// Inicialização do Kanban
-document.addEventListener('DOMContentLoaded', () => {
-    renderTasks();
-});
+// Item Lists
+const listColumns = document.querySelectorAll(".drag-item-list");
+const backlogListEl = document.getElementById("to-do-list");
+const progressListEl = document.getElementById("doing-list");
+const completeListEl = document.getElementById("done-list");
+const onHoldListEl = document.getElementById("on-hold-list");
 
-// Renderiza as tarefas nas colunas
-function renderTasks() {
-    ['backlog-items', 'todo-items', 'in-progress-items', 'review-items', 'done-items'].forEach(id => {
-        document.getElementById(id).innerHTML = '';
-    });
+// Items
+let updatedOnLoad = false;
 
-    taskList.forEach(task => {
-        const taskElement = document.createElement('div');
-        taskElement.className = 'kanban-item';
-        taskElement.draggable = true;
-        taskElement.innerHTML = `
-            <strong>${task.title}</strong><br>
-            ${task.description ? task.description : ''}<br>
-            <em>Duração: ${task.duration}</em>
-            <br>Dependência: ${task.parent_task_id ? task.parent_task_id : 'Nenhuma'}
-        `;
+// Initialize Arrays
+let backlogListArray = [];
+let progressListArray = [];
+let completeListArray = [];
+let onHoldListArray = [];
+let listArrays = [];
 
-        document.getElementById(`${task.status}-items`).appendChild(taskElement);
-    });
+// Drag Functionality
+let draggedItem;
+let dragging = false;
+let currentColumn;
+
+// Get Arrays from localStorage if available, set default values if not
+function getSavedColumns() {
+	if (localStorage.getItem("backlogItems")) {
+		backlogListArray = JSON.parse(localStorage.backlogItems);
+		progressListArray = JSON.parse(localStorage.progressItems);
+		completeListArray = JSON.parse(localStorage.completeItems);
+		onHoldListArray = JSON.parse(localStorage.onHoldItems);
+	} else {
+		const intro = prompt(
+			"Type 'y' (Yes) if you want to display an Editable Sample? \n(Not typing 'y' will display a plane NEW board.)"
+		);
+		if (intro === "y" || intro === "Y") {
+			backlogListArray = [
+				"Write the documentation",
+				"Post a technical article",
+			];
+			progressListArray = ["Work on Droppi project", "Listen to Spotify"];
+			completeListArray = ["Submit a PR", "Review my projects code"];
+			onHoldListArray = ["Get a girlfriend"];
+		} else {
+			backlogListArray = [];
+			progressListArray = [];
+			completeListArray = [];
+			onHoldListArray = [];
+		}
+	}
 }
 
-// Modal de Tarefa
-const taskModal = document.getElementById('taskModal');
+// Set localStorage Arrays
+function updateSavedColumns() {
+	listArrays = [
+		backlogListArray,
+		progressListArray,
+		completeListArray,
+		onHoldListArray,
+	];
+	const arrayNames = ["backlog", "progress", "complete", "onHold"];
+	arrayNames.forEach((arrayName, index) => {
+		localStorage.setItem(
+			`${arrayName}Items`,
+			JSON.stringify(listArrays[index])
+		);
+	});
 
-function openModal() {
-    taskModal.style.display = 'block';
+	// Similar as code above(DRY):
+
+	// localStorage.setItem("backlogItems", JSON.stringify(backlogListArray));
+	// localStorage.setItem("progressItems", JSON.stringify(progressListArray));
+	// localStorage.setItem("completeItems", JSON.stringify(completeListArray));
+	// localStorage.setItem("onHoldItems", JSON.stringify(onHoldListArray));
 }
 
-function closeModal() {
-    taskModal.style.display = 'none';
+// Filter Array to remove empty values
+function filterArray(array) {
+	const filteredArray = array.filter((item) => item !== null);
+	return filteredArray;
 }
+
+// Create DOM Elements for each list item
+function createItemEl(columnEl, column, item, index) {
+	// console.log("columnEl:", columnEl);
+	// console.log("column:", column);
+	// console.log("item:", item);
+	// console.log("index:", index);
+	// List Item
+	const listEl = document.createElement("li");
+	listEl.textContent = item;
+	listEl.id = index;
+	listEl.classList.add("drag-item");
+	listEl.draggable = true;
+	listEl.setAttribute("onfocusout", `updateItem(${index}, ${column})`);
+	listEl.setAttribute("ondragstart", "drag(event)");
+	listEl.contentEditable = true;
+	// Append
+	columnEl.appendChild(listEl);
+}
+
+// Update Columns in DOM - Reset HTML, Filter Array, Update localStorage
+function updateDOM() {
+	// Check localStorage once
+	if (!updatedOnLoad) {
+		getSavedColumns();
+	}
+	// Backlog Column
+	backlogListEl.textContent = "";
+	backlogListArray.forEach((backlogItem, index) => {
+		createItemEl(backlogListEl, 0, backlogItem, index);
+	});
+	backlogListArray = filterArray(backlogListArray);
+	// Progress Column
+	progressListEl.textContent = "";
+	progressListArray.forEach((progressItem, index) => {
+		createItemEl(progressListEl, 1, progressItem, index);
+	});
+	progressListArray = filterArray(progressListArray);
+	// Complete Column
+	completeListEl.textContent = "";
+	completeListArray.forEach((completeItem, index) => {
+		createItemEl(completeListEl, 2, completeItem, index);
+	});
+	completeListArray = filterArray(completeListArray);
+	// On Hold Column
+	onHoldListEl.textContent = "";
+	onHoldListArray.forEach((onHoldItem, index) => {
+		createItemEl(onHoldListEl, 3, onHoldItem, index);
+	});
+	onHoldListArray = filterArray(onHoldListArray);
+	// Run getSavedColumns only once, Update Local Storage
+	updatedOnLoad = true;
+	updateSavedColumns();
+}
+
+// Update Item - Delete if necessary, or update Array value
+function updateItem(id, column) {
+	const selectedArray = listArrays[column];
+	const selectedColumn = listColumns[column].children;
+	if (!dragging) {
+		if (!selectedColumn[id].textContent) {
+			delete selectedArray[id];
+		} else {
+			selectedArray[id] = selectedColumn[id].textContent;
+		}
+		updateDOM();
+	}
+}
+
+// Add to Column List, Reset Textbox
+function addToColumn(column) {
+	const itemText = addItems[column].textContent;
+	const selectedArray = listArrays[column];
+	selectedArray.push(itemText);
+	addItems[column].textContent = "";
+	updateDOM(column);
+}
+
+// Show Add Item Input Box
+function showInputBox(column) {
+	addBtns[column].style.visibility = "hidden";
+	saveItemBtns[column].style.display = "flex";
+	addItemContainers[column].style.display = "flex";
+}
+
+// Hide Item Input Box
+function hideInputBox(column) {
+	addBtns[column].style.visibility = "visible";
+	saveItemBtns[column].style.display = "none";
+	addItemContainers[column].style.display = "none";
+	addToColumn(column);
+}
+
+// Allows arrays to reflect Drag and Drop items
+function rebuildArrays() {
+	backlogListArray = [];
+	for (let i = 0; i < backlogListEl.children.length; i++) {
+		backlogListArray.push(backlogListEl.children[i].textContent);
+	}
+	progressListArray = [];
+	for (let i = 0; i < progressListEl.children.length; i++) {
+		progressListArray.push(progressListEl.children[i].textContent);
+	}
+	completeListArray = [];
+	for (let i = 0; i < completeListEl.children.length; i++) {
+		completeListArray.push(completeListEl.children[i].textContent);
+	}
+	onHoldListArray = [];
+	for (let i = 0; i < onHoldListEl.children.length; i++) {
+		onHoldListArray.push(onHoldListEl.children[i].textContent);
+	}
+	updateDOM();
+}
+
+// When Item Enters Column Area
+function dragEnter(column) {
+	listColumns[column].classList.add("over");
+	currentColumn = column;
+}
+
+// When Item Starts Dragging
+function drag(e) {
+	draggedItem = e.target;
+	dragging = true;
+}
+
+// Column Allows for Item to Drop
+function allowDrop(e) {
+	e.preventDefault();
+}
+
+// Dropping Item in Column
+function drop(e) {
+	e.preventDefault();
+	const parent = listColumns[currentColumn];
+	// Remove Background Color/Padding
+	listColumns.forEach((column) => {
+		column.classList.remove("over");
+	});
+	// Add item to Column
+	parent.appendChild(draggedItem);
+	// Dragging complete
+	dragging = false;
+	rebuildArrays();
+}
+
+
+
 
 // Function to open tabs
 // Abre as Tabs
@@ -54,141 +247,15 @@ function openTab(evt, tabName) {
     evt.currentTarget.className += " active";
 }
 
-// Drag and Drop
-function allowDrop(ev) {
-    ev.preventDefault();  // Permitir soltar o item
-}
-
-function drag(ev) {
-    ev.dataTransfer.setData("text", ev.target.id);  // Armazenar o ID da tarefa que está sendo arrastada
-}
-
-function drop(ev) {
-    ev.preventDefault();
-    var data = ev.dataTransfer.getData("text");
-    var draggedElement = document.getElementById(data);
-    ev.target.appendChild(draggedElement);  // Adicionar o elemento arrastado na nova coluna
-}
-
 // Exibir a primeira tab por padrão
 document.getElementsByClassName("tablinks")[0].click();
 // Open the first tab by default
 document.getElementsByClassName("tablinks")[0].click();
 
-// Google Login - Sign Out Function
-function signOut() {
-    const auth2 = gapi.auth2.getAuthInstance();
-    auth2.signOut().then(function () {
-        console.log('User signed out.');
-    });
-}
 
 
-// Submissão de nova tarefa
-document.getElementById('taskForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    const title = document.getElementById('task-title').value;
-    const description = document.getElementById('task-description').value;
-    const duration = document.getElementById('task-duration').value;
-    const parentTaskId = document.getElementById('task-parent').value;
-    const task = {
-        id: taskList.length + 1,
-        title,
-        description,
-        duration,
-        parent_task_id: parentTaskId ? parseInt(parentTaskId) : null,
-        status: 'backlog'
-    };
-    
-    taskList.push(task);
-    localStorage.setItem('tasks', JSON.stringify(taskList));
-    closeModal();
-    renderTasks();
-});
 
 
-function saveTaskState() {
-    var todoTasks = document.getElementById('todo').innerHTML;
-    var inProgressTasks = document.getElementById('in-progress').innerHTML;
-    var doneTasks = document.getElementById('done').innerHTML;
-    localStorage.setItem('todoTasks', todoTasks);
-    localStorage.setItem('inProgressTasks', inProgressTasks);
-    localStorage.setItem('doneTasks', doneTasks);
-}
 
-function loadTaskState() {
-    document.getElementById('todo').innerHTML = localStorage.getItem('todoTasks');
-    document.getElementById('in-progress').innerHTML = localStorage.getItem('inProgressTasks');
-    document.getElementById('done').innerHTML = localStorage.getItem('doneTasks');
-}
-
-// Chame essa função quando a página for carregada
-document.addEventListener('DOMContentLoaded', loadTaskState);
-
-// Salve o estado sempre que a tarefa for movida
-document.querySelectorAll('.kanban-column').forEach(column => {
-    column.addEventListener('drop', saveTaskState);
-});
-
-// Função para manipular a resposta do Google Sign-In
-function handleCredentialResponse(response) {
-    const idToken = response.credential;
-    console.log('ID Token:', idToken);
-
-    // Enviar o token para o backend para verificação
-    fetch('/api/auth/google', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ token: idToken })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            // Armazenar o token no localStorage e mostrar o conteúdo da PWA
-            localStorage.setItem('token', idToken);
-            showContent();
-        } else {
-            console.log('Erro ao fazer login:', data);
-        }
-    })
-    .catch((error) => {
-        console.error('Erro:', error);
-    });
-}
-
-// Função para exibir o conteúdo da PWA após o login
-function showContent() {
-    document.getElementById('login-section').classList.add('hidden');
-    document.getElementById('content').classList.remove('hidden');
-}
-
-// Função para esconder o conteúdo da PWA
-function hideContent() {
-    document.getElementById('login-section').classList.remove('hidden');
-    document.getElementById('content').classList.add('hidden');
-}
-
-// Verificar se o usuário já está logado
-function checkLogin() {
-    const token = localStorage.getItem('token');
-    if (token) {
-        // Se o token existir, mostramos o conteúdo da PWA
-        showContent();
-    } else {
-        // Se não houver token, escondemos o conteúdo
-        hideContent();
-    }
-}
-
-// Função para logout
-function signOut() {
-    localStorage.removeItem('token');
-    hideContent();
-    console.log('Usuário deslogado.');
-}
-
-// Checar login ao carregar a página
-document.addEventListener('DOMContentLoaded', checkLogin);
+// On Load
+updateDOM();

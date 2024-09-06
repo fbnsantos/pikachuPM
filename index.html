@@ -10,114 +10,148 @@
 </head>
 
 <body>
-    <h1>Kanban PWA </h1>
-    <p>Commit Hash: COMMIT_HASH_PLACEHOLDER</p>
 
-    <!-- Google Login Button -->
-    <div id="login-section">
-        <div id="g_id_onload"
-             data-client_id="795150760456-bsangbnhlb0ccb6pqmfjs1g6hnn0ib6j.apps.googleusercontent.com"
-             data-callback="handleCredentialResponse"
-             data-auto_prompt="false">
-        </div>
-        <div class="g_id_signin"
-             data-type="standard"
-             data-size="large"
-             data-theme="outline"
-             data-text="sign_in_with"
-             data-shape="rectangular"
-             data-logo_alignment="left">
-        </div>
-    </div>
+    <h1>Kanban PWA </h1>
+
+
 
 
     <!-- Hidden Content -->
-    <div id="content" class="hidden">
-        <!-- Tabs Navigation -->
-        <div class="tabs">
-            <button class="tablinks" onclick="openTab(event, 'kanban')">Kanban</button>
-            <button class="tablinks" onclick="openTab(event, 'calendar')">Calendário</button>
-            <button class="tablinks" onclick="openTab(event, 'feeds')">Feeds</button>
-            <button class="tablinks" onclick="openTab(event, 'tasks')">Lista de Tarefas Diárias</button>
-        </div>
 
-        <!-- Tabs Content -->
-        <div id="kanban" class="tabcontent">
-            <h2>Kanban Board</h2>
-            <div class="kanban-board">
-                <div class="kanban-column" id="todo" ondrop="drop(event)" ondragover="allowDrop(event)">
-                    <h2>A Fazer</h2>
-                    <div class="kanban-item" draggable="true" ondragstart="drag(event)" id="task1">
-                        Task 1
-                    </div>
-                </div>
-
-                <div class="kanban-column" id="in-progress" ondrop="drop(event)" ondragover="allowDrop(event)">
-                    <h2>Em Progresso</h2>
-                    <div class="kanban-item" draggable="true" ondragstart="drag(event)" id="task2">
-                        Task 2
-                    </div>
-                </div>
-
-                <div class="kanban-column" id="done" ondrop="drop(event)" ondragover="allowDrop(event)">
-                    <h2>Concluído</h2>
-                    <div class="kanban-item" draggable="true" ondragstart="drag(event)" id="task3">
-                        Task 3
-                    </div>
-                </div>
-            </div>
-            <button onclick="openModal()">Adicionar Tarefa</button>
-        </div>
-
-        <!-- Modal para Criar/Editar Tarefas -->
-        <div id="taskModal" class="modal">
-            <div class="modal-content">
-                <span class="close" onclick="closeModal()">&times;</span>
-                <h2 id="modal-title">Nova Tarefa</h2>
-                <form id="taskForm">
-                    <label for="task-title">Título:</label>
-                    <input type="text" id="task-title" required>
-
-                    <label for="task-description">Descrição:</label>
-                    <textarea id="task-description"></textarea>
-
-                    <label for="task-duration">Duração:</label>
-                    <select id="task-duration">
-                        <option value="Horas">Horas</option>
-                        <option value="Dias">Dias</option>
-                        <option value="Semanas">Semanas</option>
-                    </select>
-
-                    <label for="task-parent">Tarefa Pai (ID):</label>
-                    <input type="number" id="task-parent">
-
-                    <button type="submit">Salvar</button>
-                </form>
-            </div>
-        </div>
-
-        
-
-        <div id="calendar" class="tabcontent">
-            <h2>Calendário</h2>
-            <!-- Calendar content goes here -->
-        </div>
-
-        <div id="feeds" class="tabcontent">
-            <h2>Feeds</h2>
-            <!-- Feed content goes here -->
-        </div>
-
-        <div id="tasks" class="tabcontent">
-            <h2>Lista de Tarefas Diárias</h2>
-            <!-- Task list content goes here -->
-        </div>
-
-        <button onclick="signOut()">Sign Out</button>
+    <!-- Tabs Navigation -->
+    <div class="tabs">
+        <button class="tablinks" onclick="openTab(event, 'kanban')">Kanban</button>
+        <button class="tablinks" onclick="openTab(event, 'calendar')">Calendário</button>
+        <button class="tablinks" onclick="openTab(event, 'feeds')">Feeds</button>
+        <button class="tablinks" onclick="openTab(event, 'tasks')">Lista de Tarefas Diárias</button>
     </div>
 
-    
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <!-- Tabs Content -->
+    <div id="kanban" class="tabcontent">
+
+        <div class="drag-container">
+            <ul class="drag-list">
+                <!-- To Be Done Column -->
+                <li class="drag-column to-do-column">
+                    <span class="header">
+                        <h1>To Do</h1>
+                    </span>
+                    <!-- To Be Done Content -->
+                    <div id="to-do-content" class="custom-scroll-todo">
+                        <ul class="drag-item-list" id="to-do-list" ondrop="drop(event)" ondragover="allowDrop(event)"
+                            ondragenter="dragEnter(0)"></ul>
+                    </div>
+                    <!-- Add Button Group -->
+                    <div class="add-btn-group">
+                        <div class="add-btn" onclick="showInputBox(0)">
+                            <span class="plus-sign">+</span>
+                            <span>Add Item</span>
+                        </div>
+                        <div class="add-btn solid" onclick="hideInputBox(0)">
+                            <span>Save Item</span>
+                        </div>
+                    </div>
+                    <div class="add-container">
+                        <div class="add-item" contenteditable="true"></div>
+                    </div>
+                </li>
+                <!-- Doing Column -->
+                <li class="drag-column doing-column">
+                    <span class="header">
+                        <h1>Doing</h1>
+                    </span>
+                    <!-- Doing Content -->
+                    <div id="doing-content" class="custom-scroll-doing">
+                        <ul class="drag-item-list" id="doing-list" ondrop="drop(event)" ondragover="allowDrop(event)"
+                            ondragenter="dragEnter(1)"></ul>
+                    </div>
+                    <!-- Add Button Group -->
+                    <div class="add-btn-group">
+                        <div class="add-btn" onclick="showInputBox(1)">
+                            <span class="plus-sign">+</span>
+                            <span>Add Item</span>
+                        </div>
+                        <div class="add-btn solid" onclick="hideInputBox(1)">
+                            <span>Save Item</span>
+                        </div>
+                    </div>
+                    <div class="add-container">
+                        <div class="add-item" contenteditable="true"></div>
+                    </div>
+                </li>
+                <!-- Done Column -->
+                <li class="drag-column done-column">
+                    <span class="header">
+                        <h1>Done</h1>
+                    </span>
+                    <!-- Done Content -->
+                    <div id="done-content" class="custom-scroll-done">
+                        <ul class="drag-item-list" id="done-list" ondrop="drop(event)" ondragover="allowDrop(event)"
+                            ondragenter="dragEnter(2)"></ul>
+                    </div>
+                    <!-- Add Button Group -->
+                    <div class="add-btn-group">
+                        <div class="add-btn" onclick="showInputBox(2)">
+                            <span class="plus-sign">+</span>
+                            <span>Add Item</span>
+                        </div>
+                        <div class="add-btn solid" onclick="hideInputBox(2)">
+                            <span>Save Item</span>
+                        </div>
+                    </div>
+                    <div class="add-container">
+                        <div class="add-item" contenteditable="true"></div>
+                    </div>
+                </li>
+                <!-- On Hold Column -->
+                <li class="drag-column on-hold-column">
+                    <span class="header">
+                        <h1>On Hold</h1>
+                    </span>
+                    <!-- On Hold Content -->
+                    <div id="on-hold-content" class="custom-scroll">
+                        <ul class="drag-item-list" id="on-hold-list" ondrop="drop(event)" ondragover="allowDrop(event)"
+                            ondragenter="dragEnter(3)"></ul>
+                    </div>
+                    <!-- Add Button Group -->
+                    <div class="add-btn-group">
+                        <div class="add-btn" onclick="showInputBox(3)">
+                            <span class="plus-sign">+</span>
+                            <span>Add Item</span>
+                        </div>
+                        <div class="add-btn solid" onclick="hideInputBox(3)">
+                            <span>Save Item</span>
+                        </div>
+                    </div>
+                    <div class="add-container">
+                        <div class="add-item" contenteditable="true"></div>
+                    </div>
+                </li>
+            </ul>
+        </div>
+
+
+    </div>
+
+
+
+    <div id="calendar" class="tabcontent">
+        <h2>Calendário</h2>
+        <!-- Calendar content goes here -->
+    </div>
+
+    <div id="feeds" class="tabcontent">
+        <h2>Feeds</h2>
+        <!-- Feed content goes here -->
+    </div>
+
+    <div id="tasks" class="tabcontent">
+        <h2>Lista de Tarefas Diárias</h2>
+        <!-- Task list content goes here -->
+    </div>
+
+ 
+
     <script src="app.js"></script>
 </body>
 

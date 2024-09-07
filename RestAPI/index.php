@@ -1,10 +1,8 @@
 <?php
 // Permitir requisições de qualquer origem
 header("Access-Control-Allow-Origin: *");
-
 // Permitir métodos HTTP específicos (GET, POST, etc.)
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
-
 // Se você precisar de cabeçalhos adicionais permitidos
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
@@ -25,7 +23,7 @@ $response = [
     "status" => "sucesso",
     "message" => "Login realizado com sucesso",
     "user_id" => 1234,
-    "token" => "abc123token"
+    "toke" => "abc123token"
 ];
 
 // Definir o cabeçalho de resposta como JSON

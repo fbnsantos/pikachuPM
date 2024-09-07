@@ -38,7 +38,7 @@ use \Firebase\JWT\JWT;
 use \Firebase\JWT\Key;
 
 // Faz echo da variável definida em config.php
-$response[message].= "O host do banco de dados é: " . $database_host;
+$response["message"].= "O host do banco de dados é: " . $database_host;
 
 try {
     // Tentar criar uma nova conexão PDO
@@ -48,11 +48,11 @@ try {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     
     // Teste de conexão bem-sucedida
-    $response[message].= "Conexão com o banco de dados bem-sucedida!";
+    $response["message"].= "Conexão com o banco de dados bem-sucedida!";
     
 } catch (PDOException $e) {
     // Se houver erro de conexão, ele será capturado aqui
-    $response[message].= "Erro na conexão com o banco de dados: " . $e->getMessage();
+    $response["message"].= "Erro na conexão com o banco de dados: " . $e->getMessage();
 }
 
 
@@ -69,12 +69,12 @@ $token_data = [
 
 // Gerar o token JWT
 $jwt = JWT::encode($token_data, $secret_key, 'HS256');
-$response[message].= "Token JWT gerado: " . $jwt . "<br>";
+$response["message"].= "Token JWT gerado: " . $jwt . "<br>";
 
 // Decodificar o token JWT
 $decoded = JWT::decode($jwt, new Key($secret_key, 'HS256'));
-$response[message].= "Dados decodificados do token JWT:<br>";
-$response[message].= $decoded;
+$response["message"].= "Dados decodificados do token JWT:<br>";
+$response["message"].= $decoded;
 
 
 
@@ -89,10 +89,10 @@ $expiration_time = $issued_at + 3600; // O token expira em 1 hora
 $data = json_decode(file_get_contents("php://input"));
 $username = $data->username;
 if (empty($data->username)) {
-    $response[message].= "Nome de usuário está vazio.";
+    $response["message"].= "Nome de usuário está vazio.";
    return;
 } else {
-    $response[message].= "O nome de usuário é: " . $data->username;
+    $response["message"].= "O nome de usuário é: " . $data->username;
 }
 
 $password = $data->password;
@@ -126,7 +126,7 @@ if ($username == 'usuario' && $password == 'senha') {
 } else {
     // Credenciais inválidas
     //http_response_code(401);
-    $response[message].="Credenciais inválidas";
+    $response["message"].="Credenciais inválidas";
     echo json_encode($response);
   
 }

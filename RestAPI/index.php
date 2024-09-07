@@ -3,9 +3,6 @@
 // Inclui o arquivo config.php
 include 'config.php';
 // Verificar se o Composer e a biblioteca JWT estão disponíveis
-require 'vendor/autoload.php';  // Carregar as dependências do Composer
-
-
 require 'php-jwt-main/src/JWT.php';
 require 'php-jwt-main/src/Key.php';
 require 'php-jwt-main/src/BeforeValidException.php';

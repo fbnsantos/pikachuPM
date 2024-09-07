@@ -73,8 +73,9 @@ $response["message"].= "Token JWT gerado: " . $jwt . "<br>";
 
 // Decodificar o token JWT
 $decoded = JWT::decode($jwt, new Key($secret_key, 'HS256'));
+$decoded_string = json_encode($decoded);
 $response["message"].= "Dados decodificados do token JWT:<br>";
-$response["message"].= $decoded;
+$response["message"].= $decoded_string;
 
 
 

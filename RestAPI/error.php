@@ -1,6 +1,6 @@
 <?php
 // Caminho para o arquivo de log
-$logFile = 'error.log';
+$logFile = 'error_log';
 
 // Verificar se o arquivo existe e se pode ser lido
 if (file_exists($logFile) && is_readable($logFile)) {

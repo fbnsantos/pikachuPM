@@ -88,9 +88,10 @@ $expiration_time = $issued_at + 3600; // O token expira em 1 hora
 
 // Receber as credenciais enviadas via POST
 $data = json_decode(file_get_contents("php://input"));
-$username = $data->username;
+//$username = $data->username;
 if (empty($data->username)) {
     $response["message"].= "Nome de usuário está vazio.";
+    echo json_encode($response);
    return;
 } else {
     $response["message"].= "O nome de usuário é: " . $data->username;

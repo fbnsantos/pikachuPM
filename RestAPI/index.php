@@ -2,6 +2,11 @@
 
 // Inclui o arquivo config.php
 include 'config.php';
+// Verificar se o Composer e a biblioteca JWT estão disponíveis
+require 'vendor/autoload.php';  // Carregar as dependências do Composer
+
+use \Firebase\JWT\JWT;
+use \Firebase\JWT\Key;
 
 // Faz echo da variável definida em config.php
 echo "O host do banco de dados é: " . $database_host;
@@ -20,4 +25,25 @@ try {
     // Se houver erro de conexão, ele será capturado aqui
     echo "Erro na conexão com o banco de dados: " . $e->getMessage();
 }
+
+
+
+// Definir a chave secreta para assinar o token
+$secret_key = "sua_chave_secreta";
+
+// Gerar os dados para o token
+$token_data = [
+    "iat" => time(),
+    "exp" => time() + 3600,  // O token expira em 1 hora
+    "user_id" => 1234
+];
+
+// Gerar o token JWT
+$jwt = JWT::encode($token_data, $secret_key, 'HS256');
+echo "Token JWT gerado: " . $jwt . "<br>";
+
+// Decodificar o token JWT
+$decoded = JWT::decode($jwt, new Key($secret_key, 'HS256'));
+echo "Dados decodificados do token JWT:<br>";
+print_r($decoded);
 ?>

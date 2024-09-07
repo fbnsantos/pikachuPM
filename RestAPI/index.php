@@ -1,10 +1,38 @@
 <?php
+// Permitir requisições de qualquer origem
+header("Access-Control-Allow-Origin: *");
+
+// Permitir métodos HTTP específicos (GET, POST, etc.)
+header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
+
+// Se você precisar de cabeçalhos adicionais permitidos
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+
+// Se a requisição for uma preflight (usada no CORS para verificar permissões)
+if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
 
 // Inclui o arquivo config.php
 include 'config.php';
 // Verificar se o Composer e a biblioteca JWT estão disponíveis
 require 'php-jwt-main/src/JWT.php';
 require 'php-jwt-main/src/Key.php';
+
+// Criar um array com dados
+$response = [
+    "status" => "sucesso",
+    "message" => "Login realizado com sucesso",
+    "user_id" => 1234,
+    "token" => "abc123token"
+];
+
+// Definir o cabeçalho de resposta como JSON
+header('Content-Type: application/json');
+
+// Converter o array em JSON e exibir
+echo json_encode($response);
 
 
 use \Firebase\JWT\JWT;

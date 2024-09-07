@@ -14,7 +14,64 @@
 
     <h1>Kanban PWA </h1>
 
+    <h2>Login</h2>
+    <form id="login-form">
+        <label for="username">Username:</label><br>
+        <input type="text" id="username" name="username"><br><br>
+        
+        <label for="password">Password:</label><br>
+        <input type="password" id="password" name="password"><br><br>
 
+        <button type="button" id="login-button">Login</button>
+    </form>
+
+    <div id="result"></div>
+
+    <script>
+        // Função para tratar o clique no botão de login
+        document.getElementById('login-button').addEventListener('click', function() {
+            // Capturar o nome de usuário e a senha do formulário
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            // Verificar se os campos não estão vazios
+            if (username === "" || password === "") {
+                document.getElementById('result').innerText = "Por favor, preencha ambos os campos.";
+                return;
+            }
+
+            // Enviar as credenciais para o endpoint do REST API
+            fetch('http://fbnsantos.com/fbnsantos.com/fbnsantos/test/RestAPI/index.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    username: username,
+                    password: password
+                })
+            })
+            .then(response => {
+                // Exibir o status da resposta
+                console.log('Status da resposta:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                // Mostrar a resposta da API (se login for bem-sucedido ou não)
+                if (data.token) {
+                    document.getElementById('result').innerText = "Login bem-sucedido!";
+                    // Salvar o token em localStorage para usar em outras requisições
+                    localStorage.setItem('jwtToken', data.token);
+                } else {
+                    document.getElementById('result').innerText = "Login falhou: " + data.message;
+                }
+            })
+            .catch(error => {
+                console.error('Erro:', error);
+                document.getElementById('result').innerText = "Ocorreu um erro ao tentar fazer o login.";
+            });
+        });
+    </script>
 
 
     <!-- Hidden Content -->

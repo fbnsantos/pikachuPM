@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Autenticação</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background-color: #f5f5f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 16px;
+            color: #666;
+        }
+
+        .tab.active {
+            color: #0066cc;
+            border-bottom: 2px solid #0066cc;
+            margin-bottom: -2px;
+        }
+
+        .form {
+            display: none;
+        }
+
+        .form.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+        }
+
+        input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #0066cc;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: #0052a3;
+        }
+
+        .message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .message.error {
+            background-color: #ffe6e6;
+            color: #cc0000;
+            border: 1px solid #ffcccc;
+        }
+
+        .message.success {
+            background-color: #e6ffe6;
+            color: #006600;
+            border: 1px solid #ccffcc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="tabs">
+            <button class="tab active" data-form="login">Login</button>
+            <button class="tab" data-form="register">Registro</button>
+        </div>
+
+        <form id="loginForm" class="form active">
+            <div class="form-group">
+                <label for="loginEmail">Email</label>
+                <input type="email" id="loginEmail" required>
+            </div>
+            <div class="form-group">
+                <label for="loginPassword">Senha</label>
+                <input type="password" id="loginPassword" required>
+            </div>
+            <button type="submit">Entrar</button>
+            <div class="message" id="loginMessage"></div>
+        </form>
+
+        <form id="registerForm" class="form">
+            <div class="form-group">
+                <label for="registerName">Nome</label>
+                <input type="text" id="registerName" required>
+            </div>
+            <div class="form-group">
+                <label for="registerEmail">Email</label>
+                <input type="email" id="registerEmail" required>
+            </div>
+            <div class="form-group">
+                <label for="registerPassword">Senha</label>
+                <input type="password" id="registerPassword" required>
+            </div>
+            <div class="form-group">
+                <label for="registerPasswordConfirm">Confirmar Senha</label>
+                <input type="password" id="registerPasswordConfirm" required>
+            </div>
+            <button type="submit">Registrar</button>
+            <div class="message" id="registerMessage"></div>
+        </form>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Tab switching
+            const tabs = document.querySelectorAll('.tab');
+            const forms = document.querySelectorAll('.form');
+
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const formName = tab.dataset.form;
+                    
+                    tabs.forEach(t => t.classList.remove('active'));
+                    forms.forEach(f => f.classList.remove('active'));
+                    
+                    tab.classList.add('active');
+                    document.getElementById(formName + 'Form').classList.add('active');
+                });
+            });
+
+            // Login form handling
+            const loginForm = document.getElementById('loginForm');
+            loginForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const email = document.getElementById('loginEmail').value;
+                const password = document.getElementById('loginPassword').value;
+                const messageEl = document.getElementById('loginMessage');
+
+                try {
+                    const response = await fetch('api/login.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ email, password })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        messageEl.textContent = 'Login realizado com sucesso!';
+                        messageEl.className = 'message success';
+                        // Aqui você pode redirecionar o usuário ou salvar o token
+                        localStorage.setItem('authToken', data.token);
+                        setTimeout(() => window.location.href = 'dashboard.html', 1000);
+                    } else {
+                        messageEl.textContent = data.message || 'Erro ao fazer login';
+                        messageEl.className = 'message error';
+                    }
+                } catch (error) {
+                    messageEl.textContent = 'Erro ao conectar com o servidor';
+                    messageEl.className = 'message error';
+                }
+                messageEl.style.display = 'block';
+            });
+
+            // Register form handling
+            const registerForm = document.getElementById('registerForm');
+            registerForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const name = document.getElementById('registerName').value;
+                const email = document.getElementById('registerEmail').value;
+                const password = document.getElementById('registerPassword').value;
+                const passwordConfirm = document.getElementById('registerPasswordConfirm').value;
+                const messageEl = document.getElementById('registerMessage');
+
+                if (password !== passwordConfirm) {
+                    messageEl.textContent = 'As senhas não coincidem';
+                    messageEl.className = 'message error';
+                    messageEl.style.display = 'block';
+                    return;
+                }
+
+                try {
+                    const response = await fetch('api/register.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ name, email, password })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        messageEl.textContent = 'Registro realizado com sucesso!';
+                        messageEl.className = 'message success';
+                        registerForm.reset();
+                        setTimeout(() => {
+                            document.querySelector('[data-form="login"]').click();
+                        }, 1000);
+                    } else {
+                        messageEl.textContent = data.message || 'Erro ao registrar';
+                        messageEl.className = 'message error';
+                    }
+                } catch (error) {
+                    messageEl.textContent = 'Erro ao conectar com o servidor';
+                    messageEl.className = 'message error';
+                }
+                messageEl.style.display = 'block';
+            });
+        });
+    </script>
+</body>
+</html>

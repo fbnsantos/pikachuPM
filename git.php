@@ -3,6 +3,9 @@
 $currentUser = get_current_user();
 echo "<p>Current User: " . $currentUser . "</p>";
 
+$output = shell_exec("whoami");
+echo "<pre>$output</pre>";
+
 $output = shell_exec("git config --global --add safe.directory /var/www/html/pikachu/pikachuPM 2>&1");
 echo "<pre>$output</pre>";
 

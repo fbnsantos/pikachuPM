@@ -1,5 +1,10 @@
 <?php
-shell_exec("git config --global --add safe.directory /var/www/html/pikachu/pikachuPM");
+
+$currentUser = get_current_user();
+echo "<p>Current User: " . $currentUser . "</p>";
+
+$output = shell_exec("git config --global --add safe.directory /var/www/html/pikachu/pikachuPM");
+echo "<pre>$output</pre>";
 
 // Executar o comando 'git pull'
 $output = shell_exec('git pull 2>&1');

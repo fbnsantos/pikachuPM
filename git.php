@@ -41,9 +41,9 @@ foreach ($getParams as $key => $value) {
 }
 
 // Adicionar um exemplo de uso das variáveis
-$fileContent .= "\n// Exemplo de uso\n";
-$fileContent .= "echo \"As variáveis foram geradas dinamicamente!\\n\";\n";
-$fileContent .= "echo \"Valor de uma variável: \$$sanitizedKey\";\n";
+//$fileContent .= "\n// Exemplo de uso\n";
+//$fileContent .= "echo \"As variáveis foram geradas dinamicamente!\\n\";\n";
+//$fileContent .= "echo \"Valor de uma variável: \$$sanitizedKey\";\n";
 
 // Finalizar o conteúdo PHP
 $fileContent .= "\n?>";

@@ -105,6 +105,8 @@
 
             private function makeRequest($endpoint) {
                 $ch = curl_init($this->url . $endpoint);
+
+                echo $this->url;
                 
                 curl_setopt_array($ch, [
                     CURLOPT_RETURNTRANSFER => true,

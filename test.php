@@ -155,9 +155,10 @@
         $redmineUrl = 'http://criis-projects.inesctec.pt';  // URL do seu Redmine
         $apiKey = $api_key;                 // Sua API key
 
-        
+
         try {
             if (isset($_GET['q']) && !empty($_GET['q'])) {
+                echo $apiKey;
                 $api = new RedmineAPI($redmineUrl, $apiKey);
                 $searchTerm = $_GET['q'];
                 $results = $api->searchIssues($searchTerm);

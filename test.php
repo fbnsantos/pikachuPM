@@ -152,7 +152,7 @@
         }
 
         // Configurações
-        $redmineUrl = 'http://criis-projects.inesctec.pt/';  // URL do seu Redmine
+        $redmineUrl = 'http://criis-projects.inesctec.pt';  // URL do seu Redmine
         $apiKey = $api_key;                 // Sua API key
 
         try {

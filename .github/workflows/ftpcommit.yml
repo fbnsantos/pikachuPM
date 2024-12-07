@@ -32,3 +32,6 @@ jobs:
         lftp -e "set ssl:verify-certificate no; open $FTP_HOST; user $FTP_USER $FTP_PASSWORD; mirror -X .* -X .*/ --reverse --verbose --delete . test/;
         bye
         "
+    - name: Trigger PHP Script via cURL
+          run: |
+            curl -X GET "http://criis-projects.inesctec.pt/pikachu/pikachuPM/git.php"

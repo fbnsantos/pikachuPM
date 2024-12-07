@@ -26,13 +26,4 @@ jobs:
       run: 
        curl -X GET "http://criis-projects.inesctec.pt/pikachu/pikachuPM/git.php"
 
-    - name: Deploy to FTP server
-      env:
-        FTP_HOST: ${{ secrets.FTP_HOST }}
-        FTP_USER: ${{ secrets.FTP_USER }}
-        FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
-        FTP_PORT: ${{ secrets.FTP_PORT }}
-      run: 
-        lftp -e "set ssl:verify-certificate no; open $FTP_HOST; user $FTP_USER $FTP_PASSWORD; mirror -X .* -X .*/ --reverse --verbose --delete . test/;
-        bye
-        "
+

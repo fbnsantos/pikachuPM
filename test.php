@@ -99,7 +99,7 @@
                     'limit' => 100,
                     'status_id' => '*' // busca em todos os status
                 ]);
-
+                echo "aqui";
                 return $this->makeRequest($endpoint . '?' . $params);
             }
 

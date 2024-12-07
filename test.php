@@ -80,6 +80,8 @@
         </form>
 
         <?php
+        include 'config.php';
+
         class RedmineAPI {
             private $url;
             private $apiKey;
@@ -151,7 +153,7 @@
 
         // Configurações
         $redmineUrl = 'http://criis-projects.inesctec.pt/';  // URL do seu Redmine
-        $apiKey = '325ff83bbad6bfcd28e57efe884095c84';                 // Sua API key
+        $apiKey = $api_key;                 // Sua API key
 
         try {
             if (isset($_GET['q']) && !empty($_GET['q'])) {

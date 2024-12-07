@@ -49,7 +49,7 @@ $fileContent .= "\n?>";
 // Escrever o conteúdo em um novo arquivo PHP
 if (file_put_contents($newFileName, $fileContent)) {
     echo "O arquivo $newFileName foi gerado com sucesso!";
-    echo "<br><a href='$newFileName'>Clique aqui para visualizar o arquivo gerado</a>";
+//    echo "<br><a href='$newFileName'>Clique aqui para visualizar o arquivo gerado</a>";
 } else {
     echo "Erro ao criar o arquivo $newFileName.";
 }

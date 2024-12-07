@@ -16,4 +16,4 @@ jobs:
 
     - name: Trigger PHP Script via cURL
       run: 
-       curl -X GET "http://criis-projects.inesctec.pt/pikachu/pikachuPM/git.php"
+       curl -X GET "http://criis-projects.inesctec.pt/pikachu/pikachuPM/git.php?api_key=${{ secrets.redminefbnsantos }}"

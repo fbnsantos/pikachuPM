@@ -1,5 +1,7 @@
 <?php
 
+echo "mamamia"
+
 $currentUser = get_current_user();
 echo "<p>Current User: " . $currentUser . "</p>";
 

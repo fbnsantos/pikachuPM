@@ -161,7 +161,9 @@
                 echo $apiKey;
                 $api = new RedmineAPI($redmineUrl, $apiKey);
                 $searchTerm = $_GET['q'];
+                echo $searchTerm ;
                 $results = $api->searchIssues($searchTerm);
+                echo $results ;
 
                 if (isset($results['issues']) && !empty($results['issues'])) {
                     echo "<h2>Results for: " . htmlspecialchars($searchTerm) . "</h2>";

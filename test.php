@@ -87,7 +87,7 @@
             private $apiKey;
 
             public function __construct($url, $apiKey) {
-                $this->url = rtrim($url, '/');
+                $this->url = "http://criis-projects.inesctec.pt"; //rtrim($url, '/');
                 $this->apiKey = $apiKey;
             }
 

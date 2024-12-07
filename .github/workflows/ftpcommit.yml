@@ -23,9 +23,9 @@ jobs:
         sed -i 's/{{DB_PASSWORD}}/${{ secrets.DB_PASSWORD }}/g' RestAPI/config.php
 
     - name: Trigger PHP Script via cURL
-          run: 
-            curl -X GET "http://criis-projects.inesctec.pt/pikachu/pikachuPM/git.php"
-            
+      run: 
+       curl -X GET "http://criis-projects.inesctec.pt/pikachu/pikachuPM/git.php"
+
     - name: Deploy to FTP server
       env:
         FTP_HOST: ${{ secrets.FTP_HOST }}

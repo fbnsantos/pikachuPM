@@ -100,13 +100,15 @@
                     'status_id' => '*' // busca em todos os status
                 ]);
                 echo "aqui";
+                echo $this->url;
                 return $this->makeRequest($endpoint . '?' . $params);
             }
 
             private function makeRequest($endpoint) {
+                echo $this->url;
                 $ch = curl_init($this->url . $endpoint);
 
-                echo $this->url;
+                
                 
                 curl_setopt_array($ch, [
                     CURLOPT_RETURNTRANSFER => true,

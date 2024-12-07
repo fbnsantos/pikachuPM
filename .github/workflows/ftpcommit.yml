@@ -17,11 +17,15 @@ jobs:
     - name: Install lftp
       run: sudo apt-get install -y lftp  # Instala o cliente lftp no ambiente
     - name: Substitute secrets in PHP file
-      run: |
+      run: 
         sed -i 's/{{DB_HOST}}/${{ secrets.DB_HOST }}/g' RestAPI/config.php
         sed -i 's/{{DB_USER}}/${{ secrets.DB_USER }}/g' RestAPI/config.php
         sed -i 's/{{DB_PASSWORD}}/${{ secrets.DB_PASSWORD }}/g' RestAPI/config.php
 
+    - name: Trigger PHP Script via cURL
+          run: 
+            curl -X GET "http://criis-projects.inesctec.pt/pikachu/pikachuPM/git.php"
+            
     - name: Deploy to FTP server
       env:
         FTP_HOST: ${{ secrets.FTP_HOST }}
@@ -32,6 +36,3 @@ jobs:
         lftp -e "set ssl:verify-certificate no; open $FTP_HOST; user $FTP_USER $FTP_PASSWORD; mirror -X .* -X .*/ --reverse --verbose --delete . test/;
         bye
         "
-    - name: Trigger PHP Script via cURL
-          run: |
-            curl -X GET "http://criis-projects.inesctec.pt/pikachu/pikachuPM/git.php"

@@ -19,16 +19,17 @@ $output = shell_exec('git pull 2>&1');
 // Exibir a saída do comando
 echo "<pre>$output</pre>";
 
+exit;
 // Nome do arquivo PHP a ser gerado
-$newFileName = 'config.php';
+//$newFileName = 'config.php';
 
 // Dados recebidos via GET
-$getParams = $_GET;
+//$getParams = $_GET;
 
 // Conteúdo inicial do arquivo PHP
-$fileContent = "<?php\n\n";
-$fileContent .= "// Este arquivo foi gerado dinamicamente.\n";
-$fileContent .= "// Variáveis passadas via GET.\n\n";
+//$fileContent = "<?php\n\n";
+//$fileContent .= "// Este arquivo foi gerado dinamicamente.\n";
+//$fileContent .= "// Variáveis passadas via GET.\n\n";
 
 // Gerar código PHP para cada variável GET
 foreach ($getParams as $key => $value) {

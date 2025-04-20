@@ -15,7 +15,7 @@ $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 $curlError = curl_error($ch);
 curl_close($ch);
 
-echo "<h3>Resultado da ligação ao Redmine</h3>";
+echo "<h3>T Resultado da ligação ao Redmine</h3>";
 
 if ($curlError) {
     echo "<p style='color:red;'>Erro cURL: $curlError</p>";

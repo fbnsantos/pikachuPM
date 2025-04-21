@@ -3,6 +3,10 @@
 session_start();
 include_once __DIR__ . '/../config.php';
 
+echo '<pre>';
+var_dump($_SESSION);
+echo '</pre>';
+
 // Verificar e criar base de dados SQLite e tabela, se necessário
 $db_path = __DIR__ . '/../equipa.sqlite';
 $nova_base_dados = !file_exists($db_path);

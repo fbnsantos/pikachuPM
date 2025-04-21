@@ -80,6 +80,9 @@ foreach ($eventos as $e) {
     .dia { border: 1px solid #ccc; min-height: 150px; padding: 5px; position: relative; background: #f9f9f9; }
     .data { font-weight: bold; }
     .evento { font-size: 0.85em; padding: 2px 4px; margin-top: 2px; border-radius: 4px; color: white; display: block; }
+    .fade { opacity: 0; transition: opacity 0.3s ease-in-out; }
+    .fade.show { opacity: 1; }
+    .hoje { background: #fff4cc !important; border: 2px solid #f5b041; }
 </style>
 
 <div class="container mt-4">
@@ -94,7 +97,8 @@ foreach ($eventos as $e) {
         <?php foreach ($datas as $data): 
             $data_str = $data->format('Y-m-d');
         ?>
-        <div class="dia">
+        <?php $isHoje = $data->format('Y-m-d') === (new DateTime())->format('Y-m-d'); ?>
+<div class="dia<?= $isHoje ? ' hoje' : '' ?>">
             <div class="data"><?= $data->format('D d/m/Y') ?></div>
             <?php if (isset($eventos_por_dia[$data_str])): ?>
                 <?php foreach ($eventos_por_dia[$data_str] as $ev): ?>
@@ -106,7 +110,8 @@ foreach ($eventos as $e) {
                     </form>
                 <?php endforeach; ?>
             <?php endif; ?>
-            <form method="post" class="mt-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="toggleForm(this)">+ Adicionar</button>
+<form method="post" class="mt-2 d-none">
                 <input type="hidden" name="data" value="<?= $data_str ?>">
                 <select name="tipo" class="form-select form-select-sm mb-1">
                     <option value="ferias">Férias</option>
@@ -121,3 +126,24 @@ foreach ($eventos as $e) {
         <?php endforeach; ?>
     </div>
 </div>
+<script>
+function toggleForm(button) {
+    const form = button.nextElementSibling;
+    form.classList.toggle('d-none');
+    button.classList.toggle('d-none');
+    form.classList.add('fade');
+    form.classList.add('show');
+}
+
+// Fechar formulários ao submeter
+window.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('form').forEach(f => {
+        f.addEventListener('submit', () => {
+            const parent = f.closest('.dia');
+            const btn = parent.querySelector('button[type="button"]');
+            f.classList.add('d-none');
+            if (btn) btn.classList.remove('d-none');
+        });
+    });
+});
+</script>

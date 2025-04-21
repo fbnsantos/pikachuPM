@@ -48,12 +48,12 @@ function getUtilizadoresRedmine() {
 
 function getAtividadesUtilizador($id) {
     global $API_KEY, $BASE_URL;
-    $url = \"$BASE_URL/activity.json?user_id=$id&limit=5\";
+    $url = "$BASE_URL/activity.json?user_id=$id&limit=5";
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        \"X-Redmine-API-Key: $API_KEY\",
-        \"Accept: application/json\"
+        "X-Redmine-API-Key: $API_KEY",
+        "Accept: application/json"
     ]);
     $resp = curl_exec($ch);
     $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -61,17 +61,17 @@ function getAtividadesUtilizador($id) {
     curl_close($ch);
 
     if ($resp === false || $http_code !== 200) {
-        echo \"<div class='alert alert-danger'>Erro ao obter atividades do utilizador ID $id.<br>
+        echo "<div class='alert alert-danger'>Erro ao obter atividades do utilizador ID $id.<br>
               Código HTTP: $http_code<br>
               Erro CURL: $curl_error<br>
-              URL: $url</div>\";
+              URL: $url</div>";
         return [];
     }
 
     $data = json_decode($resp, true);
     return $data['activities'] ?? [];
 }
-    
+
 function getNomeUtilizador($id, $lista) {
     foreach ($lista as $u) {
         if ($u['id'] == $id) return $u['firstname'] . ' ' . $u['lastname'];

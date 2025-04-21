@@ -8,28 +8,20 @@ error_reporting(E_ALL);
 $db_path = __DIR__ . '/../eventos.sqlite';
 $nova_base = !file_exists($db_path);
 
-$user = $_SESSION['user'] ?? 'anon';
-
 try {
     $db = new PDO('sqlite:' . $db_path);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     if ($nova_base) {
-    $db->exec("CREATE TABLE eventos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        data TEXT NOT NULL,
-        tipo TEXT NOT NULL,
-        descricao TEXT,
-        criador TEXT,
-        cor TEXT NOT NULL
-    )");
-    $db->exec("CREATE TABLE preferencias (
-        user TEXT PRIMARY KEY,
-        semanas INTEGER DEFAULT 4,
-        cor_fundo TEXT DEFAULT '#ffffff',
-        modo TEXT DEFAULT 'claro'
-    )");
-}
+        $db->exec("CREATE TABLE eventos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data TEXT NOT NULL,
+            tipo TEXT NOT NULL,
+            descricao TEXT,
+            criador TEXT,
+            cor TEXT NOT NULL
+        )");
+    }
 } catch (Exception $e) {
     die("Erro ao inicializar base de dados: " . $e->getMessage());
 }
@@ -40,17 +32,7 @@ $hoje->modify("$offset days");
 $inicioSemana = clone $hoje;
 $inicioSemana->modify('monday this week');
 $datas = [];
-// carregar preferencias do utilizador
-$stmt = $db->prepare("SELECT * FROM preferencias WHERE user = :u");
-$stmt->execute([':u' => $user]);
-$prefs = $stmt->fetch(PDO::FETCH_ASSOC);
-
-$numSemanas = isset($_GET['semanas']) ? max(1, min(10, (int)$_GET['semanas'])) : ($prefs['semanas'] ?? 4);
- isset(\$_GET['semanas']) ? max(1, min(10, (int)\$_GET['semanas'])) : (\$pref ?: 4);
-if (isset(\$_GET['semanas'])) {
-    \$stmt = \$db->prepare("INSERT INTO preferencias (id, semanas) VALUES (1, :s) ON CONFLICT(id) DO UPDATE SET semanas = excluded.semanas");
-    \$stmt->execute([':s' => \$numSemanas]);
-}
+$numSemanas = isset($_GET['semanas']) ? max(1, min(10, (int)$_GET['semanas'])) : 4;
 for ($i = 0; $i < $numSemanas * 7; $i++) {
     $data = clone $inicioSemana;
     $data->modify("+$i days");
@@ -60,21 +42,7 @@ for ($i = 0; $i < $numSemanas * 7; $i++) {
 // Debug
 // echo '<pre>'; print_r($datas); echo '</pre>';
 
-if (\$_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset(\$_POST['set_prefs'], \$_POST['cor_fundo'], \$_POST['modo'])) {
-        \$stmt = \$db->prepare("INSERT INTO preferencias (user, semanas, cor_fundo, modo)
-            VALUES (:u, :s, :c, :m)
-            ON CONFLICT(user) DO UPDATE SET
-                semanas = :s, cor_fundo = :c, modo = :m");
-        \$stmt->execute([
-            ':u' => \$user,
-            ':s' => \$numSemanas,
-            ':c' => \$_POST['cor_fundo'],
-            ':m' => \$_POST['modo']
-        ]);
-        header("Location: index.php?tab=calendar&offset=\$offset");
-        exit;
-    }
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['data'], $_POST['tipo'], $_POST['descricao'])) {
         $stmt = $db->prepare("INSERT INTO eventos (data, tipo, descricao, criador, cor) VALUES (:data, :tipo, :descricao, :criador, :cor)");
         $cor = match ($_POST['tipo']) {
@@ -109,14 +77,6 @@ foreach ($eventos as $e) {
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
-  body { background-color: <?= htmlspecialchars($prefs['cor_fundo'] ?? '#ffffff') ?>; }
-  <?php if (($prefs['modo'] ?? '') === 'escuro'): ?>
-  body { color: #f5f5f5; background-color: #1e1e1e; }
-  .dia { background: #2a2a2a !important; border-color: #444; }
-  .evento { color: white; }
-  <?php endif; ?>
-</style>
-<style>
     .calendario { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr 0.6fr 0.6fr; gap: 5px; }
     .dia { border: 1px solid #ccc; min-height: 150px; padding: 5px; position: relative; background: #f9f9f9;
     box-sizing: border-box; }
@@ -138,35 +98,6 @@ foreach ($eventos as $e) {
 </div>
 
     <form method="get" class="mb-3">
-    <input type="hidden" name="tab" value="calendar">
-    <input type="hidden" name="offset" value="<?= \$offset ?>">
-    <label for="semanas" class="form-label">Número de semanas a mostrar:</label>
-    <select name="semanas" id="semanas" class="form-select form-select-sm w-auto d-inline-block" onchange="this.form.submit()">
-        <?php for (\$i = 1; \$i <= 10; \$i++): ?>
-            <option value="<?= \$i ?>" <?= \$i == \$numSemanas ? 'selected' : '' ?>><?= \$i ?></option>
-        <?php endfor; ?>
-    </select>
-</form>
-
-<form method="post" class="mb-4">
-    <input type="hidden" name="set_prefs" value="1">
-    <div class="row g-2 align-items-center">
-        <div class="col-auto">
-            <label class="form-label">Cor de fundo:</label>
-            <input type="color" name="cor_fundo" value="<?= htmlspecialchars(\$prefs['cor_fundo'] ?? '#ffffff') ?>" class="form-control form-control-color">
-        </div>
-        <div class="col-auto">
-            <label class="form-label">Modo:</label>
-            <select name="modo" class="form-select">
-                <option value="claro" <?= (\$prefs['modo'] ?? '') === 'claro' ? 'selected' : '' ?>>Claro</option>
-                <option value="escuro" <?= (\$prefs['modo'] ?? '') === 'escuro' ? 'selected' : '' ?>>Escuro</option>
-            </select>
-        </div>
-        <div class="col-auto">
-            <button type="submit" class="btn btn-sm btn-outline-primary mt-3">Guardar preferências</button>
-        </div>
-    </div>
-</form>
     <input type="hidden" name="tab" value="calendar">
     <input type="hidden" name="offset" value="<?= $offset ?>">
     <label for="semanas" class="form-label">Número de semanas a mostrar:</label>

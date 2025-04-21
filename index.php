@@ -14,6 +14,7 @@ $tabs = [
     'relatorios' => 'Relatórios',
     'perfil' => 'Perfil',
     'ajuda' => 'Ajuda'
+    'equipa' => 'Reunião Diária'
 ];
 
 $tabSelecionada = $_GET['tab'] ?? 'dashboard';

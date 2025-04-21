@@ -20,29 +20,54 @@ try {
 } catch (Exception $e) {
     die("Erro ao inicializar a base de dados: " . $e->getMessage());
 }
-
 function getUtilizadoresRedmine() {
     global $API_KEY, $BASE_URL;
-    $ch = curl_init("$BASE_URL/users.json?limit=100");
+    $url = "$BASE_URL/users.json?limit=100";
+    $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ["X-Redmine-API-Key: $API_KEY"]);
     $resp = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curl_error = curl_error($ch);
     curl_close($ch);
+
+    if ($resp === false || $http_code !== 200) {
+        echo "<div class='alert alert-danger'>Erro ao obter utilizadores da API Redmine.<br>
+              Código HTTP: $http_code<br>
+              Erro CURL: $curl_error<br>
+              URL: $url</div>";
+        return [];
+    }
+
     $data = json_decode($resp, true);
+    if (empty($data['users'])) {
+        echo "<div class='alert alert-warning'>⚠️ A resposta da API Redmine foi recebida mas não contém utilizadores.</div>";
+    }
     return $data['users'] ?? [];
 }
 
 function getAtividadesUtilizador($id) {
     global $API_KEY, $BASE_URL;
-    $ch = curl_init("$BASE_URL/activity.json?user_id=$id&limit=5");
+    $url = "$BASE_URL/activity.json?user_id=$id&limit=5";
+    $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ["X-Redmine-API-Key: $API_KEY"]);
     $resp = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curl_error = curl_error($ch);
     curl_close($ch);
+
+    if ($resp === false || $http_code !== 200) {
+        echo "<div class='alert alert-danger'>Erro ao obter atividades do utilizador ID $id.<br>
+              Código HTTP: $http_code<br>
+              Erro CURL: $curl_error<br>
+              URL: $url</div>";
+        return [];
+    }
+
     $data = json_decode($resp, true);
     return $data['activities'] ?? [];
 }
-
 function getNomeUtilizador($id, $lista) {
     foreach ($lista as $u) {
         if ($u['id'] == $id) return $u['firstname'] . ' ' . $u['lastname'];

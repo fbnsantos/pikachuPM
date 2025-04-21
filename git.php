@@ -1,6 +1,5 @@
 <?php
 
-
 putenv("HOME=/home/criisadmin");
 
 $currentUser = get_current_user();
@@ -18,6 +17,7 @@ $output = shell_exec('git pull 2>&1');
 
 // Exibir a saída do comando
 echo "<pre>$output</pre>";
+echo "done";
 
 exit;
 // Nome do arquivo PHP a ser gerado

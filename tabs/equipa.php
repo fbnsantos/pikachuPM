@@ -21,7 +21,6 @@ try {
     die("Erro ao inicializar a base de dados: " . $e->getMessage());
 }
 
-// Obter lista de utilizadores do Redmine via API (simples)
 function getUtilizadoresRedmine() {
     global $API_KEY, $BASE_URL;
     $ch = curl_init("$BASE_URL/users.json?limit=100");
@@ -79,6 +78,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['proximo'])) {
         $_SESSION['orador_atual']++;
     }
+    if (isset($_POST['recusar'])) {
+        $idRecusado = (int)$_POST['recusar'];
+        $index = array_search($idRecusado, $equipa);
+        if ($index !== false) {
+            unset($equipa[$index]);
+            $_SESSION['gestor'] = $equipa[array_rand($equipa)];
+        }
+    }
     header("Location: ?tab=equipa");
     exit;
 }
@@ -93,38 +100,10 @@ function getNomeUtilizador($id, $lista) {
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<h2 class="mt-3">Gestão da Equipa</h2>
-<form method="post" class="row g-3 mb-4">
-  <div class="col-auto">
-    <label for="adicionar" class="form-label">Adicionar elemento à equipa:</label>
-    <select name="adicionar" id="adicionar" class="form-select">
-      <?php foreach ($utilizadores as $u): ?>
-        <?php if (!in_array($u['id'], $equipa)): ?>
-          <option value="<?= $u['id'] ?>"> <?= htmlspecialchars($u['firstname'] . ' ' . $u['lastname']) ?> </option>
-        <?php endif; ?>
-      <?php endforeach; ?>
-    </select>
-  </div>
-  <div class="col-auto align-self-end">
-    <button type="submit" class="btn btn-primary">Adicionar</button>
-  </div>
-</form>
-
-<h4>Membros da Equipa:</h4>
-<ul class="list-group mb-4">
-  <?php foreach ($equipa as $id): ?>
-    <li class="list-group-item d-flex justify-content-between align-items-center">
-      <?= getNomeUtilizador($id, $utilizadores) ?>
-      <form method="post">
-        <input type="hidden" name="remover" value="<?= $id ?>">
-        <button type="submit" class="btn btn-sm btn-danger">Remover</button>
-      </form>
-    </li>
-  <?php endforeach; ?>
-</ul>
+<h2 class="mt-3">Reunião Diária</h2>
 
 <?php if (!$em_reuniao && count($equipa) >= 2): ?>
-  <form method="post">
+  <form method="post" class="mb-4">
     <button type="submit" name="iniciar" class="btn btn-success">Iniciar Reunião</button>
   </form>
 <?php endif; ?>
@@ -158,12 +137,55 @@ function getNomeUtilizador($id, $lista) {
       <?php endforeach; ?>
     </ul>
 
-    <?php if ($_SESSION['user_id'] == $_SESSION['gestor']): ?>
-      <form method="post" class="mt-3">
-        <button type="submit" name="proximo" class="btn btn-warning">➡️ Próximo</button>
-      </form>
-    <?php else: ?>
-      <p class="text-muted mt-3">A aguardar ação do gestor (<?= getNomeUtilizador($_SESSION['gestor'], $utilizadores) ?>)...</p>
-    <?php endif; ?>
+    <form method="post" class="mt-3">
+      <button type="submit" name="proximo" class="btn btn-warning">➡️ Próximo</button>
+    </form>
   <?php endif; ?>
 <?php endif; ?>
+
+<hr class="my-5">
+<h4>Próximos possíveis gestores de reunião:</h4>
+<ul class="list-group mb-4">
+  <?php foreach ($equipa as $id): ?>
+    <?php if ($id !== $gestor): ?>
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <?= getNomeUtilizador($id, $utilizadores) ?>
+        <form method="post" class="d-inline">
+          <input type="hidden" name="recusar" value="<?= $id ?>">
+          <button type="submit" class="btn btn-sm btn-outline-danger">Recusar</button>
+        </form>
+      </li>
+    <?php endif; ?>
+  <?php endforeach; ?>
+</ul>
+
+<hr class="my-4">
+<h3>Gestão da Equipa</h3>
+<form method="post" class="row g-3 mb-4">
+  <div class="col-auto">
+    <label for="adicionar" class="form-label">Adicionar elemento à equipa:</label>
+    <select name="adicionar" id="adicionar" class="form-select">
+      <?php foreach ($utilizadores as $u): ?>
+        <?php if (!in_array($u['id'], $equipa)): ?>
+          <option value="<?= $u['id'] ?>"> <?= htmlspecialchars($u['firstname'] . ' ' . $u['lastname']) ?> </option>
+        <?php endif; ?>
+      <?php endforeach; ?>
+    </select>
+  </div>
+  <div class="col-auto align-self-end">
+    <button type="submit" class="btn btn-primary">Adicionar</button>
+  </div>
+</form>
+
+<h4>Membros da Equipa:</h4>
+<ul class="list-group mb-4">
+  <?php foreach ($equipa as $id): ?>
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <?= getNomeUtilizador($id, $utilizadores) ?>
+      <form method="post">
+        <input type="hidden" name="remover" value="<?= $id ?>">
+        <button type="submit" class="btn btn-sm btn-danger">Remover</button>
+      </form>
+    </li>
+  <?php endforeach; ?>
+</ul>

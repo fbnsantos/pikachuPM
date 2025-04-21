@@ -49,6 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'ferias' => 'green',
             'demo' => 'blue',
             'campo' => 'orange',
+            'aulas' => 'yellow',
             default => 'red'
         };
         $stmt->execute([
@@ -136,6 +137,7 @@ foreach ($eventos as $e) {
                     <option value="ferias">Férias</option>
                     <option value="demo">Demonstração</option>
                     <option value="campo">Saída de campo</option>
+                    <option value="aulas">Aulas</option>
                     <option value="outro">Outro</option>
                 </select>
                 <input type="text" name="descricao" placeholder="Descrição" class="form-control form-control-sm mb-1" required>

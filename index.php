@@ -13,7 +13,7 @@ $tabs = [
     'backlog' => 'Backlog',
     'relatorios' => 'Relatórios',
     'perfil' => 'Perfil',
-    'ajuda' => 'Ajuda',
+    'calendar' => 'Calendário',
     'equipa' => 'Reunião Diária'
 ];
 

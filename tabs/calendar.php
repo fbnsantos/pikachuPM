@@ -85,8 +85,8 @@ foreach ($eventos as $e) {
 <div class="container mt-4">
     <h2 class="mb-4">Calendário Colaborativo (4 semanas)</h2>
     <div class="d-flex justify-content-between mb-3">
-        <a class="btn btn-secondary" href="?offset=<?= $offset - 7 ?>">&laquo; Semana anterior</a>
-        <a class="btn btn-secondary" href="?offset=<?= $offset + 7 ?>">Semana seguinte &raquo;</a>
+        <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset - 7 ?>">&laquo; Semana anterior</a>
+        <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset + 7 ?>">Semana seguinte &raquo;</a>
     </div>
 
     <div class="calendario">

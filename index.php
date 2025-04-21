@@ -1,122 +1,75 @@
 <?php
-// config.php
-$API_KEY = 'AQUI_TUA_API_KEY';
-$BASE_URL = 'http://criis-projects.inesctec.pt';
+// index.php
+session_start();
+if (!isset($_SESSION['username'])) {
+    header('Location: login.php');
+    exit;
+}
 
-function redmine_request($endpoint, $method = 'GET', $data = null) {
-    global $API_KEY, $BASE_URL;
+// Tabs disponíveis
+$tabs = [
+    'dashboard' => 'Painel Principal',
+    'projetos' => 'Projetos',
+    'backlog' => 'Backlog',
+    'relatorios' => 'Relatórios',
+    'perfil' => 'Perfil',
+    'ajuda' => 'Ajuda'
+];
 
-    $url = rtrim($BASE_URL, '/') . '/' . ltrim($endpoint, '/');
+$tabSelecionada = $_GET['tab'] ?? 'dashboard';
+if (!array_key_exists($tabSelecionada, $tabs)) {
+    $tabSelecionada = 'dashboard';
+}
 
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        'Content-Type: application/json',
-        'X-Redmine-API-Key: ' . $API_KEY
-    ]);
-
-    if ($method === 'POST') {
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+function tempoSessao() {
+    if (!isset($_SESSION['inicio'])) {
+        $_SESSION['inicio'] = time();
     }
-
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    return [$httpCode, $response];
+    $duração = time() - $_SESSION['inicio'];
+    return gmdate("H:i:s", $duração);
 }
 ?>
 
-<!-- index.php -->
-<?php include 'config.php'; ?>
 <!DOCTYPE html>
 <html lang="pt">
 <head>
-  <meta charset="UTF-8">
-  <title>Backlog de Protótipos</title>
-  <style>
-    body { font-family: Arial; padding: 20px; background: #f5f5f5; }
-    .card { background: white; border-radius: 8px; padding: 15px; margin-bottom: 10px; box-shadow: 0 0 5px rgba(0,0,0,0.1); }
-    h2 { margin-top: 40px; }
-    form { margin-bottom: 30px; }
-  </style>
+    <meta charset="UTF-8">
+    <title>Área Redmine</title>
+    <style>
+        body { font-family: Arial; margin: 0; padding: 0; }
+        header, nav, main { padding: 20px; }
+        header { background: #222; color: white; }
+        nav { background: #f0f0f0; display: flex; gap: 10px; }
+        nav a { text-decoration: none; padding: 8px 12px; background: #ddd; border-radius: 5px; }
+        nav a.active { background: #aaa; color: white; }
+    </style>
 </head>
 <body>
-<h1>📦 Backlog de Protótipos</h1>
 
-<?php
-// Submissão de novo protótipo
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $subject = $_POST['subject'] ?? '';
-    $description = $_POST['description'] ?? '';
-    $project_id = $_POST['project_id'] ?? '';
+<header>
+    <h1>Bem-vindo, <?= htmlspecialchars($_SESSION['username']) ?></h1>
+    <p>ID: <?= $_SESSION['user_id'] ?> | Sessão: <?= tempoSessao() ?></p>
+    <p><a href="logout.php" style="color: #ffcccc;">Sair</a></p>
+</header>
 
-    if ($subject && $project_id) {
-        $novo = [
-            'issue' => [
-                'subject' => $subject,
-                'description' => $description,
-                'project_id' => (int)$project_id
-            ]
-        ];
-        [$code, $resp] = redmine_request('/issues.json', 'POST', $novo);
-
-        if ($code === 201) {
-            echo '<div class="card" style="background:#d4edda;">Protótipo criado com sucesso!</div>';
-        } else {
-            echo '<div class="card" style="background:#f8d7da;">Erro ao criar protótipo: HTTP ' . $code . '</div>';
-        }
-    }
-}
-
-// Obter lista de projetos
-[$proj_code, $proj_resp] = redmine_request('/projects.json');
-$projetos = ($proj_code === 200) ? json_decode($proj_resp, true)['projects'] : [];
-
-// Obter backlog
-[$issues_code, $issues_resp] = redmine_request('/issues.json?limit=50');
-$issues = ($issues_code === 200) ? json_decode($issues_resp, true)['issues'] : [];
-?>
-
-<h2>➕ Novo Protótipo</h2>
-<form method="post">
-  <label>Nome:</label><br>
-  <input type="text" name="subject" required style="width: 100%;"><br><br>
-
-  <label>Descrição:</label><br>
-  <textarea name="description" style="width: 100%; height: 80px;"></textarea><br><br>
-
-  <label>Projeto:</label><br>
-  <select name="project_id" required style="width: 100%;">
-    <option value="">-- Selecione um projeto --</option>
-    <?php foreach ($projetos as $proj): ?>
-      <option value="<?= $proj['id'] ?>"><?= htmlspecialchars($proj['name']) ?></option>
+<nav>
+    <?php foreach ($tabs as $id => $label): ?>
+        <a href="?tab=<?= $id ?>" class="<?= $tabSelecionada === $id ? 'active' : '' ?>">
+            <?= htmlspecialchars($label) ?>
+        </a>
     <?php endforeach; ?>
-  </select><br><br>
+</nav>
 
-  <button type="submit">Criar Protótipo</button>
-</form>
-
-<h2>📋 Backlog de Protótipos</h2>
-<?php foreach ($issues as $issue): ?>
-  <div class="card">
-    <strong><?= htmlspecialchars($issue['subject']) ?></strong><br>
-    Status: <?= $issue['status']['name'] ?><br>
-    Projeto: <?= $issue['project']['name'] ?><br>
-    <?= !empty($issue['assigned_to']) ? 'Responsável: ' . $issue['assigned_to']['name'] . '<br>' : '' ?>
-    <small>#<?= $issue['id'] ?> | Criado em <?= date('d-m-Y', strtotime($issue['created_on'])) ?></small>
-  </div>
-<?php endforeach; ?>
-
-<h2>📁 Projetos disponíveis</h2>
-<?php foreach ($projetos as $proj): ?>
-  <div class="card">
-    <strong><?= htmlspecialchars($proj['name']) ?></strong><br>
-    Identificador: <?= $proj['identifier'] ?><br>
-    ID: <?= $proj['id'] ?>
-  </div>
-<?php endforeach; ?>
+<main>
+    <?php
+    $ficheiroTab = "tabs/$tabSelecionada.php";
+    if (file_exists($ficheiroTab)) {
+        include $ficheiroTab;
+    } else {
+        echo "<p>Conteúdo indisponível.</p>";
+    }
+    ?>
+</main>
 
 </body>
 </html>

@@ -32,7 +32,15 @@ $hoje->modify("$offset days");
 $inicioSemana = clone $hoje;
 $inicioSemana->modify('monday this week');
 $datas = [];
-$numSemanas = isset($_GET['semanas']) ? max(1, min(10, (int)$_GET['semanas'])) : 4;
+// carregar preferencia de semanas
+\$stmt = \$db->query("CREATE TABLE IF NOT EXISTS preferencias (id INTEGER PRIMARY KEY, semanas INTEGER)");
+\$pref = \$db->query("SELECT semanas FROM preferencias WHERE id = 1")->fetchColumn();
+
+\$numSemanas = isset(\$_GET['semanas']) ? max(1, min(10, (int)\$_GET['semanas'])) : (\$pref ?: 4);
+if (isset(\$_GET['semanas'])) {
+    \$stmt = \$db->prepare("INSERT INTO preferencias (id, semanas) VALUES (1, :s) ON CONFLICT(id) DO UPDATE SET semanas = excluded.semanas");
+    \$stmt->execute([':s' => \$numSemanas]);
+}
 for ($i = 0; $i < $numSemanas * 7; $i++) {
     $data = clone $inicioSemana;
     $data->modify("+$i days");

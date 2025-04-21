@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $db->prepare("DELETE FROM eventos WHERE id = :id");
         $stmt->execute([':id' => $_POST['delete']]);
     }
-    header("Location: calendar.php?offset=$offset");
+    header("Location: index.php?tab=calendar&offset=$offset");
     exit;
 }
 

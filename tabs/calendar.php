@@ -85,16 +85,17 @@ foreach ($eventos as $e) {
 <div class="container mt-4">
     <h2 class="mb-4">Calendário Colaborativo (4 semanas)</h2>
     <div class="d-flex justify-content-between mb-3">
-        <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset - 7 ?>">&laquo; Semana anterior</a>
-        <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset + 7 ?>">Semana seguinte &raquo;</a>
-    </div>
+    <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset - 7 ?>">&laquo; Semana anterior</a>
+    <a class="btn btn-outline-primary" href="?tab=calendar">Hoje</a>
+    <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset + 7 ?>">Semana seguinte &raquo;</a>
+</div>
 
     <div class="calendario">
         <?php foreach ($datas as $data): 
             $data_str = $data->format('Y-m-d');
         ?>
         <div class="dia">
-            <div class="data"><?= $data->format('D d/m') ?></div>
+            <div class="data"><?= $data->format('D d/m/Y') ?></div>
             <?php if (isset($eventos_por_dia[$data_str])): ?>
                 <?php foreach ($eventos_por_dia[$data_str] as $ev): ?>
                     <form method="post" class="d-flex justify-content-between align-items-center">

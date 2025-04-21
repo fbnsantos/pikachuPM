@@ -46,7 +46,58 @@ function getUtilizadoresRedmine() {
     return $data['users'] ?? [];
 }
 
+
 function getAtividadesUtilizador($id) {
+    global $API_KEY, $BASE_URL;
+
+    $url = "$BASE_URL/issues.json?status_id=*&sort=updated_on:desc&limit=20";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        "X-Redmine-API-Key: $API_KEY",
+        "Accept: application/json"
+    ]);
+    $resp = curl_exec($ch);
+    curl_close($ch);
+
+    $data = json_decode($resp, true);
+    $atividades = [];
+
+    foreach ($data['issues'] ?? [] as $issue) {
+        $issue_id = $issue['id'];
+        $issue_url = "$BASE_URL/issues/$issue_id.json?include=journals";
+
+        $ch2 = curl_init($issue_url);
+        curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch2, CURLOPT_HTTPHEADER, [
+            "X-Redmine-API-Key: $API_KEY",
+            "Accept: application/json"
+        ]);
+        $resp2 = curl_exec($ch2);
+        curl_close($ch2);
+
+        $detalhe = json_decode($resp2, true);
+
+        foreach ($detalhe['issue']['journals'] ?? [] as $journal) {
+            if ($journal['user']['id'] == $id) {
+                $atividades[] = [
+                    'issue_id' => $issue_id,
+                    'subject' => $detalhe['issue']['subject'],
+                    'updated_on' => $journal['created_on'],
+                    'url' => "$BASE_URL/issues/$issue_id"
+                ];
+            }
+        }
+    }
+
+    // Ordenar por data (descendente)
+    usort($atividades, function ($a, $b) {
+        return strtotime($b['updated_on']) - strtotime($a['updated_on']);
+    });
+
+    return array_slice($atividades, 0, 5);
+}
+function getAtividadesUtilizador2($id) {
     global $API_KEY, $BASE_URL;
     $url = "$BASE_URL/issues.json?author_id=$id&limit=5&sort=updated_on:desc";
     $ch = curl_init($url);

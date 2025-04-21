@@ -3,10 +3,23 @@
 session_start();
 include_once __DIR__ . '/../config.php';
 
-// Criar ou ligar à base de dados SQLite
-$db = new PDO('sqlite:' . __DIR__ . '/../equipa.sqlite');
-$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-$db->exec("CREATE TABLE IF NOT EXISTS equipa (id INTEGER PRIMARY KEY AUTOINCREMENT, redmine_id INTEGER UNIQUE)");
+// Verificar e criar base de dados SQLite e tabela, se necessário
+$db_path = __DIR__ . '/../equipa.sqlite';
+$nova_base_dados = !file_exists($db_path);
+
+try {
+    $db = new PDO('sqlite:' . $db_path);
+    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+    if ($nova_base_dados) {
+        $db->exec("CREATE TABLE IF NOT EXISTS equipa (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            redmine_id INTEGER UNIQUE
+        )");
+    }
+} catch (Exception $e) {
+    die("Erro ao inicializar a base de dados: " . $e->getMessage());
+}
 
 // Obter lista de utilizadores do Redmine via API (simples)
 function getUtilizadoresRedmine() {

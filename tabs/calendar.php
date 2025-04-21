@@ -50,6 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'demo' => 'blue',
             'campo' => 'orange',
             'aulas' => 'yellow',
+            'tribe' => 'purple',
             default => 'red'
         };
         $stmt->execute([
@@ -138,6 +139,7 @@ foreach ($eventos as $e) {
                     <option value="demo">Demonstração</option>
                     <option value="campo">Saída de campo</option>
                     <option value="aulas">Aulas</option>
+                    <option value="tribe">TRIBE MEETING</option>
                     <option value="outro">Outro</option>
                 </select>
                 <input type="text" name="descricao" placeholder="Descrição" class="form-control form-control-sm mb-1" required>

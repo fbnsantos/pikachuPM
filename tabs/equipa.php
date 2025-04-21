@@ -43,16 +43,38 @@ function getAtividadesUtilizador($id) {
     return $data['activities'] ?? [];
 }
 
+function getNomeUtilizador($id, $lista) {
+    foreach ($lista as $u) {
+        if ($u['id'] == $id) return $u['firstname'] . ' ' . $u['lastname'];
+    }
+    return "ID $id";
+}
+
+function calcularDataProximaReuniao($inicio, $diasAdicionais) {
+    $data = clone $inicio;
+    $conta = 0;
+    while ($conta < $diasAdicionais) {
+        $data->modify('+1 day');
+        if (!in_array($data->format('N'), ['6', '7'])) { // 6 = sábado, 7 = domingo
+            $conta++;
+        }
+    }
+    return $data;
+}
+
 $utilizadores = getUtilizadoresRedmine();
 $equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
 
 if (!isset($_SESSION['gestor'])) {
     $_SESSION['gestor'] = null;
     $_SESSION['em_reuniao'] = false;
+    $_SESSION['oradores'] = [];
     $_SESSION['orador_atual'] = 0;
+    $_SESSION['inicio_reuniao'] = null;
 }
 $gestor = $_SESSION['gestor'];
 $em_reuniao = $_SESSION['em_reuniao'];
+$oradores = $_SESSION['oradores'];
 $orador_atual = $_SESSION['orador_atual'];
 
 // Ações do formulário
@@ -72,8 +94,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if (isset($_POST['iniciar'])) {
         $_SESSION['gestor'] = $equipa[array_rand($equipa)];
+        $_SESSION['oradores'] = $equipa;
+        shuffle($_SESSION['oradores']);
         $_SESSION['em_reuniao'] = true;
         $_SESSION['orador_atual'] = 0;
+        $_SESSION['inicio_reuniao'] = time();
     }
     if (isset($_POST['proximo'])) {
         $_SESSION['orador_atual']++;
@@ -90,12 +115,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-function getNomeUtilizador($id, $lista) {
-    foreach ($lista as $u) {
-        if ($u['id'] == $id) return $u['firstname'] . ' ' . $u['lastname'];
-    }
-    return "ID $id";
-}
 ?>
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -109,12 +128,16 @@ function getNomeUtilizador($id, $lista) {
 <?php endif; ?>
 
 <?php if ($em_reuniao): ?>
-  <?php $fim = $orador_atual >= count($equipa); ?>
+  <div class="mb-3">
+    <strong>👤 Gestor da reunião:</strong> <?= getNomeUtilizador($gestor, $utilizadores) ?><br>
+    <strong>⏱️ Tempo total:</strong> <?= gmdate('H:i:s', time() - $_SESSION['inicio_reuniao']) ?>
+  </div>
+  <?php $fim = $orador_atual >= count($oradores); ?>
   <?php if ($fim): ?>
     <div class="alert alert-success">✅ Reunião concluída!</div>
     <?php session_destroy(); ?>
   <?php else: ?>
-    <?php $oradorId = $equipa[$orador_atual]; ?>
+    <?php $oradorId = $oradores[$orador_atual]; ?>
     <h3 class="text-primary">🎤 Orador atual: <?= getNomeUtilizador($oradorId, $utilizadores) ?></h3>
     <div id="cronometro" class="display-4 my-3">30</div>
     <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
@@ -144,18 +167,27 @@ function getNomeUtilizador($id, $lista) {
 <?php endif; ?>
 
 <hr class="my-5">
-<h4>Próximos possíveis gestores de reunião:</h4>
+<h4>Próximos possíveis gestores de reunião (10 aleatórios):</h4>
 <ul class="list-group mb-4">
-  <?php foreach ($equipa as $id): ?>
-    <?php if ($id !== $gestor): ?>
-      <li class="list-group-item d-flex justify-content-between align-items-center">
-        <?= getNomeUtilizador($id, $utilizadores) ?>
-        <form method="post" class="d-inline">
-          <input type="hidden" name="recusar" value="<?= $id ?>">
-          <button type="submit" class="btn btn-sm btn-outline-danger">Recusar</button>
-        </form>
-      </li>
-    <?php endif; ?>
+  <?php
+    $candidatos = $equipa;
+    shuffle($candidatos);
+    $proximos = array_slice($candidatos, 0, 10);
+    $hoje = new DateTime();
+    $diasAdicionais = 0;
+    foreach ($proximos as $id):
+      $dataPrevista = calcularDataProximaReuniao($hoje, $diasAdicionais);
+      $diasAdicionais++;
+  ?>
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span>
+        <?= getNomeUtilizador($id, $utilizadores) ?> - <small><?= $dataPrevista->format('d/m/Y') ?></small>
+      </span>
+      <form method="post" class="d-inline">
+        <input type="hidden" name="recusar" value="<?= $id ?>">
+        <button type="submit" class="btn btn-sm btn-outline-danger">Recusar</button>
+      </form>
+    </li>
   <?php endforeach; ?>
 </ul>
 

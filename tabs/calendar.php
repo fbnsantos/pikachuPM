@@ -1,6 +1,10 @@
 <?php
 // calendar.php
 session_start();
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 $db_path = __DIR__ . '/../eventos.sqlite';
 $nova_base = !file_exists($db_path);
 
@@ -23,9 +27,8 @@ try {
 }
 
 $hoje = new DateTime();
-if (isset($_GET['offset'])) {
-    $hoje->modify((int)$_GET['offset'] . ' days');
-}
+$offset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
+$hoje->modify("$offset days");
 $inicioSemana = clone $hoje;
 $inicioSemana->modify('monday this week');
 $datas = [];
@@ -34,6 +37,9 @@ for ($i = 0; $i < 28; $i++) {
     $data->modify("+$i days");
     $datas[] = $data;
 }
+
+// Debug
+// echo '<pre>'; print_r($datas); echo '</pre>';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['data'], $_POST['tipo'], $_POST['descricao'])) {
@@ -55,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $db->prepare("DELETE FROM eventos WHERE id = :id");
         $stmt->execute([':id' => $_POST['delete']]);
     }
-    header("Location: calendar.php?offset=" . ($_GET['offset'] ?? 0));
+    header("Location: calendar.php?offset=$offset");
     exit;
 }
 
@@ -78,4 +84,39 @@ foreach ($eventos as $e) {
 
 <div class="container mt-4">
     <h2 class="mb-4">Calendário Colaborativo (4 semanas)</h2>
-    <div class="d-flex
+    <div class="d-flex justify-content-between mb-3">
+        <a class="btn btn-secondary" href="?offset=<?= $offset - 7 ?>">&laquo; Semana anterior</a>
+        <a class="btn btn-secondary" href="?offset=<?= $offset + 7 ?>">Semana seguinte &raquo;</a>
+    </div>
+
+    <div class="calendario">
+        <?php foreach ($datas as $data): 
+            $data_str = $data->format('Y-m-d');
+        ?>
+        <div class="dia">
+            <div class="data"><?= $data->format('D d/m') ?></div>
+            <?php if (isset($eventos_por_dia[$data_str])): ?>
+                <?php foreach ($eventos_por_dia[$data_str] as $ev): ?>
+                    <form method="post" class="d-flex justify-content-between align-items-center">
+                        <span class="evento" style="background: <?= $ev['cor'] ?>;">
+                            <?= htmlspecialchars($ev['tipo']) ?>: <?= htmlspecialchars($ev['descricao']) ?>
+                        </span>
+                        <button type="submit" name="delete" value="<?= $ev['id'] ?>" class="btn btn-sm btn-outline-danger ms-1">x</button>
+                    </form>
+                <?php endforeach; ?>
+            <?php endif; ?>
+            <form method="post" class="mt-2">
+                <input type="hidden" name="data" value="<?= $data_str ?>">
+                <select name="tipo" class="form-select form-select-sm mb-1">
+                    <option value="ferias">Férias</option>
+                    <option value="demo">Demonstração</option>
+                    <option value="campo">Saída de campo</option>
+                    <option value="outro">Outro</option>
+                </select>
+                <input type="text" name="descricao" placeholder="Descrição" class="form-control form-control-sm mb-1" required>
+                <button type="submit" class="btn btn-sm btn-primary">Adicionar</button>
+            </form>
+        </div>
+        <?php endforeach; ?>
+    </div>
+</div>

@@ -32,7 +32,8 @@ $hoje->modify("$offset days");
 $inicioSemana = clone $hoje;
 $inicioSemana->modify('monday this week');
 $datas = [];
-for ($i = 0; $i < 28; $i++) {
+$numSemanas = isset($_GET['semanas']) ? max(1, min(10, (int)$_GET['semanas'])) : 4;
+for ($i = 0; $i < $numSemanas * 7; $i++) {
     $data = clone $inicioSemana;
     $data->modify("+$i days");
     $datas[] = $data;
@@ -76,13 +77,16 @@ foreach ($eventos as $e) {
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
-    .calendario { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
-    .dia { border: 1px solid #ccc; min-height: 150px; padding: 5px; position: relative; background: #f9f9f9; }
+    .calendario { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr 0.6fr 0.6fr; gap: 5px; }
+    .dia { border: 1px solid #ccc; min-height: 150px; padding: 5px; position: relative; background: #f9f9f9;
+    box-sizing: border-box; }
     .data { font-weight: bold; }
     .evento { font-size: 0.85em; padding: 2px 4px; margin-top: 2px; border-radius: 4px; color: white; display: block; }
     .fade { opacity: 0; transition: opacity 0.3s ease-in-out; }
     .fade.show { opacity: 1; }
     .hoje { background: #fff4cc !important; border: 2px solid #f5b041; }
+    .fimsemana { background: #f0f0f0; opacity: 0.6; font-size: 0.85em; }
+    
 </style>
 
 <div class="container mt-4">
@@ -93,12 +97,27 @@ foreach ($eventos as $e) {
     <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset + 7 ?>">Semana seguinte &raquo;</a>
 </div>
 
-    <div class="calendario">
+    <form method="get" class="mb-3">
+    <input type="hidden" name="tab" value="calendar">
+    <input type="hidden" name="offset" value="<?= $offset ?>">
+    <label for="semanas" class="form-label">Número de semanas a mostrar:</label>
+    <select name="semanas" id="semanas" class="form-select form-select-sm w-auto d-inline-block" onchange="this.form.submit()">
+        <?php for ($i = 1; $i <= 10; $i++): ?>
+            <option value="<?= $i ?>" <?= $i == $numSemanas ? 'selected' : '' ?>><?= $i ?></option>
+        <?php endfor; ?>
+    </select>
+</form>
+<div class="calendario">
         <?php foreach ($datas as $data): 
             $data_str = $data->format('Y-m-d');
         ?>
         <?php $isHoje = $data->format('Y-m-d') === (new DateTime())->format('Y-m-d'); ?>
-<div class="dia<?= $isHoje ? ' hoje' : '' ?>">
+<?php
+    $diaSemana = $data->format('N');
+    $isHoje = $data->format('Y-m-d') === (new DateTime())->format('Y-m-d');
+    $classeExtra = ($diaSemana == 6 || $diaSemana == 7) ? ' fimsemana' : '';
+?>
+<div class="dia<?= $isHoje ? ' hoje' : '' ?><?= $classeExtra ?>">
             <div class="data"><?= $data->format('D d/m/Y') ?></div>
             <?php if (isset($eventos_por_dia[$data_str])): ?>
                 <?php foreach ($eventos_por_dia[$data_str] as $ev): ?>

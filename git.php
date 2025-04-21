@@ -14,7 +14,7 @@ echo "<pre>$output</pre>";
 
 
 // Executar o comando 'git pull'
-$output = shell_exec('sudo -u criisadmin git pull 2>&1');
+$output = shell_exec('git pull 2>&1');
 
 // Exibir a saída do comando
 echo "<pre>$output</pre>";

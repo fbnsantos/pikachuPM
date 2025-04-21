@@ -69,6 +69,7 @@ function getAtividadesUtilizador($id) {
     }
 
     $data = json_decode($resp, true);
+    echo $data;
     return $data['issues'] ?? [];
 }
 

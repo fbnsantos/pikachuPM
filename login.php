@@ -22,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $data = json_decode($response, true);
         $_SESSION['username'] = $data['user']['login'];
         $_SESSION['user_id'] = $data['user']['id'];
-        header('Location: dashboard.php');
+        header('Location: index.php');
         exit;
     } else {
         $erro = "Login inválido.";

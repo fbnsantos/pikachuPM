@@ -1,105 +1,156 @@
 <?php
 // tabs/equipa.php
 session_start();
+include_once __DIR__ . '/../config.php';
 
-$equipa = $_SESSION['equipa'] ?? [];
-$gestor = $_SESSION['gestor'] ?? null;
-$em_reuniao = $_SESSION['em_reuniao'] ?? false;
-$em_orador = $_SESSION['orador_atual'] ?? 0;
+// Criar ou ligar à base de dados SQLite
+$db = new PDO('sqlite:' . __DIR__ . '/../equipa.sqlite');
+$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+$db->exec("CREATE TABLE IF NOT EXISTS equipa (id INTEGER PRIMARY KEY AUTOINCREMENT, redmine_id INTEGER UNIQUE)");
 
-// Simulação de utilizadores do Redmine (poderia vir da API)
-$utilizadores = [
-    ['id' => 1, 'nome' => 'Ana'],
-    ['id' => 2, 'nome' => 'Bruno'],
-    ['id' => 3, 'nome' => 'Carla'],
-    ['id' => 4, 'nome' => 'Daniel'],
-    ['id' => 5, 'nome' => 'Eduarda'],
-];
+// Obter lista de utilizadores do Redmine via API (simples)
+function getUtilizadoresRedmine() {
+    global $API_KEY, $BASE_URL;
+    $ch = curl_init("$BASE_URL/users.json?limit=100");
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ["X-Redmine-API-Key: $API_KEY"]);
+    $resp = curl_exec($ch);
+    curl_close($ch);
+    $data = json_decode($resp, true);
+    return $data['users'] ?? [];
+}
 
+function getAtividadesUtilizador($id) {
+    global $API_KEY, $BASE_URL;
+    $ch = curl_init("$BASE_URL/activity.json?user_id=$id&limit=5");
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ["X-Redmine-API-Key: $API_KEY"]);
+    $resp = curl_exec($ch);
+    curl_close($ch);
+    $data = json_decode($resp, true);
+    return $data['activities'] ?? [];
+}
+
+$utilizadores = getUtilizadoresRedmine();
+$equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
+
+if (!isset($_SESSION['gestor'])) {
+    $_SESSION['gestor'] = null;
+    $_SESSION['em_reuniao'] = false;
+    $_SESSION['orador_atual'] = 0;
+}
+$gestor = $_SESSION['gestor'];
+$em_reuniao = $_SESSION['em_reuniao'];
+$orador_atual = $_SESSION['orador_atual'];
+
+// Ações do formulário
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['criar_equipa'])) {
-        $_SESSION['equipa'] = $_POST['membros'] ?? [];
-        $_SESSION['gestor'] = $_SESSION['equipa'][array_rand($_SESSION['equipa'])];
-        $_SESSION['em_reuniao'] = false;
-        $_SESSION['orador_atual'] = 0;
-        header("Location: ?tab=equipa");
-        exit;
+    if (isset($_POST['adicionar'])) {
+        $id = (int)$_POST['adicionar'];
+        $stmt = $db->prepare("INSERT OR IGNORE INTO equipa (redmine_id) VALUES (:id)");
+        $stmt->execute([':id' => $id]);
+    }
+    if (isset($_POST['remover'])) {
+        $id = (int)$_POST['remover'];
+        $stmt = $db->prepare("DELETE FROM equipa WHERE redmine_id = :id");
+        $stmt->execute([':id' => $id]);
+        if ($id === $_SESSION['gestor']) {
+            $_SESSION['gestor'] = null;
+        }
     }
     if (isset($_POST['iniciar'])) {
+        $_SESSION['gestor'] = $equipa[array_rand($equipa)];
         $_SESSION['em_reuniao'] = true;
         $_SESSION['orador_atual'] = 0;
-        header("Location: ?tab=equipa");
-        exit;
     }
     if (isset($_POST['proximo'])) {
         $_SESSION['orador_atual']++;
-        header("Location: ?tab=equipa");
-        exit;
     }
+    header("Location: ?tab=equipa");
+    exit;
 }
 
-function getNomeById($id, $lista) {
+function getNomeUtilizador($id, $lista) {
     foreach ($lista as $u) {
-        if ($u['id'] == $id) return $u['nome'];
+        if ($u['id'] == $id) return $u['firstname'] . ' ' . $u['lastname'];
     }
-    return 'Desconhecido';
+    return "ID $id";
 }
 ?>
 
-<h2>Equipa e Reunião Diária</h2>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<h2 class="mt-3">Gestão da Equipa</h2>
+<form method="post" class="row g-3 mb-4">
+  <div class="col-auto">
+    <label for="adicionar" class="form-label">Adicionar elemento à equipa:</label>
+    <select name="adicionar" id="adicionar" class="form-select">
+      <?php foreach ($utilizadores as $u): ?>
+        <?php if (!in_array($u['id'], $equipa)): ?>
+          <option value="<?= $u['id'] ?>"> <?= htmlspecialchars($u['firstname'] . ' ' . $u['lastname']) ?> </option>
+        <?php endif; ?>
+      <?php endforeach; ?>
+    </select>
+  </div>
+  <div class="col-auto align-self-end">
+    <button type="submit" class="btn btn-primary">Adicionar</button>
+  </div>
+</form>
 
-<?php if (!$equipa): ?>
+<h4>Membros da Equipa:</h4>
+<ul class="list-group mb-4">
+  <?php foreach ($equipa as $id): ?>
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <?= getNomeUtilizador($id, $utilizadores) ?>
+      <form method="post">
+        <input type="hidden" name="remover" value="<?= $id ?>">
+        <button type="submit" class="btn btn-sm btn-danger">Remover</button>
+      </form>
+    </li>
+  <?php endforeach; ?>
+</ul>
+
+<?php if (!$em_reuniao && count($equipa) >= 2): ?>
   <form method="post">
-    <p>Seleciona os membros da equipa:</p>
-    <?php foreach ($utilizadores as $u): ?>
-      <label>
-        <input type="checkbox" name="membros[]" value="<?= $u['id'] ?>">
-        <?= htmlspecialchars($u['nome']) ?>
-      </label><br>
-    <?php endforeach; ?>
-    <br>
-    <button type="submit" name="criar_equipa">Criar Equipa</button>
+    <button type="submit" name="iniciar" class="btn btn-success">Iniciar Reunião</button>
   </form>
-<?php else: ?>
-  <p><strong>Equipa criada:</strong> 
-    <?= implode(', ', array_map(fn($id) => getNomeById($id, $utilizadores), $equipa)) ?>
-  </p>
-  <p><strong>Gestor da Reunião:</strong> <?= getNomeById($gestor, $utilizadores) ?></p>
+<?php endif; ?>
 
-  <?php if (!$em_reuniao): ?>
-    <form method="post">
-      <button type="submit" name="iniciar">Iniciar Reunião</button>
-    </form>
+<?php if ($em_reuniao): ?>
+  <?php $fim = $orador_atual >= count($equipa); ?>
+  <?php if ($fim): ?>
+    <div class="alert alert-success">✅ Reunião concluída!</div>
+    <?php session_destroy(); ?>
   <?php else: ?>
-    <?php
-      $oradorAtualId = $equipa[$em_orador] ?? null;
-      $fim = $em_orador >= count($equipa);
-    ?>
+    <?php $oradorId = $equipa[$orador_atual]; ?>
+    <h3 class="text-primary">🎤 Orador atual: <?= getNomeUtilizador($oradorId, $utilizadores) ?></h3>
+    <div id="cronometro" class="display-4 my-3">30</div>
+    <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+    <script>
+      let tempo = 30;
+      const el = document.getElementById("cronometro");
+      const beep = document.getElementById("beep");
+      const intervalo = setInterval(() => {
+        tempo--;
+        el.textContent = tempo;
+        if (tempo === 5) beep.play();
+        if (tempo <= 0) clearInterval(intervalo);
+      }, 1000);
+    </script>
 
-    <?php if ($fim): ?>
-      <p><strong>✅ Reunião concluída!</strong></p>
-      <?php session_destroy(); ?>
+    <h5>Últimas atividades:</h5>
+    <ul class="list-group">
+      <?php foreach (getAtividadesUtilizador($oradorId) as $act): ?>
+        <li class="list-group-item"><?= htmlspecialchars($act['title']) ?></li>
+      <?php endforeach; ?>
+    </ul>
+
+    <?php if ($_SESSION['user_id'] == $_SESSION['gestor']): ?>
+      <form method="post" class="mt-3">
+        <button type="submit" name="proximo" class="btn btn-warning">➡️ Próximo</button>
+      </form>
     <?php else: ?>
-      <div id="cronometro" style="font-size: 2em; margin: 20px 0;">30</div>
-      <p><strong>Orador atual:</strong> <?= getNomeById($oradorAtualId, $utilizadores) ?></p>
-
-      <?php if ($_SESSION['user_id'] == $gestor): ?>
-        <form method="post">
-          <button type="submit" name="proximo">➡️ Próximo</button>
-        </form>
-      <?php else: ?>
-        <p>A aguardar passagem do gestor...</p>
-      <?php endif; ?>
-
-      <script>
-        let tempo = 30;
-        const cron = document.getElementById('cronometro');
-        const intervalo = setInterval(() => {
-          tempo--;
-          cron.textContent = tempo;
-          if (tempo <= 0) clearInterval(intervalo);
-        }, 1000);
-      </script>
+      <p class="text-muted mt-3">A aguardar ação do gestor (<?= getNomeUtilizador($_SESSION['gestor'], $utilizadores) ?>)...</p>
     <?php endif; ?>
   <?php endif; ?>
 <?php endif; ?>

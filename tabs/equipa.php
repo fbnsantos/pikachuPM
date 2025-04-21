@@ -3,10 +3,6 @@
 session_start();
 include_once __DIR__ . '/../config.php';
 
-echo '<pre>';
-var_dump($_SESSION);
-echo '</pre>';
-
 // Verificar e criar base de dados SQLite e tabela, se necessário
 $db_path = __DIR__ . '/../equipa.sqlite';
 $nova_base_dados = !file_exists($db_path);
@@ -59,7 +55,7 @@ function calcularDataProximaReuniao($inicio, $diasAdicionais) {
     $conta = 0;
     while ($conta < $diasAdicionais) {
         $data->modify('+1 day');
-        if (!in_array($data->format('N'), ['6', '7'])) { // 6 = sábado, 7 = domingo
+        if (!in_array($data->format('N'), ['6', '7'])) {
             $conta++;
         }
     }
@@ -81,8 +77,7 @@ $em_reuniao = $_SESSION['em_reuniao'];
 $oradores = $_SESSION['oradores'];
 $orador_atual = $_SESSION['orador_atual'];
 
-// Ações do formulário
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['adicionar'])) {
         $id = (int)$_POST['adicionar'];
         $stmt = $db->prepare("INSERT OR IGNORE INTO equipa (redmine_id) VALUES (:id)");
@@ -125,6 +120,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <h2 class="mt-3">Reunião Diária</h2>
 
+<?php if (empty($equipa)): ?>
+  <div class="alert alert-info">⚙️ A equipa ainda não foi configurada. Por favor adicione membros abaixo para iniciar.</div>
+<?php endif; ?>
+
 <?php if (!$em_reuniao && count($equipa) >= 2): ?>
   <form method="post" class="mb-4">
     <button type="submit" name="iniciar" class="btn btn-success">Iniciar Reunião</button>
@@ -141,32 +140,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="alert alert-success">✅ Reunião concluída!</div>
     <?php session_destroy(); ?>
   <?php else: ?>
-    <?php $oradorId = $oradores[$orador_atual]; ?>
-    <h3 class="text-primary">🎤 Orador atual: <?= getNomeUtilizador($oradorId, $utilizadores) ?></h3>
-    <div id="cronometro" class="display-4 my-3">30</div>
-    <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
-    <script>
-      let tempo = 30;
-      const el = document.getElementById("cronometro");
-      const beep = document.getElementById("beep");
-      const intervalo = setInterval(() => {
-        tempo--;
-        el.textContent = tempo;
-        if (tempo === 5) beep.play();
-        if (tempo <= 0) clearInterval(intervalo);
-      }, 1000);
-    </script>
+    <?php $oradorId = $oradores[$orador_atual] ?? null; ?>
+    <?php if ($oradorId): ?>
+      <h3 class="text-primary">🎤 Orador atual: <?= getNomeUtilizador($oradorId, $utilizadores) ?></h3>
+      <div id="cronometro" class="display-4 my-3">30</div>
+      <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+      <script>
+        let tempo = 30;
+        const el = document.getElementById("cronometro");
+        const beep = document.getElementById("beep");
+        const intervalo = setInterval(() => {
+          tempo--;
+          el.textContent = tempo;
+          if (tempo === 5) beep.play();
+          if (tempo <= 0) clearInterval(intervalo);
+        }, 1000);
+      </script>
 
-    <h5>Últimas atividades:</h5>
-    <ul class="list-group">
-      <?php foreach (getAtividadesUtilizador($oradorId) as $act): ?>
-        <li class="list-group-item"><?= htmlspecialchars($act['title']) ?></li>
-      <?php endforeach; ?>
-    </ul>
+      <h5>Últimas atividades:</h5>
+      <ul class="list-group">
+        <?php foreach (getAtividadesUtilizador($oradorId) as $act): ?>
+          <li class="list-group-item"><?= htmlspecialchars($act['title']) ?></li>
+        <?php endforeach; ?>
+      </ul>
 
-    <form method="post" class="mt-3">
-      <button type="submit" name="proximo" class="btn btn-warning">➡️ Próximo</button>
-    </form>
+      <form method="post" class="mt-3">
+        <button type="submit" name="proximo" class="btn btn-warning">➡️ Próximo</button>
+      </form>
+    <?php endif; ?>
   <?php endif; ?>
 <?php endif; ?>
 

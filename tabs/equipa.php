@@ -189,12 +189,18 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         }, 1000);
       </script>
 
-      <h5>Últimas atividades:</h5>
-      <ul class="list-group">
+        <h5>Últimas atividades:</h5>
+        <ul class="list-group">
         <?php foreach (getAtividadesUtilizador($oradorId) as $act): ?>
-          <li class="list-group-item"><?= htmlspecialchars($act['title']) ?></li>
+            <li class="list-group-item">
+            <a href="<?= $BASE_URL ?>/issues/<?= $act['id'] ?>" target="_blank">
+                [#<?= $act['id'] ?>] <?= htmlspecialchars($act['subject']) ?>
+            </a>
+            <br>
+            <small class="text-muted">Atualizado em <?= date('d/m/Y H:i', strtotime($act['updated_on'])) ?></small>
+            </li>
         <?php endforeach; ?>
-      </ul>
+        </ul>
 
       <form method="post" class="mt-3">
         <button type="submit" name="proximo" class="btn btn-warning">➡️ Próximo</button>

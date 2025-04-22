@@ -4,7 +4,7 @@ session_start();
 include_once __DIR__ . '/../config.php';
 
 // Verificar e criar base de dados SQLite e tabelas, se necessário
-$db_path = __DIR__ . '/../equipa2.sqlite';
+$db_path = __DIR__ . '/../equipa.sqlite';
 $nova_base_dados = !file_exists($db_path);
 
 try {
@@ -142,6 +142,11 @@ function gerarListaProximosGestores($db, $equipa) {
         return; // Não faz nada se a equipe estiver vazia
     }
 
+    // Limpar registros antigos não concluídos
+    $stmt = $db->prepare("DELETE FROM proximos_gestores 
+                          WHERE data_prevista < date('now') AND concluido = 0");
+    $stmt->execute();
+
     // Verificar se já existe uma entrada para o dia atual
     $hoje = date('Y-m-d');
     $stmt = $db->prepare("SELECT COUNT(*) FROM proximos_gestores WHERE data_prevista = :hoje");
@@ -156,16 +161,17 @@ function gerarListaProximosGestores($db, $equipa) {
     }
     
     // Verificar quantos dias futuros estão planejados
-    $stmt = $db->query("SELECT COUNT(*) FROM proximos_gestores WHERE data_prevista > date('now') AND concluido = 0");
+    $stmt = $db->query("SELECT COUNT(*) FROM proximos_gestores WHERE data_prevista >= date('now') AND concluido = 0");
     $count = $stmt->fetchColumn();
     
     // Se tiver menos de 20 dias planejados para o futuro, gera novos
     if ($count < 20) {
         // Obter o último dia agendado
-        $stmt = $db->query("SELECT MAX(data_prevista) FROM proximos_gestores");
+        $stmt = $db->query("SELECT MAX(data_prevista) FROM proximos_gestores WHERE data_prevista >= date('now')");
         $ultima_data = $stmt->fetchColumn();
         
-        $inicio = new DateTime($ultima_data ?: 'now');
+        // Se não houver data futura, usar hoje como ponto de partida
+        $inicio = new DateTime($ultima_data ?: $hoje);
         
         // Criar uma cópia embaralhada da equipe para distribuir aleatoriamente
         $equipe_copia = $equipa;
@@ -861,105 +867,113 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
     </div>
 </div>
 
-<!-- JavaScript para o cronômetro -->
+<!-- 
+    Cronômetro diretamente incorporado na página - evitando problemas com JavaScript externo 
+    Inspirado em https://codepen.io/dcode-software/pen/XWNWoYm
+-->
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Cronômetro só é inicializado se a reunião estiver em andamento
-    <?php if ($em_reuniao && !$reuniao_concluida && isset($oradorId)): ?>
-        let tempo = 30;
-        let isPaused = <?= $esta_pausado ? 'true' : 'false' ?>;
-        const el = document.getElementById("cronometro");
-        const beep = document.getElementById("beep");
-        const progressBar = document.getElementById("progress-bar");
-        const tempoTotal = document.getElementById("tempo-total");
-        const btnPausar = document.getElementById("btn-pausar");
+    // Esta função será executada uma vez que o documento estiver carregado
+    const cronometroSimples = () => {
+        // Elemento onde mostraremos o tempo
+        const displayElement = document.getElementById('cronometro');
+        const progressBar = document.getElementById('progress-bar');
+        const beepSound = document.getElementById('beep');
         
-        // Verificar se os elementos existem antes de prosseguir
-        if (el && progressBar) {
-            console.log("Iniciando cronômetro...");
+        // Não iniciar se não encontrarmos os elementos
+        if (!displayElement || !progressBar) return;
+        
+        // Tempo total em segundos
+        let timeLeft = 30;
+        const totalTime = 30;
+        
+        // Função que atualiza a exibição do temporizador
+        function atualizarDisplay() {
+            displayElement.textContent = timeLeft;
             
-            // Atualizar cronômetro e tempo total
-            const intervalo = setInterval(() => {
+            // Atualizar barra de progresso
+            const percentual = (timeLeft / totalTime) * 100;
+            progressBar.style.width = percentual + "%";
+            
+            // Mudar cor conforme o tempo restante
+            if (timeLeft <= 5) {
+                progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-danger";
+                if (timeLeft === 5 && beepSound) {
+                    beepSound.play().catch(err => console.log('Erro ao tocar som:', err));
+                }
+            } else if (timeLeft <= 15) {
+                progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-warning";
+            }
+        }
+        
+        // Estado de controle
+        let isPaused = <?= $esta_pausado ? 'true' : 'false' ?>;
+        let timerId = null;
+        
+        // Iniciar o timer
+        function iniciarTimer() {
+            if (timerId) return; // Evitar múltiplos temporizadores
+            
+            timerId = setInterval(() => {
                 if (!isPaused) {
-                    tempo--;
-                    el.textContent = tempo;
+                    timeLeft -= 1;
+                    atualizarDisplay();
                     
-                    // Atualizar barra de progresso
-                    const percentual = (tempo / 30) * 100;
-                    progressBar.style.width = percentual + "%";
-                    
-                    // Mudar cor da barra conforme tempo
-                    if (tempo <= 5) {
-                        progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-danger";
-                    } else if (tempo <= 15) {
-                        progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-warning";
-                    }
-                    
-                    // Tocar som aos 5 segundos
-                    if (tempo === 5 && beep) {
-                        beep.play().catch(error => console.log("Erro ao tocar som:", error));
-                    }
-                    
-                    // Parar quando chegar a zero
-                    if (tempo <= 0) {
-                        clearInterval(intervalo);
-                        el.textContent = "Tempo Esgotado!";
-                        progressBar.style.width = "100%";
+                    if (timeLeft <= 0) {
+                        clearInterval(timerId);
+                        displayElement.textContent = "Tempo Esgotado!";
+                        progressBar.style.width = "0%";
                         progressBar.className = "progress-bar bg-danger";
                     }
                 }
             }, 1000);
-            
-            // Atualizar tempo total a cada segundo
-            if (tempoTotal) {
-                const atualizarTempoTotal = setInterval(() => {
-                    if (!isPaused) {
-                        fetch('?tab=equipa&action=get_tempo_total')
-                            .then(response => response.text())
-                            .then(data => {
-                                if (data) tempoTotal.textContent = data;
-                            })
-                            .catch(error => console.log("Erro ao atualizar tempo total:", error));
-                    }
-                }, 1000);
-            }
-            
-            // Capturar cliques no botão de pausa
-            if (btnPausar) {
-                btnPausar.addEventListener('click', function() {
-                    // Enviar solicitação AJAX para pausar/continuar
-                    fetch('?tab=equipa', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        },
-                        body: 'pausar=1'
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            isPaused = data.pausado;
-                            
-                            // Atualizar a aparência do botão
-                            if (isPaused) {
-                                btnPausar.classList.remove('btn-warning');
-                                btnPausar.classList.add('btn-success');
-                                btnPausar.innerHTML = '<i class="bi bi-play-fill"></i> Continuar';
-                            } else {
-                                btnPausar.classList.remove('btn-success');
-                                btnPausar.classList.add('btn-warning');
-                                btnPausar.innerHTML = '<i class="bi bi-pause-fill"></i> Pausar';
-                            }
-                        }
-                    })
-                    .catch(error => console.error('Erro:', error));
-                });
-            }
-        } else {
-            console.error("Elementos do cronômetro não encontrados!");
         }
-    <?php endif; ?>
-});
+        
+        // Lidar com botão de pausa
+        const pauseButton = document.getElementById('btn-pausar');
+        if (pauseButton) {
+            pauseButton.addEventListener('click', () => {
+                fetch('?tab=equipa', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: 'pausar=1'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        isPaused = data.pausado;
+                        
+                        // Atualizar botão
+                        if (isPaused) {
+                            pauseButton.classList.remove('btn-warning');
+                            pauseButton.classList.add('btn-success');
+                            pauseButton.innerHTML = '<i class="bi bi-play-fill"></i> Continuar';
+                        } else {
+                            pauseButton.classList.remove('btn-success');
+                            pauseButton.classList.add('btn-warning');
+                            pauseButton.innerHTML = '<i class="bi bi-pause-fill"></i> Pausar';
+                        }
+                    }
+                })
+                .catch(error => console.error('Erro:', error));
+            });
+        }
+        
+        // Inicializar
+        atualizarDisplay();
+        iniciarTimer();
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log("Documento carregado, verificando se cronômetro deve ser iniciado...");
+        <?php if ($em_reuniao && !$reuniao_concluida && isset($oradorId)): ?>
+        console.log("Iniciando cronômetro simples...");
+        cronometroSimples();
+        <?php else: ?>
+        console.log("Cronômetro não iniciado - reunião não em andamento ou concluída");
+        <?php endif; ?>
+    });
 </script>
 
 <?php

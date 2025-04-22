@@ -9,9 +9,6 @@ if (!isset($_SESSION['username'])) {
 // Tabs disponíveis
 $tabs = [
     'dashboard' => 'Painel Principal',
-    'projetos' => 'Projetos',
-    'backlog' => 'Backlog',
-    'relatorios' => 'Relatórios',
     'oportunidades' => 'Leads',
     'calendar' => 'Calendário',
     'equipa' => 'Reunião Diária'

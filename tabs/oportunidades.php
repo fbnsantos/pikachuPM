@@ -8,6 +8,9 @@ $pass = $_SESSION['password'] ?? '';
 if (!$user || !$pass) {
     echo "<div class='alert alert-warning'>É necessário login para aceder às oportunidades.</div>";
     return;
+}else{
+echo "<div class='alert alert-warning'>Logado.</div>";
+
 }
 
 function redmine_request($endpoint, $method = 'GET', $data = null) {

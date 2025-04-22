@@ -153,7 +153,9 @@ $links = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <?= htmlspecialchars($link['titulo'] ?: $link['url']) ?>
                     </div>
                     <div class="text-muted small">
-                        🔗 <?= htmlspecialchars($link['url']) ?>
+                        🔗 <a href="<?= htmlspecialchars($link['url']) ?>" target="_blank" title="<?= htmlspecialchars($link['url']) ?>">
+    <?= $isSecure ? '🔒 ' : '' ?>Press here
+</a>
                     </div>
                     <small class="text-muted">
                         Categoria: <span id="categoria-<?= $link['id'] ?>" contenteditable="true">

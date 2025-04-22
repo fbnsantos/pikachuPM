@@ -22,6 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $data = json_decode($response, true);
         $_SESSION['username'] = $data['user']['login'];
         $_SESSION['user_id'] = $data['user']['id'];
+        $_SESSION['user'] = $username;
+        $_SESSION['password'] = $password;
         header('Location: index.php');
         exit;
     } else {

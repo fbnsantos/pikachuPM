@@ -577,8 +577,9 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                         </div>
                                         
                                         <div class="d-flex flex-wrap gap-2 mb-3">
-                                            <button type="button" id="btn-pausar" class="btn <?= $esta_pausado ? 'btn-success' : 'btn-warning' ?> btn-action">
-                                                <?= $esta_pausado ? '<i class="bi bi-play-fill"></i> Continuar' : '<i class="bi bi-pause-fill"></i> Pausar' ?>
+
+                                            <button type="button" id="btn-pausar" class="btn btn-warning btn-action" onclick="console.log('Botão pausar clicado'); alert('Botão pausar clicado');">
+                                                <i class="bi bi-pause-fill"></i> Pausar
                                             </button>
                                             
                                             <form method="post" class="d-inline">

@@ -61,11 +61,10 @@ if (!$res_proj) {
     echo "<div class='alert alert-success'>Projeto LEADS criado.</div>";
 }
 
-// Atualização de TODOs via AJAX
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_update_todo'])) {
+// Atualização via AJAX
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
     $issue_id = $_POST['issue_id'] ?? 0;
-    $todo_index = $_POST['todo_index'] ?? 0;
-    $checked = $_POST['checked'] === 'true';
+    $action = $_POST['ajax_action'];
     
     if ($issue_id) {
         // Buscar issue atual
@@ -73,15 +72,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_update_todo'])) 
         if ($issue) {
             $description = $issue['description'];
             $tags = extrair_tags($description);
+            $descricao_simples = extrair_descricao_simples($description);
+            $nova_descricao = $descricao_simples;
+            $success = false;
             
             // Atualizar o estado do TODO
-            if (isset($tags['todos'][$todo_index])) {
-                $tags['todos'][$todo_index]['checked'] = $checked;
+            if ($action === 'update_todo' && isset($_POST['todo_index']) && isset($_POST['checked'])) {
+                $todo_index = $_POST['todo_index'];
+                $checked = $_POST['checked'] === 'true';
                 
-                // Reconstruir a descrição
-                $descricao_simples = extrair_descricao_simples($description);
-                $nova_descricao = $descricao_simples;
-                
+                if (isset($tags['todos'][$todo_index])) {
+                    $tags['todos'][$todo_index]['checked'] = $checked;
+                    $success = true;
+                }
+            }
+            // Atualizar o progresso manual
+            elseif ($action === 'update_progresso' && isset($_POST['progresso'])) {
+                $progresso = min(100, max(0, (int)$_POST['progresso']));
+                $tags['progresso_manual'] = $progresso;
+                $success = true;
+            }
+            
+            if ($success) {
                 // Adicionar TODOs atualizados
                 if (!empty($tags['todos'])) {
                     $todos_texto = [];
@@ -91,12 +103,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_update_todo'])) 
                     $nova_descricao .= "\n\n### TODOs:\n" . implode("\n", $todos_texto);
                 }
                 
+                // Adicionar links de volta
+                if (!empty($tags['links'])) {
+                    $links_texto = [];
+                    foreach ($tags['links'] as $link) {
+                        $links_texto[] = "- " . $link;
+                    }
+                    $nova_descricao .= "\n\n### Links:\n" . implode("\n", $links_texto);
+                }
+                
                 // Adicionar tags de volta
                 if (!empty($tags['deadline'])) {
                     $nova_descricao .= "\n\n#deadline:" . $tags['deadline'];
                 }
                 if ($tags['relevance'] > 0) {
                     $nova_descricao .= "\n#relevance:" . $tags['relevance'];
+                }
+                
+                // Adicionar progresso manual
+                if ($action === 'update_progresso' || $tags['progresso_manual'] > 0) {
+                    $progresso = $action === 'update_progresso' ? (int)$_POST['progresso'] : $tags['progresso_manual'];
+                    $nova_descricao .= "\n#progresso:" . $progresso;
                 }
                 
                 // Atualizar a issue
@@ -108,9 +135,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_update_todo'])) 
                 
                 redmine_request("issues/$issue_id.json", 'PUT', $data);
                 
-                // Retornar status de sucesso
+                // Retornar status de sucesso e novos dados
                 header('Content-Type: application/json');
-                echo json_encode(['success' => true]);
+                echo json_encode([
+                    'success' => true,
+                    'progresso' => $action === 'update_progresso' ? (int)$_POST['progresso'] : $tags['percent_concluido']
+                ]);
                 exit;
             }
         }
@@ -118,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_update_todo'])) 
     
     // Se chegou aqui, houve erro
     header('Content-Type: application/json');
-    echo json_encode(['success' => false, 'error' => 'Não foi possível atualizar o TODO']);
+    echo json_encode(['success' => false, 'error' => 'Não foi possível realizar a atualização']);
     exit;
 }
 
@@ -270,8 +300,14 @@ function extrair_tags($texto) {
         $dias_restantes = $intervalo->invert ? -$intervalo->days : $intervalo->days;
     }
     
-    // Calcular percentagem de conclusão
-    $percent_concluido = 0;
+    // Extrair progresso manualmente definido
+    $progresso_manual = 0;
+    if (preg_match('/#progresso:(\d+)/', $texto, $progMatch)) {
+        $progresso_manual = min(100, max(0, (int)$progMatch[1]));
+    }
+    
+    // Calcular percentagem de conclusão dos TODOs
+    $percent_todos_concluido = 0;
     $total_todos = count($todos);
     if ($total_todos > 0) {
         $concluidos = 0;
@@ -280,8 +316,11 @@ function extrair_tags($texto) {
                 $concluidos++;
             }
         }
-        $percent_concluido = round(($concluidos / $total_todos) * 100);
+        $percent_todos_concluido = round(($concluidos / $total_todos) * 100);
     }
+    
+    // Se tiver progresso manual, usar ele; caso contrário, usar o cálculo dos TODOs
+    $percent_concluido = $progresso_manual > 0 ? $progresso_manual : $percent_todos_concluido;
     
     return [
         'deadline' => $dl[1] ?? '',
@@ -289,7 +328,8 @@ function extrair_tags($texto) {
         'todos' => $todos,
         'links' => $links,
         'dias_restantes' => $dias_restantes,
-        'percent_concluido' => $percent_concluido
+        'percent_concluido' => $percent_concluido,
+        'progresso_manual' => $progresso_manual
     ];
 }
 
@@ -529,65 +569,119 @@ usort($issues, function($a, $b) use ($ordenar) {
                     <tr class="oportunidade-details" id="details<?= $i['id'] ?>">
                         <td colspan="5" class="p-0">
                             <div class="p-3 bg-light border-top">
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <?php if (!empty($descricao_simples)): ?>
-                                        <div class="mb-3">
-                                            <h6><i class="bi bi-file-text"></i> Descrição:</h6>
-                                            <div class="p-2 bg-white rounded border" style="white-space: pre-wrap;"><?= htmlspecialchars($descricao_simples) ?></div>
+                                <div class="row g-3">
+                                    <!-- Seção TODOs -->
+                                    <div class="col-md-12">
+                                        <div class="card">
+                                            <div class="card-header bg-primary text-white py-2">
+                                                <i class="bi bi-check2-square"></i> TODOs
+                                            </div>
+                                            <div class="card-body">
+                                                <?php if (empty($tags['todos'])): ?>
+                                                <p class="text-muted">Nenhuma tarefa cadastrada para esta oportunidade.</p>
+                                                <?php else: ?>
+                                                <ul class="todo-list">
+                                                    <?php foreach ($tags['todos'] as $index => $todo): ?>
+                                                    <li class="todo-item-clickable mb-2" data-issue-id="<?= $i['id'] ?>" data-todo-index="<?= $index ?>">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input todo-checkbox" type="checkbox" 
+                                                                   <?= $todo['checked'] ? 'checked' : '' ?>>
+                                                            <label class="form-check-label <?= $todo['checked'] ? 'text-decoration-line-through text-muted' : '' ?>">
+                                                                <?= htmlspecialchars($todo['text']) ?>
+                                                            </label>
+                                                        </div>
+                                                    </li>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                                <?php endif; ?>
+                                            </div>
                                         </div>
-                                        <?php endif; ?>
-                                        
-                                        <?php if (!empty($tags['links'])): ?>
-                                        <div class="mb-3">
-                                            <h6><i class="bi bi-link-45deg"></i> Links:</h6>
-                                            <ul class="links-list">
-                                                <?php foreach ($tags['links'] as $link): 
-                                                    // Parsear markdown links [text](url)
-                                                    if (preg_match('/\[(.+?)\]\((.+?)\)/', $link, $matches)) {
-                                                        $link_text = $matches[1];
-                                                        $link_url = $matches[2];
-                                                    } else {
-                                                        $link_text = $link;
-                                                        $link_url = $link;
-                                                    }
-                                                ?>
-                                                <li>
-                                                    <a href="<?= htmlspecialchars($link_url) ?>" target="_blank">
-                                                        <i class="bi bi-box-arrow-up-right"></i> <?= htmlspecialchars($link_text) ?>
-                                                    </a>
-                                                </li>
-                                                <?php endforeach; ?>
-                                            </ul>
-                                        </div>
-                                        <?php endif; ?>
                                     </div>
-                                    <div class="col-md-6">
-                                        <?php if (!empty($tags['todos'])): ?>
-                                        <div class="mb-3">
-                                            <h6><i class="bi bi-check2-square"></i> TODOs:</h6>
-                                            <ul class="todo-list">
-                                                <?php foreach ($tags['todos'] as $index => $todo): ?>
-                                                <li class="todo-item-clickable" data-issue-id="<?= $i['id'] ?>" data-todo-index="<?= $index ?>">
-                                                    <div class="form-check">
-                                                        <input class="form-check-input todo-checkbox" type="checkbox" 
-                                                               <?= $todo['checked'] ? 'checked' : '' ?>>
-                                                        <label class="form-check-label <?= $todo['checked'] ? 'text-decoration-line-through text-muted' : '' ?>">
-                                                            <?= htmlspecialchars($todo['text']) ?>
-                                                        </label>
-                                                    </div>
-                                                </li>
-                                                <?php endforeach; ?>
-                                            </ul>
+                                    
+                                    <!-- Barra de Progresso Manual -->
+                                    <div class="col-md-12">
+                                        <div class="card">
+                                            <div class="card-header bg-success text-white py-2">
+                                                <i class="bi bi-bar-chart-line"></i> Progresso
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="mb-1 d-flex justify-content-between">
+                                                    <span>0%</span>
+                                                    <span>Progresso: <span id="progressValue<?= $i['id'] ?>"><?= $tags['percent_concluido'] ?></span>%</span>
+                                                    <span>100%</span>
+                                                </div>
+                                                <input type="range" class="form-range progresso-slider" 
+                                                       min="0" max="100" step="5" 
+                                                       value="<?= $tags['percent_concluido'] ?>"
+                                                       data-issue-id="<?= $i['id'] ?>">
+                                                <div class="progress mt-2" style="height: 10px;">
+                                                    <div class="progress-bar bg-success" 
+                                                         id="progressBar<?= $i['id'] ?>"
+                                                         role="progressbar" 
+                                                         style="width: <?= $tags['percent_concluido'] ?>%;" 
+                                                         aria-valuenow="<?= $tags['percent_concluido'] ?>" 
+                                                         aria-valuemin="0" 
+                                                         aria-valuemax="100"></div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <?php endif; ?>
-                                        
-                                        <div class="mb-3">
-                                            <p class="small text-muted mb-0">
-                                                <i class="bi bi-hash"></i> <?= $i['id'] ?> | 
-                                                <i class="bi bi-person"></i> <?= htmlspecialchars($i['author']['name']) ?> | 
-                                                <i class="bi bi-calendar"></i> <?= date('d/m/Y', strtotime($i['created_on'])) ?>
-                                            </p>
+                                    </div>
+                                    
+                                    <!-- Seção Links -->
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-header bg-info text-white py-2">
+                                                <i class="bi bi-link-45deg"></i> Links
+                                            </div>
+                                            <div class="card-body">
+                                                <?php if (empty($tags['links'])): ?>
+                                                <p class="text-muted">Nenhum link cadastrado para esta oportunidade.</p>
+                                                <?php else: ?>
+                                                <ul class="links-list">
+                                                    <?php foreach ($tags['links'] as $link): 
+                                                        // Parsear markdown links [text](url)
+                                                        if (preg_match('/\[(.+?)\]\((.+?)\)/', $link, $matches)) {
+                                                            $link_text = $matches[1];
+                                                            $link_url = $matches[2];
+                                                        } else {
+                                                            $link_text = $link;
+                                                            $link_url = $link;
+                                                        }
+                                                    ?>
+                                                    <li class="mb-2">
+                                                        <a href="<?= htmlspecialchars($link_url) ?>" target="_blank" class="d-inline-flex align-items-center">
+                                                            <i class="bi bi-box-arrow-up-right me-2"></i> 
+                                                            <span><?= htmlspecialchars($link_text) ?></span>
+                                                        </a>
+                                                    </li>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Seção Descrição -->
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-header bg-secondary text-white py-2">
+                                                <i class="bi bi-file-text"></i> Descrição
+                                            </div>
+                                            <div class="card-body">
+                                                <?php if (empty($descricao_simples)): ?>
+                                                <p class="text-muted">Sem descrição detalhada.</p>
+                                                <?php else: ?>
+                                                <div style="white-space: pre-wrap;"><?= htmlspecialchars($descricao_simples) ?></div>
+                                                <?php endif; ?>
+                                                
+                                                <hr>
+                                                
+                                                <p class="small text-muted mb-0">
+                                                    <i class="bi bi-hash"></i> <?= $i['id'] ?> | 
+                                                    <i class="bi bi-person"></i> <?= htmlspecialchars($i['author']['name']) ?> | 
+                                                    <i class="bi bi-calendar"></i> <?= date('d/m/Y', strtotime($i['created_on'])) ?>
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -702,7 +796,7 @@ usort($issues, function($a, $b) use ($ordenar) {
     </div>
 </div>
 
-<!-- JavaScript para manipulação dos TODOs e expandir/colapsar detalhes -->
+        <!-- JavaScript para manipulação dos TODOs e expandir/colapsar detalhes -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
@@ -749,7 +843,7 @@ usort($issues, function($a, $b) use ($ordenar) {
                 
                 // Enviar atualização via AJAX
                 const formData = new FormData();
-                formData.append('ajax_update_todo', '1');
+                formData.append('ajax_action', 'update_todo');
                 formData.append('issue_id', issueId);
                 formData.append('todo_index', todoIndex);
                 formData.append('checked', this.checked);
@@ -760,7 +854,12 @@ usort($issues, function($a, $b) use ($ordenar) {
                 })
                 .then(response => response.json())
                 .then(data => {
-                    if (!data.success) {
+                    if (data.success) {
+                        // Atualizar progresso na tabela
+                        if (data.progresso !== undefined) {
+                            atualizarProgresso(issueId, data.progresso);
+                        }
+                    } else {
                         console.error('Erro ao atualizar TODO:', data.error);
                         // Reverter o checkbox se houver erro
                         this.checked = !this.checked;
@@ -783,7 +882,79 @@ usort($issues, function($a, $b) use ($ordenar) {
                 });
             });
         });
+        
+        // Adicionar evento para sliders de progresso
+        document.querySelectorAll('.progresso-slider').forEach(slider => {
+            const issueId = slider.getAttribute('data-issue-id');
+            const valueDisplay = document.getElementById(`progressValue${issueId}`);
+            const progressBar = document.getElementById(`progressBar${issueId}`);
+            
+            // Atualizar display ao mover o slider
+            slider.addEventListener('input', function() {
+                const value = this.value;
+                valueDisplay.textContent = value;
+                progressBar.style.width = value + '%';
+                progressBar.setAttribute('aria-valuenow', value);
+            });
+            
+            // Salvar quando o usuário soltar o slider
+            slider.addEventListener('change', function() {
+                const value = this.value;
+                
+                // Enviar atualização via AJAX
+                const formData = new FormData();
+                formData.append('ajax_action', 'update_progresso');
+                formData.append('issue_id', issueId);
+                formData.append('progresso', value);
+                
+                fetch('index.php?tab=oportunidades', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Atualizar progresso na tabela principal
+                        atualizarProgresso(issueId, value);
+                    } else {
+                        console.error('Erro ao atualizar progresso:', data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro na requisição:', error);
+                });
+            });
+        });
     });
+    
+    function atualizarProgresso(issueId, valor) {
+        // Atualizar a barra de progresso na tabela principal
+        const tableRow = document.querySelector(`.oportunidade-row[data-id="${issueId}"]`);
+        if (tableRow) {
+            const progressBar = tableRow.querySelector('.progress-bar');
+            const progressBadge = tableRow.querySelector('.progress .badge');
+            
+            if (progressBar && progressBadge) {
+                progressBar.style.width = valor + '%';
+                progressBar.setAttribute('aria-valuenow', valor);
+                progressBadge.textContent = valor + '%';
+                
+                // Atualizar classe da barra de progresso
+                progressBar.className = 'progress-bar';
+                if (valor >= 100) {
+                    progressBar.classList.add('bg-success');
+                } else if (valor >= 70) {
+                    progressBar.classList.add('bg-info');
+                } else if (valor >= 40) {
+                    progressBar.classList.add('bg-primary');
+                } else if (valor >= 20) {
+                    progressBar.classList.add('bg-warning');
+                } else {
+                    progressBar.classList.add('bg-danger');
+                }
+            }
+        }
+    }
     
     function adicionarTodo(issueId) {
         const container = document.getElementById(`todoContainer${issueId}`);

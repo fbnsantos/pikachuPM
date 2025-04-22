@@ -78,12 +78,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
             
             // Atualizar o estado do TODO
             if ($action === 'update_todo' && isset($_POST['todo_index']) && isset($_POST['checked'])) {
-                $todo_index = $_POST['todo_index'];
+                $todo_index = (int)$_POST['todo_index'];
                 $checked = $_POST['checked'] === 'true';
                 
                 if (isset($tags['todos'][$todo_index])) {
+                    // Atualizar o estado do TODO
                     $tags['todos'][$todo_index]['checked'] = $checked;
+                    
+                    // Reconstruir a descrição completa
+                    $nova_descricao = $descricao_simples;
+                    
+                    // Adicionar TODOs atualizados
+                    if (!empty($tags['todos'])) {
+                        $todos_texto = [];
+                        foreach ($tags['todos'] as $todo) {
+                            $todos_texto[] = "- [" . ($todo['checked'] ? 'x' : ' ') . "] " . $todo['text'];
+                        }
+                        $nova_descricao .= "\n\n### TODOs:\n" . implode("\n", $todos_texto);
+                    }
+                    
+                    // Adicionar links de volta
+                    if (!empty($tags['links'])) {
+                        $links_texto = [];
+                        foreach ($tags['links'] as $link) {
+                            $links_texto[] = "- " . $link;
+                        }
+                        $nova_descricao .= "\n\n### Links:\n" . implode("\n", $links_texto);
+                    }
+                    
+                    // Adicionar tags de volta
+                    if (!empty($tags['deadline'])) {
+                        $nova_descricao .= "\n\n#deadline:" . $tags['deadline'];
+                    }
+                    if ($tags['relevance'] > 0) {
+                        $nova_descricao .= "\n#relevance:" . $tags['relevance'];
+                    }
+                    
+                    // Adicionar progresso se existente
+                    if ($tags['progresso_manual'] > 0) {
+                        $nova_descricao .= "\n#progresso:" . $tags['progresso_manual'];
+                    }
+                    
+                    // Calcular novo progresso baseado nos TODOs
+                    $total_todos = count($tags['todos']);
+                    $concluidos = 0;
+                    foreach ($tags['todos'] as $todo) {
+                        if ($todo['checked']) {
+                            $concluidos++;
+                        }
+                    }
+                    $new_percent = $total_todos > 0 ? round(($concluidos / $total_todos) * 100) : 0;
+                    
+                    // Atualizar a issue
+                    $data = [
+                        'issue' => [
+                            'description' => $nova_descricao
+                        ]
+                    ];
+                    
+                    redmine_request("issues/$issue_id.json", 'PUT', $data);
+                    
                     $success = true;
+                    
+                    // Retornar o novo percentual de progresso para atualizar a interface
+                    header('Content-Type: application/json');
+                    echo json_encode([
+                        'success' => true,
+                        'progresso' => $new_percent
+                    ]);
+                    exit;
                 }
             }
             // Atualizar o progresso manual
@@ -907,6 +970,15 @@ usort($issues, function($a, $b) use ($ordenar) {
                     label.classList.remove('text-decoration-line-through', 'text-muted');
                 }
                 
+                // Mostrar indicador de carregamento
+                const spinner = document.createElement('span');
+                spinner.className = 'spinner-border spinner-border-sm ms-2';
+                spinner.setAttribute('role', 'status');
+                listItem.appendChild(spinner);
+                
+                // Desabilitar checkbox durante o salvamento
+                this.disabled = true;
+                
                 // Enviar atualização via AJAX
                 const formData = new FormData();
                 formData.append('ajax_action', 'update_todo');
@@ -920,6 +992,11 @@ usort($issues, function($a, $b) use ($ordenar) {
                 })
                 .then(response => response.json())
                 .then(data => {
+                    // Remover spinner
+                    spinner.remove();
+                    // Reabilitar checkbox
+                    this.disabled = false;
+                    
                     if (data.success) {
                         // Atualizar progresso na tabela
                         if (data.progresso !== undefined) {
@@ -934,9 +1011,17 @@ usort($issues, function($a, $b) use ($ordenar) {
                         } else {
                             label.classList.remove('text-decoration-line-through', 'text-muted');
                         }
+                        
+                        // Mostrar alerta de erro
+                        alert('Erro ao atualizar tarefa. Por favor, tente novamente.');
                     }
                 })
                 .catch(error => {
+                    // Remover spinner
+                    spinner.remove();
+                    // Reabilitar checkbox
+                    this.disabled = false;
+                    
                     console.error('Erro na requisição:', error);
                     // Reverter o checkbox se houver erro
                     this.checked = !this.checked;
@@ -945,6 +1030,9 @@ usort($issues, function($a, $b) use ($ordenar) {
                     } else {
                         label.classList.remove('text-decoration-line-through', 'text-muted');
                     }
+                    
+                    // Mostrar alerta de erro
+                    alert('Erro de conexão. Por favor, verifique sua internet e tente novamente.');
                 });
             });
         });

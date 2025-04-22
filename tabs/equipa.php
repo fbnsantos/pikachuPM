@@ -4,7 +4,7 @@ session_start();
 include_once __DIR__ . '/../config.php';
 
 // Verificar e criar base de dados SQLite e tabelas, se necessário
-$db_path = __DIR__ . '/../equipa2.sqlite';
+$db_path = __DIR__ . '/../equipa.sqlite';
 $nova_base_dados = !file_exists($db_path);
 
 try {
@@ -138,12 +138,29 @@ function calcularDataProximaReuniao($inicio, $diasAdicionais) {
 
 // Função para gerar lista de próximos gestores para os próximos 20 dias úteis
 function gerarListaProximosGestores($db, $equipa) {
-    // Verificar se já existe uma lista válida
-    $stmt = $db->query("SELECT COUNT(*) FROM proximos_gestores WHERE data_prevista >= date('now') AND concluido = 0");
+    if (empty($equipa)) {
+        return; // Não faz nada se a equipe estiver vazia
+    }
+
+    // Verificar se já existe uma entrada para o dia atual
+    $hoje = date('Y-m-d');
+    $stmt = $db->prepare("SELECT COUNT(*) FROM proximos_gestores WHERE data_prevista = :hoje");
+    $stmt->execute([':hoje' => $hoje]);
+    $tem_hoje = $stmt->fetchColumn() > 0;
+
+    // Se não tiver agendamento para hoje, criar um
+    if (!$tem_hoje) {
+        $membro_hoje = $equipa[array_rand($equipa)];
+        $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) VALUES (:id, :data)");
+        $stmt->execute([':id' => $membro_hoje, ':data' => $hoje]);
+    }
+    
+    // Verificar quantos dias futuros estão planejados
+    $stmt = $db->query("SELECT COUNT(*) FROM proximos_gestores WHERE data_prevista > date('now') AND concluido = 0");
     $count = $stmt->fetchColumn();
     
-    // Se tiver menos de 20 dias planejados, gera novos
-    if ($count < 20 && !empty($equipa)) {
+    // Se tiver menos de 20 dias planejados para o futuro, gera novos
+    if ($count < 20) {
         // Obter o último dia agendado
         $stmt = $db->query("SELECT MAX(data_prevista) FROM proximos_gestores");
         $ultima_data = $stmt->fetchColumn();
@@ -178,11 +195,8 @@ function gerarListaProximosGestores($db, $equipa) {
             
             // Verificar se este membro já está agendado para esta data
             $stmt = $db->prepare("SELECT COUNT(*) FROM proximos_gestores 
-                                 WHERE redmine_id = :id AND data_prevista = :data");
-            $stmt->execute([
-                ':id' => $membro_id,
-                ':data' => $inicio->format('Y-m-d')
-            ]);
+                                 WHERE data_prevista = :data");
+            $stmt->execute([':data' => $inicio->format('Y-m-d')]);
             
             if ($stmt->fetchColumn() == 0) {
                 // Inserir novo agendamento
@@ -200,7 +214,7 @@ function gerarListaProximosGestores($db, $equipa) {
 }
 
 // Obter lista de próximos gestores
-function getProximosGestores($db, $limite = 10) {
+function getProximosGestores($db, $limite = 20) {
     $stmt = $db->prepare("SELECT redmine_id, data_prevista 
                          FROM proximos_gestores 
                          WHERE data_prevista >= date('now') AND concluido = 0
@@ -218,6 +232,8 @@ function registrarFalta($db, $redmine_id, $motivo = '') {
         ':id' => $redmine_id,
         ':motivo' => $motivo
     ]);
+    
+    return $stmt->rowCount() > 0;
 }
 
 function getFaltas($db, $redmine_id = null) {
@@ -228,6 +244,12 @@ function getFaltas($db, $redmine_id = null) {
         $stmt = $db->query("SELECT * FROM faltas ORDER BY data DESC LIMIT 20");
     }
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function getNumeroFaltas($db, $redmine_id) {
+    $stmt = $db->prepare("SELECT COUNT(*) FROM faltas WHERE redmine_id = :id");
+    $stmt->execute([':id' => $redmine_id]);
+    return $stmt->fetchColumn();
 }
 
 // Obter dados
@@ -321,6 +343,19 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         $_SESSION['momento_pausa'] = null;
     }
     
+    // Terminar reunião
+    if (isset($_POST['terminar'])) {
+        // Limpar a sessão
+        $_SESSION['gestor'] = null;
+        $_SESSION['em_reuniao'] = false;
+        $_SESSION['oradores'] = [];
+        $_SESSION['orador_atual'] = 0;
+        $_SESSION['inicio_reuniao'] = null;
+        $_SESSION['tempo_pausado'] = 0;
+        $_SESSION['esta_pausado'] = false;
+        $_SESSION['momento_pausa'] = null;
+    }
+    
     // Pausar/Continuar reunião
     if (isset($_POST['pausar'])) {
         if ($_SESSION['esta_pausado']) {
@@ -343,11 +378,31 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
     // Recusar ser gestor
     if (isset($_POST['recusar'])) {
         $idRecusado = (int)$_POST['recusar'];
+        $dataRecusada = $_POST['data_recusada'] ?? '';
         
-        // Remover este gestor da lista de próximos e redistribuir
-        $stmt = $db->prepare("DELETE FROM proximos_gestores 
-                             WHERE redmine_id = :id AND data_prevista >= date('now') AND concluido = 0");
-        $stmt->execute([':id' => $idRecusado]);
+        if (!empty($dataRecusada)) {
+            // Remover este gestor da data específica
+            $stmt = $db->prepare("DELETE FROM proximos_gestores 
+                                 WHERE redmine_id = :id AND data_prevista = :data AND concluido = 0");
+            $stmt->execute([':id' => $idRecusado, ':data' => $dataRecusada]);
+            
+            // Adicionar outro gestor nesta data
+            if (count($equipa) > 1) {
+                $equipe_copia = array_filter($equipa, function($e) use ($idRecusado) {
+                    return $e != $idRecusado;
+                });
+                $novo_gestor = $equipe_copia[array_rand($equipe_copia)];
+                
+                $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) 
+                                     VALUES (:id, :data)");
+                $stmt->execute([':id' => $novo_gestor, ':data' => $dataRecusada]);
+            }
+        } else {
+            // Remover este gestor de todas as datas futuras
+            $stmt = $db->prepare("DELETE FROM proximos_gestores 
+                                 WHERE redmine_id = :id AND data_prevista >= date('now') AND concluido = 0");
+            $stmt->execute([':id' => $idRecusado]);
+        }
         
         // Regenerar a lista
         gerarListaProximosGestores($db, $equipa);
@@ -355,20 +410,20 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
     
     // Marcar falta
     if (isset($_POST['marcar_falta'])) {
-        $id = $_POST['marcar_falta'];
+        $id = (int)$_POST['marcar_falta'];
         $motivo = $_POST['motivo_falta'] ?? '';
         
-        registrarFalta($db, $id, $motivo);
+        $resultado = registrarFalta($db, $id, $motivo);
         
         // Se for o orador atual, passar para o próximo
-        if ($em_reuniao && isset($oradores[$orador_atual]) && $oradores[$orador_atual] == $id) {
+        if ($resultado && $em_reuniao && isset($oradores[$orador_atual]) && $oradores[$orador_atual] == $id) {
             $_SESSION['orador_atual']++;
         }
     }
     
     // Mover para o final da fila
     if (isset($_POST['mover_final'])) {
-        $id = $_POST['mover_final'];
+        $id = (int)$_POST['mover_final'];
         
         // Se for o orador atual
         if ($em_reuniao && isset($oradores[$orador_atual]) && $oradores[$orador_atual] == $id) {
@@ -376,6 +431,14 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             $orador = $oradores[$orador_atual];
             array_splice($_SESSION['oradores'], $orador_atual, 1);
             $_SESSION['oradores'][] = $orador;
+            
+            // Passar para o próximo orador
+            if (count($_SESSION['oradores']) > $_SESSION['orador_atual']) {
+                // Não precisamos incrementar o índice porque já removemos o elemento
+            } else {
+                // Se removemos o último elemento, voltamos para o início
+                $_SESSION['orador_atual'] = 0;
+            }
         }
     }
     
@@ -393,322 +456,464 @@ if ($em_reuniao) {
     }
 }
 
+// Verificar se a reunião terminou (todos os oradores falaram)
+$reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
+
 ?>
 
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        .reuniao-card {
+            border-left: 5px solid #0d6efd;
+        }
+        .progress {
+            height: 15px;
+        }
+        .badge {
+            font-size: 0.9em;
+        }
+        .table-responsive {
+            overflow-x: auto;
+        }
+        .card {
+            margin-bottom: 20px;
+        }
+        .timer-display {
+            font-size: 2.5rem;
+            font-weight: bold;
+            font-family: monospace;
+        }
+        .btn-action {
+            min-width: 120px;
+        }
+    </style>
+</head>
+<body>
 
-<div class="container-fluid">
-    <h2 class="mt-3">Reunião Diária</h2>
-
-    <?php if (empty($equipa)): ?>
-      <div class="alert alert-info">⚙️ A equipa ainda não foi configurada. Por favor adicione membros abaixo para iniciar.</div>
-    <?php endif; ?>
-
-    <?php if (!$em_reuniao && count($equipa) >= 2): ?>
-      <form method="post" class="mb-4">
-        <button type="submit" name="iniciar" class="btn btn-success">Iniciar Reunião</button>
-      </form>
-    <?php endif; ?>
-
-    <?php if ($em_reuniao): ?>
-      <div class="card mb-4">
-        <div class="card-header bg-primary text-white">
-          <h4 class="mb-0">Reunião em Progresso</h4>
-        </div>
-        <div class="card-body">
-          <div class="mb-3">
-            <strong>👤 Gestor da reunião:</strong> <?= getNomeUtilizador($gestor, $utilizadores) ?><br>
-            <strong>⏱️ Tempo total:</strong> <span id="tempo-total"><?= gmdate('H:i:s', $tempo_total) ?></span>
-          </div>
-          
-          <?php $fim = $orador_atual >= count($oradores); ?>
-          <?php if ($fim): ?>
-            <div class="alert alert-success">✅ Reunião concluída!</div>
-            <?php session_destroy(); ?>
-          <?php else: ?>
-            <?php $oradorId = $oradores[$orador_atual] ?? null; ?>
-            <?php if ($oradorId): ?>
-              <div class="row">
-                <div class="col-md-6">
-                  <div class="card mb-3">
-                    <div class="card-header bg-info text-white">
-                      <h5 class="mb-0">🎤 Orador atual: <?= getNomeUtilizador($oradorId, $utilizadores) ?></h5>
-                    </div>
-                    <div class="card-body text-center">
-                      <div id="cronometro" class="display-4 my-3" style="font-size: 3rem;">30</div>
-                      <div class="progress mb-3">
-                        <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
-                      </div>
-                      <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
-                    </div>
-                  </div>
-                  
-                  <div class="d-flex gap-2 mb-3">
-                    <form method="post" class="d-inline">
-                      <button type="submit" name="pausar" class="btn btn-warning">
-                        <?= $esta_pausado ? '▶️ Continuar' : '⏸️ Pausar' ?>
-                      </button>
-                    </form>
-                    
-                    <form method="post" class="d-inline">
-                      <button type="submit" name="proximo" class="btn btn-primary">➡️ Próximo</button>
-                    </form>
-                    
-                    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#faltaModal">
-                      ❌ Marcar Falta
-                    </button>
-                    
-                    <form method="post" class="d-inline">
-                      <input type="hidden" name="mover_final" value="<?= $oradorId ?>">
-                      <button type="submit" class="btn btn-secondary">↩️ Mover para o Final</button>
-                    </form>
-                  </div>
-                </div>
-                
-                <div class="col-md-6">
-                  <div class="card">
-                    <div class="card-header bg-secondary text-white">
-                      <h5 class="mb-0">Últimas atividades:</h5>
-                    </div>
-                    <div class="card-body p-0">
-                      <ul class="list-group list-group-flush">
-                        <?php 
-                        $atividades = getAtividadesUtilizador($oradorId);
-                        if (empty($atividades)):
-                        ?>
-                          <li class="list-group-item text-muted">Nenhuma atividade recente encontrada.</li>
-                        <?php else: ?>
-                          <?php foreach ($atividades as $act): ?>
-                            <li class="list-group-item">
-                              <a href="<?= htmlspecialchars($act['url']) ?>" target="_blank" class="text-decoration-none">
-                                <strong class="text-primary">#<?= $act['issue_id'] ?></strong> <?= htmlspecialchars($act['subject']) ?>
-                              </a>
-                              <br>
-                              <small class="text-muted">Atualizado em <?= date('d/m/Y H:i', strtotime($act['updated_on'])) ?></small>
-                            </li>
-                          <?php endforeach; ?>
-                        <?php endif; ?>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <!-- Modal para Marcar Falta -->
-              <div class="modal fade" id="faltaModal" tabindex="-1" aria-labelledby="faltaModalLabel" aria-hidden="true">
-                <div class="modal-dialog">
-                  <div class="modal-content">
-                    <div class="modal-header bg-danger text-white">
-                      <h5 class="modal-title" id="faltaModalLabel">Marcar Falta para <?= getNomeUtilizador($oradorId, $utilizadores) ?></h5>
-                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <form method="post">
-                      <div class="modal-body">
-                        <input type="hidden" name="marcar_falta" value="<?= $oradorId ?>">
-                        <div class="mb-3">
-                          <label for="motivo_falta" class="form-label">Motivo da falta:</label>
-                          <textarea class="form-control" id="motivo_falta" name="motivo_falta" rows="3"></textarea>
-                        </div>
-                      </div>
-                      <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                        <button type="submit" class="btn btn-danger">Confirmar Falta</button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              </div>
-              
-              <script>
-                let tempo = 30;
-                let isPaused = <?= $esta_pausado ? 'true' : 'false' ?>;
-                const el = document.getElementById("cronometro");
-                const beep = document.getElementById("beep");
-                const progressBar = document.getElementById("progress-bar");
-                const tempoTotal = document.getElementById("tempo-total");
-                
-                // Atualizar cronômetro e tempo total
-                const intervalo = setInterval(() => {
-                  if (!isPaused) {
-                    tempo--;
-                    el.textContent = tempo;
-                    
-                    // Atualizar barra de progresso
-                    const percentual = (tempo / 30) * 100;
-                    progressBar.style.width = percentual + "%";
-                    
-                    // Mudar cor da barra conforme tempo
-                    if (tempo <= 5) {
-                      progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-danger";
-                    } else if (tempo <= 15) {
-                      progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-warning";
-                    }
-                    
-                    // Tocar som aos 5 segundos
-                    if (tempo === 5) beep.play();
-                    
-                    // Parar quando chegar a zero
-                    if (tempo <= 0) {
-                      clearInterval(intervalo);
-                      el.textContent = "Tempo Esgotado!";
-                      progressBar.style.width = "100%";
-                      progressBar.className = "progress-bar bg-danger";
-                    }
-                  }
-                }, 1000);
-                
-                // Atualizar tempo total a cada segundo
-                const atualizarTempoTotal = setInterval(() => {
-                  if (!isPaused) {
-                    fetch('?tab=equipa&action=get_tempo_total')
-                      .then(response => response.text())
-                      .then(data => {
-                        if (data) tempoTotal.textContent = data;
-                      });
-                  }
-                }, 1000);
-              </script>
-            <?php endif; ?>
-          <?php endif; ?>
-        </div>
-      </div>
-    <?php endif; ?>
-
-    <div class="card mb-4">
-      <div class="card-header bg-success text-white">
-        <h4 class="mb-0">Próximos Gestores de Reunião (20 dias úteis)</h4>
-      </div>
-      <div class="card-body">
-        <div class="table-responsive">
-          <table class="table table-striped table-hover">
-            <thead>
-              <tr>
-                <th>Data Prevista</th>
-                <th>Gestor</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php foreach ($proximos_gestores as $prox): ?>
-                <tr>
-                  <td>
-                    <?php 
-                      $data = new DateTime($prox['data_prevista']);
-                      echo $data->format('d/m/Y (D)'); 
-                    ?>
-                  </td>
-                  <td><?= getNomeUtilizador($prox['redmine_id'], $utilizadores) ?></td>
-                  <td>
-                    <form method="post" class="d-inline">
-                      <input type="hidden" name="recusar" value="<?= $prox['redmine_id'] ?>">
-                      <button type="submit" class="btn btn-sm btn-outline-danger">Recusar</button>
-                    </form>
-                  </td>
-                </tr>
-              <?php endforeach; ?>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <div class="card mb-4">
-      <div class="card-header bg-warning">
-        <h4 class="mb-0">Faltas Recentes</h4>
-      </div>
-      <div class="card-body">
-        <?php 
-        $faltas = getFaltas($db);
-        if (empty($faltas)):
-        ?>
-          <p class="text-muted">Nenhuma falta registrada.</p>
-        <?php else: ?>
-          <div class="table-responsive">
-            <table class="table table-striped">
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Membro</th>
-                  <th>Motivo</th>
-                </tr>
-              </thead>
-              <tbody>
-                <?php foreach ($faltas as $falta): ?>
-                  <tr>
-                    <td><?= date('d/m/Y H:i', strtotime($falta['data'])) ?></td>
-                    <td><?= getNomeUtilizador($falta['redmine_id'], $utilizadores) ?></td>
-                    <td><?= htmlspecialchars($falta['motivo'] ?: 'Não especificado') ?></td>
-                  </tr>
-                <?php endforeach; ?>
-              </tbody>
-            </table>
-          </div>
-        <?php endif; ?>
-      </div>
-    </div>
-
-    <div class="card mb-4">
-      <div class="card-header bg-primary text-white">
-        <h4 class="mb-0">Gestão da Equipa</h4>
-      </div>
-      <div class="card-body">
-        <form method="post" class="row g-3 mb-4">
-          <div class="col-md-8">
-            <label for="adicionar" class="form-label">Adicionar elemento à equipa:</label>
-            <select name="adicionar" id="adicionar" class="form-select">
-              <?php foreach ($utilizadores as $u): ?>
-                <?php if (!in_array($u['id'], $equipa)): ?>
-                  <option value="<?= $u['id'] ?>"> <?= htmlspecialchars($u['firstname'] . ' ' . $u['lastname']) ?> </option>
+<div class="container-fluid py-3">
+    <div class="row">
+        <div class="col-lg-8">
+            <h2 class="mt-3 mb-4">
+                <i class="bi bi-people-fill"></i> Reunião Diária
+                <?php if ($em_reuniao): ?>
+                    <span class="badge bg-success">Em Progresso</span>
                 <?php endif; ?>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="col-md-4 align-self-end">
-            <button type="submit" class="btn btn-primary">Adicionar</button>
-          </div>
-        </form>
+            </h2>
 
-        <h5>Membros da Equipa:</h5>
-        <div class="table-responsive">
-          <table class="table table-striped">
-            <thead>
-              <tr>
-                <th>Nome</th>
-                <th>Total de Faltas</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php foreach ($equipa as $id): 
-                // Contar faltas deste membro
-                $stmt = $db->prepare("SELECT COUNT(*) FROM faltas WHERE redmine_id = :id");
-                $stmt->execute([':id' => $id]);
-                $total_faltas = $stmt->fetchColumn();
-              ?>
-                <tr>
-                  <td><?= getNomeUtilizador($id, $utilizadores) ?></td>
-                  <td>
-                    <?php if ($total_faltas > 0): ?>
-                      <span class="badge bg-danger"><?= $total_faltas ?></span>
+            <?php if (empty($equipa)): ?>
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle-fill"></i> A equipa ainda não foi configurada. Por favor adicione membros abaixo para iniciar.
+                </div>
+            <?php endif; ?>
+
+            <!-- Área de Reunião -->
+            <?php if ($em_reuniao): ?>
+                <div class="card reuniao-card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h4 class="mb-0"><i class="bi bi-calendar-check"></i> Reunião em Progresso</h4>
+                            <form method="post" class="d-inline">
+                                <button type="submit" name="terminar" class="btn btn-sm btn-danger">
+                                    <i class="bi bi-stop-circle"></i> Encerrar Reunião
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <strong><i class="bi bi-person-circle"></i> Gestor da reunião:</strong> 
+                                <?= htmlspecialchars(getNomeUtilizador($gestor, $utilizadores)) ?>
+                            </div>
+                            <div class="col-md-6 text-md-end">
+                                <strong><i class="bi bi-clock"></i> Tempo total:</strong> 
+                                <span id="tempo-total" class="badge bg-secondary"><?= gmdate('H:i:s', $tempo_total) ?></span>
+                            </div>
+                        </div>
+                        
+                        <?php if ($reuniao_concluida): ?>
+                            <div class="alert alert-success">
+                                <i class="bi bi-check-circle-fill"></i> Reunião concluída! Todos os membros se pronunciaram.
+                                <div class="mt-3">
+                                    <form method="post">
+                                        <button type="submit" name="terminar" class="btn btn-primary">
+                                            Finalizar e voltar ao início
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        <?php else: ?>
+                            <?php $oradorId = $oradores[$orador_atual] ?? null; ?>
+                            <?php if ($oradorId): ?>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="card mb-3">
+                                            <div class="card-header bg-info text-white">
+                                                <h5 class="mb-0"><i class="bi bi-mic-fill"></i> Orador atual: <?= htmlspecialchars(getNomeUtilizador($oradorId, $utilizadores)) ?></h5>
+                                            </div>
+                                            <div class="card-body text-center">
+                                                <div id="cronometro" class="timer-display my-2">30</div>
+                                                <div class="progress mb-3">
+                                                    <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 100%"></div>
+                                                </div>
+                                                <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="d-flex flex-wrap gap-2 mb-3">
+                                            <form method="post" class="d-inline">
+                                                <button type="submit" name="pausar" class="btn <?= $esta_pausado ? 'btn-success' : 'btn-warning' ?> btn-action">
+                                                    <?= $esta_pausado ? '<i class="bi bi-play-fill"></i> Continuar' : '<i class="bi bi-pause-fill"></i> Pausar' ?>
+                                                </button>
+                                            </form>
+                                            
+                                            <form method="post" class="d-inline">
+                                                <button type="submit" name="proximo" class="btn btn-primary btn-action">
+                                                    <i class="bi bi-skip-forward-fill"></i> Próximo
+                                                </button>
+                                            </form>
+                                            
+                                            <button type="button" class="btn btn-danger btn-action" data-bs-toggle="modal" data-bs-target="#faltaModal">
+                                                <i class="bi bi-x-circle"></i> Marcar Falta
+                                            </button>
+                                            
+                                            <form method="post" class="d-inline">
+                                                <input type="hidden" name="mover_final" value="<?= $oradorId ?>">
+                                                <button type="submit" class="btn btn-secondary btn-action">
+                                                    <i class="bi bi-arrow-return-right"></i> Mover para Final
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="col-md-6">
+                                        <div class="card">
+                                            <div class="card-header bg-secondary text-white">
+                                                <h5 class="mb-0"><i class="bi bi-activity"></i> Atividades recentes:</h5>
+                                            </div>
+                                            <div class="card-body p-0">
+                                                <ul class="list-group list-group-flush">
+                                                    <?php 
+                                                    $atividades = getAtividadesUtilizador($oradorId);
+                                                    if (empty($atividades)):
+                                                    ?>
+                                                        <li class="list-group-item text-muted">
+                                                            <i class="bi bi-info-circle"></i> Nenhuma atividade recente encontrada.
+                                                        </li>
+                                                    <?php else: ?>
+                                                        <?php foreach ($atividades as $act): ?>
+                                                            <li class="list-group-item">
+                                                                <a href="<?= htmlspecialchars($act['url']) ?>" target="_blank" class="text-decoration-none">
+                                                                    <strong class="text-primary">#<?= $act['issue_id'] ?></strong> 
+                                                                    <?= htmlspecialchars($act['subject']) ?>
+                                                                </a>
+                                                                <br>
+                                                                <small class="text-muted">
+                                                                    <i class="bi bi-clock-history"></i> 
+                                                                    <?= date('d/m/Y H:i', strtotime($act['updated_on'])) ?>
+                                                                </small>
+                                                            </li>
+                                                        <?php endforeach; ?>
+                                                    <?php endif; ?>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Modal para Marcar Falta -->
+                                <div class="modal fade" id="faltaModal" tabindex="-1" aria-labelledby="faltaModalLabel" aria-hidden="true">
+                                    <div class="modal-dialog">
+                                        <div class="modal-content">
+                                            <div class="modal-header bg-danger text-white">
+                                                <h5 class="modal-title" id="faltaModalLabel">
+                                                    <i class="bi bi-exclamation-triangle"></i> 
+                                                    Marcar Falta para <?= htmlspecialchars(getNomeUtilizador($oradorId, $utilizadores)) ?>
+                                                </h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                            </div>
+                                            <form method="post">
+                                                <div class="modal-body">
+                                                    <input type="hidden" name="marcar_falta" value="<?= $oradorId ?>">
+                                                    <div class="mb-3">
+                                                        <label for="motivo_falta" class="form-label">Motivo da falta:</label>
+                                                        <textarea class="form-control" id="motivo_falta" name="motivo_falta" rows="3" placeholder="Descreva o motivo da falta..."></textarea>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                    <button type="submit" class="btn btn-danger">
+                                                        <i class="bi bi-check-lg"></i> Confirmar Falta
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php elseif (count($equipa) >= 2): ?>
+                <div class="card mb-4">
+                    <div class="card-body text-center">
+                        <p class="lead mb-3">A reunião ainda não foi iniciada.</p>
+                        <form method="post">
+                            <button type="submit" name="iniciar" class="btn btn-success btn-lg">
+                                <i class="bi bi-play-fill"></i> Iniciar Reunião
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            <?php endif; ?>
+
+            <!-- Próximos Gestores -->
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0"><i class="bi bi-calendar-week"></i> Próximos Gestores de Reunião</h4>
+                </div>
+                <div class="card-body">
+                    <?php if (empty($proximos_gestores)): ?>
+                        <p class="text-muted">Nenhum gestor agendado para os próximos dias.</p>
                     <?php else: ?>
-                      <span class="badge bg-success">0</span>
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Data Prevista</th>
+                                        <th>Gestor</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($proximos_gestores as $prox): ?>
+                                        <tr>
+                                            <td>
+                                                <?php 
+                                                    $data = new DateTime($prox['data_prevista']);
+                                                    $hoje = new DateTime('today');
+                                                    $eh_hoje = $data->format('Y-m-d') === $hoje->format('Y-m-d');
+                                                    
+                                                    if ($eh_hoje) {
+                                                        echo '<span class="badge bg-primary">Hoje</span> ';
+                                                    }
+                                                    
+                                                    // Dia da semana em português
+                                                    $dias_semana = [
+                                                        1 => 'Segunda', 2 => 'Terça', 3 => 'Quarta', 
+                                                        4 => 'Quinta', 5 => 'Sexta', 6 => 'Sábado', 7 => 'Domingo'
+                                                    ];
+                                                    
+                                                    echo $data->format('d/m/Y') . ' (' . $dias_semana[(int)$data->format('N')] . ')';
+                                                ?>
+                                            </td>
+                                            <td><?= htmlspecialchars(getNomeUtilizador($prox['redmine_id'], $utilizadores)) ?></td>
+                                            <td>
+                                                <form method="post" class="d-inline">
+                                                    <input type="hidden" name="recusar" value="<?= $prox['redmine_id'] ?>">
+                                                    <input type="hidden" name="data_recusada" value="<?= $prox['data_prevista'] ?>">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                        <i class="bi bi-x-lg"></i> Recusar
+                                                    </button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
                     <?php endif; ?>
-                  </td>
-                  <td>
-                    <form method="post" class="d-inline">
-                      <input type="hidden" name="remover" value="<?= $id ?>">
-                      <button type="submit" class="btn btn-sm btn-danger">Remover</button>
+                </div>
+            </div>
+
+            <!-- Gestão da Equipe -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="bi bi-people"></i> Gestão da Equipa</h4>
+                </div>
+                <div class="card-body">
+                    <form method="post" class="row g-3 mb-4">
+                        <div class="col-md-8">
+                            <label for="adicionar" class="form-label">Adicionar elemento à equipa:</label>
+                            <select name="adicionar" id="adicionar" class="form-select">
+                                <?php foreach ($utilizadores as $u): ?>
+                                    <?php if (!in_array($u['id'], $equipa)): ?>
+                                        <option value="<?= $u['id'] ?>"> 
+                                            <?= htmlspecialchars($u['firstname'] . ' ' . $u['lastname']) ?> 
+                                        </option>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-4 align-self-end">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-plus-lg"></i> Adicionar
+                            </button>
+                        </div>
                     </form>
-                  </td>
-                </tr>
-              <?php endforeach; ?>
-            </tbody>
-          </table>
+
+                    <h5><i class="bi bi-person-lines-fill"></i> Membros da Equipa:</h5>
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Nome</th>
+                                    <th class="text-center">Faltas</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php 
+                                if (empty($equipa)): 
+                                ?>
+                                    <tr>
+                                        <td colspan="3" class="text-center text-muted">
+                                            Nenhum membro na equipe.
+                                        </td>
+                                    </tr>
+                                <?php 
+                                else:
+                                    foreach ($equipa as $id): 
+                                        // Contar faltas deste membro
+                                        $total_faltas = getNumeroFaltas($db, $id);
+                                ?>
+                                    <tr>
+                                        <td><?= htmlspecialchars(getNomeUtilizador($id, $utilizadores)) ?></td>
+                                        <td class="text-center">
+                                            <?php if ($total_faltas > 0): ?>
+                                                <span class="badge bg-danger"><?= $total_faltas ?></span>
+                                            <?php else: ?>
+                                                <span class="badge bg-success">0</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <form method="post" class="d-inline">
+                                                <input type="hidden" name="remover" value="<?= $id ?>">
+                                                <button type="submit" class="btn btn-sm btn-danger">
+                                                    <i class="bi bi-trash"></i> Remover
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <?php 
+                                    endforeach;
+                                endif;
+                                ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
-      </div>
+        
+        <!-- Coluna Lateral - Faltas Recentes -->
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header bg-warning">
+                    <h4 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Faltas Recentes</h4>
+                </div>
+                <div class="card-body">
+                    <?php 
+                    $faltas = getFaltas($db);
+                    if (empty($faltas)):
+                    ?>
+                        <p class="text-muted text-center">
+                            <i class="bi bi-emoji-smile"></i> Nenhuma falta registrada.
+                        </p>
+                    <?php else: ?>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Data</th>
+                                        <th>Membro</th>
+                                        <th>Motivo</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($faltas as $falta): ?>
+                                        <tr>
+                                            <td><?= date('d/m/Y', strtotime($falta['data'])) ?></td>
+                                            <td><?= htmlspecialchars(getNomeUtilizador($falta['redmine_id'], $utilizadores)) ?></td>
+                                            <td>
+                                                <?php 
+                                                $motivo = $falta['motivo'] ?: 'Não especificado';
+                                                echo mb_strlen($motivo) > 50 ? mb_substr(htmlspecialchars($motivo), 0, 50) . '...' : htmlspecialchars($motivo);
+                                                ?>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
+
+<!-- JavaScript para o cronômetro -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Cronômetro só é inicializado se a reunião estiver em andamento
+    <?php if ($em_reuniao && !$reuniao_concluida): ?>
+        let tempo = 30;
+        let isPaused = <?= $esta_pausado ? 'true' : 'false' ?>;
+        const el = document.getElementById("cronometro");
+        const beep = document.getElementById("beep");
+        const progressBar = document.getElementById("progress-bar");
+        const tempoTotal = document.getElementById("tempo-total");
+        
+        // Atualizar cronômetro e tempo total
+        const intervalo = setInterval(() => {
+            if (!isPaused) {
+                tempo--;
+                el.textContent = tempo;
+                
+                // Atualizar barra de progresso
+                const percentual = (tempo / 30) * 100;
+                progressBar.style.width = percentual + "%";
+                
+                // Mudar cor da barra conforme tempo
+                if (tempo <= 5) {
+                    progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-danger";
+                } else if (tempo <= 15) {
+                    progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-warning";
+                }
+                
+                // Tocar som aos 5 segundos
+                if (tempo === 5) beep.play();
+                
+                // Parar quando chegar a zero
+                if (tempo <= 0) {
+                    clearInterval(intervalo);
+                    el.textContent = "Tempo Esgotado!";
+                    progressBar.style.width = "100%";
+                    progressBar.className = "progress-bar bg-danger";
+                }
+            }
+        }, 1000);
+        
+        // Atualizar tempo total a cada segundo
+        const atualizarTempoTotal = setInterval(() => {
+            if (!isPaused) {
+                fetch('?tab=equipa&action=get_tempo_total')
+                    .then(response => response.text())
+                    .then(data => {
+                        if (data) tempoTotal.textContent = data;
+                    });
+            }
+        }, 1000);
+    <?php endif; ?>
+});
+</script>
 
 <?php
 // Endpoint para obter o tempo total (para atualização via AJAX)
@@ -723,3 +928,5 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_tempo_total' && $em_reuni
     exit;
 }
 ?>
+</body>
+</html>

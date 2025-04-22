@@ -49,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'ferias' => 'green',
             'demo' => 'blue',
             'campo' => 'orange',
-            'aulas' => 'yellow',
+            'aulas' => 'grey',
             'tribe' => 'purple',
             default => 'red'
         };

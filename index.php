@@ -11,7 +11,8 @@ $tabs = [
     'dashboard' => 'Painel Principal',
     'oportunidades' => 'Leads',
     'calendar' => 'Calendário',
-    'equipa' => 'Reunião Diária'
+    'equipa' => 'Reunião Diária',
+    'links' => 'Links'
 ];
 
 $tabSelecionada = $_GET['tab'] ?? 'dashboard';

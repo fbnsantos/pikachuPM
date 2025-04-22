@@ -42,6 +42,7 @@ $links = $db->query("SELECT * FROM links ORDER BY criado_em DESC")->fetchAll(PDO
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <div class="container mt-4">
     <h2>📚 Gestão de Links Web</h2>
+<p class="text-muted">Adicione, categorize e arquive links úteis para consulta futura.</p>
 
     <form method="post" class="row g-3 mb-4">
         <div class="col-md-5">

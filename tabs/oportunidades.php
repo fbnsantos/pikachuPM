@@ -20,6 +20,7 @@ function redmine_request($endpoint, $method = 'GET', $data = null) {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_USERPWD, "$user:$pass");
     curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json"]);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30); // 30 segundos de timeout
 
     if ($method === 'POST') {
         curl_setopt($ch, CURLOPT_POST, true);
@@ -35,8 +36,16 @@ function redmine_request($endpoint, $method = 'GET', $data = null) {
     curl_close($ch);
 
     if ($code >= 400 || $resp === false) {
-        echo "<div class='alert alert-danger'>Erro Redmine ($code): $err</div>";
-        return null;
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
+            // Se for uma solicitação AJAX, retornar como JSON
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => "Erro Redmine ($code): $err"]);
+            exit;
+        } else {
+            // Se for uma solicitação normal, mostrar mensagem de erro
+            echo "<div class='alert alert-danger'>Erro Redmine ($code): $err</div>";
+            return null;
+        }
     }
 
     return json_decode($resp, true);
@@ -48,7 +57,7 @@ if (!$res_proj) {
     $proj_data = [
         'project' => [
             'name' => 'LEADS',
-            'identifier' => $project_id,
+            'identifier' => 'leads',
             'description' => 'Projeto para oportunidades criadas via interface PHP',
             'is_public' => false
         ]
@@ -85,8 +94,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                     // Atualizar o estado do TODO
                     $tags['todos'][$todo_index]['checked'] = $checked;
                     
-                    // Reconstruir a descrição completa
-                    $nova_descricao = $descricao_simples;
+                    // Obter a descrição simples (sem as seções especiais)
+                    $descricao_limpa = extrair_descricao_simples($description);
+                    
+                    // Reconstruir a descrição completamente do zero
+                    $nova_descricao = $descricao_limpa;
                     
                     // Adicionar TODOs atualizados
                     if (!empty($tags['todos'])) {
@@ -94,7 +106,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                         foreach ($tags['todos'] as $todo) {
                             $todos_texto[] = "- [" . ($todo['checked'] ? 'x' : ' ') . "] " . $todo['text'];
                         }
-                        $nova_descricao .= "\n\n### TODOs:\n" . implode("\n", $todos_texto);
+                        if (!empty($todos_texto)) {
+                            $nova_descricao .= "\n\n### TODOs:\n" . implode("\n", $todos_texto);
+                        }
                     }
                     
                     // Adicionar links de volta
@@ -103,7 +117,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                         foreach ($tags['links'] as $link) {
                             $links_texto[] = "- " . $link;
                         }
-                        $nova_descricao .= "\n\n### Links:\n" . implode("\n", $links_texto);
+                        if (!empty($links_texto)) {
+                            $nova_descricao .= "\n\n### Links:\n" . implode("\n", $links_texto);
+                        }
                     }
                     
                     // Adicionar tags de volta
@@ -136,17 +152,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                         ]
                     ];
                     
-                    redmine_request("issues/$issue_id.json", 'PUT', $data);
+                    $response = redmine_request("issues/$issue_id.json", 'PUT', $data);
                     
-                    $success = true;
-                    
-                    // Retornar o novo percentual de progresso para atualizar a interface
-                    header('Content-Type: application/json');
-                    echo json_encode([
-                        'success' => true,
-                        'progresso' => $new_percent
-                    ]);
-                    exit;
+                    if ($response !== null) {
+                        // Retornar o novo percentual de progresso para atualizar a interface
+                        header('Content-Type: application/json');
+                        echo json_encode([
+                            'success' => true,
+                            'progresso' => $new_percent
+                        ]);
+                        exit;
+                    } else {
+                        header('Content-Type: application/json');
+                        echo json_encode([
+                            'success' => false,
+                            'error' => 'Falha ao atualizar o TODO no servidor'
+                        ]);
+                        exit;
+                    }
                 }
             }
             // Atualizar o progresso manual
@@ -428,10 +451,11 @@ function extrair_tags($texto) {
 
 function extrair_descricao_simples($texto) {
     // Remove as seções de TODOs, links e tags
-    $texto = preg_replace('/### TODOs:\n((?:- \[[ x]\] .+\n?)*)/', '', $texto);
-    $texto = preg_replace('/### Links:\n((?:- .+\n?)*)/', '', $texto);
+    $texto = preg_replace('/### TODOs:\s*\n((?:- \[[ x]\] .+\n?)*)/', '', $texto);
+    $texto = preg_replace('/### Links:\s*\n((?:- .+\n?)*)/', '', $texto);
     $texto = preg_replace('/#deadline:\d{4}-\d{2}-\d{2}/', '', $texto);
     $texto = preg_replace('/#relevance:\d+/', '', $texto);
+    $texto = preg_replace('/#progresso:\d+/', '', $texto);
     
     // Remove linhas em branco extras
     $texto = preg_replace('/\n{3,}/', "\n\n", $texto);
@@ -706,6 +730,17 @@ usort($issues, function($a, $b) use ($ordenar) {
                                                 <i class="bi bi-check2-square"></i> TODOs
                                             </div>
                                             <div class="card-body">
+                                                <!-- DEBUG INFO 
+                                                <div class="card mt-2 mb-2">
+                                                    <div class="card-body bg-light">
+                                                        <small class="text-muted">Debug info:</small>
+                                                        <pre class="mb-0" style="font-size: 10px; overflow: auto; max-height: 100px;">
+                                                            <?= print_r(debug_extraction($i['description']), true) ?>
+                                                        </pre>
+                                                    </div>
+                                                </div>
+                                                -->
+                                                
                                                 <?php if (empty($tags['todos'])): ?>
                                                 <p class="text-muted">Nenhuma tarefa cadastrada para esta oportunidade.</p>
                                                 <?php else: ?>
@@ -971,10 +1006,16 @@ usort($issues, function($a, $b) use ($ordenar) {
                 }
                 
                 // Mostrar indicador de carregamento
-                const spinner = document.createElement('span');
-                spinner.className = 'spinner-border spinner-border-sm ms-2';
-                spinner.setAttribute('role', 'status');
-                listItem.appendChild(spinner);
+                const loadingId = 'loading-' + issueId + '-' + todoIndex;
+                if (!document.getElementById(loadingId)) {
+                    const spinner = document.createElement('span');
+                    spinner.id = loadingId;
+                    spinner.className = 'spinner-border spinner-border-sm ms-2';
+                    spinner.setAttribute('role', 'status');
+                    spinner.style.width = '1rem';
+                    spinner.style.height = '1rem';
+                    listItem.appendChild(spinner);
+                }
                 
                 // Desabilitar checkbox durante o salvamento
                 this.disabled = true;
@@ -993,7 +1034,9 @@ usort($issues, function($a, $b) use ($ordenar) {
                 .then(response => response.json())
                 .then(data => {
                     // Remover spinner
-                    spinner.remove();
+                    const spinner = document.getElementById(loadingId);
+                    if (spinner) spinner.remove();
+                    
                     // Reabilitar checkbox
                     this.disabled = false;
                     
@@ -1002,6 +1045,7 @@ usort($issues, function($a, $b) use ($ordenar) {
                         if (data.progresso !== undefined) {
                             atualizarProgresso(issueId, data.progresso);
                         }
+                        console.log('TODO atualizado com sucesso!');
                     } else {
                         console.error('Erro ao atualizar TODO:', data.error);
                         // Reverter o checkbox se houver erro
@@ -1012,18 +1056,31 @@ usort($issues, function($a, $b) use ($ordenar) {
                             label.classList.remove('text-decoration-line-through', 'text-muted');
                         }
                         
-                        // Mostrar alerta de erro
-                        alert('Erro ao atualizar tarefa. Por favor, tente novamente.');
+                        // Mostrar notificação de erro em vez de alerta modal
+                        const notification = document.createElement('div');
+                        notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
+                        notification.innerHTML = `
+                            <strong>Erro!</strong> Não foi possível atualizar a tarefa.
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        `;
+                        document.body.appendChild(notification);
+                        
+                        // Remover notificação após 5 segundos
+                        setTimeout(() => {
+                            notification.remove();
+                        }, 5000);
                     }
                 })
                 .catch(error => {
                     // Remover spinner
-                    spinner.remove();
+                    const spinner = document.getElementById(loadingId);
+                    if (spinner) spinner.remove();
+                    
                     // Reabilitar checkbox
                     this.disabled = false;
                     
                     console.error('Erro na requisição:', error);
-                    // Reverter o checkbox se houver erro
+                    // Reverter o checkbox
                     this.checked = !this.checked;
                     if (this.checked) {
                         label.classList.add('text-decoration-line-through', 'text-muted');
@@ -1031,8 +1088,19 @@ usort($issues, function($a, $b) use ($ordenar) {
                         label.classList.remove('text-decoration-line-through', 'text-muted');
                     }
                     
-                    // Mostrar alerta de erro
-                    alert('Erro de conexão. Por favor, verifique sua internet e tente novamente.');
+                    // Mostrar notificação de erro em vez de alerta modal
+                    const notification = document.createElement('div');
+                    notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
+                    notification.innerHTML = `
+                        <strong>Erro de conexão!</strong> Verifique sua internet e tente novamente.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    document.body.appendChild(notification);
+                    
+                    // Remover notificação após 5 segundos
+                    setTimeout(() => {
+                        notification.remove();
+                    }, 5000);
                 });
             });
         });

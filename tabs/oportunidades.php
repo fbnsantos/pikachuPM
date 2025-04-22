@@ -10,6 +10,8 @@ if (!$user || !$pass) {
     return;
 }
 
+$project_id = 'leadstribe';
+
 function redmine_request($endpoint, $method = 'GET', $data = null) {
     global $BASE_URL, $user, $pass;
     $url = "$BASE_URL/$endpoint";
@@ -43,7 +45,7 @@ function redmine_request($endpoint, $method = 'GET', $data = null) {
 }
 
 // Verifica se projeto 'leads' existe
-$res_proj = redmine_request('projects/leads');
+$res_proj = redmine_request("projects/$project_id.json");
 if (!$res_proj) {
     $proj_data = [
         'project' => [
@@ -65,7 +67,7 @@ if (!$res_proj) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['novo_titulo'])) {
     $data = [
         'issue' => [
-            'project_id' => 'leads',
+            'project_id' => \$project_id,
             'subject' => $_POST['novo_titulo'],
             'description' => $_POST['novo_conteudo'] ?? ''
         ]
@@ -76,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['novo_titulo'])) {
 }
 
 // Buscar oportunidades
-$res = redmine_request('projects/leads/issues.json?limit=100&status_id=*');
+$res = redmine_request("projects/$project_id/issues.json?limit=100&status_id=*");
 $issues = $res['issues'] ?? [];
 
 function extrair_tags($texto) {

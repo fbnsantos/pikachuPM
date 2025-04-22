@@ -129,7 +129,8 @@ $links = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
     </form>
 
-    <form method="post" class="row g-3 mb-4">
+    <button class="btn btn-outline-secondary mb-3" type="button" onclick="document.getElementById('formAdicionar').classList.toggle('d-none')">➕ Adicionar link</button>
+<form method="post" id="formAdicionar" class="row g-3 mb-4 d-none">
         <div class="col-md-5">
             <input type="url" name="url" class="form-control" placeholder="URL" required>
         </div>
@@ -161,7 +162,7 @@ $links = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     </small>
                 </div>
                 <div>
-                    <button class="btn btn-sm btn-outline-success edit-btn ms-2" data-id="<?= $link['id'] ?>">💾</button>
+                    <button class="btn btn-sm btn-outline-primary edit-btn ms-2" data-id="<?= $link['id'] ?>">✏️ Editar</button>
                     <form method="post" class="d-inline" onsubmit="return confirm('Apagar este link?');">
                         <input type="hidden" name="apagar" value="<?= $link['id'] ?>">
                         <button type="submit" class="btn btn-sm btn-outline-danger">🗑️</button>

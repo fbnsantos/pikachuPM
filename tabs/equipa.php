@@ -1003,7 +1003,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Desativar botão de pausa
         if (btnPausarEl) {
-            btnPausarEl.disabled = true;
+            btnPausarEl.disabled = false;
             btnPausarEl.classList.remove('btn-warning', 'btn-success');
             btnPausarEl.classList.add('btn-secondary');
         }

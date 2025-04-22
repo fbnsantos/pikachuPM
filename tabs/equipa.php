@@ -368,6 +368,10 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             $_SESSION['esta_pausado'] = true;
             $_SESSION['momento_pausa'] = time();
         }
+        
+        // Não redirecionamos aqui para que o JavaScript continue funcionando
+        echo json_encode(['success' => true, 'pausado' => $_SESSION['esta_pausado']]);
+        exit;
     }
     
     // Próximo orador
@@ -567,11 +571,9 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                         </div>
                                         
                                         <div class="d-flex flex-wrap gap-2 mb-3">
-                                            <form method="post" class="d-inline">
-                                                <button type="submit" name="pausar" class="btn <?= $esta_pausado ? 'btn-success' : 'btn-warning' ?> btn-action">
-                                                    <?= $esta_pausado ? '<i class="bi bi-play-fill"></i> Continuar' : '<i class="bi bi-pause-fill"></i> Pausar' ?>
-                                                </button>
-                                            </form>
+                                            <button type="button" id="btn-pausar" class="btn <?= $esta_pausado ? 'btn-success' : 'btn-warning' ?> btn-action">
+                                                <?= $esta_pausado ? '<i class="bi bi-play-fill"></i> Continuar' : '<i class="bi bi-pause-fill"></i> Pausar' ?>
+                                            </button>
                                             
                                             <form method="post" class="d-inline">
                                                 <button type="submit" name="proximo" class="btn btn-primary btn-action">
@@ -863,54 +865,99 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Cronômetro só é inicializado se a reunião estiver em andamento
-    <?php if ($em_reuniao && !$reuniao_concluida): ?>
+    <?php if ($em_reuniao && !$reuniao_concluida && isset($oradorId)): ?>
         let tempo = 30;
         let isPaused = <?= $esta_pausado ? 'true' : 'false' ?>;
         const el = document.getElementById("cronometro");
         const beep = document.getElementById("beep");
         const progressBar = document.getElementById("progress-bar");
         const tempoTotal = document.getElementById("tempo-total");
+        const btnPausar = document.getElementById("btn-pausar");
         
-        // Atualizar cronômetro e tempo total
-        const intervalo = setInterval(() => {
-            if (!isPaused) {
-                tempo--;
-                el.textContent = tempo;
-                
-                // Atualizar barra de progresso
-                const percentual = (tempo / 30) * 100;
-                progressBar.style.width = percentual + "%";
-                
-                // Mudar cor da barra conforme tempo
-                if (tempo <= 5) {
-                    progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-danger";
-                } else if (tempo <= 15) {
-                    progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-warning";
+        // Verificar se os elementos existem antes de prosseguir
+        if (el && progressBar) {
+            console.log("Iniciando cronômetro...");
+            
+            // Atualizar cronômetro e tempo total
+            const intervalo = setInterval(() => {
+                if (!isPaused) {
+                    tempo--;
+                    el.textContent = tempo;
+                    
+                    // Atualizar barra de progresso
+                    const percentual = (tempo / 30) * 100;
+                    progressBar.style.width = percentual + "%";
+                    
+                    // Mudar cor da barra conforme tempo
+                    if (tempo <= 5) {
+                        progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-danger";
+                    } else if (tempo <= 15) {
+                        progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-warning";
+                    }
+                    
+                    // Tocar som aos 5 segundos
+                    if (tempo === 5 && beep) {
+                        beep.play().catch(error => console.log("Erro ao tocar som:", error));
+                    }
+                    
+                    // Parar quando chegar a zero
+                    if (tempo <= 0) {
+                        clearInterval(intervalo);
+                        el.textContent = "Tempo Esgotado!";
+                        progressBar.style.width = "100%";
+                        progressBar.className = "progress-bar bg-danger";
+                    }
                 }
-                
-                // Tocar som aos 5 segundos
-                if (tempo === 5) beep.play();
-                
-                // Parar quando chegar a zero
-                if (tempo <= 0) {
-                    clearInterval(intervalo);
-                    el.textContent = "Tempo Esgotado!";
-                    progressBar.style.width = "100%";
-                    progressBar.className = "progress-bar bg-danger";
-                }
+            }, 1000);
+            
+            // Atualizar tempo total a cada segundo
+            if (tempoTotal) {
+                const atualizarTempoTotal = setInterval(() => {
+                    if (!isPaused) {
+                        fetch('?tab=equipa&action=get_tempo_total')
+                            .then(response => response.text())
+                            .then(data => {
+                                if (data) tempoTotal.textContent = data;
+                            })
+                            .catch(error => console.log("Erro ao atualizar tempo total:", error));
+                    }
+                }, 1000);
             }
-        }, 1000);
-        
-        // Atualizar tempo total a cada segundo
-        const atualizarTempoTotal = setInterval(() => {
-            if (!isPaused) {
-                fetch('?tab=equipa&action=get_tempo_total')
-                    .then(response => response.text())
+            
+            // Capturar cliques no botão de pausa
+            if (btnPausar) {
+                btnPausar.addEventListener('click', function() {
+                    // Enviar solicitação AJAX para pausar/continuar
+                    fetch('?tab=equipa', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: 'pausar=1'
+                    })
+                    .then(response => response.json())
                     .then(data => {
-                        if (data) tempoTotal.textContent = data;
-                    });
+                        if (data.success) {
+                            isPaused = data.pausado;
+                            
+                            // Atualizar a aparência do botão
+                            if (isPaused) {
+                                btnPausar.classList.remove('btn-warning');
+                                btnPausar.classList.add('btn-success');
+                                btnPausar.innerHTML = '<i class="bi bi-play-fill"></i> Continuar';
+                            } else {
+                                btnPausar.classList.remove('btn-success');
+                                btnPausar.classList.add('btn-warning');
+                                btnPausar.innerHTML = '<i class="bi bi-pause-fill"></i> Pausar';
+                            }
+                        }
+                    })
+                    .catch(error => console.error('Erro:', error));
+                });
             }
-        }, 1000);
+        } else {
+            console.error("Elementos do cronômetro não encontrados!");
+        }
     <?php endif; ?>
 });
 </script>

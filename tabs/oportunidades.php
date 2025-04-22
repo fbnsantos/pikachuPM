@@ -236,9 +236,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['atualizar_issue'])) {
     }
 }
 
-// Criar nova oportunidade
+// Criar nova oportunidade com formato padronizado
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['novo_titulo'])) {
     $descricao = $_POST['novo_conteudo'] ?? '';
+    $todos = [];
+    $links = [];
+    
+    // Adicionar pelo menos um TODO vazio se não houver
+    if (empty($todos)) {
+        $todos[] = "- [ ] Primeiro TODO";
+    }
+    
+    // Adicionar formato para TODOs
+    $descricao .= "\n\n### TODOs:\n" . implode("\n", $todos);
+    
+    // Adicionar formato para links
+    $descricao .= "\n\n### Links:\n- [Exemplo](https://exemplo.com)";
     
     // Adicionar deadline se fornecido
     if (!empty($_POST['novo_deadline'])) {
@@ -266,13 +279,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['novo_titulo'])) {
 $res = redmine_request("projects/$project_id/issues.json?limit=100&status_id=*");
 $issues = $res['issues'] ?? [];
 
+// Debug - ajuda a visualizar o conteúdo para diagnóstico
+if (isset($_GET['debug_issue']) && !empty($_GET['debug_issue'])) {
+    $debug_id = intval($_GET['debug_issue']);
+    $debug_issue = redmine_request("issues/$debug_id.json?include=description");
+    if ($debug_issue) {
+        echo "<pre>";
+        echo "Descrição original:\n";
+        echo htmlspecialchars($debug_issue['issue']['description']);
+        echo "\n\nExtração debug:\n";
+        print_r(debug_extraction($debug_issue['issue']['description']));
+        echo "\n\nTags extraídas:\n";
+        print_r(extrair_tags($debug_issue['issue']['description']));
+        echo "</pre>";
+        exit;
+    }
+}
+
 function extrair_tags($texto) {
     preg_match('/#deadline:(\d{4}-\d{2}-\d{2})/', $texto, $dl);
     preg_match('/#relevance:(\d+)/', $texto, $rl);
     
-    // Extrair TODOs
+    // Extrair TODOs - versão melhorada para depuração
     $todos = [];
-    if (preg_match('/### TODOs:\n((?:- \[[ x]\] .+\n?)*)/', $texto, $matches)) {
+    if (preg_match('/### TODOs:\s*\n((?:- \[[ x]\] .+\n?)*)/', $texto, $matches)) {
         preg_match_all('/- \[([ x])\] (.+)/', $matches[1], $todoMatches, PREG_SET_ORDER);
         foreach ($todoMatches as $todoMatch) {
             $todos[] = [
@@ -282,9 +312,9 @@ function extrair_tags($texto) {
         }
     }
     
-    // Extrair links
+    // Extrair links - versão melhorada para depuração
     $links = [];
-    if (preg_match('/### Links:\n((?:- .+\n?)*)/', $texto, $matches)) {
+    if (preg_match('/### Links:\s*\n((?:- .+\n?)*)/', $texto, $matches)) {
         preg_match_all('/- (.+)/', $matches[1], $linkMatches, PREG_SET_ORDER);
         foreach ($linkMatches as $linkMatch) {
             $links[] = $linkMatch[1];
@@ -344,6 +374,34 @@ function extrair_descricao_simples($texto) {
     $texto = preg_replace('/\n{3,}/', "\n\n", $texto);
     return trim($texto);
 }
+
+    // Verificar possíveis problemas com a extração de TODOs e links
+    function debug_extraction($texto) {
+        $matches = [];
+        $todo_matches = [];
+        $link_matches = [];
+        
+        // Verificar a extração de TODOs
+        $has_todos_section = preg_match('/### TODOs:\n((?:- \[[ x]\] .+\n?)*)/', $texto, $matches);
+        if ($has_todos_section) {
+            $todos_content = $matches[1];
+            $has_todo_items = preg_match_all('/- \[([ x])\] (.+)/', $todos_content, $todo_matches, PREG_SET_ORDER);
+        }
+        
+        // Verificar a extração de links
+        $has_links_section = preg_match('/### Links:\n((?:- .+\n?)*)/', $texto, $matches);
+        if ($has_links_section) {
+            $links_content = $matches[1];
+            $has_link_items = preg_match_all('/- (.+)/', $links_content, $link_matches, PREG_SET_ORDER);
+        }
+        
+        return [
+            'has_todos_section' => $has_todos_section ? true : false,
+            'todos_count' => count($todo_matches),
+            'has_links_section' => $has_links_section ? true : false, 
+            'links_count' => count($link_matches)
+        ];
+    }
 
 $ordenar = $_GET['ordenar'] ?? 'relevance';
 usort($issues, function($a, $b) use ($ordenar) {
@@ -428,8 +486,8 @@ usort($issues, function($a, $b) use ($ordenar) {
 <div class="container mt-4">
     <h2>Oportunidades</h2>
 
-    <!-- Formulário para criar nova oportunidade -->
-    <div class="card mb-4">
+<!-- Formulário para criar nova oportunidade (inicialmente escondido) -->
+    <div class="card mb-4 collapse" id="formNovaOportunidade">
         <div class="card-header bg-primary text-white">
             <h5 class="mb-0">Nova Oportunidade</h5>
         </div>
@@ -455,6 +513,9 @@ usort($issues, function($a, $b) use ($ordenar) {
                     <button type="submit" class="btn btn-success">
                         <i class="bi bi-plus-circle"></i> Criar Oportunidade
                     </button>
+                    <button type="button" class="btn btn-secondary" data-bs-toggle="collapse" data-bs-target="#formNovaOportunidade">
+                        Cancelar
+                    </button>
                 </div>
             </form>
         </div>
@@ -464,6 +525,9 @@ usort($issues, function($a, $b) use ($ordenar) {
     <div class="d-flex justify-content-between mb-3">
         <h4>Lista de Oportunidades</h4>
         <div>
+            <button class="btn btn-success btn-sm me-2" data-bs-toggle="collapse" data-bs-target="#formNovaOportunidade">
+                <i class="bi bi-plus-circle"></i> Nova Oportunidade
+            </button>
             <a href="?tab=oportunidades&ordenar=relevance" class="btn btn-outline-primary btn-sm me-2">
                 <i class="bi bi-sort-numeric-down"></i> Ordenar por relevância
             </a>
@@ -543,6 +607,8 @@ usort($issues, function($a, $b) use ($ordenar) {
                             <?php if ($tags['deadline']): ?>
                                 <span class="<?= $deadline_class ?>">
                                     <?= date('d/m/Y', strtotime($tags['deadline'])) ?>
+                                    <br>
+                                    <small><?= $dias_texto ?></small>
                                 </span>
                             <?php else: ?>
                                 <span class="text-muted">--</span>

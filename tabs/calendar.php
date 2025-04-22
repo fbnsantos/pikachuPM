@@ -2,7 +2,7 @@
 // links.php — Gestão de links com edição, filtro, exportação, importação, ordenação e destaque visual
 session_start();
 
-$db_path = __DIR__ . '/../links2.sqlite';
+$db_path = __DIR__ . '/../links.sqlite';
 $nova_base = !file_exists($db_path);
 
 try {
@@ -138,7 +138,15 @@ $links = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <input type="text" name="titulo" class="form-control" placeholder="Título opcional">
         </div>
         <div class="col-md-2">
-            <input type="text" name="categoria" class="form-control" placeholder="Categoria">
+            <?php
+\$categoriasExistentes = \$db->query("SELECT DISTINCT categoria FROM links WHERE categoria IS NOT NULL AND categoria != '' ORDER BY categoria ASC")->fetchAll(PDO::FETCH_COLUMN);
+?>
+<select name="categoria" class="form-select">
+    <option value="">Categoria</option>
+    <?php foreach (\$categoriasExistentes as \$cat): ?>
+        <option value="<?= htmlspecialchars(\$cat) ?>"><?= htmlspecialchars(\$cat) ?></option>
+    <?php endforeach; ?>
+</select>
         </div>
         <div class="col-md-2">
             <button type="submit" class="btn btn-primary w-100">Guardar</button>

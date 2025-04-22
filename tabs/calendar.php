@@ -1,8 +1,11 @@
 <?php
-// links.php — Gestão de links com edição, filtro, exportação, importação, ordenação e destaque visual
+// calendar.php
 session_start();
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 
-$db_path = __DIR__ . '/../links.sqlite';
+$db_path = __DIR__ . '/../eventos.sqlite';
 $nova_base = !file_exists($db_path);
 
 try {
@@ -10,209 +13,160 @@ try {
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     if ($nova_base) {
-        $db->exec("CREATE TABLE links (
+        $db->exec("CREATE TABLE eventos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            url TEXT NOT NULL,
-            titulo TEXT,
-            categoria TEXT,
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP,
-            ordem INTEGER
+            data TEXT NOT NULL,
+            tipo TEXT NOT NULL,
+            descricao TEXT,
+            criador TEXT,
+            cor TEXT NOT NULL
         )");
     }
 } catch (Exception $e) {
-    die("Erro ao abrir/criar base de dados: " . $e->getMessage());
+    die("Erro ao inicializar base de dados: " . $e->getMessage());
 }
 
-// Reordenar via JS
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'application/json') {
-    $json = json_decode(file_get_contents('php://input'), true);
-    if (!empty($json['editar'])) {
-        $stmt = $db->prepare("UPDATE links SET titulo = :titulo, categoria = :categoria WHERE id = :id");
+$hoje = new DateTime();
+$offset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
+$hoje->modify("$offset days");
+$inicioSemana = clone $hoje;
+$inicioSemana->modify('monday this week');
+$datas = [];
+$numSemanas = isset($_GET['semanas']) ? max(1, min(20, (int)$_GET['semanas'])) : 12;
+for ($i = 0; $i < $numSemanas * 7; $i++) {
+    $data = clone $inicioSemana;
+    $data->modify("+$i days");
+    $datas[] = $data;
+}
+
+// Debug
+// echo '<pre>'; print_r($datas); echo '</pre>';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (isset($_POST['data'], $_POST['tipo'], $_POST['descricao'])) {
+        $stmt = $db->prepare("INSERT INTO eventos (data, tipo, descricao, criador, cor) VALUES (:data, :tipo, :descricao, :criador, :cor)");
+        $cor = match ($_POST['tipo']) {
+            'ferias' => 'green',
+            'demo' => 'blue',
+            'campo' => 'orange',
+            'aulas' => 'grey',
+            'tribe' => 'purple',
+            default => 'red'
+        };
         $stmt->execute([
-            ':titulo' => $json['titulo'],
-            ':categoria' => $json['categoria'],
-            ':id' => $json['id']
+            ':data' => $_POST['data'],
+            ':tipo' => $_POST['tipo'],
+            ':descricao' => $_POST['descricao'],
+            ':criador' => $_SESSION['user'] ?? 'anon',
+            ':cor' => $cor
         ]);
-        http_response_code(200);
-        exit;
+    } elseif (isset($_POST['delete'])) {
+        $stmt = $db->prepare("DELETE FROM eventos WHERE id = :id");
+        $stmt->execute([':id' => $_POST['delete']]);
     }
-    if (!empty($json['reordenar']) && is_array($json['ordem'])) {
-        foreach ($json['ordem'] as $index => $id) {
-            $stmt = $db->prepare("UPDATE links SET ordem = :ordem WHERE id = :id");
-            $stmt->execute([':ordem' => $index, ':id' => $id]);
-        }
-        http_response_code(200);
-        exit;
-    }
-}
-
-// Exportar CSV
-if (isset($_GET['exportar'])) {
-    header('Content-Type: text/csv');
-    header('Content-Disposition: attachment; filename="links.csv"');
-    $out = fopen('php://output', 'w');
-    fputcsv($out, ['ID', 'URL', 'Título', 'Categoria', 'Criado em']);
-    foreach ($db->query("SELECT * FROM links") as $linha) {
-        fputcsv($out, $linha);
-    }
-    fclose($out);
+    header("Location: index.php?tab=calendar&offset=$offset");
     exit;
 }
 
-// Importar CSV
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['ficheiro_csv'])) {
-    $ficheiro = $_FILES['ficheiro_csv']['tmp_name'];
-    if (($handle = fopen($ficheiro, 'r')) !== false) {
-        fgetcsv($handle); // ignora cabeçalho
-        while (($linha = fgetcsv($handle)) !== false) {
-            [$id, $url, $titulo, $categoria, $criado_em] = $linha;
-            $stmt = $db->prepare("INSERT INTO links (url, titulo, categoria, criado_em) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$url, $titulo, $categoria, $criado_em]);
-        }
-        fclose($handle);
-    }
-    header('Location: index.php?tab=links');
-    exit;
+$stmt = $db->query("SELECT * FROM eventos");
+$eventos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$eventos_por_dia = [];
+foreach ($eventos as $e) {
+    $eventos_por_dia[$e['data']][] = $e;
 }
 
-// Inserção de novo link
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['url'])) {
-    $stmt = $db->prepare("INSERT INTO links (url, titulo, categoria, ordem) VALUES (:url, :titulo, :categoria, :ordem)");
-    $ordem = $db->query("SELECT COUNT(*) FROM links")->fetchColumn();
-    $stmt->execute([
-        ':url' => trim($_POST['url']),
-        ':titulo' => trim($_POST['titulo']),
-        ':categoria' => trim($_POST['categoria']),
-        ':ordem' => $ordem
-    ]);
-    header('Location: index.php?tab=links');
-    exit;
-}
-
-// Remoção
-if (isset($_POST['apagar'])) {
-    $stmt = $db->prepare("DELETE FROM links WHERE id = :id");
-    $stmt->execute([':id' => (int)$_POST['apagar']]);
-    header('Location: index.php?tab=links');
-    exit;
-}
-
-$filtro = $_GET['filtro'] ?? '';
-$stmt = $db->prepare("SELECT * FROM links WHERE categoria LIKE :filtro ORDER BY ordem ASC, criado_em DESC");
-$stmt->execute([':filtro' => "%$filtro%"]);
-$links = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+    .calendario { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr 0.6fr 0.6fr; gap: 5px; }
+    .dia { border: 1px solid #ccc; min-height: 150px; padding: 5px; position: relative; background: #f9f9f9;
+    box-sizing: border-box; }
+    .data { font-weight: bold; }
+    .evento { font-size: 0.85em; padding: 2px 4px; margin-top: 2px; border-radius: 4px; color: white; display: block; }
+    .fade { opacity: 0; transition: opacity 0.3s ease-in-out; }
+    .fade.show { opacity: 1; }
+    .hoje { background: #fff4cc !important; border: 2px solid #f5b041; }
+    .fimsemana { background: #f0f0f0; opacity: 0.6; font-size: 0.85em; }
+    
+</style>
+
 <div class="container mt-4">
-    <h2>📚 Gestão de Links Web</h2>
-    <p class="text-muted">Arraste para reordenar, edite títulos/categorias ou clique para abrir o link.</p>
+    <h2 class="mb-4">Calendário da equipa</h2>
+    <div class="d-flex justify-content-between mb-3">
+    <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset - 7 ?>">&laquo; Semana anterior</a>
+    <a class="btn btn-outline-primary" href="?tab=calendar">Hoje</a>
+    <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset + 7 ?>">Semana seguinte &raquo;</a>
+</div>
 
-    <form method="get" class="row g-2 mb-3">
-        <div class="col-md-4">
-            <input type="text" name="filtro" value="<?= htmlspecialchars($filtro) ?>" class="form-control" placeholder="Filtrar por categoria">
-        </div>
-        <div class="col-auto">
-            <button type="submit" class="btn btn-outline-secondary">Filtrar</button>
-        </div>
-        <div class="col-auto ms-auto">
-            <a href="?exportar=1" class="btn btn-outline-primary">📤 Exportar CSV</a>
-        </div>
-    </form>
-
-    <form method="post" enctype="multipart/form-data" class="row g-2 mb-4">
-        <div class="col-md-5">
-            <input type="file" name="ficheiro_csv" accept=".csv" class="form-control" required>
-        </div>
-        <div class="col-auto">
-            <button type="submit" class="btn btn-outline-success">📥 Importar CSV</button>
-        </div>
-    </form>
-
-    <button class="btn btn-outline-secondary mb-3" type="button" onclick="document.getElementById('formAdicionar').classList.toggle('d-none')">➕ Adicionar link</button>
-<form method="post" id="formAdicionar" class="row g-3 mb-4 d-none">
-        <div class="col-md-5">
-            <input type="url" name="url" class="form-control" placeholder="URL" required>
-        </div>
-        <div class="col-md-3">
-            <input type="text" name="titulo" class="form-control" placeholder="Título opcional">
-        </div>
-        <div class="col-md-2">
-            <?php
-\$categoriasExistentes = \$db->query("SELECT DISTINCT categoria FROM links WHERE categoria IS NOT NULL AND categoria != '' ORDER BY categoria ASC")->fetchAll(PDO::FETCH_COLUMN);
+    <form method="get" class="mb-3">
+    <input type="hidden" name="tab" value="calendar">
+    <input type="hidden" name="offset" value="<?= $offset ?>">
+    <label for="semanas" class="form-label">Número de semanas a mostrar:</label>
+    <select name="semanas" id="semanas" class="form-select form-select-sm w-auto d-inline-block" onchange="this.form.submit()">
+        <?php for ($i = 1; $i <= 20; $i++): ?>
+            <option value="<?= $i ?>" <?= $i == $numSemanas ? 'selected' : '' ?>><?= $i ?></option>
+        <?php endfor; ?>
+    </select>
+</form>
+<div class="calendario">
+        <?php foreach ($datas as $data): 
+            $data_str = $data->format('Y-m-d');
+        ?>
+        <?php $isHoje = $data->format('Y-m-d') === (new DateTime())->format('Y-m-d'); ?>
+<?php
+    $diaSemana = $data->format('N');
+    $isHoje = $data->format('Y-m-d') === (new DateTime())->format('Y-m-d');
+    $classeExtra = ($diaSemana == 6 || $diaSemana == 7) ? ' fimsemana' : '';
 ?>
-<select name="categoria" class="form-select">
-    <option value="">Categoria</option>
-    <?php foreach (\$categoriasExistentes as \$cat): ?>
-        <option value="<?= htmlspecialchars(\$cat) ?>"><?= htmlspecialchars(\$cat) ?></option>
-    <?php endforeach; ?>
-</select>
-        </div>
-        <div class="col-md-2">
-            <button type="submit" class="btn btn-primary w-100">Guardar</button>
-        </div>
-    </form>
-
-    <ul class="list-group" id="sortable">
-        <?php foreach ($links as $link): ?>
-            <li class="list-group-item d-flex justify-content-between align-items-start" data-id="<?= $link['id'] ?>" style="cursor: grab;">
-                <div class="me-auto" onclick="window.open('<?= htmlspecialchars($link['url']) ?>', '_blank')">
-                    <div class="fw-bold fs-5" id="titulo-<?= $link['id'] ?>" contenteditable="true">
-                        <?= htmlspecialchars($link['titulo'] ?: $link['url']) ?>
-                    </div>
-                    <?php $isSecure = str_starts_with($link['url'], 'https'); ?>
-<div class="text-muted small">
-    🔗 <a href="<?= htmlspecialchars($link['url']) ?>" target="_blank" title="<?= htmlspecialchars($link['url']) ?>">
-        <?= $isSecure ? '🔒 ' : '' ?>Press here
-    </a>
-</div>
-                    <small class="text-muted">
-                        Categoria: <span id="categoria-<?= $link['id'] ?>" contenteditable="true">
-                            <?= htmlspecialchars($link['categoria']) ?>
-                        </span> | <?= $link['criado_em'] ?>
-                    </small>
-                </div>
-                <div>
-                    <button class="btn btn-sm btn-outline-primary edit-btn ms-2" data-id="<?= $link['id'] ?>">✏️ Editar</button>
-                    <form method="post" class="d-inline" onsubmit="return confirm('Apagar este link?');">
-                        <input type="hidden" name="apagar" value="<?= $link['id'] ?>">
-                        <button type="submit" class="btn btn-sm btn-outline-danger">🗑️</button>
+<div class="dia<?= $isHoje ? ' hoje' : '' ?><?= $classeExtra ?>">
+            <div class="data"><?= $data->format('D d/m/Y') ?></div>
+            <?php if (isset($eventos_por_dia[$data_str])): ?>
+                <?php foreach ($eventos_por_dia[$data_str] as $ev): ?>
+                    <form method="post" class="d-flex justify-content-between align-items-center">
+                        <span class="evento" style="background: <?= $ev['cor'] ?>;">
+                            <?= htmlspecialchars($ev['tipo']) ?>: <?= htmlspecialchars($ev['descricao']) ?>
+                        </span>
+                        <button type="submit" name="delete" value="<?= $ev['id'] ?>" class="btn btn-sm btn-outline-danger ms-1">x</button>
                     </form>
-                </div>
-            </li>
+                <?php endforeach; ?>
+            <?php endif; ?>
+            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="toggleForm(this)">+ Adicionar</button>
+<form method="post" class="mt-2 d-none">
+                <input type="hidden" name="data" value="<?= $data_str ?>">
+                <select name="tipo" class="form-select form-select-sm mb-1">
+                    <option value="ferias">Férias</option>
+                    <option value="demo">Demonstração</option>
+                    <option value="campo">Saída de campo</option>
+                    <option value="aulas">Aulas</option>
+                    <option value="tribe">TRIBE MEETING</option>
+                    <option value="outro">Outro</option>
+                </select>
+                <input type="text" name="descricao" placeholder="Descrição" class="form-control form-control-sm mb-1" required>
+                <button type="submit" class="btn btn-sm btn-primary">Adicionar</button>
+            </form>
+        </div>
         <?php endforeach; ?>
-    </ul>
+    </div>
 </div>
-
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
-document.querySelectorAll('.edit-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        const id = btn.dataset.id;
-        const titulo = document.getElementById('titulo-' + id).innerText;
-        const categoria = document.getElementById('categoria-' + id).innerText;
+function toggleForm(button) {
+    const form = button.nextElementSibling;
+    form.classList.toggle('d-none');
+    button.classList.toggle('d-none');
+    form.classList.add('fade');
+    form.classList.add('show');
+}
 
-        fetch('index.php?tab=links', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ editar: true, id, titulo, categoria })
-        }).then(res => {
-            if (res.ok) alert('✅ Alterado com sucesso!');
-            else alert('❌ Erro ao atualizar');
+// Fechar formulários ao submeter
+window.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('form').forEach(f => {
+        f.addEventListener('submit', () => {
+            const parent = f.closest('.dia');
+            const btn = parent.querySelector('button[type="button"]');
+            f.classList.add('d-none');
+            if (btn) btn.classList.remove('d-none');
         });
     });
-});
-
-const lista = document.getElementById("sortable");
-Sortable.create(lista, {
-    animation: 150,
-    onEnd: function () {
-        const ids = Array.from(lista.children).map(li => li.dataset.id);
-        fetch("index.php?tab=links", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ reordenar: true, ordem: ids })
-        });
-    }
 });
 </script>

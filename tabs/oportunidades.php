@@ -59,7 +59,7 @@ if (!$res_proj) {
     redmine_request('projects.json', 'POST', [
         'project' => [
             'name' => 'LEADS',
-            'identifier' => 'leadsTRIBE',
+            'identifier' => 'leadstribe',
             'description' => 'Projeto de oportunidades criadas pela interface PHP',
             'is_public' => false
         ]

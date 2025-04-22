@@ -3,11 +3,6 @@
 session_start();
 include_once __DIR__ . '/../config.php';
 
-if (!isset($_SESSION['username'])) {
-    header('Location: login.php');
-    exit;
-}
-
 $user = $_SESSION['user'] ?? '';
 $pass = $_SESSION['password'] ?? '';
 if (!$user || !$pass) {
@@ -56,6 +51,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['novo_titulo'])) {
     redmine_request('issues.json', 'POST', $data);
     header("Location: index.php?tab=oportunidades");
     exit;
+}
+
+// Verificar se projeto LEADS existe, senão criar
+$res_proj = redmine_request('projects/LEADS');
+if (!$res_proj) {
+    redmine_request('projects.json', 'POST', [
+        'project' => [
+            'name' => 'LEADS',
+            'identifier' => 'LEADS',
+            'description' => 'Projeto de oportunidades criadas pela interface PHP',
+            'is_public' => false
+        ]
+    ]);
 }
 
 // Buscar oportunidades

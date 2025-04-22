@@ -104,7 +104,7 @@ foreach ($eventos as $e) {
     <input type="hidden" name="offset" value="<?= $offset ?>">
     <label for="semanas" class="form-label">Número de semanas a mostrar:</label>
     <select name="semanas" id="semanas" class="form-select form-select-sm w-auto d-inline-block" onchange="this.form.submit()">
-        <?php for ($i = 1; $i <= 10; $i++): ?>
+        <?php for ($i = 1; $i <= 20; $i++): ?>
             <option value="<?= $i ?>" <?= $i == $numSemanas ? 'selected' : '' ?>><?= $i ?></option>
         <?php endfor; ?>
     </select>

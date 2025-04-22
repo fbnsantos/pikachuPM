@@ -92,7 +92,7 @@ foreach ($eventos as $e) {
 </style>
 
 <div class="container mt-4">
-    <h2 class="mb-4">Calendário Colaborativo</h2>
+    <h2 class="mb-4">Calendário da equipa</h2>
     <div class="d-flex justify-content-between mb-3">
     <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset - 7 ?>">&laquo; Semana anterior</a>
     <a class="btn btn-outline-primary" href="?tab=calendar">Hoje</a>

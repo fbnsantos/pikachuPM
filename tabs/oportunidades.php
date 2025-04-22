@@ -48,7 +48,7 @@ if (!$res_proj) {
     $proj_data = [
         'project' => [
             'name' => 'LEADS',
-            'identifier' => 'leads',
+            'identifier' => $project_id,
             'description' => 'Projeto para oportunidades criadas via interface PHP',
             'is_public' => false
         ]

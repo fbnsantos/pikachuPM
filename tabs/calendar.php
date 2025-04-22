@@ -32,7 +32,7 @@ $hoje->modify("$offset days");
 $inicioSemana = clone $hoje;
 $inicioSemana->modify('monday this week');
 $datas = [];
-$numSemanas = isset($_GET['semanas']) ? max(1, min(20, (int)$_GET['semanas'])) : 12;
+$numSemanas = isset($_GET['semanas']) ? max(1, min(40, (int)$_GET['semanas'])) : 30;
 for ($i = 0; $i < $numSemanas * 7; $i++) {
     $data = clone $inicioSemana;
     $data->modify("+$i days");
@@ -104,7 +104,7 @@ foreach ($eventos as $e) {
     <input type="hidden" name="offset" value="<?= $offset ?>">
     <label for="semanas" class="form-label">Número de semanas a mostrar:</label>
     <select name="semanas" id="semanas" class="form-select form-select-sm w-auto d-inline-block" onchange="this.form.submit()">
-        <?php for ($i = 1; $i <= 20; $i++): ?>
+        <?php for ($i = 1; $i <= 40; $i++): ?>
             <option value="<?= $i ?>" <?= $i == $numSemanas ? 'selected' : '' ?>><?= $i ?></option>
         <?php endfor; ?>
     </select>

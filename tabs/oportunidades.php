@@ -10,7 +10,7 @@ if (!$user || !$pass) {
     return;
 }
 
-$project_id = 'leadstribe';
+$project_id = 'leads';
 
 function redmine_request($endpoint, $method = 'GET', $data = null) {
     global $BASE_URL, $user, $pass;

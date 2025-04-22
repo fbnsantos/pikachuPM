@@ -74,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['url'])) {
         ':titulo' => trim($_POST['titulo']),
         ':categoria' => trim($_POST['categoria'])
     ]);
-    header('Location: links.php');
+    header('Location: index.php?tab=links');
     exit;
 }
 
@@ -82,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['url'])) {
 if (isset($_POST['apagar'])) {
     $stmt = $db->prepare("DELETE FROM links WHERE id = :id");
     $stmt->execute([':id' => (int)$_POST['apagar']]);
-    header('Location: links.php');
+    header('Location: index.php?tab=links');
     exit;
 }
 

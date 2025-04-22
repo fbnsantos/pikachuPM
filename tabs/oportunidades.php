@@ -56,14 +56,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['novo_titulo'])) {
 // Verificar se projeto LEADS existe, senão criar
 $res_proj = redmine_request('projects/LEADS');
 if (!$res_proj) {
-    redmine_request('projects.json', 'POST', [
+    \$create_resp = redmine_request('projects.json', 'POST', [
         'project' => [
             'name' => 'LEADS',
-            'identifier' => 'leadstribe',
+            'identifier' => 'leads',
             'description' => 'Projeto de oportunidades criadas pela interface PHP',
             'is_public' => false
         ]
+    ]
     ]);
+    if (!$create_resp) {
+        echo "<div class='alert alert-danger'>Erro ao criar o projeto LEADS automaticamente.</div>";
+    } else {
+        echo "<div class='alert alert-success'>Projeto LEADS criado automaticamente.</div>";
+    }
 }
 
 // Buscar oportunidades

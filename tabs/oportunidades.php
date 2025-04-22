@@ -36,7 +36,11 @@ function redmine_request($endpoint, $method = 'GET', $data = null) {
         return null;
     }
 
-    return json_decode($resp, true);
+    $data = json_decode($resp, true);
+echo "<pre>[$method] $url
+HTTP: $code
+Resposta: " . htmlspecialchars($resp) . "</pre>";
+return $data;
 }
 
 // Criar nova oportunidade

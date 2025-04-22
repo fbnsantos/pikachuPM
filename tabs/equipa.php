@@ -4,7 +4,7 @@ session_start();
 include_once __DIR__ . '/../config.php';
 
 // Verificar e criar base de dados SQLite e tabelas, se necessário
-$db_path = __DIR__ . '/../equipa2.sqlite';
+$db_path = __DIR__ . '/../equipa.sqlite';
 $nova_base_dados = !file_exists($db_path);
 
 try {
@@ -273,17 +273,46 @@ if (!isset($_SESSION['gestor'])) {
     $_SESSION['oradores'] = [];
     $_SESSION['orador_atual'] = 0;
     $_SESSION['inicio_reuniao'] = null;
-    $_SESSION['tempo_pausado'] = 0;
-    $_SESSION['esta_pausado'] = false;
-    $_SESSION['momento_pausa'] = null;
 }
 
 $gestor = $_SESSION['gestor'];
 $em_reuniao = $_SESSION['em_reuniao'];
 $oradores = $_SESSION['oradores'];
 $orador_atual = $_SESSION['orador_atual'];
-$tempo_pausado = $_SESSION['tempo_pausado'];
-$esta_pausado = $_SESSION['esta_pausado'];
+
+// Apenas responda com JSON para requisições AJAX
+if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+    if (isset($_POST['acao'])) {
+        $resposta = ['sucesso' => true];
+        
+        switch ($_POST['acao']) {
+            case 'proximo_orador':
+                // Avançar para o próximo orador
+                $_SESSION['orador_atual']++;
+                $resposta['mensagem'] = 'Avançado para o próximo orador';
+                break;
+                
+            case 'tempo_esgotado':
+                // Registrar que o tempo acabou para este orador
+                $resposta['mensagem'] = 'Tempo esgotado registrado';
+                break;
+                
+            case 'terminar_reuniao':
+                // Finalizar a reunião
+                $_SESSION['em_reuniao'] = false;
+                $resposta['mensagem'] = 'Reunião finalizada';
+                break;
+                
+            default:
+                $resposta['sucesso'] = false;
+                $resposta['mensagem'] = 'Ação desconhecida';
+        }
+        
+        header('Content-Type: application/json');
+        echo json_encode($resposta);
+        exit;
+    }
+}
 
 // Processar ações POST
 if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -344,9 +373,6 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         $_SESSION['em_reuniao'] = true;
         $_SESSION['orador_atual'] = 0;
         $_SESSION['inicio_reuniao'] = time();
-        $_SESSION['tempo_pausado'] = 0;
-        $_SESSION['esta_pausado'] = false;
-        $_SESSION['momento_pausa'] = null;
     }
     
     // Terminar reunião
@@ -357,27 +383,6 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         $_SESSION['oradores'] = [];
         $_SESSION['orador_atual'] = 0;
         $_SESSION['inicio_reuniao'] = null;
-        $_SESSION['tempo_pausado'] = 0;
-        $_SESSION['esta_pausado'] = false;
-        $_SESSION['momento_pausa'] = null;
-    }
-    
-    // Pausar/Continuar reunião
-    if (isset($_POST['pausar'])) {
-        if ($_SESSION['esta_pausado']) {
-            // Calcular tempo decorrido durante a pausa
-            $tempo_pausa = time() - $_SESSION['momento_pausa'];
-            $_SESSION['tempo_pausado'] += $tempo_pausa;
-            $_SESSION['esta_pausado'] = false;
-            $_SESSION['momento_pausa'] = null;
-        } else {
-            $_SESSION['esta_pausado'] = true;
-            $_SESSION['momento_pausa'] = time();
-        }
-        
-        // Não redirecionamos aqui para que o JavaScript continue funcionando
-        echo json_encode(['success' => true, 'pausado' => $_SESSION['esta_pausado']]);
-        exit;
     }
     
     // Próximo orador
@@ -458,12 +463,8 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
 
 // Calcular tempo total de reunião
 $tempo_total = 0;
-if ($em_reuniao) {
-    if ($esta_pausado) {
-        $tempo_total = ($_SESSION['momento_pausa'] - $_SESSION['inicio_reuniao']) - $tempo_pausado;
-    } else {
-        $tempo_total = (time() - $_SESSION['inicio_reuniao']) - $tempo_pausado;
-    }
+if ($em_reuniao && isset($_SESSION['inicio_reuniao'])) {
+    $tempo_total = time() - $_SESSION['inicio_reuniao'];
 }
 
 // Verificar se a reunião terminou (todos os oradores falaram)
@@ -477,6 +478,7 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <style>
         .reuniao-card {
@@ -501,6 +503,10 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
         }
         .btn-action {
             min-width: 120px;
+        }
+        .debug-area {
+            font-size: 0.8rem;
+            color: #6c757d;
         }
     </style>
 </head>
@@ -563,23 +569,38 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                             <?php if ($oradorId): ?>
                                 <div class="row">
                                     <div class="col-md-6">
+                                        <!-- INÍCIO DO CRONÔMETRO -->
                                         <div class="card mb-3">
                                             <div class="card-header bg-info text-white">
                                                 <h5 class="mb-0"><i class="bi bi-mic-fill"></i> Orador atual: <?= htmlspecialchars(getNomeUtilizador($oradorId, $utilizadores)) ?></h5>
                                             </div>
                                             <div class="card-body text-center">
+                                                <!-- Mostrador do cronômetro -->
                                                 <div id="cronometro" class="timer-display my-2">30</div>
+                                                
+                                                <!-- Barra de progresso -->
                                                 <div class="progress mb-3">
                                                     <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 100%"></div>
                                                 </div>
-                                                <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+                                                
+                                                <!-- Audio para o alerta -->
+                                                <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
+                                                
+                                                <!-- Área de debug (opcional) -->
+                                                <div id="debug-area" class="text-start mt-3 border-top pt-2 debug-area d-none">
+                                                    <small>Status: <span id="status-display">Ativo</span></small><br>
+                                                    <small>Último evento: <span id="event-log">Iniciando cronômetro</span></small>
+                                                </div>
                                             </div>
                                         </div>
                                         
                                         <div class="d-flex flex-wrap gap-2 mb-3">
-
-                                            <button type="button" id="btn-pausar" class="btn btn-warning btn-action" onclick="console.log('Botão pausar clicado'); alert('Botão pausar clicado');">
+                                            <button id="btn-pausar" class="btn btn-warning btn-action">
                                                 <i class="bi bi-pause-fill"></i> Pausar
+                                            </button>
+                                            
+                                            <button id="btn-reiniciar" class="btn btn-secondary btn-action">
+                                                <i class="bi bi-arrow-repeat"></i> Reiniciar
                                             </button>
                                             
                                             <form method="post" class="d-inline">
@@ -592,13 +613,14 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                                 <i class="bi bi-x-circle"></i> Marcar Falta
                                             </button>
                                             
-                                            <form method="post" class="d-inline">
+                                            <form method="post" class="d-inline mt-2">
                                                 <input type="hidden" name="mover_final" value="<?= $oradorId ?>">
                                                 <button type="submit" class="btn btn-secondary btn-action">
                                                     <i class="bi bi-arrow-return-right"></i> Mover para Final
                                                 </button>
                                             </form>
                                         </div>
+                                        <!-- FIM DO CRONÔMETRO -->
                                     </div>
                                     
                                     <div class="col-md-6">
@@ -868,157 +890,216 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
     </div>
 </div>
 
-<!-- Cronômetro JavaScript Ultra Simplificado -->
+<!-- Script do cronômetro, totalmente no lado do cliente -->
 <script>
+// Executar quando o documento estiver carregado
 document.addEventListener('DOMContentLoaded', function() {
-    // Verificação de ambiente de execução
+    // Verificar se a reunião está ativa e não concluída
     <?php if ($em_reuniao && !$reuniao_concluida && isset($oradorId)): ?>
-        // Elementos DOM
-        const cronometro = document.getElementById('cronometro');
-        const progressBar = document.getElementById('progress-bar');
-        const btnPausar = document.getElementById('btn-pausar');
-        const beepSound = document.getElementById('beep');
-        const debugStatus = document.getElementById('debug-status');
-        const debugEvent = document.getElementById('debug-event');
+    
+    // Elementos DOM
+    const cronometroEl = document.getElementById('cronometro');
+    const progressBarEl = document.getElementById('progress-bar');
+    const btnPausarEl = document.getElementById('btn-pausar');
+    const btnReiniciarEl = document.getElementById('btn-reiniciar');
+    const beepEl = document.getElementById('beep');
+    const statusEl = document.getElementById('status-display');
+    const eventLogEl = document.getElementById('event-log');
+    const debugArea = document.getElementById('debug-area');
+    
+    // Verificar se os elementos necessários existem
+    if (!cronometroEl || !progressBarEl || !btnPausarEl) {
+        console.error('Elementos essenciais do cronômetro não encontrados!');
+        return;
+    }
+    
+    // Mostrar área de debug para diagnóstico se necessário
+    if (debugArea) {
+        // Descomentar para mostrar a área de debug
+        // debugArea.classList.remove('d-none');
+    }
+    
+    // Configuração inicial
+    const TEMPO_TOTAL = 30; // segundos
+    let tempoRestante = TEMPO_TOTAL;
+    let cronometroAtivo = true;
+    let intervalId = null;
+    let estaPausado = false;
+    
+    // Função para registrar eventos (para depuração)
+    function registrarEvento(mensagem) {
+        console.log(mensagem);
+        if (eventLogEl) {
+            const agora = new Date();
+            const timestamp = agora.getHours().toString().padStart(2, '0') + ':' + 
+                            agora.getMinutes().toString().padStart(2, '0') + ':' + 
+                            agora.getSeconds().toString().padStart(2, '0');
+            eventLogEl.textContent = mensagem + ' [' + timestamp + ']';
+        }
+    }
+    
+    // Função para atualizar o visual do cronômetro
+    function atualizarCronometro() {
+        // Atualizar o texto do cronômetro
+        cronometroEl.textContent = tempoRestante;
         
-        // Verificar se elementos existem
-        if (!cronometro || !progressBar || !btnPausar) {
-            console.error("Elementos do cronômetro não encontrados!");
-            return;
+        // Calcular a largura da barra de progresso
+        const porcentagem = (tempoRestante / TEMPO_TOTAL) * 100;
+        progressBarEl.style.width = porcentagem + '%';
+        
+        // Atualizar a cor da barra de progresso conforme o tempo restante
+        if (tempoRestante <= 5) {
+            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-danger';
+        } else if (tempoRestante <= 15) {
+            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-warning';
+        } else {
+            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
         }
         
-        // Registrar evento para depuração
-        function logEvento(msg) {
-            console.log(msg);
-            if (debugEvent) debugEvent.textContent = msg + " [" + new Date().toLocaleTimeString() + "]";
-        }
-        
-        // Variáveis de estado
-        let segundosRestantes = 30;
-        let temporizador = null;
-        let estaPausado = <?= $esta_pausado ? 'true' : 'false' ?>;
-        
-        // Atualizar status visual da pausa
-        function atualizarStatusPausa() {
-            if (estaPausado) {
-                btnPausar.classList.remove('btn-warning');
-                btnPausar.classList.add('btn-success');
-                btnPausar.innerHTML = '<i class="bi bi-play-fill"></i> Continuar';
-                if (debugStatus) debugStatus.textContent = "Pausado";
-            } else {
-                btnPausar.classList.remove('btn-success');
-                btnPausar.classList.add('btn-warning');
-                btnPausar.innerHTML = '<i class="bi bi-pause-fill"></i> Pausar';
-                if (debugStatus) debugStatus.textContent = "Ativo";
-            }
-        }
-        
-        // Atualizar visual do cronômetro
-        function atualizarCronometro() {
-            cronometro.textContent = segundosRestantes;
-            
-            // Atualizar barra de progresso
-            const percentual = (segundosRestantes / 30) * 100;
-            progressBar.style.width = percentual + "%";
-            
-            // Mudar cor baseado no tempo restante
-            if (segundosRestantes <= 5) {
-                progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-danger";
-            } else if (segundosRestantes <= 15) {
-                progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-warning";
-            }
-            
-            // Tocar som de aviso aos 5 segundos
-            if (segundosRestantes === 5 && beepSound) {
-                beepSound.play().catch(e => logEvento("Erro no som: " + e.message));
-            }
-            
-            // Verificar fim do tempo
-            if (segundosRestantes <= 0) {
-                pararCronometro();
-                cronometro.textContent = "Tempo Esgotado!";
-                progressBar.style.width = "0%";
-                progressBar.className = "progress-bar bg-danger";
-            }
-        }
-        
-        // Parar o cronômetro
-        function pararCronometro() {
-            logEvento("Cronômetro parado");
-            clearInterval(temporizador);
-            temporizador = null;
-        }
-        
-        // Iniciar/reiniciar o cronômetro
-        function iniciarCronometro() {
-            // Parar qualquer cronômetro existente
-            if (temporizador) {
-                pararCronometro();
-            }
-            
-            logEvento("Cronômetro iniciado");
-            
-            // Iniciar novo temporizador
-            temporizador = setInterval(function() {
-                if (!estaPausado) {
-                    segundosRestantes--;
-                    atualizarCronometro();
-                }
-            }, 1000);
-        }
-        
-        // Configurar botão de pausa
-        btnPausar.addEventListener('click', function(e) {
-            e.preventDefault(); // Prevenir comportamento padrão
-            
-            logEvento("Botão de pausa clicado");
-            
-            // Requisição AJAX para pausar/continuar
-            fetch('?tab=equipa', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'pausar=1'
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    estaPausado = data.pausado;
-                    atualizarStatusPausa();
-                    logEvento(estaPausado ? "Cronômetro pausado" : "Cronômetro retomado");
-                }
-            })
-            .catch(error => {
-                logEvento("Erro na pausa: " + error);
-                console.error('Erro:', error);
+        // Tocar som de alerta quando chegar a 5 segundos
+        if (tempoRestante === 5 && beepEl) {
+            beepEl.play().catch(err => {
+                registrarEvento('Erro ao tocar som: ' + err.message);
             });
-        });
+        }
         
-        // Inicializar
-        atualizarStatusPausa();
+        // Quando o tempo acabar
+        if (tempoRestante <= 0) {
+            finalizarCronometro();
+        }
+    }
+    
+    // Função para iniciar ou reiniciar o cronômetro
+    function iniciarCronometro() {
+        // Limpar qualquer intervalo existente
+        if (intervalId !== null) {
+            clearInterval(intervalId);
+            intervalId = null;
+        }
+        
+        registrarEvento('Cronômetro iniciado');
+        
+        // Configurar um novo intervalo que execute a cada 1 segundo
+        intervalId = setInterval(function() {
+            if (!estaPausado && cronometroAtivo) {
+                tempoRestante--;
+                atualizarCronometro();
+            }
+        }, 1000);
+    }
+    
+    // Função para finalizar o cronômetro quando o tempo acabar
+    function finalizarCronometro() {
+        clearInterval(intervalId);
+        intervalId = null;
+        cronometroAtivo = false;
+        
+        // Atualizar interface
+        cronometroEl.textContent = 'Tempo Esgotado!';
+        progressBarEl.style.width = '0%';
+        progressBarEl.className = 'progress-bar bg-danger';
+        
+        registrarEvento('Tempo esgotado');
+        
+        // Desativar botão de pausa
+        if (btnPausarEl) {
+            btnPausarEl.disabled = true;
+            btnPausarEl.classList.remove('btn-warning', 'btn-success');
+            btnPausarEl.classList.add('btn-secondary');
+        }
+    }
+    
+    // Função para alternar o estado de pausa
+    function alternarPausa() {
+        estaPausado = !estaPausado;
+        
+        // Atualizar interface
+        if (estaPausado) {
+            btnPausarEl.classList.remove('btn-warning');
+            btnPausarEl.classList.add('btn-success');
+            btnPausarEl.innerHTML = '<i class="bi bi-play-fill"></i> Continuar';
+            if (statusEl) statusEl.textContent = 'Pausado';
+        } else {
+            btnPausarEl.classList.remove('btn-success');
+            btnPausarEl.classList.add('btn-warning');
+            btnPausarEl.innerHTML = '<i class="bi bi-pause-fill"></i> Pausar';
+            if (statusEl) statusEl.textContent = 'Ativo';
+        }
+        
+        registrarEvento(estaPausado ? 'Cronômetro pausado' : 'Cronômetro retomado');
+    }
+    
+    // Função para reiniciar o cronômetro
+    function reiniciarCronometro() {
+        tempoRestante = TEMPO_TOTAL;
+        cronometroAtivo = true;
+        estaPausado = false;
+        
+        // Atualizar interface
+        if (btnPausarEl) {
+            btnPausarEl.disabled = false;
+            btnPausarEl.classList.remove('btn-success', 'btn-secondary');
+            btnPausarEl.classList.add('btn-warning');
+            btnPausarEl.innerHTML = '<i class="bi bi-pause-fill"></i> Pausar';
+        }
+        
+        if (statusEl) statusEl.textContent = 'Ativo';
+        
+        // Atualizar cronômetro e iniciar contagem
         atualizarCronometro();
         iniciarCronometro();
         
-        logEvento("Cronômetro configurado com sucesso");
-    <?php else: ?>
-        console.log("Cronômetro não iniciado - reunião não ativa ou sem orador");
+        registrarEvento('Cronômetro reiniciado');
+    }
+    
+    // Configurar eventos dos botões
+    
+    // Botão Pausar/Continuar
+    if (btnPausarEl) {
+        btnPausarEl.addEventListener('click', function(e) {
+            e.preventDefault();
+            alternarPausa();
+        });
+    }
+    
+    // Botão Reiniciar
+    if (btnReiniciarEl) {
+        btnReiniciarEl.addEventListener('click', function(e) {
+            e.preventDefault();
+            reiniciarCronometro();
+        });
+    }
+    
+    // Inicializar o cronômetro
+    atualizarCronometro();
+    iniciarCronometro();
+    registrarEvento('Cronômetro configurado com sucesso');
+    
+    <?php endif; ?>
+    
+    // Atualizar o tempo total da reunião a cada segundo
+    <?php if ($em_reuniao): ?>
+    function atualizarTempoTotal() {
+        const tempoTotalEl = document.getElementById('tempo-total');
+        if (tempoTotalEl) {
+            let segundos = <?= $tempo_total ?>;
+            setInterval(function() {
+                segundos++;
+                
+                // Formatar o tempo (HH:MM:SS)
+                const horas = Math.floor(segundos / 3600).toString().padStart(2, '0');
+                const minutos = Math.floor((segundos % 3600) / 60).toString().padStart(2, '0');
+                const segs = (segundos % 60).toString().padStart(2, '0');
+                
+                tempoTotalEl.textContent = horas + ':' + minutos + ':' + segs;
+            }, 1000);
+        }
+    }
+    
+    atualizarTempoTotal();
     <?php endif; ?>
 });
 </script>
 
-<?php
-// Endpoint para obter o tempo total (para atualização via AJAX)
-if (isset($_GET['action']) && $_GET['action'] === 'get_tempo_total' && $em_reuniao) {
-    $tempo_total = 0;
-    if ($esta_pausado) {
-        $tempo_total = ($_SESSION['momento_pausa'] - $_SESSION['inicio_reuniao']) - $tempo_pausado;
-    } else {
-        $tempo_total = (time() - $_SESSION['inicio_reuniao']) - $tempo_pausado;
-    }
-    echo gmdate('H:i:s', $tempo_total);
-    exit;
-}
-?>
 </body>
 </html>

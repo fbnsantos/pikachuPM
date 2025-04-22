@@ -32,7 +32,7 @@ $hoje->modify("$offset days");
 $inicioSemana = clone $hoje;
 $inicioSemana->modify('monday this week');
 $datas = [];
-$numSemanas = isset($_GET['semanas']) ? max(1, min(10, (int)$_GET['semanas'])) : 4;
+$numSemanas = isset($_GET['semanas']) ? max(1, min(20, (int)$_GET['semanas'])) : 12;
 for ($i = 0; $i < $numSemanas * 7; $i++) {
     $data = clone $inicioSemana;
     $data->modify("+$i days");

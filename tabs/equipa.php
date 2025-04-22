@@ -22,7 +22,7 @@ try {
 }
 function getUtilizadoresRedmine() {
     global $API_KEY, $BASE_URL;
-    $url = "$BASE_URL/users.json?limit=100";
+    $url = "$BASE_URL/users.json?limit=160";
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ["X-Redmine-API-Key: $API_KEY"]);

@@ -2,7 +2,7 @@
 // links.php — Gestão de links com edição, filtro, exportação, importação, ordenação e destaque visual
 session_start();
 
-$db_path = __DIR__ . '/../links3.sqlite';
+$db_path = __DIR__ . '/../links2.sqlite';
 $nova_base = !file_exists($db_path);
 
 try {
@@ -138,15 +138,7 @@ $links = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <input type="text" name="titulo" class="form-control" placeholder="Título opcional">
         </div>
         <div class="col-md-2">
-            <?php
-\$categoriasExistentes = \$db->query("SELECT DISTINCT categoria FROM links WHERE categoria IS NOT NULL AND categoria != '' ORDER BY categoria ASC")->fetchAll(PDO::FETCH_COLUMN);
-?>
-<select name="categoria" class="form-select">
-    <option value="">Categoria</option>
-    <?php foreach (\$categoriasExistentes as \$cat): ?>
-        <option value="<?= htmlspecialchars(\$cat) ?>"><?= htmlspecialchars(\$cat) ?></option>
-    <?php endforeach; ?>
-</select>
+            <input type="text" name="categoria" class="form-control" placeholder="Categoria">
         </div>
         <div class="col-md-2">
             <button type="submit" class="btn btn-primary w-100">Guardar</button>
@@ -160,12 +152,9 @@ $links = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <div class="fw-bold fs-5" id="titulo-<?= $link['id'] ?>" contenteditable="true">
                         <?= htmlspecialchars($link['titulo'] ?: $link['url']) ?>
                     </div>
-                    <?php $isSecure = str_starts_with($link['url'], 'https'); ?>
-<div class="text-muted small">
-    🔗 <a href="<?= htmlspecialchars($link['url']) ?>" target="_blank" title="<?= htmlspecialchars($link['url']) ?>">
-        <?= $isSecure ? '🔒 ' : '' ?>Press here
-    </a>
-</div>
+                    <div class="text-muted small">
+                        🔗 <?= htmlspecialchars($link['url']) ?>
+                    </div>
                     <small class="text-muted">
                         Categoria: <span id="categoria-<?= $link['id'] ?>" contenteditable="true">
                             <?= htmlspecialchars($link['categoria']) ?>

@@ -18,6 +18,7 @@ function redmine_request($endpoint, $method = 'GET', $data = null) {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_USERPWD, "$user:$pass");
     curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json", "Accept: application/json"]);
+
     if ($method === 'POST') {
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
@@ -31,23 +32,40 @@ function redmine_request($endpoint, $method = 'GET', $data = null) {
     $err = curl_error($ch);
     curl_close($ch);
 
+    echo "<pre>[$method] $url\nHTTP: $code\nResposta: " . htmlspecialchars($resp) . "</pre>";
+
     if ($code >= 400 || $resp === false) {
         echo "<div class='alert alert-danger'>Erro Redmine ($code): $err</div>";
         return null;
     }
 
-    $data = json_decode($resp, true);
-echo "<pre>[$method] $url
-HTTP: $code
-Resposta: " . htmlspecialchars($resp) . "</pre>";
-return $data;
+    return json_decode($resp, true);
+}
+
+// Verifica se projeto 'leads' existe
+$res_proj = redmine_request('projects/leads');
+if (!$res_proj) {
+    $proj_data = [
+        'project' => [
+            'name' => 'LEADS',
+            'identifier' => 'leads',
+            'description' => 'Projeto para oportunidades criadas via interface PHP',
+            'is_public' => false
+        ]
+    ];
+    $create = redmine_request('projects.json', 'POST', $proj_data);
+    if (!$create) {
+        echo "<div class='alert alert-danger'>Falha ao criar projeto LEADS</div>";
+        return;
+    }
+    echo "<div class='alert alert-success'>Projeto LEADS criado.</div>";
 }
 
 // Criar nova oportunidade
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['novo_titulo'])) {
     $data = [
         'issue' => [
-            'project_id' => 'LEADS',
+            'project_id' => 'leads',
             'subject' => $_POST['novo_titulo'],
             'description' => $_POST['novo_conteudo'] ?? ''
         ]
@@ -57,27 +75,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['novo_titulo'])) {
     exit;
 }
 
-// Verificar se projeto LEADS existe, senão criar
-$res_proj = redmine_request('projects/LEADS');
-if (!$res_proj) {
-    \$create_resp = redmine_request('projects.json', 'POST', [
-        'project' => [
-            'name' => 'LEADS',
-            'identifier' => 'leads',
-            'description' => 'Projeto de oportunidades criadas pela interface PHP',
-            'is_public' => false
-        ]
-    ]
-    ]);
-    if (!$create_resp) {
-        echo "<div class='alert alert-danger'>Erro ao criar o projeto LEADS automaticamente.</div>";
-    } else {
-        echo "<div class='alert alert-success'>Projeto LEADS criado automaticamente.</div>";
-    }
-}
-
 // Buscar oportunidades
-$res = redmine_request('projects/LEADS/issues.json?limit=100&status_id=*');
+$res = redmine_request('projects/leads/issues.json?limit=100&status_id=*');
 $issues = $res['issues'] ?? [];
 
 function extrair_tags($texto) {
@@ -89,17 +88,15 @@ function extrair_tags($texto) {
     ];
 }
 
-// Ordenar
 $ordenar = $_GET['ordenar'] ?? 'relevance';
 usort($issues, function($a, $b) use ($ordenar) {
     $ta = extrair_tags($a['description']);
     $tb = extrair_tags($b['description']);
     if ($ordenar === 'deadline') {
-        return strtotime($ta['deadline'] ?? '') <=> strtotime($tb['deadline'] ?? '');
+        return strtotime($ta['deadline']) <=> strtotime($tb['deadline']);
     }
     return $tb['relevance'] <=> $ta['relevance'];
 });
-
 ?>
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">

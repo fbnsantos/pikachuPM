@@ -118,6 +118,20 @@ foreach ($eventos as $e) {
     $eventos_por_dia[$e['data']][] = $e;
 }
 
+// Buscar todos os eventos para a seção de resumo por categoria
+$stmt_todos = $db->prepare("SELECT * FROM eventos ORDER BY data ASC");
+$stmt_todos->execute();
+$todos_eventos = $stmt_todos->fetchAll(PDO::FETCH_ASSOC);
+
+// Agrupar eventos por tipo
+$eventos_por_tipo = [];
+foreach ($todos_eventos as $evento) {
+    if (!isset($eventos_por_tipo[$evento['tipo']])) {
+        $eventos_por_tipo[$evento['tipo']] = [];
+    }
+    $eventos_por_tipo[$evento['tipo']][] = $evento;
+}
+
 // Função para construir URL com parâmetros atuais
 function buildUrl($params = []) {
     global $offset, $js_refresh, $filtros, $numSemanas;
@@ -147,6 +161,12 @@ function buildUrl($params = []) {
     }
     
     return $base;
+}
+
+// Função para formatar data
+function formatarData($data_str) {
+    $data = new DateTime($data_str);
+    return $data->format('d/m/Y (D)');
 }
 
 ?>
@@ -221,6 +241,47 @@ function buildUrl($params = []) {
         user-select: none;
         display: inline-block;
         margin-bottom: 15px;
+    }
+    .resumo-eventos {
+        margin-top: 30px;
+        margin-bottom: 30px;
+    }
+    .tipo-evento-lista {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 5px;
+        margin-bottom: 10px;
+    }
+    .tipo-evento-header {
+        padding: 10px 15px;
+        cursor: pointer;
+        user-select: none;
+    }
+    .tipo-evento-badge {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border-radius: 3px;
+        margin-right: 8px;
+        vertical-align: middle;
+    }
+    .tipo-evento-content {
+        padding: 0 15px 15px;
+        display: none;
+    }
+    .evento-item {
+        padding: 8px;
+        border-bottom: 1px solid #eee;
+    }
+    .evento-item:last-child {
+        border-bottom: none;
+    }
+    .evento-data {
+        font-weight: 500;
+        margin-right: 10px;
+    }
+    .evento-descricao {
+        font-style: italic;
     }
 </style>
 
@@ -321,6 +382,43 @@ function buildUrl($params = []) {
         </div>
         <?php endforeach; ?>
     </div>
+
+    <!-- Seção de Resumo de Eventos por Tipo -->
+    <div class="resumo-eventos">
+        <h3 class="mb-3">Lista de Eventos por Categoria</h3>
+        
+        <?php foreach ($tipos_eventos as $codigo => $info): 
+            // Verificar se existem eventos deste tipo
+            if (!isset($eventos_por_tipo[$codigo]) || empty($eventos_por_tipo[$codigo])) {
+                continue;
+            }
+            
+            // Ordenar eventos por data
+            usort($eventos_por_tipo[$codigo], function($a, $b) {
+                return strcmp($a['data'], $b['data']);
+            });
+        ?>
+            <div class="tipo-evento-lista">
+                <div class="tipo-evento-header d-flex justify-content-between align-items-center" 
+                     onclick="toggleEventoLista('<?= $codigo ?>')">
+                    <span>
+                        <span class="tipo-evento-badge" style="background-color: <?= $info['cor'] ?>;"></span>
+                        <?= htmlspecialchars($info['nome']) ?>
+                        <span class="badge bg-secondary"><?= count($eventos_por_tipo[$codigo]) ?></span>
+                    </span>
+                    <i class="bi bi-chevron-down" id="chevron-<?= $codigo ?>"></i>
+                </div>
+                <div class="tipo-evento-content" id="content-<?= $codigo ?>">
+                    <?php foreach ($eventos_por_tipo[$codigo] as $ev): ?>
+                        <div class="evento-item">
+                            <span class="evento-data"><?= formatarData($ev['data']) ?></span>
+                            <span class="evento-descricao"><?= htmlspecialchars($ev['descricao']) ?></span>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        <?php endforeach; ?>
+    </div>
 </div>
 
 <script>
@@ -375,4 +473,38 @@ function selecionarTodos(selecionar) {
         checkbox.checked = selecionar;
     });
 }
+
+// Função para alternar exibição das listas de eventos por tipo
+function toggleEventoLista(codigo) {
+    const content = document.getElementById('content-' + codigo);
+    const chevron = document.getElementById('chevron-' + codigo);
+    
+    if (content.style.display === 'block') {
+        content.style.display = 'none';
+        chevron.classList.replace('bi-chevron-up', 'bi-chevron-down');
+        localStorage.removeItem('eventoLista-' + codigo);
+    } else {
+        content.style.display = 'block';
+        chevron.classList.replace('bi-chevron-down', 'bi-chevron-up');
+        localStorage.setItem('eventoLista-' + codigo, 'true');
+    }
+}
+
+// Restaurar estado das listas de eventos por tipo
+document.addEventListener('DOMContentLoaded', function() {
+    // A lista começa fechada por padrão, por isso não precisa de código extra aqui
+    // Se algum dia quiser restaurar o estado, descomentar o código abaixo
+    /*
+    <?php foreach (array_keys($tipos_eventos) as $codigo): ?>
+    if (localStorage.getItem('eventoLista-<?= $codigo ?>') === 'true') {
+        const content = document.getElementById('content-<?= $codigo ?>');
+        const chevron = document.getElementById('chevron-<?= $codigo ?>');
+        if (content && chevron) {
+            content.style.display = 'block';
+            chevron.classList.replace('bi-chevron-down', 'bi-chevron-up');
+        }
+    }
+    <?php endforeach; ?>
+    */
+});
 </script>

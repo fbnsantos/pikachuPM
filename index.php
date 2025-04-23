@@ -7,6 +7,10 @@ if (!isset($_SESSION['username'])) {
     exit;
 }
 
+// Definição dos horários para reuniões e transições
+$HORA_REUNIAO_EQUIPA = "11:28"; // formato HH:MM - Hora para iniciar contagem para reunião
+$HORA_TRANSICAO_CALENDARIO = "12:00"; // formato HH:MM - Hora para transição para o calendário
+
 // Tabs disponíveis
 $tabs = [
     'dashboard' => 'Painel Principal',
@@ -202,6 +206,79 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             color: white;
             text-decoration: underline;
         }
+        /* Estilo para a notificação de reunião */
+        .meeting-notification {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px 30px;
+            background-color: #dc3545;
+            color: white;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            z-index: 9999;
+            text-align: center;
+            font-size: 1.2em;
+            font-weight: bold;
+            display: none;
+        }
+        .meeting-notification.show {
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% {
+                transform: translate(-50%, -50%) scale(1);
+            }
+            50% {
+                transform: translate(-50%, -50%) scale(1.05);
+            }
+            100% {
+                transform: translate(-50%, -50%) scale(1);
+            }
+        }
+        
+        /* Estilo para o relógio grande com contagem regressiva */
+        .countdown-clock {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            color: white;
+            display: none;
+        }
+        .countdown-time {
+            font-size: 8rem;
+            font-weight: bold;
+            font-family: 'Digital-7', monospace;
+            margin-bottom: 1rem;
+            color: #ff5252;
+            text-shadow: 0 0 10px rgba(255, 82, 82, 0.7);
+        }
+        .countdown-message {
+            font-size: 2rem;
+            margin-bottom: 2rem;
+        }
+        .countdown-progress {
+            width: 60%;
+            height: 20px;
+            background-color: #333;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .countdown-bar {
+            height: 100%;
+            background-color: #ff5252;
+            border-radius: 10px;
+            transition: width 1s linear;
+        }
     </style>
 </head>
 <body>
@@ -260,6 +337,28 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
     <div id="refresh-info-content"></div>
 </div>
 
+<!-- Elemento para notificação de reunião -->
+<div id="meeting-notification" class="meeting-notification">
+    <div>HORA DA REUNIÃO DIÁRIA!</div>
+    <div>Redirecionando para a página de Reunião...</div>
+</div>
+
+<!-- Elemento para o relógio de contagem regressiva grande -->
+<div id="countdown-clock" class="countdown-clock">
+    <div class="countdown-message">PREPARAR PARA A REUNIÃO DIÁRIA</div>
+    <div id="countdown-time" class="countdown-time">02:00</div>
+    <div class="countdown-progress">
+        <div id="countdown-bar" class="countdown-bar" style="width: 100%;"></div>
+    </div>
+</div>
+
+<!-- Elemento de áudio para alerta sonoro -->
+<audio id="alert-sound" loop>
+    <source src="https://www.soundjay.com/buttons/sounds/button-09.mp3" type="audio/mpeg">
+    <!-- Fallback para navegadores que não suportam o formato MP3 -->
+    <source src="https://www.soundjay.com/buttons/sounds/button-09.ogg" type="audio/ogg">
+</audio>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -269,18 +368,133 @@ document.addEventListener('DOMContentLoaded', function() {
     const tempoAlternanciaAbas = <?= $tempoAlternanciaAbas ?>;
     const reiniciarTemporizadores = <?= $reiniciarTemporizadores ? 'true' : 'false' ?>;
     const usuarioAtual = '<?= $_SESSION['username'] ?>';
+    
+    // Horários de reunião e transição definidos no PHP
+    const HORA_REUNIAO_EQUIPA = '<?= $HORA_REUNIAO_EQUIPA ?>'; // formato "HH:MM"
+    const HORA_TRANSICAO_CALENDARIO = '<?= $HORA_TRANSICAO_CALENDARIO ?>'; // formato "HH:MM"
+    
+    // Extrair horas e minutos para comparações
+    const [horaReuniao, minutosReuniao] = HORA_REUNIAO_EQUIPA.split(':').map(Number);
+    const [horaCalendario, minutosCalendario] = HORA_TRANSICAO_CALENDARIO.split(':').map(Number);
 
     // Exibir informações de configuração no console (para debug)
     console.log(`Configurações para ${usuarioAtual}:`);
     console.log(`- Tempo de refresh do calendário: ${tempoRefreshCalendario}s`);
     console.log(`- Tempo de alternância entre abas: ${tempoAlternanciaAbas}s`);
     console.log(`- Alternância automática: ${<?= $autoAlternar ? 'true' : 'false' ?>}`);
+    console.log(`- Horário reunião equipa: ${HORA_REUNIAO_EQUIPA}`);
+    console.log(`- Horário transição calendário: ${HORA_TRANSICAO_CALENDARIO}`);
 
     // Elementos DOM importantes
     const autoToggleEl = document.getElementById('auto-toggle-check');
     const refreshInfoEl = document.getElementById('refresh-info');
     const refreshInfoContentEl = document.getElementById('refresh-info-content');
     const sessionTimeEl = document.getElementById('session-time');
+    const meetingNotificationEl = document.getElementById('meeting-notification');
+    const alertSoundEl = document.getElementById('alert-sound');
+
+    // ===== FUNÇÃO DE CONTROLE DE REUNIÃO DIÁRIA =====
+    // Variáveis para controlar o estado da contagem regressiva
+    let countdownActive = false;
+    let countdownStartTime = 0;
+    let countdownDuration = 120; // 120 segundos = 2 minutos
+    let countdownInterval;
+    const countdownClockEl = document.getElementById('countdown-clock');
+    const countdownTimeEl = document.getElementById('countdown-time');
+    const countdownBarEl = document.getElementById('countdown-bar');
+    
+    // Função para iniciar a contagem regressiva de 120 segundos
+    function iniciarContagemRegressiva() {
+        // Só iniciar se não estiver já ativa
+        if (countdownActive) return;
+        
+        countdownActive = true;
+        countdownStartTime = Date.now();
+        
+        // Exibir o relógio de contagem
+        countdownClockEl.style.display = 'flex';
+        
+        // Iniciar som de alerta
+        if (alertSoundEl) {
+            alertSoundEl.volume = 0.5; // Volume a 50%
+            alertSoundEl.loop = true;  // Repetir o som
+            alertSoundEl.play()
+                .catch(error => console.error('Erro ao tocar alerta sonoro:', error));
+        }
+        
+        // Iniciar intervalo para atualizar a contagem a cada 100ms (para movimento mais suave)
+        countdownInterval = setInterval(() => {
+            atualizarContagemRegressiva();
+        }, 100);
+    }
+    
+    // Função para atualizar a contagem regressiva
+    function atualizarContagemRegressiva() {
+        const tempoDecorrido = (Date.now() - countdownStartTime) / 1000; // em segundos
+        const tempoRestante = countdownDuration - tempoDecorrido;
+        
+        if (tempoRestante <= 0) {
+            // Tempo acabou
+            finalizarContagemRegressiva();
+            return;
+        }
+        
+        // Atualizar display do tempo
+        const minutos = Math.floor(tempoRestante / 60);
+        const segundos = Math.floor(tempoRestante % 60);
+        countdownTimeEl.textContent = `${minutos.toString().padStart(2, '0')}:${segundos.toString().padStart(2, '0')}`;
+        
+        // Atualizar barra de progresso
+        const porcentagemRestante = (tempoRestante / countdownDuration) * 100;
+        countdownBarEl.style.width = `${porcentagemRestante}%`;
+    }
+    
+    // Função para finalizar a contagem regressiva
+    function finalizarContagemRegressiva() {
+        clearInterval(countdownInterval);
+        countdownActive = false;
+        
+        // Parar o som
+        if (alertSoundEl) {
+            alertSoundEl.pause();
+            alertSoundEl.currentTime = 0;
+        }
+        
+        // Esconder o relógio
+        countdownClockEl.style.display = 'none';
+        
+        // Redirecionar para a tab equipa
+        window.location.href = addParamsToUrl({
+            'tab': 'equipa',
+            'reset_timers': 'true'
+        });
+    }
+    
+    function verificarHorarioReunioes() {
+        const agora = new Date();
+        const hora = agora.getHours();
+        const minutos = agora.getMinutes();
+        const segundos = agora.getSeconds();
+        
+        // Verificar se é hora de iniciar contagem regressiva (usando variáveis globais)
+        if (hora === horaReuniao && minutos === minutosReuniao && segundos === 0) {
+            iniciarContagemRegressiva();
+            return true;
+        }
+        
+        // Verificar se é hora de ir para calendário (usando variáveis globais)
+        if (hora === horaCalendario && minutos === minutosCalendario && segundos <= 1) {
+            // Redirecionar para a tab calendário
+            window.location.href = addParamsToUrl({
+                'tab': 'calendar',
+                'reset_timers': 'true'
+            });
+            
+            return true;
+        }
+        
+        return countdownActive; // Retorna true se a contagem regressiva estiver ativa
+    }
 
     // ===== UTILITÁRIOS =====
     // Função para adicionar parâmetros à URL atual
@@ -396,6 +610,12 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Criar novo intervalo que verifica ambos os temporizadores
         timerUnificadoInterval = setInterval(() => {
+            // Primeiro, verificar se é hora das reuniões (11:20 ou 12:00)
+            if (verificarHorarioReunioes()) {
+                // Se for hora de reunião, não executar o resto das verificações
+                return;
+            }
+            
             const agora = Date.now();
             
             // Verificar alternância automática
@@ -485,6 +705,39 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
         
+        // Adicionar informação sobre os horários de reunião
+        const horaAtual = new Date();
+        const hora = horaAtual.getHours();
+        const minutos = horaAtual.getMinutes();
+        
+        // Calcular tempo até próxima reunião (11:20 ou 12:00)
+        let segundosAteReuniaoEquipa = 0;
+        let segundosAteReuniaoCalendario = 0;
+        
+        // Calcular segundos até a hora da reunião (usando variáveis globais)
+        if (hora < horaReuniao || (hora === horaReuniao && minutos < minutosReuniao)) {
+            const horaReuniaoEquipa = new Date();
+            horaReuniaoEquipa.setHours(horaReuniao, minutosReuniao, 0, 0);
+            segundosAteReuniaoEquipa = Math.floor((horaReuniaoEquipa - horaAtual) / 1000);
+            
+            if (segundosAteReuniaoEquipa > 0 && segundosAteReuniaoEquipa < 300) { // Mostrar apenas se faltarem menos de 5 minutos
+                conteudoInfo.push(`Contagem para reunião em <span class="countdown">${Math.floor(segundosAteReuniaoEquipa / 60)}:${(segundosAteReuniaoEquipa % 60).toString().padStart(2, '0')}</span>`);
+            }
+        }
+        
+        // Calcular segundos até a hora de transição para calendário (usando variáveis globais)
+        if ((hora === horaReuniao && minutos >= minutosReuniao) || 
+            (hora > horaReuniao && hora < horaCalendario) || 
+            (hora === horaCalendario && minutos < minutosCalendario)) {
+            const horaReuniaoCalendario = new Date();
+            horaReuniaoCalendario.setHours(horaCalendario, minutosCalendario, 0, 0);
+            segundosAteReuniaoCalendario = Math.floor((horaReuniaoCalendario - horaAtual) / 1000);
+            
+            if (segundosAteReuniaoCalendario > 0 && segundosAteReuniaoCalendario < 300) { // Mostrar apenas se faltarem menos de 5 minutos
+                conteudoInfo.push(`Transição para Calendário em <span class="countdown">${Math.floor(segundosAteReuniaoCalendario / 60)}:${(segundosAteReuniaoCalendario % 60).toString().padStart(2, '0')}</span>`);
+            }
+        }
+        
         // Atualizar elemento de informação
         if (conteudoInfo.length > 0 && refreshInfoEl && refreshInfoContentEl) {
             refreshInfoContentEl.innerHTML = conteudoInfo.join('<br>');
@@ -514,6 +767,11 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Iniciar timer unificado (sempre)
     iniciarTimerUnificado();
+    
+    // Carregar áudio antecipadamente
+    if (alertSoundEl) {
+        alertSoundEl.load();
+    }
 });
 </script>
 

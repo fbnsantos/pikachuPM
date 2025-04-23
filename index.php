@@ -8,8 +8,8 @@ if (!isset($_SESSION['username'])) {
 }
 
 // Definição dos horários para reuniões e transições
-$HORA_REUNIAO_EQUIPA = "23:04"; // formato HH:MM - Hora para iniciar contagem para reunião
-$HORA_TRANSICAO_CALENDARIO = "23:08"; // formato HH:MM - Hora para transição para o calendário
+$HORA_REUNIAO_EQUIPA = "11:28"; // formato HH:MM - Hora para iniciar contagem para reunião
+$HORA_TRANSICAO_CALENDARIO = "12:00"; // formato HH:MM - Hora para transição para o calendário
 
 // Tabs disponíveis
 $tabs = [
@@ -238,6 +238,17 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             }
         }
         
+        /* Animação de pulsação para o relógio */
+        @keyframes pulse-clock {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        .pulse {
+            animation: pulse-clock 0.7s infinite;
+        }
+        
         /* Estilo para o relógio grande com contagem regressiva */
         .countdown-clock {
             position: fixed;
@@ -286,38 +297,50 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@700&display=swap');
         
-        /* Ajuste para melhor centralização do relógio */
+        /* Ajuste para que o relógio não bloqueie o resto da interface */
         .countdown-clock {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100vh;
-            z-index: 10000;
-            background-color: rgba(0, 0, 0, 0.92);
+            top: 50px; /* Distância do topo para não cobrir a barra de navegação */
+            right: 50px; /* Posicionado à direita */
+            width: auto; /* Largura automática baseada no conteúdo */
+            height: auto; /* Altura automática baseada no conteúdo */
+            z-index: 1000; /* Acima de outros conteúdos, mas não deve bloquear interações */
+            background-color: rgba(0, 0, 0, 0.8);
+            border-radius: 15px;
+            padding: 15px 25px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            pointer-events: none; /* Permite clicar através do relógio */
+            display: none; /* Inicialmente oculto */
         }
         
         .countdown-container {
             display: flex;
             flex-direction: column;
-            justify-content: center;
             align-items: center;
-            width: 100%;
-            height: 100%;
-            padding: 2% 5%;
+            justify-content: center;
         }
         
         .countdown-time {
             font-family: 'Roboto Mono', monospace;
-            font-size: min(32vw, 32vh); /* Responsivo para todos os tamanhos de tela */
+            font-size: 4rem; /* Tamanho reduzido para não ocupar todo o espaço */
             line-height: 1;
             margin: 0;
             padding: 0;
+            color: #ff5252;
+            text-shadow: 0 0 10px rgba(255, 82, 82, 0.7);
+        }
+        .countdown-message {
+            font-size: 1rem; /* Tamanho reduzido */
+            margin-bottom: 5px;
+            color: white;
+        }
+        .countdown-progress {
+            width: 100%; /* Ocupar todo o espaço disponível */
+            height: 10px; /* Altura reduzida */
+            background-color: #333;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-top: 5px;
         }
     </style>
 </head>
@@ -383,10 +406,10 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
     <div>Redirecionando para a página de Reunião...</div>
 </div>
 
-<!-- Elemento para o relógio de contagem regressiva grande -->
+<!-- Elemento para o relógio de contagem regressiva não-bloqueante -->
 <div id="countdown-clock" class="countdown-clock">
     <div class="countdown-container">
-        <div class="countdown-message">PREPARAR PARA A REUNIÃO DIÁRIA</div>
+        <div class="countdown-message">PREPARAR PARA REUNIÃO</div>
         <div id="countdown-time" class="countdown-time">02:00</div>
         <div class="countdown-progress">
             <div id="countdown-bar" class="countdown-bar" style="width: 100%;"></div>
@@ -454,7 +477,7 @@ document.addEventListener('DOMContentLoaded', function() {
         countdownStartTime = Date.now();
         
         // Exibir o relógio de contagem
-        countdownClockEl.style.display = 'flex';
+        countdownClockEl.style.display = 'block';
         
         // Iniciar som de alerta
         if (alertSoundEl) {
@@ -468,6 +491,9 @@ document.addEventListener('DOMContentLoaded', function() {
         countdownInterval = setInterval(() => {
             atualizarContagemRegressiva();
         }, 100);
+        
+        // Registrar no console que a contagem começou
+        console.log('Contagem regressiva iniciada às', new Date().toLocaleTimeString());
     }
     
     // Função para atualizar a contagem regressiva

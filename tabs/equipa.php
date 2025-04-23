@@ -1078,7 +1078,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <?php endif; ?>
     
     // Atualizar o tempo total da reunião a cada segundo
-    <?php if (true): ?>
+    <?php if ($em_reuniao): ?>
     function atualizarTempoTotal() {
         const tempoTotalEl = document.getElementById('tempo-total');
         if (tempoTotalEl) {

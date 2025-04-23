@@ -37,6 +37,9 @@ $limitePorPagina = isset($_GET['limite']) ? intval($_GET['limite']) : 15;
 $pagina = isset($_GET['pagina']) ? intval($_GET['pagina']) : 1;
 $tipoBusca = isset($_GET['tipo_busca']) ? $_GET['tipo_busca'] : 'issues';
 
+// Definir modo de debug (remover na versão de produção)
+$debug = false; // Altere para true para habilitar mensagens de debug
+
 // Função para buscar issues no Redmine
 function buscarRedmine($termo, $categoria, $pagina, $limite) {
     global $API_KEY, $BASE_URL;
@@ -151,27 +154,32 @@ function buscarArquivosRedmine($termo, $categoria, $pagina, $limite) {
     // Preparar parâmetros da busca
     $offset = ($pagina - 1) * $limite;
     
-    // No Redmine, arquivos estão geralmente associados a projetos, issues ou documentos
-    // Vamos buscar diretamente pela API de documentos ou anexos do projeto
-    $url = "{$BASE_URL}/documents.json";
+    // No Redmine, arquivos podem estar associados a:
+    // 1. Anexos de issues (attachments)
+    // 2. Documentos (documents)
+    // 3. Anexos de projetos (project_files)
+    
+    // Implementação mais confiável: buscar issues com anexos recentes
+    $url = "{$BASE_URL}/issues.json";
     $parametros = [
         'key' => $API_KEY,
         'limit' => $limite,
-        'offset' => $offset
+        'offset' => $offset,
+        'include' => 'attachments', // Importante: incluir anexos
+        'sort' => 'updated_on:desc', // Ordenar por atualização (mais recentes primeiro),
+        'status_id' => '*' // Todos os status
     ];
     
     // Adicionar filtragem por projeto se a categoria for especificada
     if (!empty($categoria) && $categoria !== 'todas') {
-        // Mapear categoria para project_id específico 
-        // Este é um exemplo - você precisa ajustar para seu ambiente Redmine
         switch ($categoria) {
             case 'documentacao':
-                $parametros['project_id'] = 'docs'; // ID do projeto de documentação
+                $parametros['tracker_id'] = 3; // ID do tracker de documentação no Redmine
                 break;
             case 'desenvolvimento':
-                $parametros['project_id'] = 'dev'; // ID do projeto de desenvolvimento
+                $parametros['tracker_id'] = 4; // ID do tracker de desenvolvimento
                 break;
-            // Adicione mais casos conforme necessário
+            // Ajuste conforme necessário
         }
     }
     
@@ -199,8 +207,12 @@ function buscarArquivosRedmine($termo, $categoria, $pagina, $limite) {
     
     // Verificar erro de conexão ou resposta
     if ($response === false || $httpCode < 200 || $httpCode >= 300) {
+        $curlError = curl_error($ch);
+        error_log("Erro na requisição de arquivos: HTTP $httpCode - " . $curlError);
+        
+        // Retornar erro
         return [
-            'erro' => 'Erro ao conectar com a API de documentos do Redmine',
+            'erro' => 'Erro ao conectar com a API do Redmine. Código: ' . $httpCode . ($debug ? ' - ' . $curlError : ''),
             'documentos' => [],
             'total' => 0
         ];
@@ -211,37 +223,177 @@ function buscarArquivosRedmine($termo, $categoria, $pagina, $limite) {
     
     // Verificar erro de decodificação
     if (json_last_error() !== JSON_ERROR_NONE) {
+        error_log("Erro ao decodificar JSON da API do Redmine: " . json_last_error_msg());
+        
         return [
-            'erro' => 'Erro ao decodificar resposta do Redmine',
+            'erro' => 'Erro ao decodificar resposta do Redmine: ' . json_last_error_msg(),
             'documentos' => [],
             'total' => 0
         ];
     }
     
-    // Verificar se há documentos na resposta
-    if (!isset($dadosJson['documents']) || !is_array($dadosJson['documents'])) {
+    // Verificar se há issues na resposta
+    if (!isset($dadosJson['issues']) || !is_array($dadosJson['issues'])) {
         return [
-            'erro' => 'Formato de resposta inválido',
+            'erro' => 'Formato de resposta inválido - issues não encontradas',
             'documentos' => [],
             'total' => 0
         ];
     }
     
-    // Filtrar por termo de busca se fornecido
-    $documentosFiltrados = $dadosJson['documents'];
-    if (!empty($termo)) {
-        $documentosFiltrados = array_filter($dadosJson['documents'], function($doc) use ($termo) {
-            // Busca no título ou descrição do documento
-            return (stripos($doc['title'], $termo) !== false || 
-                   (isset($doc['description']) && stripos($doc['description'], $termo) !== false));
-        });
+    // Array para armazenar informações dos arquivos encontrados
+    $arquivos = [];
+    
+    // Processar cada issue para extrair seus anexos (attachments)
+    foreach ($dadosJson['issues'] as $issue) {
+        // Verificar se a issue tem anexos
+        if (isset($issue['attachments']) && is_array($issue['attachments']) && count($issue['attachments']) > 0) {
+            foreach ($issue['attachments'] as $attachment) {
+                // Se houver um termo de busca, filtre pelo nome do arquivo
+                if (!empty($termo) && stripos($attachment['filename'], $termo) === false) {
+                    continue;
+                }
+                
+                // Adicionar informações do anexo ao array de arquivos
+                $arquivo = [
+                    'id' => $attachment['id'],
+                    'filename' => $attachment['filename'],
+                    'filesize' => $attachment['filesize'] ?? 0,
+                    'content_type' => $attachment['content_type'] ?? 'application/octet-stream',
+                    'created_on' => $attachment['created_on'],
+                    'content_url' => $attachment['content_url'],
+                    'description' => $attachment['description'] ?? '',
+                    // Informações adicionais relacionadas à issue
+                    'issue_id' => $issue['id'],
+                    'issue_subject' => $issue['subject'],
+                    'project' => $issue['project']['name'] ?? 'N/A'
+                ];
+                
+                $arquivos[] = $arquivo;
+            }
+        }
+    }
+    
+    // Verificar se temos arquivos suficientes ou se precisamos tentar outra abordagem
+    if (count($arquivos) < $limite && !empty($dadosJson['total_count']) && $dadosJson['total_count'] > count($dadosJson['issues'])) {
+        // Há mais issues para buscar, mas como o foco é em arquivos, 
+        // podemos implementar uma paginação específica para arquivos
+        // Isso é um problema complexo que pode requerer ajustes específicos para seu ambiente Redmine
+    }
+    
+    // Se não encontramos arquivos via issues, vamos tentar buscar documentos
+    if (count($arquivos) == 0) {
+        // Buscar via API de documentos (endpoint secundário)
+        $urlDocumentos = "{$BASE_URL}/documents.json";
+        $parametrosDocumentos = [
+            'key' => $API_KEY,
+            'limit' => $limite,
+            'offset' => $offset
+        ];
+        
+        // Construir URL para documentos
+        $queryStringDocs = http_build_query($parametrosDocumentos);
+        $urlCompletaDocs = $urlDocumentos . '?' . $queryStringDocs;
+        
+        // Nova requisição cURL para documentos
+        $chDocs = curl_init();
+        curl_setopt($chDocs, CURLOPT_URL, $urlCompletaDocs);
+        curl_setopt($chDocs, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($chDocs, CURLOPT_HEADER, false);
+        curl_setopt($chDocs, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($chDocs, CURLOPT_HTTPHEADER, [
+            'X-Redmine-API-Key: ' . $API_KEY,
+            'Content-Type: application/json'
+        ]);
+        
+        $responseDocs = curl_exec($chDocs);
+        $httpCodeDocs = curl_getinfo($chDocs, CURLINFO_HTTP_CODE);
+        curl_close($chDocs);
+        
+        if ($responseDocs !== false && $httpCodeDocs >= 200 && $httpCodeDocs < 300) {
+            $dadosJsonDocs = json_decode($responseDocs, true);
+            
+            if (json_last_error() === JSON_ERROR_NONE && 
+                isset($dadosJsonDocs['documents']) && 
+                is_array($dadosJsonDocs['documents'])) {
+                
+                foreach ($dadosJsonDocs['documents'] as $documento) {
+                    if (!empty($termo) && stripos($documento['title'], $termo) === false) {
+                        continue;
+                    }
+                    
+                    // Adicionar informações do documento ao array de arquivos
+                    $arquivo = [
+                        'id' => $documento['id'],
+                        'filename' => $documento['title'],
+                        'filesize' => 0, // Geralmente não disponível para documentos
+                        'content_type' => 'application/octet-stream',
+                        'created_on' => $documento['created_on'],
+                        'content_url' => "{$BASE_URL}/documents/{$documento['id']}",
+                        'description' => $documento['description'] ?? '',
+                        'project' => isset($documento['project']) ? $documento['project']['name'] : 'N/A',
+                        'is_document' => true // Marcar como documento para tratamento diferente na UI
+                    ];
+                    
+                    $arquivos[] = $arquivo;
+                }
+            }
+        }
+    }
+    
+    // Log para debugging se necessário
+    if (count($arquivos) == 0) {
+        error_log("Nenhum arquivo encontrado. Termo: $termo, Categoria: $categoria");
+        
+        // Se debug estiver habilitado, adicionar arquivos de exemplo para testes
+        if ($debug) {
+            // Adicionar alguns arquivos de exemplo para testar a interface
+            $arquivos[] = [
+                'id' => 123,
+                'filename' => 'documento_exemplo.pdf',
+                'filesize' => 1024 * 1024 * 2.5, // 2.5 MB
+                'content_type' => 'application/pdf',
+                'created_on' => date('Y-m-d H:i:s'),
+                'content_url' => "{$BASE_URL}/attachments/download/123",
+                'description' => 'Este é um documento de exemplo para testes',
+                'project' => 'Projeto Teste',
+                'issue_id' => 456,
+                'issue_subject' => 'Documentação do Sistema'
+            ];
+            
+            $arquivos[] = [
+                'id' => 124,
+                'filename' => 'imagem_exemplo.png',
+                'filesize' => 1024 * 512, // 512 KB
+                'content_type' => 'image/png',
+                'created_on' => date('Y-m-d H:i:s', strtotime('-1 day')),
+                'content_url' => "{$BASE_URL}/attachments/download/124",
+                'description' => 'Imagem de diagrama do sistema',
+                'project' => 'Projeto Teste',
+                'issue_id' => 457,
+                'issue_subject' => 'Design da Interface'
+            ];
+            
+            $arquivos[] = [
+                'id' => 125,
+                'filename' => 'relatorio_final.xlsx',
+                'filesize' => 1024 * 1024 * 1.2, // 1.2 MB
+                'content_type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'created_on' => date('Y-m-d H:i:s', strtotime('-2 days')),
+                'content_url' => "{$BASE_URL}/attachments/download/125",
+                'description' => 'Relatório de acompanhamento mensal',
+                'project' => 'Estatísticas',
+                'issue_id' => 458,
+                'issue_subject' => 'Relatório Trimestral'
+            ];
+        }
     }
     
     // Retornar resultados
     return [
         'erro' => null,
-        'documentos' => array_values($documentosFiltrados), // Reindexar array após filtragem
-        'total' => count($documentosFiltrados)
+        'documentos' => $arquivos,
+        'total' => count($arquivos)
     ];
 }
 
@@ -437,7 +589,7 @@ function obterIconeArquivo($extensao) {
         <ul class="nav nav-tabs mb-3" id="resultadosTabs" role="tablist">
             <?php if ($tipoBusca === 'issues' || $tipoBusca === 'ambos'): ?>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="issues-tab" data-bs-toggle="tab" data-bs-target="#issues" type="button" role="tab" aria-controls="issues" aria-selected="true">
+                    <button class="nav-link <?= $tipoBusca !== 'arquivos' ? 'active' : '' ?>" id="issues-tab" data-bs-toggle="tab" data-bs-target="#issues" type="button" role="tab" aria-controls="issues" aria-selected="<?= $tipoBusca !== 'arquivos' ? 'true' : 'false' ?>">
                         <i class="bi bi-card-list"></i> Issues <?php if (isset($totalResultados)): ?><span class="badge bg-secondary"><?= $totalResultados ?></span><?php endif; ?>
                     </button>
                 </li>
@@ -455,7 +607,7 @@ function obterIconeArquivo($extensao) {
         <div class="tab-content" id="resultadosTabsContent">
             <!-- Tab para Issues -->
             <?php if ($tipoBusca === 'issues' || $tipoBusca === 'ambos'): ?>
-                <div class="tab-pane fade show active" id="issues" role="tabpanel" aria-labelledby="issues-tab">
+                <div class="tab-pane fade <?= $tipoBusca !== 'arquivos' ? 'show active' : '' ?>" id="issues" role="tabpanel" aria-labelledby="issues-tab">
                     <div class="card mb-4">
                         <div class="card-header bg-light">
                             <i class="bi bi-list-ul"></i> Resultados da Busca - Issues
@@ -635,16 +787,35 @@ function obterIconeArquivo($extensao) {
                                     <tbody>
                                         <?php foreach ($resultadosArquivos as $documento): ?>
                                             <?php 
-                                                // Assumindo que os documentos possuem anexos ou links para arquivos
-                                                $nomeArquivo = $documento['title'];
+                                                // Determinar o nome do arquivo com base na estrutura retornada
+                                                $nomeArquivo = isset($documento['filename']) ? $documento['filename'] : $documento['title'] ?? 'Arquivo';
                                                 $extensao = obterExtensaoArquivo($nomeArquivo);
                                                 $icone = obterIconeArquivo($extensao);
                                                 
-                                                // Estas informações podem variar de acordo com a estrutura da API do Redmine
+                                                // Informações sobre o arquivo
                                                 $tamanho = isset($documento['filesize']) ? formatarTamanhoArquivo($documento['filesize']) : 'N/A';
-                                                $projeto = isset($documento['project']) ? $documento['project']['name'] : 'N/A';
+                                                $projeto = $documento['project'] ?? 'N/A';
                                                 $data = isset($documento['created_on']) ? date('d/m/Y H:i', strtotime($documento['created_on'])) : 'N/A';
-                                                $url = isset($documento['content_url']) ? $documento['content_url'] : "{$BASE_URL}/documents/{$documento['id']}";
+                                                
+                                                // URL do arquivo
+                                                if (isset($documento['content_url'])) {
+                                                    $url = $documento['content_url'];
+                                                } elseif (isset($documento['is_document']) && $documento['is_document']) {
+                                                    $url = "{$BASE_URL}/documents/{$documento['id']}";
+                                                } elseif (isset($documento['id'])) {
+                                                    $url = "{$BASE_URL}/attachments/download/{$documento['id']}";
+                                                } else {
+                                                    $url = "#";
+                                                }
+                                                
+                                                // Descrição adicional para o arquivo
+                                                $descricao = $documento['description'] ?? '';
+                                                if (isset($documento['issue_subject'])) {
+                                                    if (!empty($descricao)) {
+                                                        $descricao .= ' - ';
+                                                    }
+                                                    $descricao .= "Issue: {$documento['issue_subject']} (#{$documento['issue_id']})";
+                                                }
                                             ?>
                                             <tr>
                                                 <td class="text-center">
@@ -656,8 +827,8 @@ function obterIconeArquivo($extensao) {
                                                        title="<?= htmlspecialchars($nomeArquivo) ?>">
                                                         <?= htmlspecialchars($nomeArquivo) ?>
                                                     </a>
-                                                    <?php if (isset($documento['description'])): ?>
-                                                        <small class="text-muted"><?= htmlspecialchars(substr($documento['description'], 0, 100)) ?><?= strlen($documento['description']) > 100 ? '...' : '' ?></small>
+                                                    <?php if (!empty($descricao)): ?>
+                                                        <small class="text-muted"><?= htmlspecialchars(substr($descricao, 0, 100)) ?><?= strlen($descricao) > 100 ? '...' : '' ?></small>
                                                     <?php endif; ?>
                                                 </td>
                                                 <td><?= htmlspecialchars($projeto) ?></td>

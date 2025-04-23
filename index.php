@@ -35,7 +35,7 @@ function tempoSessao() {
 // Determinar o tempo de refresh com base na aba
 $refreshTime = 0; // 0 = sem refresh
 if ($tabSelecionada === 'calendar') {
-    $refreshTime = 60; // 60 segundos para calendário
+    $refreshTime = 10; // 60 segundos para calendário
 }
 ?>
 

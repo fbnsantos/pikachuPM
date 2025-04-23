@@ -4,7 +4,7 @@ session_start();
 include_once __DIR__ . '/../config.php';
 
 // Verificar e criar base de dados SQLite e tabelas, se necessário
-$db_path = __DIR__ . '/../equipa2.sqlite';
+$db_path = __DIR__ . '/../equipa3.sqlite';
 $nova_base_dados = !file_exists($db_path);
 
 try {

@@ -1,6 +1,6 @@
 <?php
 /**
- * Links.php - Interface para busca de tópicos no Redmine
+ * search.php - Interface para busca de tópicos no Redmine
  * 
  * Este arquivo permite buscar e listar links para issues no Redmine
  * organizados por categoria ou tópico.
@@ -241,7 +241,7 @@ function formatarPrioridade($prioridade) {
                     <button type="submit" class="btn btn-primary">
                         <i class="bi bi-search"></i> Buscar
                     </button>
-                    <a href="?tab=links" class="btn btn-outline-secondary">
+                    <a href="?tab=search" class="btn btn-outline-secondary">
                         <i class="bi bi-x-circle"></i> Limpar
                     </a>
                 </div>
@@ -319,7 +319,7 @@ function formatarPrioridade($prioridade) {
                             <ul class="pagination justify-content-center mb-0">
                                 <?php if ($pagina > 1): ?>
                                     <li class="page-item">
-                                        <a class="page-link" href="?tab=links&termo=<?= urlencode($termoBusca) ?>&categoria=<?= $categoriaSelecionada ?>&limite=<?= $limitePorPagina ?>&pagina=<?= $pagina - 1 ?>">
+                                        <a class="page-link" href="?tab=search&termo=<?= urlencode($termoBusca) ?>&categoria=<?= $categoriaSelecionada ?>&limite=<?= $limitePorPagina ?>&pagina=<?= $pagina - 1 ?>">
                                             <i class="bi bi-chevron-left"></i> Anterior
                                         </a>
                                     </li>
@@ -345,7 +345,7 @@ function formatarPrioridade($prioridade) {
                                 
                                 // Mostrar links para a primeira página
                                 if ($startPage > 1) {
-                                    echo '<li class="page-item"><a class="page-link" href="?tab=links&termo=' . urlencode($termoBusca) . 
+                                    echo '<li class="page-item"><a class="page-link" href="?tab=search&termo=' . urlencode($termoBusca) . 
                                          '&categoria=' . $categoriaSelecionada . '&limite=' . $limitePorPagina . '&pagina=1">1</a></li>';
                                     
                                     if ($startPage > 2) {
@@ -358,7 +358,7 @@ function formatarPrioridade($prioridade) {
                                     if ($i == $pagina) {
                                         echo '<li class="page-item active"><span class="page-link">' . $i . '</span></li>';
                                     } else {
-                                        echo '<li class="page-item"><a class="page-link" href="?tab=links&termo=' . urlencode($termoBusca) . 
+                                        echo '<li class="page-item"><a class="page-link" href="?tab=search&termo=' . urlencode($termoBusca) . 
                                              '&categoria=' . $categoriaSelecionada . '&limite=' . $limitePorPagina . '&pagina=' . $i . '">' . $i . '</a></li>';
                                     }
                                 }
@@ -369,7 +369,7 @@ function formatarPrioridade($prioridade) {
                                         echo '<li class="page-item disabled"><span class="page-link">...</span></li>';
                                     }
                                     
-                                    echo '<li class="page-item"><a class="page-link" href="?tab=links&termo=' . urlencode($termoBusca) . 
+                                    echo '<li class="page-item"><a class="page-link" href="?tab=search&termo=' . urlencode($termoBusca) . 
                                          '&categoria=' . $categoriaSelecionada . '&limite=' . $limitePorPagina . '&pagina=' . $totalPaginas . '">' . 
                                          $totalPaginas . '</a></li>';
                                 }
@@ -377,7 +377,7 @@ function formatarPrioridade($prioridade) {
                                 
                                 <?php if ($pagina < $totalPaginas): ?>
                                     <li class="page-item">
-                                        <a class="page-link" href="?tab=links&termo=<?= urlencode($termoBusca) ?>&categoria=<?= $categoriaSelecionada ?>&limite=<?= $limitePorPagina ?>&pagina=<?= $pagina + 1 ?>">
+                                        <a class="page-link" href="?tab=search&termo=<?= urlencode($termoBusca) ?>&categoria=<?= $categoriaSelecionada ?>&limite=<?= $limitePorPagina ?>&pagina=<?= $pagina + 1 ?>">
                                             Próxima <i class="bi bi-chevron-right"></i>
                                         </a>
                                     </li>

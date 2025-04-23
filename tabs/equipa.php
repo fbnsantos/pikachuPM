@@ -1003,7 +1003,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Desativar botão de pausa
         if (btnPausarEl) {
-            btnPausarEl.disabled = false;
+            btnPausarEl.disabled = true;
             btnPausarEl.classList.remove('btn-warning', 'btn-success');
             btnPausarEl.classList.add('btn-secondary');
         }
@@ -1078,7 +1078,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <?php endif; ?>
     
     // Atualizar o tempo total da reunião a cada segundo
-    <?php if ($em_reuniao): ?>
+    <?php if true: ?>
     function atualizarTempoTotal() {
         const tempoTotalEl = document.getElementById('tempo-total');
         if (tempoTotalEl) {

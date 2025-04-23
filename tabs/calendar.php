@@ -39,8 +39,10 @@ for ($i = 0; $i < $numSemanas * 7; $i++) {
     $datas[] = $data;
 }
 
-// Debug
-// echo '<pre>'; print_r($datas); echo '</pre>';
+// Preservar estado da alternância automática
+$auto_refresh = isset($_GET['auto_refresh']) && $_GET['auto_refresh'] === 'true';
+$auto_alternar = isset($_COOKIE['auto_alternar']) ? $_COOKIE['auto_alternar'] === 'true' : false;
+$tempo_alternancia = isset($_COOKIE['tempo_alternancia']) ? intval($_COOKIE['tempo_alternancia']) : 60;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['data'], $_POST['tipo'], $_POST['descricao'])) {
@@ -64,7 +66,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $db->prepare("DELETE FROM eventos WHERE id = :id");
         $stmt->execute([':id' => $_POST['delete']]);
     }
-    header("Location: index.php?tab=calendar&offset=$offset");
+    
+    // Preservar estado de alternância automática nos redirecionamentos
+    $queryParams = "tab=calendar&offset=$offset";
+    
+    // Preservar parâmetro de auto_refresh se estiver presente
+    if ($auto_refresh) {
+        $queryParams .= "&auto_refresh=true";
+    }
+    
+    header("Location: index.php?$queryParams");
     exit;
 }
 
@@ -94,14 +105,17 @@ foreach ($eventos as $e) {
 <div class="container mt-4">
     <h2 class="mb-4">Calendário da equipa</h2>
     <div class="d-flex justify-content-between mb-3">
-    <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset - 7 ?>">&laquo; Semana anterior</a>
-    <a class="btn btn-outline-primary" href="?tab=calendar">Hoje</a>
-    <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset + 7 ?>">Semana seguinte &raquo;</a>
+    <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset - 7 ?><?= $auto_refresh ? '&auto_refresh=true' : '' ?>">&laquo; Semana anterior</a>
+    <a class="btn btn-outline-primary" href="?tab=calendar<?= $auto_refresh ? '&auto_refresh=true' : '' ?>">Hoje</a>
+    <a class="btn btn-secondary" href="?tab=calendar&offset=<?= $offset + 7 ?><?= $auto_refresh ? '&auto_refresh=true' : '' ?>">Semana seguinte &raquo;</a>
 </div>
 
     <form method="get" class="mb-3">
     <input type="hidden" name="tab" value="calendar">
     <input type="hidden" name="offset" value="<?= $offset ?>">
+    <?php if ($auto_refresh): ?>
+    <input type="hidden" name="auto_refresh" value="true">
+    <?php endif; ?>
     <label for="semanas" class="form-label">Número de semanas a mostrar:</label>
     <select name="semanas" id="semanas" class="form-select form-select-sm w-auto d-inline-block" onchange="this.form.submit()">
         <?php for ($i = 1; $i <= 40; $i++): ?>
@@ -150,6 +164,25 @@ foreach ($eventos as $e) {
     </div>
 </div>
 <script>
+// Preservar cookie de alternância entre Dashboard/Calendário
+const preserveAlternancaTimeout = () => {
+    // Se existir um cronômetro de alternância, vamos nos certificar
+    // de que qualquer redefinição de página não afete esse cronômetro
+    const toggleCountdownEl = document.getElementById('toggle-countdown');
+    if (toggleCountdownEl) {
+        const autoAlternarAtivo = <?= json_encode($auto_alternar) ?> === true;
+        const tempoAlternanciaAtual = <?= $tempo_alternancia ?>;
+        
+        // Garantir que não sobrescrevemos o cookie durante recarregamentos automáticos
+        if (autoAlternarAtivo && window.location.search.includes('auto_refresh=true')) {
+            console.log('Preservando tempo de alternância durante refresh automático:', tempoAlternanciaAtual);
+        }
+    }
+};
+
+// Executar ao carregar a página
+document.addEventListener('DOMContentLoaded', preserveAlternancaTimeout);
+
 function toggleForm(button) {
     const form = button.nextElementSibling;
     form.classList.toggle('d-none');

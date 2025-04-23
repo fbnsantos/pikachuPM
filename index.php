@@ -174,6 +174,25 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             background-color: #ffcccc;
             color: #222;
         }
+        footer { 
+            background-color: #222; 
+            color: #999; 
+            padding: 10px 20px; 
+            text-align: center; 
+            font-size: 0.8em; 
+            border-top: 1px solid #444;
+            margin-top: auto; /* Isso garante que o rodapé fique na parte inferior */
+        }
+        
+        footer a {
+            color: #bbb;
+            text-decoration: none;
+        }
+        
+        footer a:hover {
+            color: white;
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -218,6 +237,12 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
     }
     ?>
 </main>
+
+<footer>
+    <div class="container">
+        <p>PikachuPM V0.3 alpha &copy; <?php echo date("Y"); ?> | Produzido por <a href="mailto:fbnsantos@fbnsantos.com">Filipe Neves dos Santos</a></p>
+    </div>
+</footer>
 
 <div id="refresh-info" class="refresh-info" style="display: none;">
     <div id="refresh-info-content"></div>

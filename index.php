@@ -36,7 +36,7 @@ function tempoSessao() {
 }
 
 // Configurações de tempo (em segundos)
-$tempoRefreshCalendario = 10; // 10 segundos para refresh do calendário
+$tempoRefreshCalendario = 40; // 10 segundos para refresh do calendário
 $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas
 ?>
 

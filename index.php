@@ -13,7 +13,8 @@ $tabs = [
     'oportunidades' => 'Leads',
     'calendar' => 'Calendário',
     'equipa' => 'Reunião Diária',
-    'links' => 'Links'
+    'links' => 'Links',
+    'search' => 'SearchRedmine',
 ];
 
 $tabSelecionada = $_GET['tab'] ?? 'dashboard';

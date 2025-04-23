@@ -24,8 +24,8 @@ if (!array_key_exists($tabSelecionada, $tabs)) {
 // Verificar se alternância automática está ativada
 $autoAlternar = isset($_COOKIE['auto_alternar']) ? $_COOKIE['auto_alternar'] === 'true' : false;
 
-// Verificar se foi uma alteração de abas devido à alternância automática
-$alternacaoAutomatica = isset($_GET['alternado']) && $_GET['alternado'] === 'true';
+// Determinar se precisamos fazer nova configuração de temporizadores
+$reiniciarTemporizadores = isset($_GET['reset_timers']) && $_GET['reset_timers'] === 'true';
 
 function tempoSessao() {
     if (!isset($_SESSION['inicio'])) {
@@ -35,13 +35,9 @@ function tempoSessao() {
     return gmdate("H:i:s", $duração);
 }
 
-// Determinar o tempo de refresh para a aba calendar sem usar meta refresh
-$refreshTime = 0;
-$useJsRefresh = false;
-if ($tabSelecionada === 'calendar') {
-    $refreshTime = 10; // 10 segundos para calendário
-    $useJsRefresh = true;
-}
+// Configurações de tempo (em segundos)
+$tempoRefreshCalendario = 10; // 10 segundos para refresh do calendário
+$tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas
 ?>
 
 <!DOCTYPE html>
@@ -207,56 +203,62 @@ if ($tabSelecionada === 'calendar') {
     ?>
 </main>
 
-<?php if ($refreshTime > 0 || $autoAlternar): ?>
-<div class="refresh-info">
-    <?php if ($refreshTime > 0): ?>
-    <span>Auto refresh em <span id="refresh-countdown" class="countdown"><?= $refreshTime ?></span>s</span>
-    <?php endif; ?>
-    
-    <?php if ($autoAlternar): ?>
-    <span><?= $tabSelecionada === 'dashboard' ? 'Mudando para Calendário' : ($tabSelecionada === 'calendar' ? 'Mudando para Dashboard' : '') ?> em <span id="toggle-countdown" class="countdown">60</span>s</span>
-    <?php endif; ?>
+<div id="refresh-info" class="refresh-info" style="display: none;">
+    <div id="refresh-info-content"></div>
 </div>
-<?php endif; ?>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // INICIALIZAÇÃO DE VARIÁVEIS
+    // ===== CONFIGURAÇÃO BÁSICA =====
     const tabAtual = '<?= $tabSelecionada ?>';
-    const usarJsRefresh = <?= $useJsRefresh ? 'true' : 'false' ?>;
-    const tempoRefresh = <?= $refreshTime ?>;
-    const isAlternacaoAutomatica = <?= $alternacaoAutomatica ? 'true' : 'false' ?>;
-    
-    // USAR LOCALSTORAGE PARA GUARDAR ESTADO DE ALTERNÂNCIA
-    const getLocalStorage = (key, defaultValue) => {
-        const value = localStorage.getItem(key);
-        return value !== null ? JSON.parse(value) : defaultValue;
-    };
-    
-    const setLocalStorage = (key, value) => {
-        localStorage.setItem(key, JSON.stringify(value));
-    };
-    
-    // Inicializar ou recuperar o tempo de alternância do localStorage
-    let tempoAlternancia = 60;
-    if (isAlternacaoAutomatica) {
-        // Se foi uma alternância automática, reiniciar o contador
-        tempoAlternancia = 60;
-        setLocalStorage('tempo_alternancia', tempoAlternancia);
-    } else {
-        // Caso contrário, recuperar o valor existente
-        tempoAlternancia = getLocalStorage('tempo_alternancia', 60);
-    }
-    
-    // Atualizar o elemento na UI
-    const toggleCountdownEl = document.getElementById('toggle-countdown');
-    if (toggleCountdownEl) {
-        toggleCountdownEl.textContent = tempoAlternancia;
-    }
-    
-    // TEMPORIZADOR DE SESSÃO
+    const tempoRefreshCalendario = <?= $tempoRefreshCalendario ?>;
+    const tempoAlternanciaAbas = <?= $tempoAlternanciaAbas ?>;
+    const reiniciarTemporizadores = <?= $reiniciarTemporizadores ? 'true' : 'false' ?>;
+
+    // Elementos DOM importantes
+    const autoToggleEl = document.getElementById('auto-toggle-check');
+    const refreshInfoEl = document.getElementById('refresh-info');
+    const refreshInfoContentEl = document.getElementById('refresh-info-content');
     const sessionTimeEl = document.getElementById('session-time');
+
+    // ===== UTILITÁRIOS =====
+    // Função para adicionar parâmetros à URL atual
+    function addParamsToUrl(params) {
+        const url = new URL(window.location.href);
+        Object.keys(params).forEach(key => {
+            if (params[key] !== null) {
+                url.searchParams.set(key, params[key]);
+            } else {
+                url.searchParams.delete(key);
+            }
+        });
+        return url.toString();
+    }
+
+    // Funções para manipular localStorage
+    function getLocalStorage(key, defaultValue) {
+        try {
+            const value = localStorage.getItem(key);
+            return value !== null ? JSON.parse(value) : defaultValue;
+        } catch (e) {
+            console.error('Erro ao ler localStorage:', e);
+            return defaultValue;
+        }
+    }
+
+    function setLocalStorage(key, value) {
+        try {
+            localStorage.setItem(key, JSON.stringify(value));
+            return true;
+        } catch (e) {
+            console.error('Erro ao escrever localStorage:', e);
+            return false;
+        }
+    }
+
+    // ===== TEMPORIZADOR DE SESSÃO =====
+    // Atualizar o tempo de sessão a cada segundo
     if (sessionTimeEl) {
         let timeParts = sessionTimeEl.textContent.split(':');
         let seconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseInt(timeParts[2]);
@@ -269,99 +271,181 @@ document.addEventListener('DOMContentLoaded', function() {
             sessionTimeEl.textContent = `${hours}:${minutes}:${secs}`;
         }, 1000);
     }
+
+    // ===== SISTEMA UNIFICADO DE TEMPORIZADORES =====
+    // Esta é a grande mudança - um único sistema central que gerencia todos os temporizadores
     
-    // CONTADOR DE REFRESH (usando JavaScript em vez de meta refresh)
-    const refreshCountdownEl = document.getElementById('refresh-countdown');
-    if (refreshCountdownEl && usarJsRefresh) {
-        let refreshTime = parseInt(refreshCountdownEl.textContent);
-        const refreshInterval = setInterval(() => {
-            refreshTime--;
-            refreshCountdownEl.textContent = refreshTime;
-            
-            if (refreshTime <= 0) {
-                clearInterval(refreshInterval);
-                
-                // Construir URL de refresh preservando informações importantes
-                const currentUrl = new URL(window.location.href);
-                currentUrl.searchParams.set('js_refresh', 'true');
-                
-                // Recarregar a página
-                window.location.href = currentUrl.toString();
-            }
-        }, 1000);
-    }
-    
-    // CONFIGURAR ALTERNÂNCIA AUTOMÁTICA
-    const autoToggleEl = document.getElementById('auto-toggle-check');
+    // 1. Determinar se devemos alternar automaticamente
+    let autoAlternarAtivo = getLocalStorage('auto_alternar', false);
     if (autoToggleEl) {
-        // Sincronizar estado do checkbox com localStorage
-        const autoAlternarAtivo = getLocalStorage('auto_alternar', false);
         autoToggleEl.checked = autoAlternarAtivo;
         
         // Salvar estado do checkbox quando alterado
         autoToggleEl.addEventListener('change', function() {
-            setLocalStorage('auto_alternar', this.checked);
-            document.cookie = `auto_alternar=${this.checked}; max-age=${60*60*24*30}; path=/; SameSite=Strict`;
+            autoAlternarAtivo = this.checked;
+            setLocalStorage('auto_alternar', autoAlternarAtivo);
+            document.cookie = `auto_alternar=${autoAlternarAtivo}; max-age=${60*60*24*30}; path=/; SameSite=Strict`;
             
-            if (this.checked) {
-                startToggleTimer();
+            if (autoAlternarAtivo) {
+                // Se a alternância for ativada, definir próxima alternância
+                configurarProximaAlternancia();
+                iniciarTimerUnificado();
             } else {
-                // Se desativar, remover a contagem regressiva
-                const toggleCountdown = document.getElementById('toggle-countdown');
-                if (toggleCountdown) {
-                    toggleCountdown.parentElement.style.display = 'none';
-                }
-                // Limpar o intervalo
-                if (window.toggleInterval) {
-                    clearInterval(window.toggleInterval);
-                }
+                // Se desativar, limpar dados de alternância
+                setLocalStorage('proxima_alternancia', null);
+                atualizarInterfaceContador();
             }
         });
-        
-        // Iniciar timer de alternância se estiver marcado
-        if (autoToggleEl.checked) {
-            startToggleTimer();
+    }
+    
+    // 2. Configurar próxima alternância (timestamp absoluto)
+    function configurarProximaAlternancia() {
+        // Calcular timestamp da próxima alternância (agora + 60 segundos)
+        const proximaAlternancia = Date.now() + (tempoAlternanciaAbas * 1000);
+        setLocalStorage('proxima_alternancia', proximaAlternancia);
+        console.log('Próxima alternância configurada para:', new Date(proximaAlternancia));
+    }
+    
+    // 3. Configurar próximo refresh (timestamp absoluto)
+    function configurarProximoRefresh() {
+        if (tabAtual === 'calendar') {
+            const proximoRefresh = Date.now() + (tempoRefreshCalendario * 1000);
+            setLocalStorage('proximo_refresh', proximoRefresh);
+            console.log('Próximo refresh configurado para:', new Date(proximoRefresh));
+        } else {
+            setLocalStorage('proximo_refresh', null);
         }
     }
     
-    // Função para iniciar o timer de alternância
-    function startToggleTimer() {
-        const toggleCountdownEl = document.getElementById('toggle-countdown');
-        if (toggleCountdownEl) {
-            let toggleTime = parseInt(toggleCountdownEl.textContent);
-            toggleCountdownEl.parentElement.style.display = 'inline';
+    // 4. Iniciar timer unificado
+    let timerUnificadoInterval;
+    
+    function iniciarTimerUnificado() {
+        // Limpar intervalo existente
+        if (timerUnificadoInterval) {
+            clearInterval(timerUnificadoInterval);
+        }
+        
+        // Criar novo intervalo que verifica ambos os temporizadores
+        timerUnificadoInterval = setInterval(() => {
+            const agora = Date.now();
             
-            // Limpar intervalos existentes para evitar múltiplos
-            if (window.toggleInterval) {
-                clearInterval(window.toggleInterval);
+            // Verificar alternância automática
+            if (autoAlternarAtivo) {
+                const proximaAlternancia = getLocalStorage('proxima_alternancia', null);
+                if (proximaAlternancia && agora >= proximaAlternancia) {
+                    // Limpar intervalo para evitar ações duplicadas
+                    clearInterval(timerUnificadoInterval);
+                    
+                    // Executar alternância
+                    if (tabAtual === 'dashboard') {
+                        window.location.href = addParamsToUrl({
+                            'tab': 'calendar',
+                            'reset_timers': 'true'
+                        });
+                    } else if (tabAtual === 'calendar') {
+                        window.location.href = addParamsToUrl({
+                            'tab': 'dashboard',
+                            'reset_timers': 'true'
+                        });
+                    } else {
+                        window.location.href = addParamsToUrl({
+                            'tab': 'dashboard',
+                            'reset_timers': 'true'
+                        });
+                    }
+                    return;
+                }
             }
             
-            // Configurar novo intervalo
-            window.toggleInterval = setInterval(() => {
-                toggleTime--;
-                
-                // Salvar o tempo restante no localStorage
-                setLocalStorage('tempo_alternancia', toggleTime);
-                
-                toggleCountdownEl.textContent = toggleTime;
-                
-                if (toggleTime <= 0) {
-                    // Limpar o intervalo para evitar problemas durante a navegação
-                    clearInterval(window.toggleInterval);
+            // Verificar refresh do calendário
+            if (tabAtual === 'calendar') {
+                const proximoRefresh = getLocalStorage('proximo_refresh', null);
+                if (proximoRefresh && agora >= proximoRefresh) {
+                    // Configurar próximo refresh
+                    configurarProximoRefresh();
                     
-                    // Alternar entre dashboard e calendar
-                    if (tabAtual === 'dashboard') {
-                        window.location.href = '?tab=calendar&alternado=true';
-                    } else if (tabAtual === 'calendar') {
-                        window.location.href = '?tab=dashboard&alternado=true';
-                    } else {
-                        // Se estiver em outra aba, ir para dashboard
-                        window.location.href = '?tab=dashboard&alternado=true';
-                    }
+                    // Recarregar apenas o conteúdo do calendário sem navegar
+                    // Isso é melhor que recarregar a página toda
+                    fetch(window.location.href)
+                        .then(response => response.text())
+                        .then(html => {
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(html, 'text/html');
+                            const newMainContent = doc.querySelector('main').innerHTML;
+                            document.querySelector('main').innerHTML = newMainContent;
+                            console.log('Conteúdo do calendário atualizado via AJAX');
+                        })
+                        .catch(error => {
+                            console.error('Erro ao atualizar calendário:', error);
+                            // Em caso de erro, recorrer ao método tradicional
+                            window.location.reload();
+                        });
                 }
-            }, 1000);
+            }
+            
+            // Atualizar interface
+            atualizarInterfaceContador();
+        }, 1000);
+    }
+    
+    // 5. Atualizar interface com contadores
+    function atualizarInterfaceContador() {
+        const agora = Date.now();
+        let conteudoInfo = [];
+        
+        // Verificar alternância automática
+        if (autoAlternarAtivo) {
+            const proximaAlternancia = getLocalStorage('proxima_alternancia', null);
+            if (proximaAlternancia) {
+                const segundosRestantes = Math.max(0, Math.ceil((proximaAlternancia - agora) / 1000));
+                const textoAlternancia = tabAtual === 'dashboard' ? 'Mudando para Calendário' : 
+                    (tabAtual === 'calendar' ? 'Mudando para Dashboard' : '');
+                
+                if (textoAlternancia) {
+                    conteudoInfo.push(`${textoAlternancia} em <span class="countdown">${segundosRestantes}</span>s`);
+                }
+            }
+        }
+        
+        // Verificar refresh do calendário
+        if (tabAtual === 'calendar') {
+            const proximoRefresh = getLocalStorage('proximo_refresh', null);
+            if (proximoRefresh) {
+                const segundosRestantes = Math.max(0, Math.ceil((proximoRefresh - agora) / 1000));
+                conteudoInfo.push(`Auto refresh em <span class="countdown">${segundosRestantes}</span>s`);
+            }
+        }
+        
+        // Atualizar elemento de informação
+        if (conteudoInfo.length > 0 && refreshInfoEl && refreshInfoContentEl) {
+            refreshInfoContentEl.innerHTML = conteudoInfo.join('<br>');
+            refreshInfoEl.style.display = 'block';
+        } else if (refreshInfoEl) {
+            refreshInfoEl.style.display = 'none';
         }
     }
+    
+    // ===== INICIALIZAÇÃO =====
+    // Se é uma nova visita ou reset explícito, configurar temporizadores
+    if (reiniciarTemporizadores || tabAtual !== getLocalStorage('ultima_tab', null)) {
+        console.log('Configurando novos temporizadores');
+        
+        // Salvar tab atual
+        setLocalStorage('ultima_tab', tabAtual);
+        
+        // Configurar temporizadores se necessário
+        if (autoAlternarAtivo) {
+            configurarProximaAlternancia();
+        }
+        
+        if (tabAtual === 'calendar') {
+            configurarProximoRefresh();
+        }
+    }
+    
+    // Iniciar timer unificado (sempre)
+    iniciarTimerUnificado();
 });
 </script>
 

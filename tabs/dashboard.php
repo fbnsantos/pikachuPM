@@ -948,26 +948,29 @@ function renderContentFrame($content, $height = 450) {
             </table>
         </div>
     </div>
+    // Substitua a parte do script no final do arquivo dashboard.php com este código:
 
-    <script>
-        // Contador regressivo
-        let countdown = 60;
-        const countdownElement = document.getElementById('countdown');
-        
-        if (countdownElement) {
-            const timer = setInterval(() => {
-                countdown--;
-                countdownElement.textContent = countdown;
-                
-                if (countdown <= 0) {
-                    clearInterval(timer);
-                    window.location.reload(); // Recarregar para exibir próximo conteúdo
-                }
-            }, 1000);
-        }
-        
-        // Botão de configurações
-        document.getElementById('settings-btn').addEventListener('click', function() {
+<script>
+    // Contador regressivo
+    let countdown = 60;
+    const countdownElement = document.getElementById('countdown');
+    
+    if (countdownElement) {
+        const timer = setInterval(() => {
+            countdown--;
+            countdownElement.textContent = countdown;
+            
+            if (countdown <= 0) {
+                clearInterval(timer);
+                window.location.reload(); // Recarregar para exibir próximo conteúdo
+            }
+        }, 1000);
+    }
+    
+    // Botão de configurações
+    const settingsBtn = document.getElementById('settings-btn');
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', function() {
             const displayOptions = document.getElementById('display-options');
             if (displayOptions.style.display === 'none' || displayOptions.style.display === '') {
                 displayOptions.style.display = 'block';
@@ -975,70 +978,92 @@ function renderContentFrame($content, $height = 450) {
                 displayOptions.style.display = 'none';
             }
         });
-        
-        // Estilização para opções de exibição
-        document.querySelectorAll('.display-option').forEach(option => {
-            option.addEventListener('click', function() {
-                document.querySelectorAll('.display-option').forEach(opt => {
-                    opt.classList.remove('display-option-selected');
+    }
+    
+    // Estilização para opções de exibição
+    document.querySelectorAll('.display-option').forEach(option => {
+        option.addEventListener('click', function() {
+            document.querySelectorAll('.display-option').forEach(opt => {
+                opt.classList.remove('display-option-selected');
+            });
+            this.classList.add('display-option-selected');
+            this.querySelector('input').checked = true;
+        });
+    });
+    
+    // Controles para formulário de avisos
+    const addNoticeBtn = document.getElementById('add-notice-btn');
+    if (addNoticeBtn) {
+        addNoticeBtn.addEventListener('click', function() {
+            const noticeForm = document.getElementById('notice-form');
+            if (noticeForm) {
+                noticeForm.style.display = 'block';
+            }
+        });
+    }
+    
+    const cancelNoticeBtn = document.getElementById('cancel-notice-btn');
+    if (cancelNoticeBtn) {
+        cancelNoticeBtn.addEventListener('click', function() {
+            const noticeForm = document.getElementById('notice-form');
+            if (noticeForm) {
+                noticeForm.style.display = 'none';
+            }
+        });
+    }
+    
+    // Ajuda com extração de ID para YouTube
+    const urlInput = document.getElementById('url');
+    const typeSelect = document.getElementById('type');
+    
+    if (urlInput && typeSelect) {
+        typeSelect.addEventListener('change', function() {
+            const selectedType = this.value;
+            if (selectedType === 'youtube') {
+                urlInput.placeholder = "https://www.youtube.com/watch?v=VIDEOID ou https://youtu.be/VIDEOID";
+            } else if (selectedType === 'linkedin') {
+                urlInput.placeholder = "https://www.linkedin.com/posts/... ou https://www.linkedin.com/feed/update/...";
+            } else {
+                urlInput.placeholder = "https://...";
+            }
+        });
+    }
+    
+    // Ajusta a velocidade da animação com base na quantidade de avisos
+    function adjustScrollSpeed() {
+        const noticesScroller = document.querySelector('.notices-scroller');
+        if (noticesScroller) {
+            const noticeItems = document.querySelectorAll('.notice-item');
+            if (noticeItems.length > 0) {
+                // Calcular a altura total do conteúdo
+                let totalHeight = 0;
+                noticeItems.forEach(item => {
+                    totalHeight += item.offsetHeight;
                 });
-                this.classList.add('display-option-selected');
-                this.querySelector('input').checked = true;
-            });
-        });
-        
-        // Controles para formulário de avisos
-        document.getElementById('add-notice-btn').addEventListener('click', function() {
-            const noticeForm = document.getElementById('notice-form');
-            noticeForm.style.display = 'block';
-        });
-        
-        document.getElementById('cancel-notice-btn').addEventListener('click', function() {
-            const noticeForm = document.getElementById('notice-form');
-            noticeForm.style.display = 'none';
-        });
-        
-        // Ajuda com extração de ID para YouTube
-        const urlInput = document.getElementById('url');
-        const typeSelect = document.getElementById('type');
-        
-        if (urlInput && typeSelect) {
-            typeSelect.addEventListener('change', function() {
-                const selectedType = this.value;
-                if (selectedType === 'youtube') {
-                    urlInput.placeholder = "https://www.youtube.com/watch?v=VIDEOID ou https://youtu.be/VIDEOID";
-                } else if (selectedType === 'linkedin') {
-                    urlInput.placeholder = "https://www.linkedin.com/posts/... ou https://www.linkedin.com/feed/update/...";
-                } else {
-                    urlInput.placeholder = "https://...";
-                }
-            });
-        }
-        
-        // Ajusta a velocidade da animação com base na quantidade de avisos
-        function adjustScrollSpeed() {
-            const noticesScroller = document.querySelector('.notices-scroller');
-            if (noticesScroller) {
-                const noticeItems = document.querySelectorAll('.notice-item');
-                if (noticeItems.length > 0) {
-                    // Calcular a altura total do conteúdo
-                    let totalHeight = 0;
-                    noticeItems.forEach(item => {
-                        totalHeight += item.offsetHeight;
-                    });
-                    
-                    // Ajustar a duração da animação baseado na quantidade de conteúdo
-                    // Metade dos avisos (porque repetimos para scroll contínuo)
-                    const uniqueNotices = noticeItems.length / 2;
-                    const duration = Math.max(10, uniqueNotices * 5); // Mínimo 10s, 5s por aviso
-                    
-                    noticesScroller.style.animationDuration = duration + 's';
-                }
+                
+                // Ajustar a duração da animação baseado na quantidade de conteúdo
+                // Metade dos avisos (porque repetimos para scroll contínuo)
+                const uniqueNotices = Math.max(1, noticeItems.length / 2);
+                const duration = Math.max(10, uniqueNotices * 5); // Mínimo 10s, 5s por aviso
+                
+                noticesScroller.style.animationDuration = duration + 's';
             }
         }
-        
-        // Executar quando a página estiver carregada
-        window.addEventListener('load', adjustScrollSpeed);
-    </script>
+    }
+    
+    // Executar quando a página estiver carregada
+    window.addEventListener('load', adjustScrollSpeed);
+    
+    // Verificar se os botões estão presentes e exibir mensagem no console para debug
+    console.log('Botão de adicionar aviso:', addNoticeBtn ? 'encontrado' : 'não encontrado');
+    console.log('Botão de cancelar aviso:', cancelNoticeBtn ? 'encontrado' : 'não encontrado');
+    console.log('Formulário de aviso:', document.getElementById('notice-form') ? 'encontrado' : 'não encontrado');
+
+    // Garantir que o formulário de avisos esteja inicialmente oculto
+    const noticeForm = document.getElementById('notice-form');
+    if (noticeForm) {
+        noticeForm.style.display = 'none';
+    }
+</script>
 </body>
 </html>

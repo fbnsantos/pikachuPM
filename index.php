@@ -1,4 +1,5 @@
 <?php
+ob_start();
 // index.php
 session_start();
 if (!isset($_SESSION['username'])) {
@@ -309,3 +310,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
 </body>
 </html>
+<?php
+ob_end_flush(); // Libera o buffer
+?>

@@ -208,7 +208,7 @@ function formatarPrioridade($prioridade) {
         </div>
         <div class="card-body">
             <form method="get" action="" class="row g-3">
-                <input type="hidden" name="tab" value="links">
+                <input type="hidden" name="tab" value="search">
                 
                 <div class="col-md-6">
                     <label for="termo" class="form-label">Termo de Busca</label>

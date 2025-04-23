@@ -112,6 +112,14 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             justify-content: space-between;
             align-items: center;
         }
+        .header-left {
+            display: flex;
+            align-items: center;
+        }
+        .logo {
+            height: 40px;
+            margin-right: 15px;
+        }
         .header-title {
             margin: 0;
         }
@@ -199,7 +207,10 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
 
 <header>
     <div class="header-container">
-        <h1 class="header-title">Bem-vindo, <?= htmlspecialchars($_SESSION['username']) ?></h1>
+        <div class="header-left">
+            <img src="images/pikachu_logo.png" alt="PikachuPM Logo" class="logo">
+            <h1 class="header-title">Bem-vindo, <?= htmlspecialchars($_SESSION['username']) ?></h1>
+        </div>
         <div class="header-info">
             <p>
                 ID: <?= $_SESSION['user_id'] ?> 

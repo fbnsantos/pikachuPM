@@ -8,6 +8,10 @@ if (!file_exists(dirname($dbFile))) {
     mkdir(dirname($dbFile), 0755, true);
 }
 
+// Definir layout padrão e salvar preferências
+$displayMode = isset($_GET['display_mode']) ? $_GET['display_mode'] : (isset($_COOKIE['display_mode']) ? $_COOKIE['display_mode'] : 'single');
+setcookie('display_mode', $displayMode, time() + (86400 * 30), "/"); // Cookie válido por 30 dias
+
 try {
     $db = new SQLite3($dbFile);
     $db->enableExceptions(true);
@@ -31,8 +35,12 @@ try {
             INSERT INTO content (type, url, title) VALUES 
             ('youtube', 'https://www.youtube.com/embed/dQw4w9WgXcQ', 'Rick Astley - Never Gonna Give You Up'),
             ('youtube', 'https://www.youtube.com/embed/jNQXAC9IVRw', 'Me at the zoo'),
+            ('youtube', 'https://www.youtube.com/embed/9bZkp7q19f0', 'PSY - GANGNAM STYLE'),
+            ('youtube', 'https://www.youtube.com/embed/kJQP7kiw5Fk', 'Luis Fonsi - Despacito ft. Daddy Yankee'),
             ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866123456789012345', 'Post do LinkedIn Exemplo 1'),
-            ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866987654321098765', 'Post do LinkedIn Exemplo 2')
+            ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866987654321098765', 'Post do LinkedIn Exemplo 2'),
+            ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866123456789054321', 'Post do LinkedIn Exemplo 3'),
+            ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866987654321012345', 'Post do LinkedIn Exemplo 4')
         ");
     }
 
@@ -108,21 +116,91 @@ try {
         $message = "Status alterado com sucesso!";
     }
     
-    // Selecionar conteúdo aleatório para exibir (apenas ativos)
-    $stmt = $db->prepare('
-        SELECT * FROM content 
-        WHERE active = 1 
-        ORDER BY RANDOM() 
-        LIMIT 1
-    ');
-    $result = $stmt->execute();
-    $content = $result->fetchArray(SQLITE3_ASSOC);
+    // Função para obter conteúdo aleatório por tipo
+    function getRandomContent($db, $type) {
+        $stmt = $db->prepare('
+            SELECT * FROM content 
+            WHERE active = 1 AND type = :type
+            ORDER BY RANDOM() 
+            LIMIT 1
+        ');
+        $stmt->bindValue(':type', $type, SQLITE3_TEXT);
+        $result = $stmt->execute();
+        $content = $result->fetchArray(SQLITE3_ASSOC);
+        
+        // Atualizar última exibição
+        if ($content) {
+            $stmt = $db->prepare('UPDATE content SET last_shown = CURRENT_TIMESTAMP WHERE id = :id');
+            $stmt->bindValue(':id', $content['id'], SQLITE3_INTEGER);
+            $stmt->execute();
+        }
+        
+        return $content;
+    }
     
-    // Atualizar última exibição
-    if ($content) {
-        $stmt = $db->prepare('UPDATE content SET last_shown = CURRENT_TIMESTAMP WHERE id = :id');
-        $stmt->bindValue(':id', $content['id'], SQLITE3_INTEGER);
-        $stmt->execute();
+    // Função para obter múltiplos conteúdos aleatórios por tipo
+    function getMultipleRandomContent($db, $type, $count) {
+        $contents = [];
+        $stmt = $db->prepare('
+            SELECT * FROM content 
+            WHERE active = 1 AND type = :type
+            ORDER BY RANDOM() 
+            LIMIT :count
+        ');
+        $stmt->bindValue(':type', $type, SQLITE3_TEXT);
+        $stmt->bindValue(':count', $count, SQLITE3_INTEGER);
+        $result = $stmt->execute();
+        
+        while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+            $contents[] = $row;
+            
+            // Atualizar última exibição
+            $updateStmt = $db->prepare('UPDATE content SET last_shown = CURRENT_TIMESTAMP WHERE id = :id');
+            $updateStmt->bindValue(':id', $row['id'], SQLITE3_INTEGER);
+            $updateStmt->execute();
+        }
+        
+        return $contents;
+    }
+    
+    // Buscar conteúdo com base no modo de exibição selecionado
+    switch ($displayMode) {
+        case 'dual':
+            $youtubeContent = getRandomContent($db, 'youtube');
+            $linkedinContent = getRandomContent($db, 'linkedin');
+            $content = null; // Não será usado no modo dual
+            break;
+            
+        case 'quad':
+            $youtubeContents = getMultipleRandomContent($db, 'youtube', 2);
+            $linkedinContents = getMultipleRandomContent($db, 'linkedin', 2);
+            $content = null; // Não será usado no modo quad
+            break;
+            
+        case 'single':
+        default:
+            // Selecionar conteúdo aleatório para exibir (apenas ativos)
+            $stmt = $db->prepare('
+                SELECT * FROM content 
+                WHERE active = 1 
+                ORDER BY RANDOM() 
+                LIMIT 1
+            ');
+            $result = $stmt->execute();
+            $content = $result->fetchArray(SQLITE3_ASSOC);
+            
+            // Atualizar última exibição
+            if ($content) {
+                $stmt = $db->prepare('UPDATE content SET last_shown = CURRENT_TIMESTAMP WHERE id = :id');
+                $stmt->bindValue(':id', $content['id'], SQLITE3_INTEGER);
+                $stmt->execute();
+            }
+            
+            $youtubeContent = null;
+            $linkedinContent = null;
+            $youtubeContents = null;
+            $linkedinContents = null;
+            break;
     }
     
     // Buscar todos os conteúdos para a tabela de gestão
@@ -136,6 +214,49 @@ try {
     echo "Erro na base de dados: " . $e->getMessage();
     exit;
 }
+
+// Função para renderizar um frame de conteúdo
+function renderContentFrame($content, $height = 450) {
+    if (!$content) return '<div class="content-frame" style="display: flex; align-items: center; justify-content: center; background-color: #f8f9fa; height: '.$height.'px;">
+        <p>Nenhum conteúdo disponível.</p>
+    </div>';
+    
+    $html = '<div class="content-info">
+        <div>
+            <span class="content-title">'.htmlspecialchars($content['title']).'</span>
+            <span class="content-type '.htmlspecialchars($content['type']).'">
+                '.htmlspecialchars($content['type']).'
+            </span>
+        </div>
+    </div>';
+    
+    if ($content['type'] === 'youtube') {
+        $html .= '<iframe 
+            class="content-frame"
+            src="'.htmlspecialchars($content['url']).'?autoplay=1&mute=1"
+            title="'.htmlspecialchars($content['title']).'"
+            frameborder="0"
+            style="height: '.$height.'px;"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowfullscreen>
+        </iframe>';
+    } elseif ($content['type'] === 'linkedin') {
+        $html .= '<iframe 
+            class="content-frame"
+            src="'.htmlspecialchars($content['url']).'"
+            title="'.htmlspecialchars($content['title']).'"
+            frameborder="0"
+            style="height: '.$height.'px;"
+            allowfullscreen>
+        </iframe>';
+    } else {
+        $html .= '<div class="content-frame" style="display: flex; align-items: center; justify-content: center; background-color: #f8f9fa; height: '.$height.'px;">
+            <p>Tipo de conteúdo não suportado.</p>
+        </div>';
+    }
+    
+    return $html;
+}
 ?>
 
 <!DOCTYPE html>
@@ -144,46 +265,45 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Conteúdo Multimídia</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         .content-container {
             width: 100%;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
+            margin: 0 auto 20px;
             border: 1px solid #ddd;
             border-radius: 10px;
             box-shadow: 0 0 15px rgba(0,0,0,0.1);
             background: white;
+            overflow: hidden;
         }
         
         .content-frame {
             width: 100%;
-            height: 450px;
             border: none;
-            border-radius: 8px;
+            border-radius: 0 0 8px 8px;
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
         
         .content-info {
-            margin-top: 15px;
-            padding: 10px;
+            padding: 10px 15px;
             background-color: #f8f9fa;
-            border-radius: 5px;
+            border-bottom: 1px solid #eee;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
         
         .content-title {
-            font-size: 1.2em;
+            font-size: 1.1em;
             font-weight: bold;
+            margin-right: 10px;
         }
         
         .content-type {
             display: inline-block;
             padding: 3px 8px;
             border-radius: 4px;
-            font-size: 0.8em;
+            font-size: 0.75em;
             font-weight: bold;
             text-transform: uppercase;
         }
@@ -199,7 +319,7 @@ try {
         }
         
         .management-section {
-            margin-top: 50px;
+            margin-top: 30px;
             padding: 20px;
             border: 1px solid #ddd;
             border-radius: 10px;
@@ -325,11 +445,64 @@ try {
             font-weight: bold;
             margin-left: 15px;
         }
+        
+        .display-options {
+            background-color: #f0f8ff;
+            border: 1px solid #d0e5ff;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .display-option {
+            display: inline-block;
+            margin-right: 20px;
+            padding: 8px 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: white;
+            cursor: pointer;
+        }
+        
+        .display-option:hover {
+            background-color: #f0f0f0;
+        }
+        
+        .display-option input {
+            margin-right: 5px;
+        }
+        
+        .display-option-selected {
+            border-color: #007bff;
+            background-color: #e6f2ff;
+        }
+        
+        .row-cols-2 > * {
+            padding: 10px;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Dashboard de Conteúdo</h1>
+    <div class="container mt-4">
+        <h1 class="mb-4">Dashboard de Conteúdo</h1>
+        
+        <div class="display-options">
+            <h5 class="mb-3">Modo de Exibição:</h5>
+            <form id="displayForm" method="get" action="">
+                <label class="display-option <?= $displayMode === 'single' ? 'display-option-selected' : '' ?>">
+                    <input type="radio" name="display_mode" value="single" <?= $displayMode === 'single' ? 'checked' : '' ?> onchange="this.form.submit()">
+                    Um bloco aleatório
+                </label>
+                <label class="display-option <?= $displayMode === 'dual' ? 'display-option-selected' : '' ?>">
+                    <input type="radio" name="display_mode" value="dual" <?= $displayMode === 'dual' ? 'checked' : '' ?> onchange="this.form.submit()">
+                    Dois blocos lado a lado
+                </label>
+                <label class="display-option <?= $displayMode === 'quad' ? 'display-option-selected' : '' ?>">
+                    <input type="radio" name="display_mode" value="quad" <?= $displayMode === 'quad' ? 'checked' : '' ?> onchange="this.form.submit()">
+                    Quatro blocos (2x2)
+                </label>
+            </form>
+        </div>
         
         <?php if (!empty($message)): ?>
             <div class="alert <?= strpos($message, 'Erro') !== false ? 'alert-danger' : 'alert-success' ?>">
@@ -337,7 +510,7 @@ try {
             </div>
         <?php endif; ?>
         
-        <?php if ($content): ?>
+        <?php if ($displayMode === 'single' && $content): ?>
             <div class="content-container">
                 <div class="content-info">
                     <div>
@@ -354,6 +527,7 @@ try {
                         class="content-frame"
                         src="<?= htmlspecialchars($content['url']) ?>?autoplay=1&mute=1"
                         title="<?= htmlspecialchars($content['title']) ?>"
+                        height="450"
                         frameborder="0"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                         allowfullscreen>
@@ -363,14 +537,52 @@ try {
                         class="content-frame"
                         src="<?= htmlspecialchars($content['url']) ?>"
                         title="<?= htmlspecialchars($content['title']) ?>"
+                        height="450"
                         frameborder="0"
                         allowfullscreen>
                     </iframe>
                 <?php else: ?>
-                    <div class="content-frame" style="display: flex; align-items: center; justify-content: center; background-color: #f8f9fa;">
+                    <div class="content-frame" style="display: flex; align-items: center; justify-content: center; background-color: #f8f9fa; height: 450px;">
                         <p>Tipo de conteúdo não suportado.</p>
                     </div>
                 <?php endif; ?>
+            </div>
+        <?php elseif ($displayMode === 'dual'): ?>
+            <div class="row row-cols-2">
+                <div class="col">
+                    <div class="content-container h-100">
+                        <?= renderContentFrame($youtubeContent, 400) ?>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="content-container h-100">
+                        <?= renderContentFrame($linkedinContent, 400) ?>
+                    </div>
+                </div>
+            </div>
+            <div class="text-center mt-2">
+                <span class="countdown" id="countdown">60</span>
+            </div>
+        <?php elseif ($displayMode === 'quad'): ?>
+            <div class="row row-cols-2">
+                <?php foreach ($youtubeContents as $ytContent): ?>
+                <div class="col mb-3">
+                    <div class="content-container h-100">
+                        <?= renderContentFrame($ytContent, 350) ?>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+                
+                <?php foreach ($linkedinContents as $liContent): ?>
+                <div class="col mb-3">
+                    <div class="content-container h-100">
+                        <?= renderContentFrame($liContent, 350) ?>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            <div class="text-center mt-2">
+                <span class="countdown" id="countdown">60</span>
             </div>
         <?php else: ?>
             <div class="content-container">
@@ -409,7 +621,7 @@ try {
                 <button type="submit" class="btn btn-primary">Adicionar Conteúdo</button>
             </form>
             
-            <h3>Conteúdo Disponível</h3>
+            <h3 class="mt-4">Conteúdo Disponível</h3>
             <table>
                 <thead>
                     <tr>
@@ -481,6 +693,17 @@ try {
                 }
             }, 1000);
         }
+        
+        // Estilização para opções de exibição
+        document.querySelectorAll('.display-option').forEach(option => {
+            option.addEventListener('click', function() {
+                document.querySelectorAll('.display-option').forEach(opt => {
+                    opt.classList.remove('display-option-selected');
+                });
+                this.classList.add('display-option-selected');
+                this.querySelector('input').checked = true;
+            });
+        });
         
         // Ajuda com extração de ID para YouTube
         const urlInput = document.getElementById('url');

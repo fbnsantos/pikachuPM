@@ -23,12 +23,24 @@ if (!array_key_exists($tabSelecionada, $tabs)) {
 
 // Verificar se alternância automática está ativada
 $autoAlternar = isset($_COOKIE['auto_alternar']) ? $_COOKIE['auto_alternar'] === 'true' : false;
+
 // Armazenar o tempo restante para a alternância automática
 $tempoAlternanca = isset($_COOKIE['tempo_alternancia']) ? intval($_COOKIE['tempo_alternancia']) : 60;
 
-// Se acabou de alternar, reiniciar o contador
-if (isset($_GET['alternado']) && $_GET['alternado'] === 'true') {
-    $tempoAlternanca = 60; // ou o valor que você deseja para o tempo de alternância
+// Verificar se foi uma alteração de abas devido à alternância automática
+$alternacaoAutomatica = isset($_GET['alternado']) && $_GET['alternado'] === 'true';
+
+// Verificar se é um refresh automático para distinguir do refresh manual
+$refreshAutomatico = isset($_GET['auto_refresh']) && $_GET['auto_refresh'] === 'true';
+
+// Se foi uma alternância automática, reiniciar o contador
+if ($alternacaoAutomatica) {
+    $tempoAlternanca = 60; // ou o valor que você preferir
+    setcookie('tempo_alternancia', $tempoAlternanca, time() + 86400, '/', '', false, true);
+}
+// Se NÃO foi um refresh automático e o contador não existe, reiniciá-lo
+elseif (!$refreshAutomatico && (!isset($_COOKIE['tempo_alternancia']) || $_COOKIE['tempo_alternancia'] <= 0)) {
+    $tempoAlternanca = 60;
     setcookie('tempo_alternancia', $tempoAlternanca, time() + 86400, '/', '', false, true);
 }
 
@@ -53,7 +65,7 @@ if ($tabSelecionada === 'calendar') {
     <meta charset="UTF-8">
     <title>Área Redmine<?= $tabSelecionada ? ' - ' . $tabs[$tabSelecionada] : '' ?></title>
     <?php if ($refreshTime > 0): ?>
-    <meta http-equiv="refresh" content="<?= $refreshTime ?>">
+    <meta http-equiv="refresh" content="<?= $refreshTime ?>; url=?tab=<?= $tabSelecionada ?>&auto_refresh=true">
     <?php endif; ?>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -258,6 +270,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Configurar alternância automática
     const autoToggleEl = document.getElementById('auto-toggle-check');
+    const tabAtual = '<?= $tabSelecionada ?>';
+    const isRefreshAuto = <?= $refreshAutomatico ? 'true' : 'false' ?>;
+    
     if (autoToggleEl) {
         // Salvar estado do checkbox quando alterado
         autoToggleEl.addEventListener('change', function() {
@@ -265,6 +280,10 @@ document.addEventListener('DOMContentLoaded', function() {
             document.cookie = `auto_alternar=${this.checked}; max-age=${60*60*24*30}; path=/; SameSite=Strict`;
             
             if (this.checked) {
+                // Se a alternância for ativada, definir o tempo inicial
+                if (!getCookie('tempo_alternancia')) {
+                    document.cookie = `tempo_alternancia=60; max-age=${60*60*24}; path=/; SameSite=Strict`;
+                }
                 startToggleTimer();
             } else {
                 // Se desativar, remover a contagem regressiva
@@ -279,6 +298,13 @@ document.addEventListener('DOMContentLoaded', function() {
         if (autoToggleEl.checked) {
             startToggleTimer();
         }
+    }
+    
+    // Função para obter valor de cookie
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
     }
     
     // Função para iniciar o timer de alternância
@@ -304,7 +330,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 if (toggleTime <= 0) {
                     // Alternar entre dashboard e calendar
-                    const tabAtual = '<?= $tabSelecionada ?>';
                     if (tabAtual === 'dashboard') {
                         window.location.href = '?tab=calendar&alternado=true';
                     } else if (tabAtual === 'calendar') {

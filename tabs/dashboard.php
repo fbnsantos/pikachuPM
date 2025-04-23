@@ -57,7 +57,15 @@ try {
             ('Nova versão do sistema será lançada na próxima sexta-feira.', 'Desenvolvimento', 1)
         ");
     }
-
+    // Verificar se a tabela de avisos está vazia e adicionar um aviso padrão
+    $result = $db->query('SELECT COUNT(*) as count FROM notices');
+    $row = $result->fetchArray(SQLITE3_ASSOC);
+    if ($row['count'] == 0) {
+        $db->exec("
+            INSERT INTO notices (text, added_by, priority) VALUES
+            ('Bem-vindo ao novo dashboard com sistema de avisos! Clique no botão + para adicionar novos avisos.', 'Sistema', 1)
+        ");
+    }
     // Processar operações CRUD para conteúdo
     $message = '';
     

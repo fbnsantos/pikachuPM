@@ -23,6 +23,14 @@ if (!array_key_exists($tabSelecionada, $tabs)) {
 
 // Verificar se alternância automática está ativada
 $autoAlternar = isset($_COOKIE['auto_alternar']) ? $_COOKIE['auto_alternar'] === 'true' : false;
+// Armazenar o tempo restante para a alternância automática
+$tempoAlternanca = isset($_COOKIE['tempo_alternancia']) ? intval($_COOKIE['tempo_alternancia']) : 60;
+
+// Se acabou de alternar, reiniciar o contador
+if (isset($_GET['alternado']) && $_GET['alternado'] === 'true') {
+    $tempoAlternanca = 60; // ou o valor que você deseja para o tempo de alternância
+    setcookie('tempo_alternancia', $tempoAlternanca, time() + 86400, '/', '', false, true);
+}
 
 function tempoSessao() {
     if (!isset($_SESSION['inicio'])) {
@@ -35,7 +43,7 @@ function tempoSessao() {
 // Determinar o tempo de refresh com base na aba
 $refreshTime = 0; // 0 = sem refresh
 if ($tabSelecionada === 'calendar') {
-    $refreshTime = 10; // 60 segundos para calendário
+    $refreshTime = 10; // 10 segundos para calendário
 }
 ?>
 
@@ -212,7 +220,7 @@ if ($tabSelecionada === 'calendar') {
     <?php endif; ?>
     
     <?php if ($autoAlternar): ?>
-    <span><?= $tabSelecionada === 'dashboard' ? 'Mudando para Calendário' : ($tabSelecionada === 'calendar' ? 'Mudando para Dashboard' : '') ?> em <span id="toggle-countdown" class="countdown">60</span>s</span>
+    <span><?= $tabSelecionada === 'dashboard' ? 'Mudando para Calendário' : ($tabSelecionada === 'calendar' ? 'Mudando para Dashboard' : '') ?> em <span id="toggle-countdown" class="countdown"><?= $tempoAlternanca ?></span>s</span>
     <?php endif; ?>
 </div>
 <?php endif; ?>
@@ -288,18 +296,22 @@ document.addEventListener('DOMContentLoaded', function() {
             // Configurar novo intervalo
             window.toggleInterval = setInterval(() => {
                 toggleTime--;
+                
+                // Salvar o tempo restante em um cookie a cada segundo
+                document.cookie = `tempo_alternancia=${toggleTime}; max-age=${60*60*24}; path=/; SameSite=Strict`;
+                
                 toggleCountdownEl.textContent = toggleTime;
                 
                 if (toggleTime <= 0) {
                     // Alternar entre dashboard e calendar
                     const tabAtual = '<?= $tabSelecionada ?>';
                     if (tabAtual === 'dashboard') {
-                        window.location.href = '?tab=calendar';
+                        window.location.href = '?tab=calendar&alternado=true';
                     } else if (tabAtual === 'calendar') {
-                        window.location.href = '?tab=dashboard';
+                        window.location.href = '?tab=dashboard&alternado=true';
                     } else {
                         // Se estiver em outra aba, ir para dashboard
-                        window.location.href = '?tab=dashboard';
+                        window.location.href = '?tab=dashboard&alternado=true';
                     }
                 }
             }, 1000);

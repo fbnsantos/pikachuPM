@@ -8,8 +8,8 @@ if (!isset($_SESSION['username'])) {
 }
 
 // Definição dos horários para reuniões e transições
-$HORA_REUNIAO_EQUIPA = "22:59"; // formato HH:MM - Hora para iniciar contagem para reunião
-$HORA_TRANSICAO_CALENDARIO = "23:01"; // formato HH:MM - Hora para transição para o calendário
+$HORA_REUNIAO_EQUIPA = "23:04"; // formato HH:MM - Hora para iniciar contagem para reunião
+$HORA_TRANSICAO_CALENDARIO = "23:08"; // formato HH:MM - Hora para transição para o calendário
 
 // Tabs disponíveis
 $tabs = [
@@ -255,29 +255,69 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             display: none;
         }
         .countdown-time {
-            font-size: 8rem;
+            font-size: 32rem; /* Aumentado para 4x o tamanho anterior */
             font-weight: bold;
-            font-family: 'Digital-7', monospace;
-            margin-bottom: 1rem;
+            font-family: 'Digital-7', Arial, sans-serif;
+            margin-bottom: 2rem;
             color: #ff5252;
-            text-shadow: 0 0 10px rgba(255, 82, 82, 0.7);
+            text-shadow: 0 0 20px rgba(255, 82, 82, 0.7);
+            line-height: 1;
         }
         .countdown-message {
-            font-size: 2rem;
-            margin-bottom: 2rem;
+            font-size: 4rem; /* Também aumentado para manter a proporção */
+            margin-bottom: 3rem;
         }
         .countdown-progress {
-            width: 60%;
-            height: 20px;
+            width: 80%; /* Aumentado para ocupar mais espaço horizontal */
+            height: 40px; /* Barra de progresso mais alta */
             background-color: #333;
-            border-radius: 10px;
+            border-radius: 20px;
             overflow: hidden;
+            margin-top: 2rem;
         }
         .countdown-bar {
             height: 100%;
             background-color: #ff5252;
             border-radius: 10px;
             transition: width 1s linear;
+        }
+    </style>
+    <!-- Estilos adicionais para garantir centralização perfeita do relógio -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@700&display=swap');
+        
+        /* Ajuste para melhor centralização do relógio */
+        .countdown-clock {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100vh;
+            z-index: 10000;
+            background-color: rgba(0, 0, 0, 0.92);
+        }
+        
+        .countdown-container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+            padding: 2% 5%;
+        }
+        
+        .countdown-time {
+            font-family: 'Roboto Mono', monospace;
+            font-size: min(32vw, 32vh); /* Responsivo para todos os tamanhos de tela */
+            line-height: 1;
+            margin: 0;
+            padding: 0;
         }
     </style>
 </head>
@@ -345,10 +385,12 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
 
 <!-- Elemento para o relógio de contagem regressiva grande -->
 <div id="countdown-clock" class="countdown-clock">
-    <div class="countdown-message">PREPARAR PARA A REUNIÃO DIÁRIA</div>
-    <div id="countdown-time" class="countdown-time">02:00</div>
-    <div class="countdown-progress">
-        <div id="countdown-bar" class="countdown-bar" style="width: 100%;"></div>
+    <div class="countdown-container">
+        <div class="countdown-message">PREPARAR PARA A REUNIÃO DIÁRIA</div>
+        <div id="countdown-time" class="countdown-time">02:00</div>
+        <div class="countdown-progress">
+            <div id="countdown-bar" class="countdown-bar" style="width: 100%;"></div>
+        </div>
     </div>
 </div>
 
@@ -442,11 +484,23 @@ document.addEventListener('DOMContentLoaded', function() {
         // Atualizar display do tempo
         const minutos = Math.floor(tempoRestante / 60);
         const segundos = Math.floor(tempoRestante % 60);
+        // Garantir sempre 2 dígitos para manter o alinhamento
         countdownTimeEl.textContent = `${minutos.toString().padStart(2, '0')}:${segundos.toString().padStart(2, '0')}`;
         
         // Atualizar barra de progresso
         const porcentagemRestante = (tempoRestante / countdownDuration) * 100;
         countdownBarEl.style.width = `${porcentagemRestante}%`;
+        
+        // Mudar a cor do relógio para vermelho mais intenso quando faltarem 30 segundos
+        if (tempoRestante <= 30) {
+            countdownTimeEl.style.color = '#ff0000';
+            countdownTimeEl.style.textShadow = '0 0 30px rgba(255, 0, 0, 0.9)';
+            
+            // Pulsar o relógio nos últimos 30 segundos
+            if (!countdownTimeEl.classList.contains('pulse')) {
+                countdownTimeEl.classList.add('pulse');
+            }
+        }
     }
     
     // Função para finalizar a contagem regressiva

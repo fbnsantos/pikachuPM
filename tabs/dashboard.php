@@ -16,29 +16,33 @@ try {
     $db = new SQLite3($dbFile);
     $db->enableExceptions(true);
 
-    // Criar tabela se não existir
+    // Criar tabela de conteúdo se não existir
+    $db->exec('
+        CREATE TABLE IF NOT EXISTS content (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            url TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_shown DATETIME,
+            active INTEGER DEFAULT 1
+        );
+    ');
+    
+    // Criar tabela de avisos se não existir
+    $db->exec('
+        CREATE TABLE IF NOT EXISTS notices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            text TEXT NOT NULL,
+            added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            added_by TEXT,
+            priority INTEGER DEFAULT 0,
+            active INTEGER DEFAULT 1
+        );
+    ');
+
+    // Adicionar exemplos apenas se o banco de dados for novo
     if ($isNewDB) {
-        $db->exec('
-            CREATE TABLE IF NOT EXISTS content (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                type TEXT NOT NULL,
-                url TEXT NOT NULL UNIQUE,
-                title TEXT NOT NULL,
-                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                last_shown DATETIME,
-                active INTEGER DEFAULT 1
-            );
-            
-            CREATE TABLE IF NOT EXISTS notices (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                text TEXT NOT NULL,
-                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                added_by TEXT,
-                priority INTEGER DEFAULT 0,
-                active INTEGER DEFAULT 1
-            );
-        ');
-        
         // Adicionar alguns exemplos para demonstração
         $db->exec("
             INSERT INTO content (type, url, title) VALUES 
@@ -49,14 +53,18 @@ try {
             ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866123456789012345', 'Post do LinkedIn Exemplo 1'),
             ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866987654321098765', 'Post do LinkedIn Exemplo 2'),
             ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866123456789054321', 'Post do LinkedIn Exemplo 3'),
-            ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866987654321012345', 'Post do LinkedIn Exemplo 4');
-            
+            ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866987654321012345', 'Post do LinkedIn Exemplo 4')
+        ");
+        
+        // Adicionar avisos de exemplo
+        $db->exec("
             INSERT INTO notices (text, added_by, priority) VALUES
             ('Bem-vindo ao novo dashboard! Aqui você pode visualizar conteúdos de YouTube e LinkedIn.', 'Admin', 1),
             ('Reunião semanal da equipe amanhã às 10:00.', 'Gerente', 2),
             ('Nova versão do sistema será lançada na próxima sexta-feira.', 'Desenvolvimento', 1)
         ");
     }
+
     // Verificar se a tabela de avisos está vazia e adicionar um aviso padrão
     $result = $db->query('SELECT COUNT(*) as count FROM notices');
     $row = $result->fetchArray(SQLITE3_ASSOC);
@@ -66,6 +74,7 @@ try {
             ('Bem-vindo ao novo dashboard com sistema de avisos! Clique no botão + para adicionar novos avisos.', 'Sistema', 1)
         ");
     }
+
     // Processar operações CRUD para conteúdo
     $message = '';
     
@@ -404,12 +413,34 @@ function renderContentFrame($content, $height = 450) {
             color: white;
         }
         
-        .management-section {
+        .section-card {
             margin-top: 30px;
-            padding: 20px;
+            margin-bottom: 30px;
             border: 1px solid #ddd;
             border-radius: 10px;
             background-color: #f9f9f9;
+            overflow: hidden;
+        }
+        
+        .section-header {
+            background-color: #f0f0f0;
+            padding: 15px 20px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        
+        .section-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .section-content {
+            padding: 20px;
         }
         
         .form-group {
@@ -592,78 +623,36 @@ function renderContentFrame($content, $height = 450) {
             padding: 10px;
         }
         
-        .notices-container {
-            background-color: #fffcf5;
-            border: 1px solid #ffe8a8;
-            border-radius: 8px;
-            padding: 10px 15px;
-            margin-bottom: 20px;
-            position: relative;
-            max-height: 100px;
-            overflow: hidden;
-        }
-        
-        .notices-title {
-            font-weight: bold;
-            margin-bottom: 5px;
-            color: #856404;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .notices-content {
-            height: 60px;
-            overflow: hidden;
-            position: relative;
-        }
-        
-        .notices-scroller {
-            position: absolute;
+        .notices-table {
             width: 100%;
-            animation: scroll-y 15s linear infinite;
-            padding-right: 15px;
         }
         
-        .notice-item {
-            padding: 5px 0;
-            border-bottom: 1px dotted #ffe8a8;
+        .notices-table th, .notices-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border: 1px solid #ddd;
         }
         
-        .notice-item:last-child {
-            border-bottom: none;
+        .notices-table th {
+            background-color: #f2f2f2;
         }
         
-        .notice-text {
-            font-size: 0.95em;
-        }
-        
-        .notice-meta {
-            font-size: 0.75em;
-            color: #856404;
-            opacity: 0.7;
-        }
-        
-        .notice-actions {
-            position: absolute;
-            right: 10px;
-            top: 10px;
-            z-index: 100;
-        }
-        
-        @keyframes scroll-y {
-            0% { top: 0; }
-            100% { top: -100%; }
-        }
+        .notice-priority-0 { background-color: #f8f9fa; }
+        .notice-priority-1 { background-color: #fff3cd; }
+        .notice-priority-2 { background-color: #f8d7da; }
         
         .notice-form {
-            background-color: #fff;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 15px;
-            margin-top: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            display: none;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .rotate-icon {
+            transition: transform 0.3s ease;
+        }
+        
+        .rotate-icon.open {
+            transform: rotate(180deg);
         }
     </style>
 </head>
@@ -701,86 +690,6 @@ function renderContentFrame($content, $height = 450) {
                 <?= htmlspecialchars($message) ?>
             </div>
         <?php endif; ?>
-        
-        <div class="notices-container">
-            <div class="notices-title">
-                <span>Avisos</span>
-                <button type="button" class="btn btn-sm btn-warning btn-circle" id="add-notice-btn">
-                    <i class="bi bi-plus"></i>
-                </button>
-            </div>
-            
-            <div class="notices-content">
-                <?php if (!empty($notices)): ?>
-                <div class="notices-scroller">
-                    <?php foreach ($notices as $notice): ?>
-                    <div class="notice-item">
-                        <div class="notice-text"><?= htmlspecialchars($notice['text']) ?></div>
-                        <div class="notice-meta">
-                            Por: <?= htmlspecialchars($notice['added_by']) ?> | 
-                            <?= date('d/m/Y H:i', strtotime($notice['added_at'])) ?>
-                            
-                            <form method="post" action="" class="d-inline" onsubmit="return confirm('Tem certeza que deseja excluir este aviso?');">
-                                <input type="hidden" name="action" value="delete_notice">
-                                <input type="hidden" name="notice_id" value="<?= $notice['id'] ?>">
-                                <button type="submit" class="btn btn-sm text-danger border-0 p-0 ms-2">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-                    <?php endforeach; ?>
-                    
-                    <!-- Repetir os mesmos avisos para scroll contínuo -->
-                    <?php foreach ($notices as $notice): ?>
-                    <div class="notice-item">
-                        <div class="notice-text"><?= htmlspecialchars($notice['text']) ?></div>
-                        <div class="notice-meta">
-                            Por: <?= htmlspecialchars($notice['added_by']) ?> | 
-                            <?= date('d/m/Y H:i', strtotime($notice['added_at'])) ?>
-                        </div>
-                    </div>
-                    <?php endforeach; ?>
-                </div>
-                <?php else: ?>
-                <div class="p-3 text-center">
-                    <em>Não há avisos no momento.</em>
-                </div>
-                <?php endif; ?>
-            </div>
-            
-            <div class="notice-form" id="notice-form">
-                <form method="post" action="">
-                    <div class="mb-3">
-                        <label for="notice_text" class="form-label">Texto do aviso:</label>
-                        <textarea class="form-control" id="notice_text" name="notice_text" rows="2" required></textarea>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="notice_by" class="form-label">Autor:</label>
-                                <input type="text" class="form-control" id="notice_by" name="notice_by" value="Usuário">
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="notice_priority" class="form-label">Prioridade:</label>
-                                <select class="form-select" id="notice_priority" name="notice_priority">
-                                    <option value="0">Normal</option>
-                                    <option value="1">Importante</option>
-                                    <option value="2">Urgente</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    <input type="hidden" name="action" value="add_notice">
-                    <div class="text-end">
-                        <button type="button" class="btn btn-secondary btn-sm" id="cancel-notice-btn">Cancelar</button>
-                        <button type="submit" class="btn btn-primary btn-sm">Adicionar</button>
-                    </div>
-                </form>
-            </div>
-        </div>
         
         <?php if ($displayMode === 'single' && $content): ?>
             <div class="content-container">
@@ -837,21 +746,25 @@ function renderContentFrame($content, $height = 450) {
             </div>
         <?php elseif ($displayMode === 'quad'): ?>
             <div class="row row-cols-2">
-                <?php foreach ($youtubeContents as $ytContent): ?>
-                <div class="col mb-3">
-                    <div class="content-container h-100">
-                        <?= renderContentFrame($ytContent, 350) ?>
+                <?php if (isset($youtubeContents) && is_array($youtubeContents)): ?>
+                    <?php foreach ($youtubeContents as $ytContent): ?>
+                    <div class="col mb-3">
+                        <div class="content-container h-100">
+                            <?= renderContentFrame($ytContent, 350) ?>
+                        </div>
                     </div>
-                </div>
-                <?php endforeach; ?>
+                    <?php endforeach; ?>
+                <?php endif; ?>
                 
-                <?php foreach ($linkedinContents as $liContent): ?>
-                <div class="col mb-3">
-                    <div class="content-container h-100">
-                        <?= renderContentFrame($liContent, 350) ?>
+                <?php if (isset($linkedinContents) && is_array($linkedinContents)): ?>
+                    <?php foreach ($linkedinContents as $liContent): ?>
+                    <div class="col mb-3">
+                        <div class="content-container h-100">
+                            <?= renderContentFrame($liContent, 350) ?>
+                        </div>
                     </div>
-                </div>
-                <?php endforeach; ?>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             </div>
             <div class="text-center mt-2">
                 <span class="countdown" id="countdown">60</span>
@@ -864,113 +777,213 @@ function renderContentFrame($content, $height = 450) {
             </div>
         <?php endif; ?>
         
-        <div class="management-section">
-            <h2>Gerenciar Conteúdo</h2>
+        <!-- Seção de Gerenciamento de Conteúdo -->
+        <div class="section-card">
+            <div class="section-header" onclick="toggleSection('content-section')">
+                <h2><i class="bi bi-collection-play"></i> Gerenciar Conteúdo</h2>
+                <i class="bi bi-chevron-down rotate-icon" id="content-section-icon"></i>
+            </div>
             
-            <form method="post" action="">
-                <div style="display: flex; gap: 15px;">
-                    <div class="form-group" style="flex: 1;">
-                        <label for="type">Tipo:</label>
-                        <select name="type" id="type" required>
-                            <option value="">Selecione...</option>
-                            <option value="youtube">YouTube</option>
-                            <option value="linkedin">LinkedIn</option>
-                        </select>
+            <div class="section-content" id="content-section">
+                <form method="post" action="">
+                    <div style="display: flex; gap: 15px;">
+                        <div class="form-group" style="flex: 1;">
+                            <label for="type">Tipo:</label>
+                            <select name="type" id="type" required>
+                                <option value="">Selecione...</option>
+                                <option value="youtube">YouTube</option>
+                                <option value="linkedin">LinkedIn</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group" style="flex: 2;">
+                            <label for="url">URL:</label>
+                            <input type="url" name="url" id="url" required placeholder="https://...">
+                        </div>
+                        
+                        <div class="form-group" style="flex: 2;">
+                            <label for="title">Título:</label>
+                            <input type="text" name="title" id="title" required>
+                        </div>
                     </div>
                     
-                    <div class="form-group" style="flex: 2;">
-                        <label for="url">URL:</label>
-                        <input type="url" name="url" id="url" required placeholder="https://...">
-                    </div>
-                    
-                    <div class="form-group" style="flex: 2;">
-                        <label for="title">Título:</label>
-                        <input type="text" name="title" id="title" required>
-                    </div>
+                    <input type="hidden" name="action" value="add">
+                    <button type="submit" class="btn btn-primary">Adicionar Conteúdo</button>
+                </form>
+                
+                <h3 class="mt-4">Conteúdo Disponível</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Tipo</th>
+                            <th>Título</th>
+                            <th>URL</th>
+                            <th>Adicionado em</th>
+                            <th>Última exibição</th>
+                            <th>Ativo</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($allContent as $item): ?>
+                            <tr>
+                                <td><?= $item['id'] ?></td>
+                                <td>
+                                    <span class="content-type <?= htmlspecialchars($item['type']) ?>">
+                                        <?= htmlspecialchars($item['type']) ?>
+                                    </span>
+                                </td>
+                                <td><?= htmlspecialchars($item['title']) ?></td>
+                                <td>
+                                    <a href="<?= htmlspecialchars($item['url']) ?>" target="_blank">
+                                        <?= htmlspecialchars(substr($item['url'], 0, 30)) ?>...
+                                    </a>
+                                </td>
+                                <td><?= $item['added_at'] ?></td>
+                                <td><?= $item['last_shown'] ?: 'Nunca' ?></td>
+                                <td>
+                                    <form method="post" action="" class="toggle-form">
+                                        <input type="hidden" name="action" value="toggle">
+                                        <input type="hidden" name="id" value="<?= $item['id'] ?>">
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" name="active" value="1" <?= $item['active'] ? 'checked' : '' ?> 
+                                                onchange="this.form.submit()">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </form>
+                                </td>
+                                <td>
+                                    <form method="post" action="" onsubmit="return confirm('Tem certeza que deseja excluir este item?');">
+                                        <input type="hidden" name="action" value="delete">
+                                        <input type="hidden" name="id" value="<?= $item['id'] ?>">
+                                        <button type="submit" class="btn btn-danger">Excluir</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Seção de Gerenciamento de Avisos -->
+        <div class="section-card">
+            <div class="section-header" onclick="toggleSection('notices-section')">
+                <h2><i class="bi bi-bell"></i> Gerenciar Avisos</h2>
+                <i class="bi bi-chevron-down rotate-icon" id="notices-section-icon"></i>
+            </div>
+            
+            <div class="section-content" id="notices-section">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h3 class="m-0">Avisos Ativos</h3>
+                    <button type="button" class="btn btn-primary" onclick="toggleNoticeForm()">
+                        <i class="bi bi-plus"></i> Novo Aviso
+                    </button>
                 </div>
                 
-                <input type="hidden" name="action" value="add">
-                <button type="submit" class="btn btn-primary">Adicionar Conteúdo</button>
-            </form>
-            
-            <h3 class="mt-4">Conteúdo Disponível</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Tipo</th>
-                        <th>Título</th>
-                        <th>URL</th>
-                        <th>Adicionado em</th>
-                        <th>Última exibição</th>
-                        <th>Ativo</th>
-                        <th>Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($allContent as $item): ?>
-                        <tr>
-                            <td><?= $item['id'] ?></td>
-                            <td>
-                                <span class="content-type <?= htmlspecialchars($item['type']) ?>">
-                                    <?= htmlspecialchars($item['type']) ?>
-                                </span>
-                            </td>
-                            <td><?= htmlspecialchars($item['title']) ?></td>
-                            <td>
-                                <a href="<?= htmlspecialchars($item['url']) ?>" target="_blank">
-                                    <?= htmlspecialchars(substr($item['url'], 0, 30)) ?>...
-                                </a>
-                            </td>
-                            <td><?= $item['added_at'] ?></td>
-                            <td><?= $item['last_shown'] ?: 'Nunca' ?></td>
-                            <td>
-                                <form method="post" action="" class="toggle-form">
-                                    <input type="hidden" name="action" value="toggle">
-                                    <input type="hidden" name="id" value="<?= $item['id'] ?>">
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" name="active" value="1" <?= $item['active'] ? 'checked' : '' ?> 
-                                            onchange="this.form.submit()">
-                                        <span class="slider"></span>
-                                    </label>
-                                </form>
-                            </td>
-                            <td>
-                                <form method="post" action="" onsubmit="return confirm('Tem certeza que deseja excluir este item?');">
-                                    <input type="hidden" name="action" value="delete">
-                                    <input type="hidden" name="id" value="<?= $item['id'] ?>">
-                                    <button type="submit" class="btn btn-danger">Excluir</button>
-                                </form>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                <div id="notice-form" style="display: none;">
+                    <form method="post" action="" class="bg-light p-3 rounded mb-4 border">
+                        <div class="mb-3">
+                            <label for="notice_text" class="form-label">Texto do aviso:</label>
+                            <textarea class="form-control" id="notice_text" name="notice_text" rows="2" required></textarea>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="notice_by" class="form-label">Autor:</label>
+                                    <input type="text" class="form-control" id="notice_by" name="notice_by" value="Usuário">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="notice_priority" class="form-label">Prioridade:</label>
+                                    <select class="form-select" id="notice_priority" name="notice_priority">
+                                        <option value="0">Normal</option>
+                                        <option value="1">Importante</option>
+                                        <option value="2">Urgente</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <input type="hidden" name="action" value="add_notice">
+                        <div class="text-end">
+                            <button type="button" class="btn btn-secondary" onclick="toggleNoticeForm()">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">Adicionar</button>
+                        </div>
+                    </form>
+                </div>
+                
+                <?php if (empty($notices)): ?>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> Não há avisos no momento.
+                    </div>
+                <?php else: ?>
+                    <table class="notices-table">
+                        <thead>
+                            <tr>
+                                <th width="50">ID</th>
+                                <th>Texto</th>
+                                <th width="150">Autor</th>
+                                <th width="150">Data</th>
+                                <th width="100">Prioridade</th>
+                                <th width="100">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($notices as $notice): ?>
+                                <tr class="notice-priority-<?= $notice['priority'] ?>">
+                                    <td><?= $notice['id'] ?></td>
+                                    <td><?= htmlspecialchars($notice['text']) ?></td>
+                                    <td><?= htmlspecialchars($notice['added_by']) ?></td>
+                                    <td><?= date('d/m/Y H:i', strtotime($notice['added_at'])) ?></td>
+                                    <td>
+                                        <?php 
+                                        switch($notice['priority']) {
+                                            case 0: echo "Normal"; break;
+                                            case 1: echo "Importante"; break;
+                                            case 2: echo "Urgente"; break;
+                                            default: echo "Normal";
+                                        }
+                                        ?>
+                                    </td>
+                                    <td>
+                                        <form method="post" action="" class="d-inline" onsubmit="return confirm('Tem certeza que deseja excluir este aviso?');">
+                                            <input type="hidden" name="action" value="delete_notice">
+                                            <input type="hidden" name="notice_id" value="<?= $notice['id'] ?>">
+                                            <button type="submit" class="btn btn-sm btn-danger">
+                                                <i class="bi bi-trash"></i> Excluir
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+            </div>
         </div>
     </div>
-    // Substitua a parte do script no final do arquivo dashboard.php com este código:
 
-<script>
-    // Contador regressivo
-    let countdown = 60;
-    const countdownElement = document.getElementById('countdown');
-    
-    if (countdownElement) {
-        const timer = setInterval(() => {
-            countdown--;
-            countdownElement.textContent = countdown;
-            
-            if (countdown <= 0) {
-                clearInterval(timer);
-                window.location.reload(); // Recarregar para exibir próximo conteúdo
-            }
-        }, 1000);
-    }
-    
-    // Botão de configurações
-    const settingsBtn = document.getElementById('settings-btn');
-    if (settingsBtn) {
-        settingsBtn.addEventListener('click', function() {
+    <script>
+        // Contador regressivo
+        let countdown = 60;
+        const countdownElement = document.getElementById('countdown');
+        
+        if (countdownElement) {
+            const timer = setInterval(() => {
+                countdown--;
+                countdownElement.textContent = countdown;
+                
+                if (countdown <= 0) {
+                    clearInterval(timer);
+                    window.location.reload(); // Recarregar para exibir próximo conteúdo
+                }
+            }, 1000);
+        }
+        
+        // Botão de configurações
+        document.getElementById('settings-btn').addEventListener('click', function() {
             const displayOptions = document.getElementById('display-options');
             if (displayOptions.style.display === 'none' || displayOptions.style.display === '') {
                 displayOptions.style.display = 'block';
@@ -978,92 +991,58 @@ function renderContentFrame($content, $height = 450) {
                 displayOptions.style.display = 'none';
             }
         });
-    }
-    
-    // Estilização para opções de exibição
-    document.querySelectorAll('.display-option').forEach(option => {
-        option.addEventListener('click', function() {
-            document.querySelectorAll('.display-option').forEach(opt => {
-                opt.classList.remove('display-option-selected');
-            });
-            this.classList.add('display-option-selected');
-            this.querySelector('input').checked = true;
-        });
-    });
-    
-    // Controles para formulário de avisos
-    const addNoticeBtn = document.getElementById('add-notice-btn');
-    if (addNoticeBtn) {
-        addNoticeBtn.addEventListener('click', function() {
-            const noticeForm = document.getElementById('notice-form');
-            if (noticeForm) {
-                noticeForm.style.display = 'block';
-            }
-        });
-    }
-    
-    const cancelNoticeBtn = document.getElementById('cancel-notice-btn');
-    if (cancelNoticeBtn) {
-        cancelNoticeBtn.addEventListener('click', function() {
-            const noticeForm = document.getElementById('notice-form');
-            if (noticeForm) {
-                noticeForm.style.display = 'none';
-            }
-        });
-    }
-    
-    // Ajuda com extração de ID para YouTube
-    const urlInput = document.getElementById('url');
-    const typeSelect = document.getElementById('type');
-    
-    if (urlInput && typeSelect) {
-        typeSelect.addEventListener('change', function() {
-            const selectedType = this.value;
-            if (selectedType === 'youtube') {
-                urlInput.placeholder = "https://www.youtube.com/watch?v=VIDEOID ou https://youtu.be/VIDEOID";
-            } else if (selectedType === 'linkedin') {
-                urlInput.placeholder = "https://www.linkedin.com/posts/... ou https://www.linkedin.com/feed/update/...";
-            } else {
-                urlInput.placeholder = "https://...";
-            }
-        });
-    }
-    
-    // Ajusta a velocidade da animação com base na quantidade de avisos
-    function adjustScrollSpeed() {
-        const noticesScroller = document.querySelector('.notices-scroller');
-        if (noticesScroller) {
-            const noticeItems = document.querySelectorAll('.notice-item');
-            if (noticeItems.length > 0) {
-                // Calcular a altura total do conteúdo
-                let totalHeight = 0;
-                noticeItems.forEach(item => {
-                    totalHeight += item.offsetHeight;
+        
+        // Estilização para opções de exibição
+        document.querySelectorAll('.display-option').forEach(option => {
+            option.addEventListener('click', function() {
+                document.querySelectorAll('.display-option').forEach(opt => {
+                    opt.classList.remove('display-option-selected');
                 });
-                
-                // Ajustar a duração da animação baseado na quantidade de conteúdo
-                // Metade dos avisos (porque repetimos para scroll contínuo)
-                const uniqueNotices = Math.max(1, noticeItems.length / 2);
-                const duration = Math.max(10, uniqueNotices * 5); // Mínimo 10s, 5s por aviso
-                
-                noticesScroller.style.animationDuration = duration + 's';
+                this.classList.add('display-option-selected');
+                this.querySelector('input').checked = true;
+            });
+        });
+        
+        // Função para exibir/ocultar seções
+        function toggleSection(sectionId) {
+            const section = document.getElementById(sectionId);
+            const icon = document.getElementById(sectionId + '-icon');
+            
+            if (section.style.display === 'none') {
+                section.style.display = 'block';
+                icon.classList.add('open');
+            } else {
+                section.style.display = 'none';
+                icon.classList.remove('open');
             }
         }
-    }
-    
-    // Executar quando a página estiver carregada
-    window.addEventListener('load', adjustScrollSpeed);
-    
-    // Verificar se os botões estão presentes e exibir mensagem no console para debug
-    console.log('Botão de adicionar aviso:', addNoticeBtn ? 'encontrado' : 'não encontrado');
-    console.log('Botão de cancelar aviso:', cancelNoticeBtn ? 'encontrado' : 'não encontrado');
-    console.log('Formulário de aviso:', document.getElementById('notice-form') ? 'encontrado' : 'não encontrado');
-
-    // Garantir que o formulário de avisos esteja inicialmente oculto
-    const noticeForm = document.getElementById('notice-form');
-    if (noticeForm) {
-        noticeForm.style.display = 'none';
-    }
-</script>
+        
+        // Função para exibir/ocultar formulário de aviso
+        function toggleNoticeForm() {
+            const form = document.getElementById('notice-form');
+            form.style.display = form.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        // Ajuda com extração de ID para YouTube
+        const urlInput = document.getElementById('url');
+        const typeSelect = document.getElementById('type');
+        
+        if (urlInput && typeSelect) {
+            typeSelect.addEventListener('change', function() {
+                const selectedType = this.value;
+                if (selectedType === 'youtube') {
+                    urlInput.placeholder = "https://www.youtube.com/watch?v=VIDEOID ou https://youtu.be/VIDEOID";
+                } else if (selectedType === 'linkedin') {
+                    urlInput.placeholder = "https://www.linkedin.com/posts/... ou https://www.linkedin.com/feed/update/...";
+                } else {
+                    urlInput.placeholder = "https://...";
+                }
+            });
+        }
+        
+        // Inicialmente exibir as seções (podem ser ocultas clicando nos cabeçalhos)
+        document.getElementById('content-section').style.display = 'block';
+        document.getElementById('notices-section').style.display = 'block';
+    </script>
 </body>
 </html>

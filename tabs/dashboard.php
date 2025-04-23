@@ -9,7 +9,7 @@ if (!file_exists(dirname($dbFile))) {
 }
 
 // Definir layout padrão e salvar preferências
-$displayMode = isset($_GET['display_mode']) ? $_GET['display_mode'] : (isset($_COOKIE['display_mode']) ? $_COOKIE['display_mode'] : 'single');
+$displayMode = isset($_GET['display_mode']) ? $_GET['display_mode'] : (isset($_COOKIE['display_mode']) ? $_COOKIE['display_mode'] : 'dual');
 setcookie('display_mode', $displayMode, time() + (86400 * 30), "/"); // Cookie válido por 30 dias
 
 try {
@@ -28,6 +28,15 @@ try {
                 last_shown DATETIME,
                 active INTEGER DEFAULT 1
             );
+            
+            CREATE TABLE IF NOT EXISTS notices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                added_by TEXT,
+                priority INTEGER DEFAULT 0,
+                active INTEGER DEFAULT 1
+            );
         ');
         
         // Adicionar alguns exemplos para demonstração
@@ -40,11 +49,16 @@ try {
             ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866123456789012345', 'Post do LinkedIn Exemplo 1'),
             ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866987654321098765', 'Post do LinkedIn Exemplo 2'),
             ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866123456789054321', 'Post do LinkedIn Exemplo 3'),
-            ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866987654321012345', 'Post do LinkedIn Exemplo 4')
+            ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866987654321012345', 'Post do LinkedIn Exemplo 4');
+            
+            INSERT INTO notices (text, added_by, priority) VALUES
+            ('Bem-vindo ao novo dashboard! Aqui você pode visualizar conteúdos de YouTube e LinkedIn.', 'Admin', 1),
+            ('Reunião semanal da equipe amanhã às 10:00.', 'Gerente', 2),
+            ('Nova versão do sistema será lançada na próxima sexta-feira.', 'Desenvolvimento', 1)
         ");
     }
 
-    // Processar operações CRUD
+    // Processar operações CRUD para conteúdo
     $message = '';
     
     // Adicionar novo conteúdo
@@ -116,6 +130,39 @@ try {
         $message = "Status alterado com sucesso!";
     }
     
+    // Processar operações CRUD para avisos
+    
+    // Adicionar novo aviso
+    if (isset($_POST['action']) && $_POST['action'] === 'add_notice') {
+        $text = $_POST['notice_text'] ?? '';
+        $added_by = $_POST['notice_by'] ?? 'Usuário';
+        $priority = intval($_POST['notice_priority'] ?? 0);
+        
+        if (!empty($text)) {
+            try {
+                $stmt = $db->prepare('INSERT INTO notices (text, added_by, priority) VALUES (:text, :added_by, :priority)');
+                $stmt->bindValue(':text', $text, SQLITE3_TEXT);
+                $stmt->bindValue(':added_by', $added_by, SQLITE3_TEXT);
+                $stmt->bindValue(':priority', $priority, SQLITE3_INTEGER);
+                $stmt->execute();
+                $message = "Novo aviso adicionado com sucesso!";
+            } catch (Exception $e) {
+                $message = "Erro ao adicionar aviso: " . $e->getMessage();
+            }
+        } else {
+            $message = "Erro: O texto do aviso é obrigatório.";
+        }
+    }
+    
+    // Remover aviso
+    if (isset($_POST['action']) && $_POST['action'] === 'delete_notice' && isset($_POST['notice_id'])) {
+        $id = intval($_POST['notice_id']);
+        $stmt = $db->prepare('DELETE FROM notices WHERE id = :id');
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $stmt->execute();
+        $message = "Aviso removido com sucesso!";
+    }
+    
     // Função para obter conteúdo aleatório por tipo
     function getRandomContent($db, $type) {
         $stmt = $db->prepare('
@@ -163,22 +210,25 @@ try {
         return $contents;
     }
     
+    // Buscar avisos ativos
+    $notices = [];
+    $stmt = $db->prepare('SELECT * FROM notices WHERE active = 1 ORDER BY priority DESC, added_at DESC');
+    $result = $stmt->execute();
+    while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+        $notices[] = $row;
+    }
+    
     // Buscar conteúdo com base no modo de exibição selecionado
     switch ($displayMode) {
-        case 'dual':
-            $youtubeContent = getRandomContent($db, 'youtube');
-            $linkedinContent = getRandomContent($db, 'linkedin');
-            $content = null; // Não será usado no modo dual
-            break;
-            
         case 'quad':
             $youtubeContents = getMultipleRandomContent($db, 'youtube', 2);
             $linkedinContents = getMultipleRandomContent($db, 'linkedin', 2);
             $content = null; // Não será usado no modo quad
+            $youtubeContent = null;
+            $linkedinContent = null;
             break;
             
         case 'single':
-        default:
             // Selecionar conteúdo aleatório para exibir (apenas ativos)
             $stmt = $db->prepare('
                 SELECT * FROM content 
@@ -198,6 +248,15 @@ try {
             
             $youtubeContent = null;
             $linkedinContent = null;
+            $youtubeContents = null;
+            $linkedinContents = null;
+            break;
+            
+        case 'dual':
+        default:
+            $youtubeContent = getRandomContent($db, 'youtube');
+            $linkedinContent = getRandomContent($db, 'linkedin');
+            $content = null; // Não será usado no modo dual
             $youtubeContents = null;
             $linkedinContents = null;
             break;
@@ -266,7 +325,26 @@ function renderContentFrame($content, $height = 450) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Conteúdo Multimídia</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <style>
+        body {
+            background-color: #f9f9f9;
+        }
+        
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .page-title {
+            font-size: 1.4rem;
+            margin: 0;
+            color: #666;
+            font-weight: 400;
+        }
+        
         .content-container {
             width: 100%;
             margin: 0 auto 20px;
@@ -361,6 +439,30 @@ function renderContentFrame($content, $height = 450) {
             color: white;
         }
         
+        .btn-circle {
+            width: 34px;
+            height: 34px;
+            padding: 6px 0;
+            border-radius: 17px;
+            text-align: center;
+            font-size: 16px;
+            line-height: 1.42;
+            margin-left: 8px;
+        }
+        
+        .btn-settings {
+            color: #666;
+            background-color: transparent;
+            border: none;
+            font-size: 1.2rem;
+            transition: color 0.2s;
+            padding: 5px;
+        }
+        
+        .btn-settings:hover {
+            color: #333;
+        }
+        
         table {
             width: 100%;
             border-collapse: collapse;
@@ -452,6 +554,7 @@ function renderContentFrame($content, $height = 450) {
             border-radius: 10px;
             padding: 15px;
             margin-bottom: 20px;
+            display: none;
         }
         
         .display-option {
@@ -480,13 +583,94 @@ function renderContentFrame($content, $height = 450) {
         .row-cols-2 > * {
             padding: 10px;
         }
+        
+        .notices-container {
+            background-color: #fffcf5;
+            border: 1px solid #ffe8a8;
+            border-radius: 8px;
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            position: relative;
+            max-height: 100px;
+            overflow: hidden;
+        }
+        
+        .notices-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #856404;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .notices-content {
+            height: 60px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .notices-scroller {
+            position: absolute;
+            width: 100%;
+            animation: scroll-y 15s linear infinite;
+            padding-right: 15px;
+        }
+        
+        .notice-item {
+            padding: 5px 0;
+            border-bottom: 1px dotted #ffe8a8;
+        }
+        
+        .notice-item:last-child {
+            border-bottom: none;
+        }
+        
+        .notice-text {
+            font-size: 0.95em;
+        }
+        
+        .notice-meta {
+            font-size: 0.75em;
+            color: #856404;
+            opacity: 0.7;
+        }
+        
+        .notice-actions {
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            z-index: 100;
+        }
+        
+        @keyframes scroll-y {
+            0% { top: 0; }
+            100% { top: -100%; }
+        }
+        
+        .notice-form {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: none;
+        }
     </style>
 </head>
 <body>
     <div class="container mt-4">
-        <h1 class="mb-4">Dashboard de Conteúdo</h1>
+        <div class="header-container">
+            <h1 class="page-title">Dashboard</h1>
+            <div>
+                <button type="button" class="btn-settings" id="settings-btn" title="Configurações de exibição">
+                    <i class="bi bi-gear"></i>
+                </button>
+            </div>
+        </div>
         
-        <div class="display-options">
+        <div id="display-options" class="display-options">
             <h5 class="mb-3">Modo de Exibição:</h5>
             <form id="displayForm" method="get" action="">
                 <label class="display-option <?= $displayMode === 'single' ? 'display-option-selected' : '' ?>">
@@ -509,6 +693,86 @@ function renderContentFrame($content, $height = 450) {
                 <?= htmlspecialchars($message) ?>
             </div>
         <?php endif; ?>
+        
+        <div class="notices-container">
+            <div class="notices-title">
+                <span>Avisos</span>
+                <button type="button" class="btn btn-sm btn-warning btn-circle" id="add-notice-btn">
+                    <i class="bi bi-plus"></i>
+                </button>
+            </div>
+            
+            <div class="notices-content">
+                <?php if (!empty($notices)): ?>
+                <div class="notices-scroller">
+                    <?php foreach ($notices as $notice): ?>
+                    <div class="notice-item">
+                        <div class="notice-text"><?= htmlspecialchars($notice['text']) ?></div>
+                        <div class="notice-meta">
+                            Por: <?= htmlspecialchars($notice['added_by']) ?> | 
+                            <?= date('d/m/Y H:i', strtotime($notice['added_at'])) ?>
+                            
+                            <form method="post" action="" class="d-inline" onsubmit="return confirm('Tem certeza que deseja excluir este aviso?');">
+                                <input type="hidden" name="action" value="delete_notice">
+                                <input type="hidden" name="notice_id" value="<?= $notice['id'] ?>">
+                                <button type="submit" class="btn btn-sm text-danger border-0 p-0 ms-2">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                    
+                    <!-- Repetir os mesmos avisos para scroll contínuo -->
+                    <?php foreach ($notices as $notice): ?>
+                    <div class="notice-item">
+                        <div class="notice-text"><?= htmlspecialchars($notice['text']) ?></div>
+                        <div class="notice-meta">
+                            Por: <?= htmlspecialchars($notice['added_by']) ?> | 
+                            <?= date('d/m/Y H:i', strtotime($notice['added_at'])) ?>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php else: ?>
+                <div class="p-3 text-center">
+                    <em>Não há avisos no momento.</em>
+                </div>
+                <?php endif; ?>
+            </div>
+            
+            <div class="notice-form" id="notice-form">
+                <form method="post" action="">
+                    <div class="mb-3">
+                        <label for="notice_text" class="form-label">Texto do aviso:</label>
+                        <textarea class="form-control" id="notice_text" name="notice_text" rows="2" required></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="notice_by" class="form-label">Autor:</label>
+                                <input type="text" class="form-control" id="notice_by" name="notice_by" value="Usuário">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="notice_priority" class="form-label">Prioridade:</label>
+                                <select class="form-select" id="notice_priority" name="notice_priority">
+                                    <option value="0">Normal</option>
+                                    <option value="1">Importante</option>
+                                    <option value="2">Urgente</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <input type="hidden" name="action" value="add_notice">
+                    <div class="text-end">
+                        <button type="button" class="btn btn-secondary btn-sm" id="cancel-notice-btn">Cancelar</button>
+                        <button type="submit" class="btn btn-primary btn-sm">Adicionar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
         
         <?php if ($displayMode === 'single' && $content): ?>
             <div class="content-container">
@@ -694,6 +958,16 @@ function renderContentFrame($content, $height = 450) {
             }, 1000);
         }
         
+        // Botão de configurações
+        document.getElementById('settings-btn').addEventListener('click', function() {
+            const displayOptions = document.getElementById('display-options');
+            if (displayOptions.style.display === 'none' || displayOptions.style.display === '') {
+                displayOptions.style.display = 'block';
+            } else {
+                displayOptions.style.display = 'none';
+            }
+        });
+        
         // Estilização para opções de exibição
         document.querySelectorAll('.display-option').forEach(option => {
             option.addEventListener('click', function() {
@@ -703,6 +977,17 @@ function renderContentFrame($content, $height = 450) {
                 this.classList.add('display-option-selected');
                 this.querySelector('input').checked = true;
             });
+        });
+        
+        // Controles para formulário de avisos
+        document.getElementById('add-notice-btn').addEventListener('click', function() {
+            const noticeForm = document.getElementById('notice-form');
+            noticeForm.style.display = 'block';
+        });
+        
+        document.getElementById('cancel-notice-btn').addEventListener('click', function() {
+            const noticeForm = document.getElementById('notice-form');
+            noticeForm.style.display = 'none';
         });
         
         // Ajuda com extração de ID para YouTube
@@ -721,6 +1006,31 @@ function renderContentFrame($content, $height = 450) {
                 }
             });
         }
+        
+        // Ajusta a velocidade da animação com base na quantidade de avisos
+        function adjustScrollSpeed() {
+            const noticesScroller = document.querySelector('.notices-scroller');
+            if (noticesScroller) {
+                const noticeItems = document.querySelectorAll('.notice-item');
+                if (noticeItems.length > 0) {
+                    // Calcular a altura total do conteúdo
+                    let totalHeight = 0;
+                    noticeItems.forEach(item => {
+                        totalHeight += item.offsetHeight;
+                    });
+                    
+                    // Ajustar a duração da animação baseado na quantidade de conteúdo
+                    // Metade dos avisos (porque repetimos para scroll contínuo)
+                    const uniqueNotices = noticeItems.length / 2;
+                    const duration = Math.max(10, uniqueNotices * 5); // Mínimo 10s, 5s por aviso
+                    
+                    noticesScroller.style.animationDuration = duration + 's';
+                }
+            }
+        }
+        
+        // Executar quando a página estiver carregada
+        window.addEventListener('load', adjustScrollSpeed);
     </script>
 </body>
 </html>

@@ -637,14 +637,67 @@ function renderContentFrame($content, $height = 450) {
             background-color: #f2f2f2;
         }
         
-        .notice-priority-0 { background-color: #f8f9fa; }
-        .notice-priority-1 { background-color: #fff3cd; }
-        .notice-priority-2 { background-color: #f8d7da; }
+        .notices-container {
+            background-color: #fffcf5;
+            border: 1px solid #ffe8a8;
+            border-radius: 8px;
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            position: relative;
+            max-height: 100px; /* 10% da altura aproximadamente */
+            overflow: hidden;
+        }
+        
+        .notices-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #856404;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .notices-content {
+            height: 60px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .notices-scroller {
+            position: absolute;
+            width: 100%;
+            animation: scroll-y 15s linear infinite;
+            padding-right: 15px;
+        }
+        
+        .notice-item {
+            padding: 5px 0;
+            border-bottom: 1px dotted #ffe8a8;
+        }
+        
+        .notice-item:last-child {
+            border-bottom: none;
+        }
+        
+        .notice-priority-0 { background-color: transparent; }
+        .notice-priority-1 { background-color: rgba(255, 243, 205, 0.5); }
+        .notice-priority-2 { background-color: rgba(248, 215, 218, 0.5); }
+        
+        .notice-text {
+            font-size: 0.95em;
+        }
+        
+        .notice-meta {
+            font-size: 0.75em;
+            color: #856404;
+            opacity: 0.7;
+        }
         
         .notice-form {
             margin-top: 20px;
             padding-top: 20px;
             border-top: 1px solid #ddd;
+            display: none;
         }
         
         .rotate-icon {
@@ -653,6 +706,11 @@ function renderContentFrame($content, $height = 450) {
         
         .rotate-icon.open {
             transform: rotate(180deg);
+        }
+        
+        @keyframes scroll-y {
+            0% { top: 0; }
+            100% { top: -100%; }
         }
     </style>
 </head>
@@ -690,6 +748,44 @@ function renderContentFrame($content, $height = 450) {
                 <?= htmlspecialchars($message) ?>
             </div>
         <?php endif; ?>
+        
+        <!-- Avisos no topo -->
+        <div class="notices-container">
+            <div class="notices-title">
+                <span>Avisos</span>
+            </div>
+            
+            <div class="notices-content">
+                <?php if (!empty($notices)): ?>
+                <div class="notices-scroller">
+                    <?php foreach ($notices as $notice): ?>
+                    <div class="notice-item notice-priority-<?= $notice['priority'] ?>">
+                        <div class="notice-text"><?= htmlspecialchars($notice['text']) ?></div>
+                        <div class="notice-meta">
+                            Por: <?= htmlspecialchars($notice['added_by']) ?> | 
+                            <?= date('d/m/Y H:i', strtotime($notice['added_at'])) ?>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                    
+                    <!-- Repetir os mesmos avisos para scroll contínuo -->
+                    <?php foreach ($notices as $notice): ?>
+                    <div class="notice-item notice-priority-<?= $notice['priority'] ?>">
+                        <div class="notice-text"><?= htmlspecialchars($notice['text']) ?></div>
+                        <div class="notice-meta">
+                            Por: <?= htmlspecialchars($notice['added_by']) ?> | 
+                            <?= date('d/m/Y H:i', strtotime($notice['added_at'])) ?>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php else: ?>
+                <div class="p-3 text-center">
+                    <em>Não há avisos no momento.</em>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
         
         <?php if ($displayMode === 'single' && $content): ?>
             <div class="content-container">
@@ -784,7 +880,7 @@ function renderContentFrame($content, $height = 450) {
                 <i class="bi bi-chevron-down rotate-icon" id="content-section-icon"></i>
             </div>
             
-            <div class="section-content" id="content-section">
+            <div class="section-content" id="content-section" style="display: none;">
                 <form method="post" action="">
                     <div style="display: flex; gap: 15px;">
                         <div class="form-group" style="flex: 1;">
@@ -874,7 +970,7 @@ function renderContentFrame($content, $height = 450) {
                 <i class="bi bi-chevron-down rotate-icon" id="notices-section-icon"></i>
             </div>
             
-            <div class="section-content" id="notices-section">
+            <div class="section-content" id="notices-section" style="display: none;">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h3 class="m-0">Avisos Ativos</h3>
                     <button type="button" class="btn btn-primary" onclick="toggleNoticeForm()">
@@ -1040,9 +1136,36 @@ function renderContentFrame($content, $height = 450) {
             });
         }
         
-        // Inicialmente exibir as seções (podem ser ocultas clicando nos cabeçalhos)
-        document.getElementById('content-section').style.display = 'block';
-        document.getElementById('notices-section').style.display = 'block';
+        // Ajustar a velocidade da animação com base na quantidade de avisos
+        function adjustScrollSpeed() {
+            const noticesScroller = document.querySelector('.notices-scroller');
+            if (noticesScroller) {
+                const noticeItems = document.querySelectorAll('.notice-item');
+                if (noticeItems.length > 0) {
+                    // Calcular a altura total do conteúdo
+                    let totalHeight = 0;
+                    noticeItems.forEach(item => {
+                        totalHeight += item.offsetHeight;
+                    });
+                    
+                    // Ajustar a duração da animação baseado na quantidade de conteúdo
+                    // Metade dos avisos (porque repetimos para scroll contínuo)
+                    const uniqueNotices = Math.max(1, noticeItems.length / 2);
+                    const duration = Math.max(10, uniqueNotices * 5); // Mínimo 10s, 5s por aviso
+                    
+                    noticesScroller.style.animationDuration = duration + 's';
+                }
+            }
+        }
+        
+        // Executar quando a página estiver carregada
+        document.addEventListener('DOMContentLoaded', function() {
+            // Ajustar velocidade do scroll
+            adjustScrollSpeed();
+            
+            // As seções de gerenciamento começam recolhidas por padrão
+            // Os valores já estão definidos como style="display: none;" no HTML
+        });
     </script>
 </body>
 </html>

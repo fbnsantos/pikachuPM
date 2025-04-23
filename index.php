@@ -21,8 +21,19 @@ if (!array_key_exists($tabSelecionada, $tabs)) {
     $tabSelecionada = 'dashboard';
 }
 
-// Verificar se alternância automática está ativada
-$autoAlternar = isset($_COOKIE['auto_alternar']) ? $_COOKIE['auto_alternar'] === 'true' : false;
+// Verificar se alternância automática está ativada - com configuração por usuário
+if ($_SESSION['username'] === 'test') {
+    // Para o usuário 'test', ativar por padrão se não estiver definido
+    $autoAlternar = isset($_COOKIE['auto_alternar']) ? $_COOKIE['auto_alternar'] === 'true' : true;
+    
+    // Se não existe cookie, definir como true para o usuário test
+    if (!isset($_COOKIE['auto_alternar'])) {
+        setcookie('auto_alternar', 'true', time() + (86400 * 30), '/', '', false, true);
+    }
+} else {
+    // Para outros usuários, usar a configuração normal
+    $autoAlternar = isset($_COOKIE['auto_alternar']) ? $_COOKIE['auto_alternar'] === 'true' : false;
+}
 
 // Determinar se precisamos fazer nova configuração de temporizadores
 $reiniciarTemporizadores = isset($_GET['reset_timers']) && $_GET['reset_timers'] === 'true';
@@ -35,9 +46,14 @@ function tempoSessao() {
     return gmdate("H:i:s", $duração);
 }
 
-// Configurações de tempo (em segundos)
-$tempoRefreshCalendario = 40; // 10 segundos para refresh do calendário
-$tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas
+// Configurações de tempo (em segundos) personalizadas por usuário
+if ($_SESSION['username'] === 'test') {
+    $tempoRefreshCalendario = 40; // 40 segundos para o usuário 'test'
+} else {
+    $tempoRefreshCalendario = 600; // 600 segundos (10 minutos) para outros usuários
+}
+
+$tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual para todos)
 ?>
 
 <!DOCTYPE html>
@@ -215,6 +231,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const tempoRefreshCalendario = <?= $tempoRefreshCalendario ?>;
     const tempoAlternanciaAbas = <?= $tempoAlternanciaAbas ?>;
     const reiniciarTemporizadores = <?= $reiniciarTemporizadores ? 'true' : 'false' ?>;
+    const usuarioAtual = '<?= $_SESSION['username'] ?>';
+
+    // Exibir informações de configuração no console (para debug)
+    console.log(`Configurações para ${usuarioAtual}:`);
+    console.log(`- Tempo de refresh do calendário: ${tempoRefreshCalendario}s`);
+    console.log(`- Tempo de alternância entre abas: ${tempoAlternanciaAbas}s`);
+    console.log(`- Alternância automática: ${<?= $autoAlternar ? 'true' : 'false' ?>}`);
 
     // Elementos DOM importantes
     const autoToggleEl = document.getElementById('auto-toggle-check');
@@ -276,7 +299,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Esta é a grande mudança - um único sistema central que gerencia todos os temporizadores
     
     // 1. Determinar se devemos alternar automaticamente
-    let autoAlternarAtivo = getLocalStorage('auto_alternar', false);
+    let autoAlternarAtivo = getLocalStorage('auto_alternar', <?= $autoAlternar ? 'true' : 'false' ?>);
     if (autoToggleEl) {
         autoToggleEl.checked = autoAlternarAtivo;
         
@@ -296,6 +319,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 atualizarInterfaceContador();
             }
         });
+        
+        // Se for usuário 'test' e checkbox estiver marcado, iniciar timers automaticamente
+        if (usuarioAtual === 'test' && autoToggleEl.checked) {
+            // Acionar ação como se o usuário tivesse clicado
+            if (!getLocalStorage('proxima_alternancia', null)) {
+                configurarProximaAlternancia();
+            }
+        }
     }
     
     // 2. Configurar próxima alternância (timestamp absoluto)

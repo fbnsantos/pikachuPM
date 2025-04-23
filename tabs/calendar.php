@@ -39,10 +39,9 @@ for ($i = 0; $i < $numSemanas * 7; $i++) {
     $datas[] = $data;
 }
 
-// Preservar estado da alternância automática
-$auto_refresh = isset($_GET['auto_refresh']) && $_GET['auto_refresh'] === 'true';
+// Preservar estado do refresh e alternância
+$js_refresh = isset($_GET['js_refresh']) && $_GET['js_refresh'] === 'true';
 $auto_alternar = isset($_COOKIE['auto_alternar']) ? $_COOKIE['auto_alternar'] === 'true' : false;
-$tempo_alternancia = isset($_COOKIE['tempo_alternancia']) ? intval($_COOKIE['tempo_alternancia']) : 60;
 
 // Tipos de eventos disponíveis e suas cores
 $tipos_eventos = [
@@ -79,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ':data' => $_POST['data'],
             ':tipo' => $_POST['tipo'],
             ':descricao' => $_POST['descricao'],
-            ':criador' => $_SESSION['username'] ?? 'anon', // Alterado para username para corresponder ao index.php
+            ':criador' => $_SESSION['username'] ?? 'anon',
             ':cor' => $cor
         ]);
     } elseif (isset($_POST['delete'])) {
@@ -87,13 +86,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([':id' => $_POST['delete']]);
     }
     
-    // Preservar estado de alternância automática nos redirecionamentos
+    // Preservar estado do refresh com JavaScript
     $queryParams = "tab=calendar&offset=$offset";
-    
-    // Preservar parâmetro de auto_refresh se estiver presente
-    if ($auto_refresh) {
-        $queryParams .= "&auto_refresh=true";
-    }
+    $queryParams .= "&js_refresh=true";
     
     // Preservar filtros
     if (!empty($filtros)) {
@@ -125,7 +120,7 @@ foreach ($eventos as $e) {
 
 // Função para construir URL com parâmetros atuais
 function buildUrl($params = []) {
-    global $offset, $auto_refresh, $filtros, $numSemanas;
+    global $offset, $js_refresh, $filtros, $numSemanas;
     
     $base = "?tab=calendar";
     
@@ -135,9 +130,8 @@ function buildUrl($params = []) {
         $base .= "&offset=$offset";
     }
     
-    if (isset($params['auto_refresh']) ? $params['auto_refresh'] : $auto_refresh) {
-        $base .= "&auto_refresh=true";
-    }
+    // Sempre preservar o parâmetro js_refresh
+    $base .= "&js_refresh=true";
     
     if (isset($params['semanas'])) {
         $base .= "&semanas=" . $params['semanas'];
@@ -243,9 +237,7 @@ function buildUrl($params = []) {
             <form method="get" class="d-inline-block">
                 <input type="hidden" name="tab" value="calendar">
                 <input type="hidden" name="offset" value="<?= $offset ?>">
-                <?php if ($auto_refresh): ?>
-                <input type="hidden" name="auto_refresh" value="true">
-                <?php endif; ?>
+                <input type="hidden" name="js_refresh" value="true">
                 <label for="semanas" class="form-label">Número de semanas:</label>
                 <select name="semanas" id="semanas" class="form-select form-select-sm w-auto d-inline-block" onchange="this.form.submit()">
                     <?php for ($i = 1; $i <= 40; $i++): ?>
@@ -270,9 +262,7 @@ function buildUrl($params = []) {
         <form method="get" action="">
             <input type="hidden" name="tab" value="calendar">
             <input type="hidden" name="offset" value="<?= $offset ?>">
-            <?php if ($auto_refresh): ?>
-            <input type="hidden" name="auto_refresh" value="true">
-            <?php endif; ?>
+            <input type="hidden" name="js_refresh" value="true">
             <input type="hidden" name="semanas" value="<?= $numSemanas ?>">
             <input type="hidden" name="aplicar_filtros" value="1">
             
@@ -334,25 +324,6 @@ function buildUrl($params = []) {
 </div>
 
 <script>
-// Preservar cookie de alternância entre Dashboard/Calendário
-const preserveAlternancaTimeout = () => {
-    // Se existir um cronômetro de alternância, vamos nos certificar
-    // de que qualquer redefinição de página não afete esse cronômetro
-    const toggleCountdownEl = document.getElementById('toggle-countdown');
-    if (toggleCountdownEl) {
-        const autoAlternarAtivo = <?= json_encode($auto_alternar) ?> === true;
-        const tempoAlternanciaAtual = <?= $tempo_alternancia ?>;
-        
-        // Garantir que não sobrescrevemos o cookie durante recarregamentos automáticos
-        if (autoAlternarAtivo && window.location.search.includes('auto_refresh=true')) {
-            console.log('Preservando tempo de alternância durante refresh automático:', tempoAlternanciaAtual);
-        }
-    }
-};
-
-// Executar ao carregar a página
-document.addEventListener('DOMContentLoaded', preserveAlternancaTimeout);
-
 function toggleForm(button) {
     const form = button.nextElementSibling;
     form.classList.toggle('d-none');

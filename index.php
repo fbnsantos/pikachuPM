@@ -8,8 +8,8 @@ if (!isset($_SESSION['username'])) {
 }
 
 // Definição dos horários para reuniões e transições
-$HORA_REUNIAO_EQUIPA = "11:28"; // formato HH:MM - Hora para iniciar contagem para reunião
-$HORA_TRANSICAO_CALENDARIO = "12:00"; // formato HH:MM - Hora para transição para o calendário
+$HORA_REUNIAO_EQUIPA = "22:59"; // formato HH:MM - Hora para iniciar contagem para reunião
+$HORA_TRANSICAO_CALENDARIO = "23:01"; // formato HH:MM - Hora para transição para o calendário
 
 // Tabs disponíveis
 $tabs = [

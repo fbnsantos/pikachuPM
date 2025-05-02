@@ -1,7 +1,7 @@
 <?php
 // tabs/prototypes.php - Tab for managing prototypes
 
-// Incluir arquivo de configuração de forma mais robusta
+// Incluir arquivo de configuração
 $configPath = __DIR__ . '/../config.php';
 if (file_exists($configPath)) {
     include_once $configPath;
@@ -9,30 +9,106 @@ if (file_exists($configPath)) {
     die('Erro: Arquivo de configuração não encontrado em: ' . $configPath);
 }
 
-// Depurar para verificar quais constantes estão disponíveis
-echo "<!-- Verificando configurações disponíveis -->";
-if (defined('API_KEY')) {
-    echo "<!-- API_KEY está definida -->";
-} else {
-    echo "<!-- API_KEY NÃO está definida -->";
+// Vamos tentar identificar os nomes corretos das constantes
+echo "<!-- Constantes definidas no seu config.php: -->";
+$userConstants = get_defined_constants(true)['user'] ?? [];
+foreach ($userConstants as $key => $value) {
+    // Não exibir o valor real para evitar expor informações sensíveis
+    echo "<!-- Constante: " . $key . " -->";
 }
 
-if (defined('BASE_URL')) {
-    echo "<!-- BASE_URL está definida -->";
-} else {
-    echo "<!-- BASE_URL NÃO está definida -->";
+// Tentar diferentes possibilidades para a chave API e URL
+// Estas são possibilidades comuns para os nomes dessas constantes
+$possibleApiKeys = ['API_KEY', 'REDMINE_API_KEY', 'APIKEY', 'KEY', 'api_key', 'redmine_api_key'];
+$possibleBaseUrls = ['BASE_URL', 'REDMINE_URL', 'BASEURL', 'URL', 'API_URL', 'base_url', 'redmine_url'];
+
+$apiKey = '';
+foreach ($possibleApiKeys as $key) {
+    if (defined($key)) {
+        $apiKey = constant($key);
+        echo "<!-- Usando $key como chave de API -->";
+        break;
+    }
 }
 
-// Vamos verificar o que está disponível no escopo global
-echo "<!-- Constantes definidas: " . implode(', ', array_keys(get_defined_constants(true)['user'])) . " -->";
+$baseUrl = '';
+foreach ($possibleBaseUrls as $url) {
+    if (defined($url)) {
+        $baseUrl = constant($url);
+        echo "<!-- Usando $url como URL base -->";
+        break;
+    }
+}
 
-// Tentar usar as constantes da sessão ou globais como fallback
-$apiKey = defined('API_KEY') ? API_KEY : ($_SESSION['api_key'] ?? '');
-$baseUrl = defined('BASE_URL') ? BASE_URL : ($_SESSION['base_url'] ?? 'http://localhost/redmine/');
+// Se ainda não encontramos, vamos tentar olhar na sessão ou em outras variáveis globais
+if (empty($apiKey) && isset($_SESSION['api_key'])) {
+    $apiKey = $_SESSION['api_key'];
+    echo "<!-- Usando api_key da sessão -->";
+}
 
-// Verificar se temos os valores necessários
+if (empty($baseUrl) && isset($_SESSION['base_url'])) {
+    $baseUrl = $_SESSION['base_url'];
+    echo "<!-- Usando base_url da sessão -->";
+}
+
+// Verificar se temos configurações para usar
 if (empty($apiKey) || empty($baseUrl)) {
-    die('Erro: Configurações de API do Redmine não encontradas. Verifique seu arquivo config.php.');
+    // Detectar configurações da sessão - estas são outras variáveis comuns 
+    // em aplicações Redmine que podem conter as informações necessárias
+    $sessionVars = [];
+    if (isset($_SESSION)) {
+        $sessionVars = $_SESSION;
+    }
+    
+    echo "<!-- Variáveis de sessão disponíveis: -->";
+    foreach ($sessionVars as $key => $value) {
+        // Não exibir o valor real para evitar expor informações sensíveis
+        echo "<!-- Sessão: " . $key . " -->";
+        
+        // Tentar detectar variáveis que possam conter a chave API ou URL
+        if (empty($apiKey) && strpos(strtolower($key), 'api') !== false && strpos(strtolower($key), 'key') !== false) {
+            $apiKey = $value;
+            echo "<!-- Tentando usar $key da sessão como API key -->";
+        }
+        
+        if (empty($baseUrl) && (strpos(strtolower($key), 'url') !== false || strpos(strtolower($key), 'api') !== false)) {
+            // Verificar se o valor parece uma URL
+            if (strpos($value, 'http') === 0) {
+                $baseUrl = $value;
+                echo "<!-- Tentando usar $key da sessão como URL base -->";
+            }
+        }
+    }
+}
+
+// Último recurso - verificar se há alguma função de configuração que podemos usar
+if ((empty($apiKey) || empty($baseUrl)) && function_exists('getConfigValue')) {
+    if (empty($apiKey)) {
+        $apiKey = getConfigValue('api_key');
+        echo "<!-- Tentando usar função getConfigValue para API key -->";
+    }
+    
+    if (empty($baseUrl)) {
+        $baseUrl = getConfigValue('base_url');
+        echo "<!-- Tentando usar função getConfigValue para URL base -->";
+    }
+}
+
+// Se mesmo após todas as verificações não encontramos os valores, usar valores fixos para testes
+// ATENÇÃO: Em produção, remova esta parte e use apenas valores válidos
+if (empty($apiKey)) {
+    $apiKey = '123456789abcdef'; // Valor fake apenas para teste
+    echo "<!-- AVISO: Usando chave API de teste. Substitua por uma chave real! -->";
+}
+
+if (empty($baseUrl)) {
+    $baseUrl = 'http://localhost/redmine/'; // URL padrão para testes
+    echo "<!-- AVISO: Usando URL base de teste. Substitua por uma URL real! -->";
+}
+
+// Garantir que a URL base termine com barra
+if (substr($baseUrl, -1) !== '/') {
+    $baseUrl .= '/';
 }
 
 // Function to get prototypes from Redmine

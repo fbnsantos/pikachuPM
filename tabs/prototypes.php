@@ -9,84 +9,14 @@ if (file_exists($configPath)) {
     die('Erro: Arquivo de configuração não encontrado em: ' . $configPath);
 }
 
-// Vamos tentar identificar os nomes corretos das constantes
-echo "<!-- Constantes definidas no seu config.php: -->";
-$userConstants = get_defined_constants(true)['user'] ?? [];
-foreach ($userConstants as $key => $value) {
-    // Não exibir o valor real para evitar expor informações sensíveis
-    echo "<!-- Constante: " . $key . " -->";
-}
-
-
+// Usar diretamente as variáveis globais que existem no config.php
 global $BASE_URL, $API_KEY, $user, $pass;
 $apiKey = $API_KEY;
 $baseUrl = $BASE_URL;
 
-
-// Se ainda não encontramos, vamos tentar olhar na sessão ou em outras variáveis globais
-if (empty($apiKey) && isset($_SESSION['api_key'])) {
-    $apiKey = $_SESSION['api_key'];
-    echo "<!-- Usando api_key da sessão -->";
-}
-
-if (empty($baseUrl) && isset($_SESSION['base_url'])) {
-    $baseUrl = $_SESSION['base_url'];
-    echo "<!-- Usando base_url da sessão -->";
-}
-
-// Verificar se temos configurações para usar
+// Verificar se temos os valores necessários
 if (empty($apiKey) || empty($baseUrl)) {
-    // Detectar configurações da sessão - estas são outras variáveis comuns 
-    // em aplicações Redmine que podem conter as informações necessárias
-    $sessionVars = [];
-    if (isset($_SESSION)) {
-        $sessionVars = $_SESSION;
-    }
-    
-    echo "<!-- Variáveis de sessão disponíveis: -->";
-    foreach ($sessionVars as $key => $value) {
-        // Não exibir o valor real para evitar expor informações sensíveis
-        echo "<!-- Sessão: " . $key . " -->";
-        
-        // Tentar detectar variáveis que possam conter a chave API ou URL
-        if (empty($apiKey) && strpos(strtolower($key), 'api') !== false && strpos(strtolower($key), 'key') !== false) {
-            $apiKey = $value;
-            echo "<!-- Tentando usar $key da sessão como API key -->";
-        }
-        
-        if (empty($baseUrl) && (strpos(strtolower($key), 'url') !== false || strpos(strtolower($key), 'api') !== false)) {
-            // Verificar se o valor parece uma URL
-            if (strpos($value, 'http') === 0) {
-                $baseUrl = $value;
-                echo "<!-- Tentando usar $key da sessão como URL base -->";
-            }
-        }
-    }
-}
-
-// Último recurso - verificar se há alguma função de configuração que podemos usar
-if ((empty($apiKey) || empty($baseUrl)) && function_exists('getConfigValue')) {
-    if (empty($apiKey)) {
-        $apiKey = getConfigValue('api_key');
-        echo "<!-- Tentando usar função getConfigValue para API key -->";
-    }
-    
-    if (empty($baseUrl)) {
-        $baseUrl = getConfigValue('base_url');
-        echo "<!-- Tentando usar função getConfigValue para URL base -->";
-    }
-}
-
-// Se mesmo após todas as verificações não encontramos os valores, usar valores fixos para testes
-// ATENÇÃO: Em produção, remova esta parte e use apenas valores válidos
-if (empty($apiKey)) {
-    $apiKey = '123456789abcdef'; // Valor fake apenas para teste
-    echo "<!-- AVISO: Usando chave API de teste. Substitua por uma chave real! -->";
-}
-
-if (empty($baseUrl)) {
-    $baseUrl = 'http://localhost/redmine/'; // URL padrão para testes
-    echo "<!-- AVISO: Usando URL base de teste. Substitua por uma URL real! -->";
+    die('Erro: Configurações de API do Redmine não encontradas. Verifique seu arquivo config.php.');
 }
 
 // Garantir que a URL base termine com barra

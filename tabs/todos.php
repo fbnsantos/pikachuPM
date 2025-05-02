@@ -7,46 +7,46 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-// Configuração do banco de dados SQLite
-$db_file = 'db/todos.db';
-$db_dir = dirname($db_file);
+// Incluir arquivo de configuração
+require_once('../config.php');
 
-// Criar diretório se não existir
-if (!file_exists($db_dir)) {
-    mkdir($db_dir, 0755, true);
-}
-
-// Conectar ao banco de dados
+// Conectar ao banco de dados MySQL
 try {
-    $db = new SQLite3($db_file);
+    // Usar as variáveis de configuração do arquivo config.php
+    $db = new mysqli($db_host, $db_user, $db_pass, $db_name);
     
-    // Ativar chaves estrangeiras
-    $db->exec('PRAGMA foreign_keys = ON');
+    // Verificar conexão
+    if ($db->connect_error) {
+        throw new Exception("Falha na conexão: " . $db->connect_error);
+    }
+    
+    // Definir conjunto de caracteres para UTF-8
+    $db->set_charset("utf8mb4");
     
     // Criar tabela de tokens se não existir
-    $db->exec('CREATE TABLE IF NOT EXISTS user_tokens (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL UNIQUE,
-        username TEXT NOT NULL,
-        token TEXT NOT NULL UNIQUE,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    $db->query('CREATE TABLE IF NOT EXISTS user_tokens (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL UNIQUE,
+        username VARCHAR(100) NOT NULL,
+        token VARCHAR(64) NOT NULL UNIQUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )');
     
     // Criar tabela de tarefas se não existir
-    $db->exec('CREATE TABLE IF NOT EXISTS todos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        titulo TEXT NOT NULL,
+    $db->query('CREATE TABLE IF NOT EXISTS todos (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        titulo VARCHAR(255) NOT NULL,
         descritivo TEXT,
         data_limite DATE,
-        autor INTEGER NOT NULL,
-        responsavel INTEGER,
-        task_id INTEGER,
+        autor INT NOT NULL,
+        responsavel INT,
+        task_id INT,
         todo_issue TEXT,
-        milestone_id INTEGER,
-        projeto_id INTEGER,
-        estado TEXT DEFAULT "aberta",
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        milestone_id INT,
+        projeto_id INT,
+        estado VARCHAR(20) DEFAULT "aberta",
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (autor) REFERENCES user_tokens(user_id),
         FOREIGN KEY (responsavel) REFERENCES user_tokens(user_id)
     )');
@@ -55,20 +55,21 @@ try {
     $user_id = $_SESSION['user_id'];
     $username = $_SESSION['username'];
     
-    $stmt = $db->prepare('SELECT token FROM user_tokens WHERE user_id = :user_id');
-    $stmt->bindValue(':user_id', $user_id, SQLITE3_INTEGER);
-    $result = $stmt->execute();
-    $user_token = $result->fetchArray(SQLITE3_ASSOC);
+    $stmt = $db->prepare('SELECT token FROM user_tokens WHERE user_id = ?');
+    $stmt->bind_param('i', $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $user_token = $result->fetch_assoc();
+    $stmt->close();
     
     // Se não tiver token, gerar um novo
     if (!$user_token) {
         $token = bin2hex(random_bytes(16)); // Gera um token hexadecimal de 32 caracteres
         
-        $insert = $db->prepare('INSERT INTO user_tokens (user_id, username, token) VALUES (:user_id, :username, :token)');
-        $insert->bindValue(':user_id', $user_id, SQLITE3_INTEGER);
-        $insert->bindValue(':username', $username, SQLITE3_TEXT);
-        $insert->bindValue(':token', $token, SQLITE3_TEXT);
-        $insert->execute();
+        $stmt = $db->prepare('INSERT INTO user_tokens (user_id, username, token) VALUES (?, ?, ?)');
+        $stmt->bind_param('iss', $user_id, $username, $token);
+        $stmt->execute();
+        $stmt->close();
         
         $user_token = ['token' => $token];
     }
@@ -98,25 +99,35 @@ try {
                 if (empty($titulo)) {
                     $error_message = 'O título da tarefa é obrigatório.';
                 } else {
-                    $stmt = $db->prepare('INSERT INTO todos (
+                    // Preparar a consulta SQL - observe que usamos ? em vez de :nome como no SQLite
+                    $query = 'INSERT INTO todos (
                         titulo, descritivo, data_limite, autor, responsavel, 
                         task_id, todo_issue, milestone_id, projeto_id, estado
-                    ) VALUES (
-                        :titulo, :descritivo, :data_limite, :autor, :responsavel,
-                        :task_id, :todo_issue, :milestone_id, :projeto_id, :estado
-                    )');
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
                     
-                    $stmt->bindValue(':titulo', $titulo, SQLITE3_TEXT);
-                    $stmt->bindValue(':descritivo', $descritivo, SQLITE3_TEXT);
-                    $stmt->bindValue(':data_limite', $data_limite, SQLITE3_TEXT);
-                    $stmt->bindValue(':autor', $user_id, SQLITE3_INTEGER);
-                    $stmt->bindValue(':responsavel', $responsavel, SQLITE3_INTEGER);
-                    $stmt->bindValue(':task_id', $task_id > 0 ? $task_id : null, SQLITE3_INTEGER);
-                    $stmt->bindValue(':todo_issue', $todo_issue, SQLITE3_TEXT);
-                    $stmt->bindValue(':milestone_id', $milestone_id > 0 ? $milestone_id : null, SQLITE3_INTEGER);
-                    $stmt->bindValue(':projeto_id', $projeto_id > 0 ? $projeto_id : null, SQLITE3_INTEGER);
-                    $stmt->bindValue(':estado', $estado, SQLITE3_TEXT);
+                    $stmt = $db->prepare($query);
                     
+                    // Tratar valores nulos adequadamente
+                    $task_id_param = ($task_id > 0) ? $task_id : NULL;
+                    $milestone_id_param = ($milestone_id > 0) ? $milestone_id : NULL;
+                    $projeto_id_param = ($projeto_id > 0) ? $projeto_id : NULL;
+                    
+                    // Bind params - o primeiro parâmetro define os tipos (s=string, i=inteiro, d=double, b=blob)
+                    $stmt->bind_param(
+                        'sssiiiisi', 
+                        $titulo, 
+                        $descritivo, 
+                        $data_limite, 
+                        $user_id, 
+                        $responsavel, 
+                        $task_id_param, 
+                        $todo_issue, 
+                        $milestone_id_param, 
+                        $projeto_id_param, 
+                        $estado
+                    );
+                    
+                    // Executar e verificar resultado
                     if ($stmt->execute()) {
                         $success_message = 'Tarefa adicionada com sucesso!';
                         // Redirecionar para manter o parâmetro tab=todos
@@ -125,8 +136,81 @@ try {
                             exit;
                         }
                     } else {
-                        $error_message = 'Erro ao adicionar tarefa: ' . $db->lastErrorMsg();
+                        $error_message = 'Erro ao adicionar tarefa: ' . $db->error;
                     }
+                    
+                    // Fechar o statement - importante no MySQL
+                    $stmt->close();
+                }
+            }
+            // Editar tarefa existente
+            elseif ($_POST['action'] === 'edit_task') {
+                $todo_id = (int)$_POST['todo_id'];
+                $titulo = trim($_POST['titulo'] ?? '');
+                $descritivo = trim($_POST['descritivo'] ?? '');
+                $data_limite = trim($_POST['data_limite'] ?? '');
+                $responsavel = (int)($_POST['responsavel'] ?? $user_id);
+                $task_id = (int)($_POST['task_id'] ?? 0);
+                $todo_issue = trim($_POST['todo_issue'] ?? '');
+                $milestone_id = (int)($_POST['milestone_id'] ?? 0);
+                $projeto_id = (int)($_POST['projeto_id'] ?? 0);
+                $estado = trim($_POST['estado'] ?? 'aberta');
+                
+                // Validação básica
+                if (empty($titulo)) {
+                    $error_message = 'O título da tarefa é obrigatório.';
+                } else {
+                    // Preparar a consulta SQL para atualização
+                    $query = 'UPDATE todos SET 
+                        titulo = ?, 
+                        descritivo = ?, 
+                        data_limite = ?, 
+                        responsavel = ?, 
+                        task_id = ?, 
+                        todo_issue = ?, 
+                        milestone_id = ?, 
+                        projeto_id = ?, 
+                        estado = ?
+                        WHERE id = ? AND (autor = ? OR responsavel = ?)';
+                    
+                    $stmt = $db->prepare($query);
+                    
+                    // Tratar valores nulos adequadamente
+                    $task_id_param = ($task_id > 0) ? $task_id : NULL;
+                    $milestone_id_param = ($milestone_id > 0) ? $milestone_id : NULL;
+                    $projeto_id_param = ($projeto_id > 0) ? $projeto_id : NULL;
+                    
+                    // Bind params com os tipos corretos
+                    $stmt->bind_param(
+                        'sssiisiisiii', 
+                        $titulo, 
+                        $descritivo, 
+                        $data_limite, 
+                        $responsavel, 
+                        $task_id_param, 
+                        $todo_issue, 
+                        $milestone_id_param, 
+                        $projeto_id_param, 
+                        $estado,
+                        $todo_id,
+                        $user_id,
+                        $user_id
+                    );
+                    
+                    // Executar e verificar resultado
+                    if ($stmt->execute()) {
+                        $success_message = 'Tarefa atualizada com sucesso!';
+                        // Redirecionar para manter o parâmetro tab=todos
+                        if (!empty($current_tab)) {
+                            header('Location: ?tab=' . urlencode($current_tab));
+                            exit;
+                        }
+                    } else {
+                        $error_message = 'Erro ao atualizar tarefa: ' . $db->error;
+                    }
+                    
+                    // Fechar o statement
+                    $stmt->close();
                 }
             }
             // Atualizar estado da tarefa
@@ -137,9 +221,8 @@ try {
                 $valid_estados = ['aberta', 'em execução', 'suspensa', 'completada'];
                 
                 if (in_array($new_estado, $valid_estados)) {
-                    $stmt = $db->prepare('UPDATE todos SET estado = :estado, updated_at = CURRENT_TIMESTAMP WHERE id = :id');
-                    $stmt->bindValue(':estado', $new_estado, SQLITE3_TEXT);
-                    $stmt->bindValue(':id', $todo_id, SQLITE3_INTEGER);
+                    $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ?');
+                    $stmt->bind_param('si', $new_estado, $todo_id);
                     
                     if ($stmt->execute()) {
                         $success_message = 'Estado da tarefa atualizado com sucesso!';
@@ -149,8 +232,9 @@ try {
                             exit;
                         }
                     } else {
-                        $error_message = 'Erro ao atualizar estado: ' . $db->lastErrorMsg();
+                        $error_message = 'Erro ao atualizar estado: ' . $db->error;
                     }
+                    $stmt->close();
                 } else {
                     $error_message = 'Estado inválido.';
                 }
@@ -159,9 +243,8 @@ try {
             elseif ($_POST['action'] === 'delete') {
                 $todo_id = (int)$_POST['todo_id'];
                 
-                $stmt = $db->prepare('DELETE FROM todos WHERE id = :id AND (autor = :user_id OR responsavel = :user_id)');
-                $stmt->bindValue(':id', $todo_id, SQLITE3_INTEGER);
-                $stmt->bindValue(':user_id', $user_id, SQLITE3_INTEGER);
+                $stmt = $db->prepare('DELETE FROM todos WHERE id = ? AND (autor = ? OR responsavel = ?)');
+                $stmt->bind_param('iii', $todo_id, $user_id, $user_id);
                 
                 if ($stmt->execute()) {
                     $success_message = 'Tarefa excluída com sucesso!';
@@ -171,8 +254,9 @@ try {
                         exit;
                     }
                 } else {
-                    $error_message = 'Erro ao excluir tarefa: ' . $db->lastErrorMsg();
+                    $error_message = 'Erro ao excluir tarefa: ' . $db->error;
                 }
+                $stmt->close();
             }
             // Atualizar estado via AJAX (para drag and drop)
             elseif ($_POST['action'] === 'drag_update_status') {
@@ -182,9 +266,8 @@ try {
                 $valid_estados = ['aberta', 'em execução', 'suspensa', 'completada'];
                 
                 if (in_array($new_estado, $valid_estados)) {
-                    $stmt = $db->prepare('UPDATE todos SET estado = :estado, updated_at = CURRENT_TIMESTAMP WHERE id = :id');
-                    $stmt->bindValue(':estado', $new_estado, SQLITE3_TEXT);
-                    $stmt->bindValue(':id', $todo_id, SQLITE3_INTEGER);
+                    $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ?');
+                    $stmt->bind_param('si', $new_estado, $todo_id);
                     
                     if ($stmt->execute()) {
                         // Responder com JSON para requisições AJAX
@@ -205,8 +288,9 @@ try {
                             echo json_encode(['success' => false, 'message' => 'Erro ao atualizar estado']);
                             exit;
                         }
-                        $error_message = 'Erro ao atualizar estado: ' . $db->lastErrorMsg();
+                        $error_message = 'Erro ao atualizar estado: ' . $db->error;
                     }
+                    $stmt->close();
                 } else {
                     if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
                         header('Content-Type: application/json');
@@ -216,6 +300,52 @@ try {
                     $error_message = 'Estado inválido.';
                 }
             }
+        }
+    }
+    
+    // Verificar se há parâmetro de edição
+    $edit_mode = false;
+    $task_to_edit = null;
+    if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
+        $edit_task_id = (int)$_GET['edit'];
+        
+        // Buscar os dados da tarefa
+        $stmt = $db->prepare('SELECT * FROM todos WHERE id = ? AND (autor = ? OR responsavel = ?)');
+        $stmt->bind_param('iii', $edit_task_id, $user_id, $user_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $task_to_edit = $result->fetch_assoc();
+        $stmt->close();
+        
+        // Se a tarefa for encontrada, mostrar formulário de edição
+        if ($task_to_edit) {
+            $edit_mode = true;
+        }
+    }
+    
+    // Verificar se estão sendo solicitados detalhes de uma tarefa via AJAX
+    if (isset($_GET['get_task_details']) && is_numeric($_GET['get_task_details'])) {
+        $task_id = (int)$_GET['get_task_details'];
+        
+        // Buscar os detalhes da tarefa
+        $stmt = $db->prepare('SELECT * FROM todos WHERE id = ? AND (autor = ? OR responsavel = ?)');
+        $stmt->bind_param('iii', $task_id, $user_id, $user_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $task = $result->fetch_assoc();
+        $stmt->close();
+        
+        if ($task) {
+            // Retornar os dados como JSON
+            header('Content-Type: application/json');
+            echo json_encode($task);
+            exit;
+        } else {
+            // Retornar erro se a tarefa não for encontrada
+            header('Content-Type: application/json');
+            header('HTTP/1.1 404 Not Found');
+            echo json_encode(['error' => 'Tarefa não encontrada ou sem permissão de acesso']);
+            exit;
         }
     }
     
@@ -235,12 +365,20 @@ try {
         LEFT JOIN user_tokens resp_user ON t.responsavel = resp_user.user_id
         WHERE 1=1';
     
+    $params = [];
+    $types = '';
+    
     // Filtrar por responsável se especificado
     if ($filter_responsavel) {
-        $sql .= ' AND t.responsavel = :responsavel_id';
+        $sql .= ' AND t.responsavel = ?';
+        $params[] = $filter_responsavel;
+        $types .= 'i';
     } else {
         // Se não houver filtro, mostrar apenas tarefas do usuário
-        $sql .= ' AND (t.autor = :user_id OR t.responsavel = :user_id)';
+        $sql .= ' AND (t.autor = ? OR t.responsavel = ?)';
+        $params[] = $user_id;
+        $params[] = $user_id;
+        $types .= 'ii';
     }
     
     // Filtrar tarefas completadas, se necessário
@@ -266,13 +404,12 @@ try {
     
     $stmt = $db->prepare($sql);
     
-    if ($filter_responsavel) {
-        $stmt->bindValue(':responsavel_id', $filter_responsavel, SQLITE3_INTEGER);
-    } else {
-        $stmt->bindValue(':user_id', $user_id, SQLITE3_INTEGER);
+    if (!empty($params)) {
+        $stmt->bind_param($types, ...$params);
     }
     
-    $result = $stmt->execute();
+    $stmt->execute();
+    $result = $stmt->get_result();
     
     // Organizar tarefas por estado
     $tarefas_por_estado = [
@@ -282,22 +419,28 @@ try {
         'completada' => []
     ];
     
-    while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+    while ($row = $result->fetch_assoc()) {
         $tarefas_por_estado[$row['estado']][] = $row;
     }
+    $stmt->close();
     
     // Obter todos os usuários para o select de responsável
-    $users_stmt = $db->prepare('SELECT user_id, username FROM user_tokens ORDER BY username');
-    $users_result = $users_stmt->execute();
+    $stmt = $db->prepare('SELECT user_id, username FROM user_tokens ORDER BY username');
+    $stmt->execute();
+    $result = $stmt->get_result();
     $users = [];
-    while ($row = $users_result->fetchArray(SQLITE3_ASSOC)) {
+    while ($row = $result->fetch_assoc()) {
         $users[] = $row;
     }
+    $stmt->close();
     
 } catch (Exception $e) {
     echo '<div class="alert alert-danger">Erro ao conectar ao banco de dados: ' . $e->getMessage() . '</div>';
     exit;
 }
+
+// A partir daqui, o HTML permanece o mesmo...
+// Apenas continue com o HTML que já existe no seu arquivo
 ?>
 
 <div class="container-fluid">

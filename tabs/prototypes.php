@@ -1,5 +1,5 @@
 <?php
-// tabs/prototypes.php - Tab for managing prototypes
+// tabs/prototypes.php - Tab for managing prototypes (using subprojects approach)
 
 // Incluir arquivo de configuração
 $configPath = __DIR__ . '/../config.php';
@@ -34,7 +34,7 @@ $prototypes = [];
 $selectedPrototype = null;
 $prototypeBacklog = [];
 
-// Function to get prototypes from Redmine
+// Function to get prototypes from Redmine (as subprojects)
 function getPrototypes() {
     global $apiKey, $baseUrl;
     
@@ -42,8 +42,8 @@ function getPrototypes() {
     error_log("Tentando acessar Redmine com URL: " . $baseUrl);
     error_log("Comprimento da chave API: " . strlen($apiKey) . " caracteres");
     
-    // Get all issues from the "tribeprototypes" project without specifying tracker
-    $url = $baseUrl . 'issues.json?project_id=tribeprototypes&limit=100&status_id=*';
+    // Get all subprojects of "tribeprototypes"
+    $url = $baseUrl . 'projects.json?limit=100';
     
     // Log the full URL being accessed
     error_log("URL completa: " . $url);
@@ -68,7 +68,7 @@ function getPrototypes() {
         $error_msg = error_get_last()['message'] ?? 'Desconhecido';
         error_log("Falha ao acessar a API do Redmine. Último erro: " . $error_msg);
         return [
-            'error' => 'Falha ao obter protótipos do Redmine. Erro: ' . $error_msg,
+            'error' => 'Falha ao obter projetos do Redmine. Erro: ' . $error_msg,
             'raw_response' => null
         ];
     }
@@ -88,46 +88,96 @@ function getPrototypes() {
         ];
     }
     
-    // Check if we have an error in the response
-    if (isset($data['errors'])) {
-        $error_msg = implode(', ', $data['errors']);
-        error_log("Erro retornado pela API do Redmine: " . $error_msg);
-        return [
-            'error' => 'Erro retornado pela API: ' . $error_msg,
-            'raw_response' => $raw_response
-        ];
-    }
-    
-    // Check if the issues key is missing
-    if (!isset($data['issues']) && !empty($data)) {
+    // Check if we have projects in the response
+    if (!isset($data['projects'])) {
         $keys = implode(', ', array_keys($data));
-        error_log("A resposta não contém a chave 'issues'. Chaves disponíveis: " . $keys);
+        error_log("A resposta não contém a chave 'projects'. Chaves disponíveis: " . $keys);
         return [
-            'error' => "A resposta não contém informações de protótipos. Verifique se o projeto 'prototypes' existe e se o tracker 'prototype' está configurado.",
+            'error' => "A resposta não contém informações de projetos.",
             'raw_response' => $raw_response
         ];
     }
     
-    return $data['issues'] ?? [];
+    // Find tribeprototypes project and its subprojects
+    $tribeprototypesId = null;
+    foreach ($data['projects'] as $project) {
+        if ($project['identifier'] === 'tribeprototypes') {
+            $tribeprototypesId = $project['id'];
+            break;
+        }
+    }
+    
+    if (!$tribeprototypesId) {
+        return [
+            'error' => "O projeto 'tribeprototypes' não foi encontrado no Redmine.",
+            'raw_response' => $raw_response
+        ];
+    }
+    
+    // Get subprojects of tribeprototypes
+    $url = $baseUrl . 'projects.json?parent_id=' . $tribeprototypesId . '&limit=100';
+    $response = @file_get_contents($url, false, $context);
+    
+    if ($response === FALSE) {
+        $error_msg = error_get_last()['message'] ?? 'Desconhecido';
+        return [
+            'error' => 'Falha ao obter subprojetos. Erro: ' . $error_msg,
+            'raw_response' => null
+        ];
+    }
+    
+    $data = json_decode($response, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        return [
+            'error' => 'Resposta inválida ao buscar subprojetos: ' . json_last_error_msg(),
+            'raw_response' => substr($response, 0, 1000)
+        ];
+    }
+    
+    // Return the list of prototypes (subprojects)
+    return $data['projects'] ?? [];
+}
+
+// Function to create a new prototype (as a subproject)
+function createPrototype($data) {
+    global $apiKey, $baseUrl;
+    
+    // First, get the ID of tribeprototypes project
+    $url = $baseUrl . 'projects.json?limit=100';
+    $options = [
+        'http' => [
+            'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n" .
+                        "Content-Type: application/json\r\n",
+            'method' => 'GET',
+            'ignore_errors' => true
+        ]
+    ];
     
     $context = stream_context_create($options);
     $response = @file_get_contents($url, false, $context);
     
     if ($response === FALSE) {
-        return ['error' => 'Falha ao obter protótipos do Redmine.'];
+        return ['error' => 'Falha ao acessar a API do Redmine.'];
     }
     
-    $data = json_decode($response, true);
-    return $data['issues'] ?? [];
-}
-
-// Function to create a new prototype
-function createPrototype($data) {
-    global $apiKey, $baseUrl;
+    $projectsData = json_decode($response, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        return ['error' => 'Resposta inválida ao buscar projetos.'];
+    }
     
-    $url = $baseUrl . 'issues.json';
+    $tribeprototypesId = null;
+    foreach ($projectsData['projects'] as $project) {
+        if ($project['identifier'] === 'tribeprototypes') {
+            $tribeprototypesId = $project['id'];
+            break;
+        }
+    }
     
-    // Format the description based on the template
+    if (!$tribeprototypesId) {
+        return ['error' => "O projeto 'tribeprototypes' não foi encontrado."];
+    }
+    
+    // Build the description from the template
     $description = <<<EOT
 **1. Problem / Challenge**
 {$data['problem']}
@@ -160,23 +210,29 @@ function createPrototype($data) {
 {$data['roadmap']}
 EOT;
     
-    // Prepare the issue data
-    $issueData = [
-        'issue' => [
-            'project_id' => 'tribeprototypes',  // Using tribeprototypes as the project identifier
-            'subject' => $data['subject'],
+    // Generate a unique identifier from the subject
+    $identifier = strtolower(trim(preg_replace('/[^a-zA-Z0-9]+/', '-', $data['subject'])));
+    $identifier = substr($identifier, 0, 90); // Limit to 100 chars to be safe
+    
+    // Create a new subproject
+    $projectData = [
+        'project' => [
+            'name' => $data['subject'],
+            'identifier' => $identifier,
             'description' => $description,
-            'status_id' => 'new',
-            'priority_id' => $data['priority'] ?? 'normal'
+            'parent_id' => $tribeprototypesId,
+            'is_public' => true
         ]
     ];
     
+    $url = $baseUrl . 'projects.json';
     $options = [
         'http' => [
             'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n" .
                         "Content-Type: application/json\r\n",
             'method' => 'POST',
-            'content' => json_encode($issueData)
+            'content' => json_encode($projectData),
+            'ignore_errors' => true
         ]
     ];
     
@@ -188,21 +244,30 @@ EOT;
     }
     
     $data = json_decode($response, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        return ['error' => 'Resposta inválida ao criar protótipo.'];
+    }
+    
+    if (isset($data['errors'])) {
+        return ['error' => 'Erro ao criar protótipo: ' . implode(', ', $data['errors'])];
+    }
+    
     return $data;
 }
 
-// Function to get backlog items for a prototype
+// Function to get backlog items for a prototype (as issues in the subproject)
 function getPrototypeBacklog($prototypeId) {
     global $apiKey, $baseUrl;
     
-    // Get all issues from the "prototypes" project with a specific parent_id
-    $url = $baseUrl . "issues.json?parent_id={$prototypeId}&limit=100&status_id=*";
+    // Get issues for this project
+    $url = $baseUrl . "issues.json?project_id=" . $prototypeId . "&limit=100";
     
     $options = [
         'http' => [
             'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n" .
                         "Content-Type: application/json\r\n",
-            'method' => 'GET'
+            'method' => 'GET',
+            'ignore_errors' => true
         ]
     ];
     
@@ -214,10 +279,14 @@ function getPrototypeBacklog($prototypeId) {
     }
     
     $data = json_decode($response, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        return ['error' => 'Resposta inválida ao buscar backlog.'];
+    }
+    
     return $data['issues'] ?? [];
 }
 
-// Function to add a backlog item to a prototype
+// Function to add a backlog item to a prototype (as an issue in the subproject)
 function addBacklogItem($prototypeId, $data) {
     global $apiKey, $baseUrl;
     
@@ -226,12 +295,11 @@ function addBacklogItem($prototypeId, $data) {
     // Prepare the issue data
     $issueData = [
         'issue' => [
-            'project_id' => 'tribeprototypes',
+            'project_id' => $prototypeId,
             'subject' => $data['subject'],
             'description' => $data['description'],
             'status_id' => 'new',
-            'priority_id' => $data['priority'] ?? 'normal',
-            'parent_issue_id' => $prototypeId
+            'priority_id' => $data['priority'] ?? 'normal'
         ]
     ];
     
@@ -240,7 +308,8 @@ function addBacklogItem($prototypeId, $data) {
             'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n" .
                         "Content-Type: application/json\r\n",
             'method' => 'POST',
-            'content' => json_encode($issueData)
+            'content' => json_encode($issueData),
+            'ignore_errors' => true
         ]
     ];
     
@@ -252,13 +321,32 @@ function addBacklogItem($prototypeId, $data) {
     }
     
     $data = json_decode($response, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        return ['error' => 'Resposta inválida ao adicionar item ao backlog.'];
+    }
+    
+    if (isset($data['errors'])) {
+        return ['error' => 'Erro ao adicionar item ao backlog: ' . implode(', ', $data['errors'])];
+    }
+    
     return $data;
 }
 
-// Handle form submissions
-$message = '';
-$messageType = '';
+// Function to extract information from prototype description
+function extractSectionContent($description, $sectionHeader) {
+    $pattern = '/\*\*' . preg_quote($sectionHeader, '/') . '\*\*(.*?)(?=\*\*\d+\.|$)/s';
+    if (preg_match($pattern, $description, $matches)) {
+        return trim($matches[1]);
+    }
+    return '';
+}
 
+// Executar diagnóstico se solicitado
+if ($mostrar_diagnostico) {
+    $resultados_diagnostico = diagnosticarConexaoRedmine();
+}
+
+// Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action'])) {
         switch ($_POST['action']) {
@@ -287,18 +375,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Get the prototypes to display
-$prototypes = getPrototypes();
-$errorMessage = '';
-if (isset($prototypes['error'])) {
-    $errorMessage = $prototypes['error'];
-    $prototypes = [];
+// Get the prototypes to display if not in diagnostic mode
+if (!$mostrar_diagnostico) {
+    $prototypes = getPrototypes();
+    if (isset($prototypes['error'])) {
+        $errorMessage = $prototypes['error'];
+        $prototypes = [];
+    }
 }
 
 // Get the selected prototype details if a prototype is selected
-$selectedPrototype = null;
-$prototypeBacklog = [];
-if (isset($_GET['prototype_id']) && !empty($_GET['prototype_id'])) {
+if (!$mostrar_diagnostico && isset($_GET['prototype_id']) && !empty($_GET['prototype_id'])) {
     foreach ($prototypes as $proto) {
         if ($proto['id'] == $_GET['prototype_id']) {
             $selectedPrototype = $proto;
@@ -315,13 +402,156 @@ if (isset($_GET['prototype_id']) && !empty($_GET['prototype_id'])) {
     }
 }
 
-// Function to extract information from prototype description
-function extractSectionContent($description, $sectionHeader) {
-    $pattern = '/\*\*' . preg_quote($sectionHeader, '/') . '\*\*(.*?)(?=\*\*\d+\.|$)/s';
-    if (preg_match($pattern, $description, $matches)) {
-        return trim($matches[1]);
+// Adicionar função de diagnóstico para verificar a conectividade com o Redmine
+function diagnosticarConexaoRedmine() {
+    global $apiKey, $baseUrl;
+    
+    $resultados = [];
+    
+    // Verificar configurações básicas
+    $resultados[] = "=== VERIFICAÇÃO DAS CONFIGURAÇÕES ===";
+    $resultados[] = "URL Base: " . $baseUrl;
+    $resultados[] = "API Key: " . (empty($apiKey) ? "NÃO DEFINIDA" : "****" . substr($apiKey, -4) . " (" . strlen($apiKey) . " caracteres)");
+    
+    // Testar se conseguimos fazer HTTP request básico
+    $resultados[] = "\n=== TESTE DE CONEXÃO HTTP BÁSICA ===";
+    $url_teste = "https://httpbin.org/get";
+    $resposta = @file_get_contents($url_teste);
+    if ($resposta === FALSE) {
+        $resultados[] = "❌ Falha ao fazer requisição HTTP básica. Isso pode indicar problemas com a configuração do PHP.";
+        $resultados[] = "Erro: " . error_get_last()['message'] ?? 'Desconhecido';
+    } else {
+        $resultados[] = "✅ Requisição HTTP básica funcionou corretamente.";
     }
-    return '';
+    
+    // Testar acesso à URL do Redmine (sem autenticação)
+    $resultados[] = "\n=== TESTE DE ACESSO À URL DO REDMINE ===";
+    // Remover /issues.json da URL se existir
+    $url_redmine = preg_replace('/\/issues\.json.*$/', '', $baseUrl);
+    $resultados[] = "Testando acesso a: " . $url_redmine;
+    
+    $context = stream_context_create(['http' => ['ignore_errors' => true]]);
+    $resposta = @file_get_contents($url_redmine, false, $context);
+    $status = $http_response_header[0] ?? 'Status desconhecido';
+    
+    $resultados[] = "Status da resposta: " . $status;
+    
+    if ($resposta === FALSE) {
+        $resultados[] = "❌ Falha ao acessar a URL do Redmine.";
+        $resultados[] = "Erro: " . error_get_last()['message'] ?? 'Desconhecido';
+        $resultados[] = "⚠️ Verifique se a URL está correta e acessível do servidor.";
+    } else {
+        $resultados[] = "✅ URL do Redmine acessível.";
+        
+        // Verificar se a página parece ser um Redmine
+        if (strpos($resposta, 'Redmine') !== false) {
+            $resultados[] = "✅ A resposta parece ser de um sistema Redmine.";
+        } else {
+            $resultados[] = "⚠️ A resposta não parece ser de um sistema Redmine. Verifique se a URL está correta.";
+        }
+    }
+    
+    // Testar API do Redmine
+    $resultados[] = "\n=== TESTE DA API DO REDMINE ===";
+    $api_url = $baseUrl . "projects.json";
+    $resultados[] = "Testando acesso a: " . $api_url;
+    
+    $options = [
+        'http' => [
+            'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n",
+            'method' => 'GET',
+            'ignore_errors' => true
+        ]
+    ];
+    $context = stream_context_create($options);
+    $resposta = @file_get_contents($api_url, false, $context);
+    $status = $http_response_header[0] ?? 'Status desconhecido';
+    
+    $resultados[] = "Status da resposta: " . $status;
+    
+    if ($resposta === FALSE) {
+        $resultados[] = "❌ Falha ao acessar a API do Redmine.";
+        $resultados[] = "Erro: " . error_get_last()['message'] ?? 'Desconhecido';
+    } else {
+        // Salvar os primeiros 1000 caracteres da resposta
+        $response_preview = substr($resposta, 0, 1000);
+        $resultados[] = "Amostra da resposta:";
+        $resultados[] = "```\n" . $response_preview . "\n```";
+        
+        $data = json_decode($resposta, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $resultados[] = "❌ A resposta não é um JSON válido.";
+            $resultados[] = "Erro JSON: " . json_last_error_msg();
+            $resultados[] = "⚠️ Isso pode indicar que a URL não é uma API do Redmine ou há um problema de autenticação.";
+        } else {
+            if (isset($data['projects'])) {
+                $resultados[] = "✅ API do Redmine respondeu corretamente!";
+                $resultados[] = "Projetos encontrados: " . count($data['projects']);
+                
+                // Verificar se o projeto 'tribeprototypes' existe
+                $projeto_encontrado = false;
+                $resultados[] = "\n=== PROJETOS DISPONÍVEIS ===";
+                foreach ($data['projects'] as $projeto) {
+                    $resultados[] = "- " . $projeto['name'] . " (id: " . $projeto['id'] . ", identifier: " . $projeto['identifier'] . ")";
+                    if ($projeto['identifier'] === 'tribeprototypes') {
+                        $projeto_encontrado = true;
+                    }
+                }
+                
+                if ($projeto_encontrado) {
+                    $resultados[] = "\n✅ Projeto 'tribeprototypes' encontrado!";
+                    
+                    // Verificar subprojetos
+                    $tribeprototypesId = null;
+                    foreach ($data['projects'] as $projeto) {
+                        if ($projeto['identifier'] === 'tribeprototypes') {
+                            $tribeprototypesId = $projeto['id'];
+                            break;
+                        }
+                    }
+                    
+                    if ($tribeprototypesId) {
+                        $api_url = $baseUrl . "projects.json?parent_id=" . $tribeprototypesId;
+                        $resposta_sub = @file_get_contents($api_url, false, $context);
+                        
+                        if ($resposta_sub !== FALSE) {
+                            $subprojetos_data = json_decode($resposta_sub, true);
+                            if (json_last_error() === JSON_ERROR_NONE && isset($subprojetos_data['projects'])) {
+                                $resultados[] = "\n=== SUBPROJETOS DE TRIBEPROTOTYPES ===";
+                                $resultados[] = "Total de subprojetos encontrados: " . count($subprojetos_data['projects']);
+                                
+                                foreach ($subprojetos_data['projects'] as $subprojeto) {
+                                    $resultados[] = "- " . $subprojeto['name'] . " (id: " . $subprojeto['id'] . ", identifier: " . $subprojeto['identifier'] . ")";
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    $resultados[] = "\n❌ Projeto 'tribeprototypes' NÃO encontrado!";
+                    $resultados[] = "⚠️ Você precisa criar um projeto com o identificador 'tribeprototypes' no Redmine.";
+                }
+            } elseif (isset($data['errors'])) {
+                $resultados[] = "❌ A API do Redmine retornou um erro:";
+                $resultados[] = implode(", ", $data['errors']);
+                
+                // Verificar erros comuns
+                if (in_array('Invalid or missing API key', $data['errors'])) {
+                    $resultados[] = "\n⚠️ SOLUÇÃO: Verifique se a chave API está correta e ativa no Redmine.";
+                }
+            } else {
+                $resultados[] = "⚠️ Resposta não esperada da API.";
+            }
+        }
+    }
+    
+    // Recomendações finais
+    $resultados[] = "\n=== RECOMENDAÇÕES ===";
+    $resultados[] = "1. Verifique se a URL base termina com uma barra ('/').";
+    $resultados[] = "2. Confirme se a chave API tem permissões para acessar projetos e issues.";
+    $resultados[] = "3. Verifique se o projeto 'tribeprototypes' existe.";
+    $resultados[] = "4. Tente acessar o Redmine diretamente em seu navegador para confirmar que está funcionando.";
+    
+    return $resultados;
 }
 ?>
 
@@ -373,8 +603,7 @@ function extractSectionContent($description, $sectionHeader) {
             <div class="card card-body">
                 <h6>Possíveis soluções:</h6>
                 <ol>
-                    <li>Verifique se o projeto <strong>'prototypes'</strong> existe no seu Redmine</li>
-                    <li>Verifique se o tracker <strong>'prototype'</strong> está configurado</li>
+                    <li>Verifique se o projeto <strong>'tribeprototypes'</strong> existe no seu Redmine</li>
                     <li>Confirme se a URL do Redmine está correta: <code><?= htmlspecialchars($baseUrl) ?></code></li>
                     <li>Verifique se a chave API tem permissões adequadas</li>
                     <li>Tente acessar diretamente a URL do Redmine em seu navegador</li>
@@ -409,11 +638,19 @@ function extractSectionContent($description, $sectionHeader) {
                                 <a href="?tab=prototypes&prototype_id=<?= $prototype['id'] ?>" 
                                    class="list-group-item list-group-item-action <?= (isset($_GET['prototype_id']) && $_GET['prototype_id'] == $prototype['id']) ? 'active' : '' ?>">
                                     <div class="d-flex w-100 justify-content-between">
-                                        <h5 class="mb-1"><?= htmlspecialchars($prototype['subject']) ?></h5>
+                                        <h5 class="mb-1"><?= htmlspecialchars($prototype['name']) ?></h5>
                                         <small>#<?= $prototype['id'] ?></small>
                                     </div>
                                     <p class="mb-1"><?= substr(htmlspecialchars($prototype['description']), 0, 100) ?>...</p>
-                                    <small>Status: <?= htmlspecialchars($prototype['status']['name']) ?></small>
+                                    <?php
+                                    // Redefining $status for project (not issue)
+                                    $status = "Ativo";
+                                    // If there's a status in the project check if it's closed
+                                    if (isset($prototype['status']) && $prototype['status'] == 5) {
+                                        $status = "Fechado";
+                                    }
+                                    ?>
+                                    <small>Status: <?= htmlspecialchars($status) ?></small>
                                 </a>
                             <?php endforeach; ?>
                         </div>
@@ -427,9 +664,9 @@ function extractSectionContent($description, $sectionHeader) {
             <?php if ($selectedPrototype): ?>
                 <div class="card mb-4">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0"><?= htmlspecialchars($selectedPrototype['subject']) ?></h5>
+                        <h5 class="mb-0"><?= htmlspecialchars($selectedPrototype['name']) ?></h5>
                         <div>
-                            <a href="<?= REDMINE_URL ?>issues/<?= $selectedPrototype['id'] ?>" class="btn btn-sm btn-outline-secondary" target="_blank">
+                            <a href="<?= $baseUrl ?>projects/<?= $selectedPrototype['identifier'] ?>" class="btn btn-sm btn-outline-secondary" target="_blank">
                                 <i class="bi bi-box-arrow-up-right"></i> Ver no Redmine
                             </a>
                             <button type="button" class="btn btn-sm btn-primary ms-2" data-bs-toggle="modal" data-bs-target="#newBacklogItemModal">
@@ -529,6 +766,7 @@ function extractSectionContent($description, $sectionHeader) {
                 </div>
             <?php endif; ?>
         </div>
+    </div>
     <?php endif; // Fim do if ($mostrar_diagnostico) ?>
 </div>
 

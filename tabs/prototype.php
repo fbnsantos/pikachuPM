@@ -115,16 +115,51 @@ if (substr($baseUrl, -1) !== '/') {
 function getPrototypes() {
     global $apiKey, $baseUrl;
     
+    // Log values for debugging
+    error_log("Tentando acessar Redmine com URL: " . $baseUrl);
+    error_log("Comprimento da chave API: " . strlen($apiKey) . " caracteres");
+    
     // Get all issues from the "prototypes" project with a specific tracker
     $url = $baseUrl . 'issues.json?project_id=prototypes&tracker_id=prototype&limit=100&status_id=*';
+    
+    // Log the full URL being accessed
+    error_log("URL completa: " . $url);
     
     $options = [
         'http' => [
             'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n" .
                         "Content-Type: application/json\r\n",
-            'method' => 'GET'
+            'method' => 'GET',
+            'ignore_errors' => true // This allows us to get the error response
         ]
     ];
+    
+    $context = stream_context_create($options);
+    $response = @file_get_contents($url, false, $context);
+    
+    // Get response status and full headers
+    $status_line = $http_response_header[0] ?? 'Status desconhecido';
+    error_log("Resposta da API Redmine: " . $status_line);
+    
+    if ($response === FALSE) {
+        error_log("Falha ao acessar a API do Redmine. Último erro: " . error_get_last()['message'] ?? 'Desconhecido');
+        return ['error' => 'Falha ao obter protótipos do Redmine. Detalhes no log do servidor.'];
+    }
+    
+    // Check if we have a valid JSON response
+    $data = json_decode($response, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        error_log("Resposta não é um JSON válido: " . substr($response, 0, 500));
+        return ['error' => 'Resposta inválida da API do Redmine. Verifique os logs.'];
+    }
+    
+    // Check if we have an error in the response
+    if (isset($data['errors'])) {
+        error_log("Erro retornado pela API do Redmine: " . print_r($data['errors'], true));
+        return ['error' => 'Erro retornado pela API: ' . implode(', ', $data['errors'])];
+    }
+    
+    return $data['issues'] ?? [];
     
     $context = stream_context_create($options);
     $response = @file_get_contents($url, false, $context);
@@ -346,6 +381,20 @@ function extractSectionContent($description, $sectionHeader) {
 <div class="container-fluid">
     <h1 class="mb-4">Gestão de Protótipos</h1>
     
+    <?php if ($mostrar_diagnostico): ?>
+    <div class="card mb-4">
+        <div class="card-header bg-info text-white">
+            <h5 class="mb-0">Diagnóstico de Conexão com o Redmine</h5>
+        </div>
+        <div class="card-body">
+            <pre class="bg-light p-3" style="max-height: 400px; overflow-y: auto;"><?php echo implode("\n", $resultados_diagnostico); ?></pre>
+            <div class="mt-3">
+                <a href="?tab=prototypes" class="btn btn-primary">Voltar para Protótipos</a>
+            </div>
+        </div>
+    </div>
+    <?php else: ?>
+    
     <?php if (!empty($message)): ?>
     <div class="alert alert-<?= $messageType ?> alert-dismissible fade show" role="alert">
         <?= $message ?>
@@ -356,6 +405,7 @@ function extractSectionContent($description, $sectionHeader) {
     <?php if (!empty($errorMessage)): ?>
     <div class="alert alert-danger" role="alert">
         <?= $errorMessage ?>
+        <a href="?tab=prototypes&diagnostico=1" class="btn btn-sm btn-warning ms-2">Executar Diagnóstico</a>
     </div>
     <?php endif; ?>
     
@@ -365,9 +415,14 @@ function extractSectionContent($description, $sectionHeader) {
             <div class="card mb-4">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">Protótipos</h5>
-                    <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newPrototypeModal">
-                        <i class="bi bi-plus-circle"></i> Novo Protótipo
-                    </button>
+                    <div>
+                        <a href="?tab=prototypes&diagnostico=1" class="btn btn-sm btn-info me-2" title="Diagnosticar problemas de conexão">
+                            <i class="bi bi-bug"></i> Diagnóstico
+                        </a>
+                        <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newPrototypeModal">
+                            <i class="bi bi-plus-circle"></i> Novo Protótipo
+                        </button>
+                    </div>
                 </div>
                 <div class="card-body">
                     <?php if (empty($prototypes)): ?>
@@ -498,7 +553,7 @@ function extractSectionContent($description, $sectionHeader) {
                 </div>
             <?php endif; ?>
         </div>
-    </div>
+    <?php endif; // Fim do if ($mostrar_diagnostico) ?>
 </div>
 
 <!-- Modal para Novo Protótipo -->

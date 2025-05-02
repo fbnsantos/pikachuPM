@@ -33,6 +33,20 @@ $errorMessage = '';
 $prototypes = [];
 $selectedPrototype = null;
 $prototypeBacklog = [];
+$backlogByStatus = [
+    'backlog' => [],
+    'in_progress' => [],
+    'suspended' => [],
+    'completed' => []
+];
+
+// Definições de status para mapeamento
+$statusMap = [
+    'backlog' => [1], // IDs dos status que são considerados "backlog"
+    'in_progress' => [2], // IDs dos status que são considerados "em progresso"
+    'suspended' => [3, 6], // IDs dos status que são considerados "suspensos" (on hold, etc)
+    'completed' => [5], // IDs dos status que são considerados "completos" (closed, etc)
+];
 
 // Function to get prototypes from Redmine (as subprojects)
 function getPrototypes() {
@@ -208,6 +222,12 @@ function createPrototype($data) {
 
 **10. Next Steps / Roadmap**
 {$data['roadmap']}
+
+**Documentation Link**
+{$data['documentation_link']}
+
+**Git Repository**
+{$data['git_repository']}
 EOT;
     
     // Generate a unique identifier from the subject
@@ -255,12 +275,117 @@ EOT;
     return $data;
 }
 
-// Function to get backlog items for a prototype (as issues in the subproject)
-function getPrototypeBacklog($prototypeId) {
+// Function to update prototype information
+function updatePrototype($projectId, $data) {
     global $apiKey, $baseUrl;
     
+    // Get current project info first
+    $url = $baseUrl . 'projects/' . $projectId . '.json';
+    $options = [
+        'http' => [
+            'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n",
+            'method' => 'GET',
+            'ignore_errors' => true
+        ]
+    ];
+    
+    $context = stream_context_create($options);
+    $response = @file_get_contents($url, false, $context);
+    
+    if ($response === FALSE) {
+        return ['error' => 'Falha ao obter informações do protótipo.'];
+    }
+    
+    $projectData = json_decode($response, true);
+    if (json_last_error() !== JSON_ERROR_NONE || !isset($projectData['project'])) {
+        return ['error' => 'Resposta inválida ao obter informações do protótipo.'];
+    }
+    
+    $currentProject = $projectData['project'];
+    
+    // Build the updated description from the template
+    $description = <<<EOT
+**1. Problem / Challenge**
+{$data['problem']}
+
+**2. Target Stakeholders**
+{$data['stakeholders']}
+
+**3. Research Goals / Objectives**
+{$data['goals']}
+
+**4. Solution / Approach**
+{$data['solution']}
+
+**5. Key Technologies**
+{$data['technologies']}
+
+**6. Validation Strategy**
+{$data['validation']}
+
+**7. Key Partners / Collaborators**
+{$data['partners']}
+
+**8. Potential Impact**
+{$data['impact']}
+
+**9. Risks / Uncertainties**
+{$data['risks']}
+
+**10. Next Steps / Roadmap**
+{$data['roadmap']}
+
+**Documentation Link**
+{$data['documentation_link']}
+
+**Git Repository**
+{$data['git_repository']}
+EOT;
+    
+    // Update project data
+    $updateData = [
+        'project' => [
+            'name' => $data['name'],
+            'description' => $description
+        ]
+    ];
+    
+    $url = $baseUrl . 'projects/' . $projectId . '.json';
+    $options = [
+        'http' => [
+            'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n" .
+                        "Content-Type: application/json\r\n",
+            'method' => 'PUT',
+            'content' => json_encode($updateData),
+            'ignore_errors' => true
+        ]
+    ];
+    
+    $context = stream_context_create($options);
+    $response = @file_get_contents($url, false, $context);
+    
+    // For PUT requests, a 204 No Content is a success
+    if ($response === FALSE) {
+        $headers = $http_response_header ?? [];
+        $statusLine = $headers[0] ?? '';
+        
+        // Check if status is 204 No Content (successful update)
+        if (strpos($statusLine, '204') !== false) {
+            return ['success' => true];
+        }
+        
+        return ['error' => 'Falha ao atualizar protótipo.'];
+    }
+    
+    return ['success' => true];
+}
+
+// Function to get backlog items for a prototype (as issues in the subproject)
+function getPrototypeBacklog($prototypeId) {
+    global $apiKey, $baseUrl, $statusMap, $backlogByStatus;
+    
     // Get issues for this project
-    $url = $baseUrl . "issues.json?project_id=" . $prototypeId . "&limit=100";
+    $url = $baseUrl . "issues.json?project_id=" . $prototypeId . "&limit=100&status_id=*";
     
     $options = [
         'http' => [
@@ -283,7 +408,33 @@ function getPrototypeBacklog($prototypeId) {
         return ['error' => 'Resposta inválida ao buscar backlog.'];
     }
     
-    return $data['issues'] ?? [];
+    // Reset backlog by status
+    $backlogByStatus = [
+        'backlog' => [],
+        'in_progress' => [],
+        'suspended' => [],
+        'completed' => []
+    ];
+    
+    // Group issues by their status
+    $issues = $data['issues'] ?? [];
+    foreach ($issues as $issue) {
+        $statusId = $issue['status']['id'];
+        $bucket = 'backlog'; // Default bucket
+        
+        // Find which bucket this status belongs to
+        foreach ($statusMap as $key => $ids) {
+            if (in_array($statusId, $ids)) {
+                $bucket = $key;
+                break;
+            }
+        }
+        
+        // Add to the appropriate bucket
+        $backlogByStatus[$bucket][] = $issue;
+    }
+    
+    return $issues;
 }
 
 // Function to add a backlog item to a prototype (as an issue in the subproject)
@@ -347,6 +498,60 @@ function addBacklogItem($prototypeId, $data) {
     return $data;
 }
 
+// Function to update the status of a backlog item
+function updateIssueStatus($issueId, $statusId) {
+    global $apiKey, $baseUrl;
+    
+    $url = $baseUrl . 'issues/' . $issueId . '.json';
+    
+    // Prepare the update data
+    $updateData = [
+        'issue' => [
+            'status_id' => $statusId
+        ]
+    ];
+    
+    $options = [
+        'http' => [
+            'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n" .
+                        "Content-Type: application/json\r\n",
+            'method' => 'PUT',
+            'content' => json_encode($updateData),
+            'ignore_errors' => true
+        ]
+    ];
+    
+    $context = stream_context_create($options);
+    $response = @file_get_contents($url, false, $context);
+    
+    // For PUT requests, a 204 No Content is a success
+    if ($response === FALSE) {
+        $headers = $http_response_header ?? [];
+        $statusLine = $headers[0] ?? '';
+        
+        // Check if status is 204 No Content (successful update)
+        if (strpos($statusLine, '204') !== false) {
+            return ['success' => true];
+        }
+        
+        return ['error' => 'Falha ao atualizar status da tarefa.'];
+    }
+    
+    // If we get here with a response, check for errors
+    if (!empty($response)) {
+        $data = json_decode($response, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return ['error' => 'Resposta inválida ao atualizar status.'];
+        }
+        
+        if (isset($data['errors'])) {
+            return ['error' => 'Erro ao atualizar status: ' . implode(', ', $data['errors'])];
+        }
+    }
+    
+    return ['success' => true];
+}
+
 // Function to extract information from prototype description
 function extractSectionContent($description, $sectionHeader) {
     $pattern = '/\*\*' . preg_quote($sectionHeader, '/') . '\*\*(.*?)(?=\*\*\d+\.|$)/s';
@@ -354,6 +559,39 @@ function extractSectionContent($description, $sectionHeader) {
         return trim($matches[1]);
     }
     return '';
+}
+
+// Handle AJAX requests for status updates
+if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'update_status') {
+    header('Content-Type: application/json');
+    
+    $issueId = isset($_POST['issue_id']) ? (int)$_POST['issue_id'] : 0;
+    $newStatusId = isset($_POST['status_id']) ? (int)$_POST['status_id'] : 0;
+    
+    if ($issueId <= 0 || $newStatusId <= 0) {
+        echo json_encode(['success' => false, 'error' => 'ID de issue ou status inválido']);
+        exit;
+    }
+    
+    $result = updateIssueStatus($issueId, $newStatusId);
+    echo json_encode($result);
+    exit;
+}
+
+// Handle Ajax requests for prototype updates
+if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'update_prototype') {
+    header('Content-Type: application/json');
+    
+    $projectId = isset($_POST['project_id']) ? (int)$_POST['project_id'] : 0;
+    
+    if ($projectId <= 0) {
+        echo json_encode(['success' => false, 'error' => 'ID de projeto inválido']);
+        exit;
+    }
+    
+    $result = updatePrototype($projectId, $_POST);
+    echo json_encode($result);
+    exit;
 }
 
 // Executar diagnóstico se solicitado
@@ -568,6 +806,70 @@ function diagnosticarConexaoRedmine() {
     
     return $resultados;
 }
+
+// Get the status options from the Redmine API
+function getStatusOptions() {
+    global $apiKey, $baseUrl;
+    
+    $url = $baseUrl . 'issue_statuses.json';
+    $options = [
+        'http' => [
+            'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n",
+            'method' => 'GET',
+            'ignore_errors' => true
+        ]
+    ];
+    
+    $context = stream_context_create($options);
+    $response = @file_get_contents($url, false, $context);
+    
+    if ($response === FALSE) {
+        return [];
+    }
+    
+    $data = json_decode($response, true);
+    if (json_last_error() !== JSON_ERROR_NONE || !isset($data['issue_statuses'])) {
+        return [];
+    }
+    
+    return $data['issue_statuses'];
+}
+
+// Get status options
+$statusOptions = getStatusOptions();
+
+// Define status mappings if we got options from API
+if (!empty($statusOptions)) {
+    // Reset status maps
+    $statusMap = [
+        'backlog' => [],
+        'in_progress' => [],
+        'suspended' => [],
+        'completed' => []
+    ];
+    
+    // Map statuses to categories
+    foreach ($statusOptions as $status) {
+        $statusId = $status['id'];
+        $statusName = strtolower($status['name']);
+        
+        if (strpos($statusName, 'new') !== false || strpos($statusName, 'novo') !== false) {
+            $statusMap['backlog'][] = $statusId;
+        } else if (strpos($statusName, 'progress') !== false || strpos($statusName, 'andamento') !== false) {
+            $statusMap['in_progress'][] = $statusId;
+        } else if (strpos($statusName, 'rejected') !== false || strpos($statusName, 'rejected') !== false || 
+                  strpos($statusName, 'hold') !== false || strpos($statusName, 'suspen') !== false) {
+            $statusMap['suspended'][] = $statusId;
+        } else if (strpos($statusName, 'closed') !== false || strpos($statusName, 'fechado') !== false || 
+                  strpos($statusName, 'resolved') !== false || strpos($statusName, 'resolvido') !== false ||
+                  strpos($statusName, 'done') !== false || strpos($statusName, 'complete') !== false) {
+            $statusMap['completed'][] = $statusId;
+        } else {
+            // Default to backlog for unknown statuses
+            $statusMap['backlog'][] = $statusId;
+        }
+    }
+}
 ?>
 
 <div class="container-fluid">
@@ -677,294 +979,253 @@ function diagnosticarConexaoRedmine() {
         <!-- Detalhes do Protótipo -->
         <div class="col-md-8">
             <?php if ($selectedPrototype): ?>
+                <!-- Canvas Editável do Protótipo -->
                 <div class="card mb-4">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0"><?= htmlspecialchars($selectedPrototype['name']) ?></h5>
+                        <h5 class="mb-0">
+                            <span id="prototype-name" class="editable" data-field="name"><?= htmlspecialchars($selectedPrototype['name']) ?></span>
+                        </h5>
                         <div>
                             <a href="<?= $baseUrl ?>projects/<?= $selectedPrototype['identifier'] ?>" class="btn btn-sm btn-outline-secondary" target="_blank">
                                 <i class="bi bi-box-arrow-up-right"></i> Ver no Redmine
                             </a>
-                            <button type="button" class="btn btn-sm btn-primary ms-2" data-bs-toggle="modal" data-bs-target="#newBacklogItemModal">
-                                <i class="bi bi-plus-circle"></i> Adicionar Backlog
+                            <button type="button" class="btn btn-sm btn-success edit-mode-toggle">
+                                <i class="bi bi-pencil"></i> Editar Canvas
+                            </button>
+                            <button type="button" class="btn btn-sm btn-primary save-changes" style="display: none;">
+                                <i class="bi bi-save"></i> Salvar Alterações
                             </button>
                         </div>
                     </div>
                     <div class="card-body">
-                        <div class="mb-4">
+                        <div class="canvas-container mb-4">
+                            <!-- Seção editável com os 10 campos + links -->
+                            <div id="prototype-info" class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <h6>1. Problem / Challenge</h6>
+                                        <div class="editable" data-field="problem"><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '1. Problem / Challenge'))) ?></div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <h6>2. Target Stakeholders</h6>
+                                        <div class="editable" data-field="stakeholders"><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '2. Target Stakeholders'))) ?></div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <h6>3. Research Goals / Objectives</h6>
+                                        <div class="editable" data-field="goals"><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '3. Research Goals / Objectives'))) ?></div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <h6>4. Solution / Approach</h6>
+                                        <div class="editable" data-field="solution"><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '4. Solution / Approach'))) ?></div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <h6>5. Key Technologies</h6>
+                                        <div class="editable" data-field="technologies"><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '5. Key Technologies'))) ?></div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <h6>6. Validation Strategy</h6>
+                                        <div class="editable" data-field="validation"><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '6. Validation Strategy'))) ?></div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <h6>7. Key Partners / Collaborators</h6>
+                                        <div class="editable" data-field="partners"><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '7. Key Partners / Collaborators'))) ?></div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <h6>8. Potential Impact</h6>
+                                        <div class="editable" data-field="impact"><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '8. Potential Impact'))) ?></div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <h6>9. Risks / Uncertainties</h6>
+                                        <div class="editable" data-field="risks"><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '9. Risks / Uncertainties'))) ?></div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <h6>10. Next Steps / Roadmap</h6>
+                                        <div class="editable" data-field="roadmap"><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '10. Next Steps / Roadmap'))) ?></div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Links section -->
+                                <div class="col-12 mt-3">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
+                                                <h6><i class="bi bi-file-earmark-text"></i> Documentation Link</h6>
+                                                <div class="editable" data-field="documentation_link">
+                                                    <?php 
+                                                    $docLink = extractSectionContent($selectedPrototype['description'], 'Documentation Link');
+                                                    if (!empty($docLink)) {
+                                                        echo '<a href="' . htmlspecialchars($docLink) . '" target="_blank">' . htmlspecialchars($docLink) . '</a>';
+                                                    } else {
+                                                        echo '<em>Nenhum link definido</em>';
+                                                    }
+                                                    ?>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
+                                                <h6><i class="bi bi-git"></i> Git Repository</h6>
+                                                <div class="editable" data-field="git_repository">
+                                                    <?php 
+                                                    $gitLink = extractSectionContent($selectedPrototype['description'], 'Git Repository');
+                                                    if (!empty($gitLink)) {
+                                                        echo '<a href="' . htmlspecialchars($gitLink) . '" target="_blank">' . htmlspecialchars($gitLink) . '</a>';
+                                                    } else {
+                                                        echo '<em>Nenhum link definido</em>';
+                                                    }
+                                                    ?>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Backlog Kanban Board -->
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Backlog & Tarefas</h5>
+                        <div>
+                            <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newBacklogItemModal">
+                                <i class="bi bi-plus-circle"></i> Adicionar Item
+                            </button>
+                            <a href="<?= $baseUrl ?>projects/<?= $selectedPrototype['identifier'] ?>/issues" class="btn btn-sm btn-outline-secondary" target="_blank">
+                                <i class="bi bi-box-arrow-up-right"></i> Ver no Redmine
+                            </a>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="kanban-board">
                             <div class="row">
-                                <div class="col-md-6">
-                                    <h6>1. Problem / Challenge</h6>
-                                    <p><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '1. Problem / Challenge'))) ?></p>
-                                    
-                                    <h6>2. Target Stakeholders</h6>
-                                    <p><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '2. Target Stakeholders'))) ?></p>
-                                    
-                                    <h6>3. Research Goals / Objectives</h6>
-                                    <p><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '3. Research Goals / Objectives'))) ?></p>
-                                    
-                                    <h6>4. Solution / Approach</h6>
-                                    <p><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '4. Solution / Approach'))) ?></p>
-                                    
-                                    <h6>5. Key Technologies</h6>
-                                    <p><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '5. Key Technologies'))) ?></p>
+                                <!-- Backlog Column -->
+                                <div class="col-md-3">
+                                    <div class="kanban-column" data-status="backlog" data-status-id="1">
+                                        <div class="kanban-column-header bg-light">
+                                            <h6 class="mb-0">Backlog <span class="badge bg-secondary"><?= count($backlogByStatus['backlog']) ?></span></h6>
+                                        </div>
+                                        <div class="kanban-items-container">
+                                            <?php foreach ($backlogByStatus['backlog'] as $item): ?>
+                                                <div class="kanban-item" draggable="true" data-issue-id="<?= $item['id'] ?>">
+                                                    <div class="card mb-2">
+                                                        <div class="card-body p-2">
+                                                            <h6 class="card-title mb-1"><?= htmlspecialchars($item['subject']) ?></h6>
+                                                            <p class="card-text small mb-1"><?= substr(htmlspecialchars($item['description']), 0, 50) ?>...</p>
+                                                            <div class="d-flex justify-content-between align-items-center">
+                                                                <span class="badge bg-<?= getPriorityColor($item['priority']['name']) ?>">
+                                                                    <?= htmlspecialchars($item['priority']['name']) ?>
+                                                                </span>
+                                                                <a href="<?= $baseUrl ?>issues/<?= $item['id'] ?>" class="btn btn-sm btn-outline-secondary" target="_blank">
+                                                                    <i class="bi bi-box-arrow-up-right"></i>
+                                                                </a>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            <?php endforeach; ?>
+                                            <?php if (empty($backlogByStatus['backlog'])): ?>
+                                                <div class="text-center text-muted py-3">
+                                                    <em>Sem itens</em>
+                                                </div>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="col-md-6">
-                                    <h6>6. Validation Strategy</h6>
-                                    <p><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '6. Validation Strategy'))) ?></p>
-                                    
-                                    <h6>7. Key Partners / Collaborators</h6>
-                                    <p><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '7. Key Partners / Collaborators'))) ?></p>
-                                    
-                                    <h6>8. Potential Impact</h6>
-                                    <p><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '8. Potential Impact'))) ?></p>
-                                    
-                                    <h6>9. Risks / Uncertainties</h6>
-                                    <p><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '9. Risks / Uncertainties'))) ?></p>
-                                    
-                                    <h6>10. Next Steps / Roadmap</h6>
-                                    <p><?= nl2br(htmlspecialchars(extractSectionContent($selectedPrototype['description'], '10. Next Steps / Roadmap'))) ?></p>
+                                
+                                <!-- In Progress Column -->
+                                <div class="col-md-3">
+                                    <div class="kanban-column" data-status="in_progress" data-status-id="2">
+                                        <div class="kanban-column-header bg-info text-white">
+                                            <h6 class="mb-0">Em Execução <span class="badge bg-light text-dark"><?= count($backlogByStatus['in_progress']) ?></span></h6>
+                                        </div>
+                                        <div class="kanban-items-container">
+                                            <?php foreach ($backlogByStatus['in_progress'] as $item): ?>
+                                                <div class="kanban-item" draggable="true" data-issue-id="<?= $item['id'] ?>">
+                                                    <div class="card mb-2">
+                                                        <div class="card-body p-2">
+                                                            <h6 class="card-title mb-1"><?= htmlspecialchars($item['subject']) ?></h6>
+                                                            <p class="card-text small mb-1"><?= substr(htmlspecialchars($item['description']), 0, 50) ?>...</p>
+                                                            <div class="d-flex justify-content-between align-items-center">
+                                                                <span class="badge bg-<?= getPriorityColor($item['priority']['name']) ?>">
+                                                                    <?= htmlspecialchars($item['priority']['name']) ?>
+                                                                </span>
+                                                                <a href="<?= $baseUrl ?>issues/<?= $item['id'] ?>" class="btn btn-sm btn-outline-secondary" target="_blank">
+                                                                    <i class="bi bi-box-arrow-up-right"></i>
+                                                                </a>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            <?php endforeach; ?>
+                                            <?php if (empty($backlogByStatus['in_progress'])): ?>
+                                                <div class="text-center text-muted py-3">
+                                                    <em>Sem itens</em>
+                                                </div>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
-                        
-                        <h5 class="mb-3">Backlog</h5>
-                        <?php if (empty($prototypeBacklog)): ?>
-                            <p class="text-muted">Nenhum item no backlog deste protótipo.</p>
-                        <?php else: ?>
-                            <div class="table-responsive">
-                                <table class="table table-hover">
-                                    <thead>
-                                        <tr>
-                                            <th>#</th>
-                                            <th>Tarefa</th>
-                                            <th>Status</th>
-                                            <th>Prioridade</th>
-                                            <th>Atribuído</th>
-                                            <th>Ações</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php foreach ($prototypeBacklog as $item): ?>
-                                            <tr>
-                                                <td><?= $item['id'] ?></td>
-                                                <td><?= htmlspecialchars($item['subject']) ?></td>
-                                                <td>
-                                                    <span class="badge bg-<?= getStatusColor($item['status']['name']) ?>">
-                                                        <?= htmlspecialchars($item['status']['name']) ?>
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <span class="badge bg-<?= getPriorityColor($item['priority']['name']) ?>">
-                                                        <?= htmlspecialchars($item['priority']['name']) ?>
-                                                    </span>
-                                                </td>
-                                                <td><?= isset($item['assigned_to']) ? htmlspecialchars($item['assigned_to']['name']) : '-' ?></td>
-                                                <td>
-                                                    <a href="<?= $baseUrl ?>issues/<?= $item['id'] ?>" class="btn btn-sm btn-outline-secondary" target="_blank">
-                                                        <i class="bi bi-box-arrow-up-right"></i>
-                                                    </a>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            <?php else: ?>
-                <div class="card">
-                    <div class="card-body text-center py-5">
-                        <h4 class="text-muted">Selecione um protótipo para ver os detalhes</h4>
-                        <p>Ou crie um novo protótipo clicando no botão à esquerda</p>
-                    </div>
-                </div>
-            <?php endif; ?>
-        </div>
-    </div>
-    <?php endif; // Fim do if ($mostrar_diagnostico) ?>
-</div>
-
-<!-- Modal para Novo Protótipo -->
-<div class="modal fade" id="newPrototypeModal" tabindex="-1" aria-labelledby="newPrototypeModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="newPrototypeModalLabel">Criar Novo Protótipo</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <form method="post" action="?tab=prototypes">
-                    <input type="hidden" name="action" value="create_prototype">
-                    
-                    <div class="mb-3">
-                        <label for="subject" class="form-label">Nome do Protótipo</label>
-                        <input type="text" class="form-control" id="subject" name="subject" required>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="problem" class="form-label">1. Problem / Challenge</label>
-                                <textarea class="form-control" id="problem" name="problem" rows="3" required></textarea>
-                                <small class="form-text text-muted">Que problema social, científico ou industrial está tentando resolver?</small>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="stakeholders" class="form-label">2. Target Stakeholders</label>
-                                <textarea class="form-control" id="stakeholders" name="stakeholders" rows="3" required></textarea>
-                                <small class="form-text text-muted">Quem beneficia? (indústrias, academia, políticos, agricultores, etc.)</small>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="goals" class="form-label">3. Research Goals / Objectives</label>
-                                <textarea class="form-control" id="goals" name="goals" rows="3" required></textarea>
-                                <small class="form-text text-muted">Quais são os objetivos científicos ou técnicos principais?</small>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="solution" class="form-label">4. Solution / Approach</label>
-                                <textarea class="form-control" id="solution" name="solution" rows="3" required></textarea>
-                                <small class="form-text text-muted">Qual é o conceito, sistema ou método proposto?</small>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="technologies" class="form-label">5. Key Technologies</label>
-                                <textarea class="form-control" id="technologies" name="technologies" rows="3" required></textarea>
-                                <small class="form-text text-muted">Quais tecnologias estão sendo desenvolvidas ou testadas?</small>
-                            </div>
-                        </div>
-                        
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="validation" class="form-label">6. Validation Strategy</label>
-                                <textarea class="form-control" id="validation" name="validation" rows="3" required></textarea>
-                                <small class="form-text text-muted">Como testará ou avaliará o protótipo?</small>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="partners" class="form-label">7. Key Partners / Collaborators</label>
-                                <textarea class="form-control" id="partners" name="partners" rows="3" required></textarea>
-                                <small class="form-text text-muted">Quem são os parceiros de pesquisa, industriais ou governamentais?</small>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="impact" class="form-label">8. Potential Impact</label>
-                                <textarea class="form-control" id="impact" name="impact" rows="3" required></textarea>
-                                <small class="form-text text-muted">Que valor científico, social ou econômico este protótipo pode gerar?</small>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="risks" class="form-label">9. Risks / Uncertainties</label>
-                                <textarea class="form-control" id="risks" name="risks" rows="3" required></textarea>
-                                <small class="form-text text-muted">Quais são os principais riscos científicos, técnicos ou logísticos?</small>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="roadmap" class="form-label">10. Next Steps / Roadmap</label>
-                                <textarea class="form-control" id="roadmap" name="roadmap" rows="3" required></textarea>
-                                <small class="form-text text-muted">Quais são as ações de curto prazo ou experimentos/projetos de acompanhamento?</small>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="priority" class="form-label">Prioridade</label>
-                        <select class="form-select" id="priority" name="priority">
-                            <option value="normal">Normal</option>
-                            <option value="low">Baixa</option>
-                            <option value="high">Alta</option>
-                            <option value="urgent">Urgente</option>
-                        </select>
-                    </div>
-                    
-                    <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-primary">Criar Protótipo</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Modal para Novo Item de Backlog -->
-<div class="modal fade" id="newBacklogItemModal" tabindex="-1" aria-labelledby="newBacklogItemModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="newBacklogItemModalLabel">Adicionar Item ao Backlog</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <form method="post" action="?tab=prototypes&prototype_id=<?= $_GET['prototype_id'] ?? '' ?>">
-                    <input type="hidden" name="action" value="add_backlog">
-                    <input type="hidden" name="prototype_id" value="<?= $_GET['prototype_id'] ?? '' ?>">
-                    
-                    <div class="mb-3">
-                        <label for="subject" class="form-label">Título da Tarefa</label>
-                        <input type="text" class="form-control" id="subject" name="subject" required>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="description" class="form-label">Descrição</label>
-                        <textarea class="form-control" id="description" name="description" rows="5" required></textarea>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="priority" class="form-label">Prioridade</label>
-                        <select class="form-select" id="priority" name="priority">
-                            <option value="normal">Normal</option>
-                            <option value="low">Baixa</option>
-                            <option value="high">Alta</option>
-                            <option value="urgent">Urgente</option>
-                        </select>
-                    </div>
-                    
-                    <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-primary">Adicionar ao Backlog</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<?php
-// Helper function to determine status color
-function getStatusColor($status) {
-    switch (strtolower($status)) {
-        case 'new':
-            return 'primary';
-        case 'in progress':
-        case 'em andamento':
-            return 'info';
-        case 'resolved':
-        case 'resolvido':
-            return 'success';
-        case 'closed':
-        case 'fechado':
-            return 'dark';
-        default:
-            return 'secondary';
-    }
-}
-
-// Helper function to determine priority color
-function getPriorityColor($priority) {
-    switch (strtolower($priority)) {
-        case 'low':
-        case 'baixa':
-            return 'success';
-        case 'normal':
-            return 'info';
-        case 'high':
-        case 'alta':
-            return 'warning';
-        case 'urgent':
-        case 'urgente':
-            return 'danger';
-        default:
-            return 'secondary';
-    }
-}
-?>
+                                
+                                <!-- Suspended Column -->
+                                <div class="col-md-3">
+                                    <div class="kanban-column" data-status="suspended" data-status-id="3">
+                                        <div class="kanban-column-header bg-warning">
+                                            <h6 class="mb-0">Suspensa <span class="badge bg-light text-dark"><?= count($backlogByStatus['suspended']) ?></span></h6>
+                                        </div>
+                                        <div class="kanban-items-container">
+                                            <?php foreach ($backlogByStatus['suspended'] as $item): ?>
+                                                <div class="kanban-item" draggable="true" data-issue-id="<?= $item['id'] ?>">
+                                                    <div class="card mb-2">
+                                                        <div class="card-body p-2">
+                                                            <h6 class="card-title mb-1"><?= htmlspecialchars($item['subject']) ?></h6>
+                                                            <p class="card-text small mb-1"><?= substr(htmlspecialchars($item['description']), 0, 50) ?>...</p>
+                                                            <div class="d-flex justify-content-between align-items-center">
+                                                                <span class="badge bg-<?= getPriorityColor($item['priority']['name']) ?>">
+                                                                    <?= htmlspecialchars($item['priority']['name']) ?>
+                                                                </span>
+                                                                <a href="<?= $baseUrl ?>issues/<?= $item['id'] ?>" class="btn btn-sm btn-outline-secondary" target="_blank">
+                                                                    <i class="bi bi-box-arrow-up-right"></i>
+                                                                </a>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            <?php endforeach; ?>
+                                            <?php if (empty($backlogByStatus['suspended'])): ?>
+                                                <div class="text-center text-muted py-3">
+                                                    <em>Sem itens</em>
+                                                </div>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Completed Column -->
+                                <div class="col-md-3">
+                                    <div class="kanban-column" data-status="completed" data-status-id="5">
+                                        <div class="kanban-column-header bg-success text-white">
+                                            <h6 class="mb-0">Finalizada <span class="badge bg-light text-dark"><?= count($backlogByStatus['completed']) ?></span></h6>
+                                        </div>
+                                        <div class="kanban-items-container">
+                                            <?php foreach ($backlogByStatus['completed'] as $item): ?>
+                                                <div class="kanban-item" draggable="true" data-issue-id="<?= $item['id'] ?>">
+                                                    <div class="card mb-2">
+                                                        <div class="card-body p-2">
+                                                            <h6 class="card-title mb-1"><?= htmlspecialchars($item['subject']) ?></h6>
+                                                            <p class="card-text small mb-1"><?= substr(htmlspecialchars($item['description']), 0, 50) ?>...</p>
+                                                            <div class="d-flex justify-content-between align-items-center">
+                                                                <span class="badge bg-<?= getPriorityColor($item['priority']['name']) ?>">
+                                                                    <?= htmlspecialchars($item['priority']['name']) ?>
+                                                                </span>

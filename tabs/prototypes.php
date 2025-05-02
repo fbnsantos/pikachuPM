@@ -22,6 +22,7 @@ foreach ($userConstants as $key => $value) {
 $possibleApiKeys = ['API_KEY', 'REDMINE_API_KEY', 'APIKEY', 'KEY', 'api_key', 'redmine_api_key'];
 $possibleBaseUrls = ['BASE_URL', 'REDMINE_URL', 'BASEURL', 'URL', 'API_URL', 'base_url', 'redmine_url'];
 
+global $BASE_URL, $user, $pass;
 $apiKey = '';
 foreach ($possibleApiKeys as $key) {
     if (defined($key)) {
@@ -31,9 +32,9 @@ foreach ($possibleApiKeys as $key) {
     }
 }
 
-$baseUrl = '';
+$baseUrl = $BASE_URL;
 foreach ($possibleBaseUrls as $url) {
-    global $BASE_URL, $user, $pass;
+    
     if (defined($url)) {
         $baseUrl = constant($BASE_URL);
         echo "<!-- Usando $url como URL base -->";

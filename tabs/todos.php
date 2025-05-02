@@ -77,6 +77,9 @@ try {
     $success_message = '';
     $error_message = '';
     
+    // Obter o parâmetro "tab" para redirecionar corretamente após as ações
+    $current_tab = isset($_GET['tab']) ? $_GET['tab'] : '';
+    
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (isset($_POST['action'])) {
             // Adicionar nova tarefa
@@ -116,6 +119,11 @@ try {
                     
                     if ($stmt->execute()) {
                         $success_message = 'Tarefa adicionada com sucesso!';
+                        // Redirecionar para manter o parâmetro tab=todos
+                        if (!empty($current_tab)) {
+                            header('Location: ?tab=' . urlencode($current_tab));
+                            exit;
+                        }
                     } else {
                         $error_message = 'Erro ao adicionar tarefa: ' . $db->lastErrorMsg();
                     }
@@ -135,6 +143,11 @@ try {
                     
                     if ($stmt->execute()) {
                         $success_message = 'Estado da tarefa atualizado com sucesso!';
+                        // Redirecionar para manter o parâmetro tab=todos
+                        if (!empty($current_tab)) {
+                            header('Location: ?tab=' . urlencode($current_tab));
+                            exit;
+                        }
                     } else {
                         $error_message = 'Erro ao atualizar estado: ' . $db->lastErrorMsg();
                     }
@@ -152,6 +165,11 @@ try {
                 
                 if ($stmt->execute()) {
                     $success_message = 'Tarefa excluída com sucesso!';
+                    // Redirecionar para manter o parâmetro tab=todos
+                    if (!empty($current_tab)) {
+                        header('Location: ?tab=' . urlencode($current_tab));
+                        exit;
+                    }
                 } else {
                     $error_message = 'Erro ao excluir tarefa: ' . $db->lastErrorMsg();
                 }
@@ -176,6 +194,11 @@ try {
                             exit;
                         }
                         $success_message = 'Estado da tarefa atualizado com sucesso!';
+                        // Redirecionar para manter o parâmetro tab=todos
+                        if (!empty($current_tab)) {
+                            header('Location: ?tab=' . urlencode($current_tab));
+                            exit;
+                        }
                     } else {
                         if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
                             header('Content-Type: application/json');
@@ -286,6 +309,8 @@ try {
             <div class="d-flex justify-content-end align-items-center">
                 <div class="me-3">
                     <form method="get" action="" class="d-flex align-items-center" id="filter-form">
+                        <!-- Manter o parâmetro tab -->
+                        <input type="hidden" name="tab" value="todos">
                         <select class="form-select form-select-sm me-2" name="responsavel" id="filter-responsavel">
                             <option value="">Minhas tarefas</option>
                             <?php foreach ($users as $u): ?>
@@ -843,16 +868,40 @@ document.addEventListener('DOMContentLoaded', function() {
         newTaskBtn.style.display = 'inline-block';
     });
     
+    // Garantir que o parâmetro tab seja mantido nos formulários
+    function ensureFormHasTabParam(form) {
+        // Verificar se a URL atual tem o parâmetro tab
+        const urlParams = new URLSearchParams(window.location.search);
+        const tabParam = urlParams.get('tab');
+        
+        if (tabParam && !form.querySelector('input[name="tab"]')) {
+            const tabInput = document.createElement('input');
+            tabInput.type = 'hidden';
+            tabInput.name = 'tab';
+            tabInput.value = tabParam;
+            form.appendChild(tabInput);
+        }
+    }
+    
+    // Adicionar parâmetro tab a todos os formulários na página
+    document.querySelectorAll('form').forEach(form => {
+        ensureFormHasTabParam(form);
+    });
+    
     // Filtro de responsável e mostrar completadas
     const filterResponsavel = document.getElementById('filter-responsavel');
     const showCompletedCheckbox = document.getElementById('show-completed');
+    const filterForm = document.getElementById('filter-form');
+    
+    // Garantir que o formulário de filtro tenha o parâmetro tab
+    ensureFormHasTabParam(filterForm);
     
     filterResponsavel.addEventListener('change', function() {
-        document.getElementById('filter-form').submit();
+        filterForm.submit();
     });
     
     showCompletedCheckbox.addEventListener('change', function() {
-        document.getElementById('filter-form').submit();
+        filterForm.submit();
     });
     
     // Manipular cliques no botão de excluir
@@ -881,74 +930,153 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // Implementação de Drag and Drop
-    let draggedItem = null;
+        // Implementação de Drag and Drop melhorada
+    let dragSrcEl = null;
+    let draggingTask = false;
     
-    // Drag and Drop API - Listeners para os itens arrastáveis
-    document.querySelectorAll('.task-card').forEach(card => {
-        card.addEventListener('dragstart', function(e) {
-            draggedItem = this;
-            setTimeout(() => {
-                this.style.opacity = '0.5';
-            }, 0);
-        });
+    function handleDragStart(e) {
+        this.classList.add('dragging');
+        dragSrcEl = this;
+        draggingTask = true;
         
-        card.addEventListener('dragend', function() {
-            draggedItem = null;
-            this.style.opacity = '1';
-        });
-    });
+        // Para compatibilidade com Firefox
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/html', this.outerHTML);
+        
+        // Adicionar um efeito visual
+        setTimeout(() => {
+            this.style.opacity = '0.4';
+        }, 0);
+    }
     
-    // Containers que podem receber itens arrastados
-    document.querySelectorAll('.todo-container').forEach(container => {
-        container.addEventListener('dragover', function(e) {
-            e.preventDefault();
-            this.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
+    function handleDragEnd(e) {
+        this.classList.remove('dragging');
+        draggingTask = false;
+        
+        document.querySelectorAll('.todo-container').forEach(container => {
+            container.classList.remove('drag-over');
         });
         
-        container.addEventListener('dragleave', function() {
-            this.style.backgroundColor = '';
-        });
+        this.style.opacity = '1';
+    }
+    
+    function handleDragOver(e) {
+        if (e.preventDefault) {
+            e.preventDefault(); // Necessário para permitir o drop
+        }
         
-        container.addEventListener('drop', function(e) {
-            e.preventDefault();
-            this.style.backgroundColor = '';
+        e.dataTransfer.dropEffect = 'move';
+        this.classList.add('drag-over');
+        
+        return false;
+    }
+    
+    function handleDragEnter(e) {
+        this.classList.add('drag-over');
+    }
+    
+    function handleDragLeave(e) {
+        this.classList.remove('drag-over');
+    }
+    
+    function handleDrop(e) {
+        e.stopPropagation(); // Evita redirecionamento no Firefox
+        e.preventDefault();
+        
+        this.classList.remove('drag-over');
+        
+        // Só prosseguir se estamos soltando em um container diferente
+        if (dragSrcEl && this !== dragSrcEl.parentNode) {
+            const newState = this.getAttribute('data-estado');
+            const taskId = dragSrcEl.getAttribute('data-task-id');
             
-            if (draggedItem) {
-                const taskId = draggedItem.getAttribute('data-task-id');
-                const newState = this.getAttribute('data-estado');
-                
-                // Mover a tarefa visualmente
-                this.appendChild(draggedItem);
-                
-                // Atualizar o estado no servidor via AJAX
-                const formData = new FormData();
-                formData.append('action', 'drag_update_status');
-                formData.append('todo_id', taskId);
-                formData.append('new_estado', newState);
-                
-                fetch(window.location.href, {
-                    method: 'POST',
-                    body: formData,
-                    headers: {
-                        'X-Requested-With': 'XMLHttpRequest'
-                    }
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        console.log('Estado atualizado com sucesso');
-                    } else {
-                        console.error('Erro ao atualizar estado:', data.message);
-                        alert('Erro ao atualizar estado: ' + data.message);
-                    }
-                })
-                .catch(error => {
-                    console.error('Erro na requisição AJAX:', error);
-                    alert('Erro na requisição. Por favor, tente novamente.');
-                });
+            // Adiciona a tarefa ao novo container visualmente
+            this.appendChild(dragSrcEl);
+            
+            // Atualiza o estado no servidor
+            updateTaskStatus(taskId, newState);
+        }
+        
+        return false;
+    }
+    
+    function updateTaskStatus(taskId, newState) {
+        const formData = new FormData();
+        formData.append('action', 'drag_update_status');
+        formData.append('todo_id', taskId);
+        formData.append('new_estado', newState);
+        
+        // Manter o parâmetro tab=todos na URL
+        let url = window.location.href;
+        if (!url.includes('tab=todos')) {
+            url += (url.includes('?') ? '&' : '?') + 'tab=todos';
+        }
+        
+        fetch(url, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
             }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log('Estado atualizado com sucesso');
+            } else {
+                console.error('Erro ao atualizar estado:', data.message);
+                alert('Erro ao atualizar estado: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Erro na requisição AJAX:', error);
+            alert('Erro na requisição. Por favor, tente novamente.');
         });
-    });
+    }
+    
+    function initDragAndDrop() {
+        // Adicionar estilos CSS necessários para o drag and drop
+        const style = document.createElement('style');
+        style.textContent = `
+            .task-card { cursor: move; }
+            .dragging { opacity: 0.4; }
+            .drag-over { background-color: rgba(0, 0, 0, 0.05); }
+            .todo-container { min-height: 100px; }
+        `;
+        document.head.appendChild(style);
+        
+        // Configurar cada cartão de tarefa como arrastável
+        const taskCards = document.querySelectorAll('.task-card');
+        taskCards.forEach(taskCard => {
+            taskCard.setAttribute('draggable', 'true');
+            
+            // Remover eventos antigos para evitar duplicação
+            taskCard.removeEventListener('dragstart', handleDragStart);
+            taskCard.removeEventListener('dragend', handleDragEnd);
+            
+            // Adicionar novos event listeners
+            taskCard.addEventListener('dragstart', handleDragStart);
+            taskCard.addEventListener('dragend', handleDragEnd);
+        });
+        
+        // Configurar containers como áreas de soltar
+        const containers = document.querySelectorAll('.todo-container');
+        containers.forEach(container => {
+            // Remover eventos antigos para evitar duplicação
+            container.removeEventListener('dragover', handleDragOver);
+            container.removeEventListener('dragenter', handleDragEnter);
+            container.removeEventListener('dragleave', handleDragLeave);
+            container.removeEventListener('drop', handleDrop);
+            
+            // Adicionar novos event listeners
+            container.addEventListener('dragover', handleDragOver);
+            container.addEventListener('dragenter', handleDragEnter);
+            container.addEventListener('dragleave', handleDragLeave);
+            container.addEventListener('drop', handleDrop);
+        });
+    }
+    
+    // Inicializar drag and drop
+    initDragAndDrop();
 });
 </script>

@@ -292,16 +292,31 @@ function addBacklogItem($prototypeId, $data) {
     
     $url = $baseUrl . 'issues.json';
     
-    // Prepare the issue data
+    // Map priority names to IDs (these IDs are standard in Redmine)
+    $priorityIds = [
+        'low' => 1,
+        'normal' => 2,
+        'high' => 3,
+        'urgent' => 4
+    ];
+    
+    // Get priority ID from the map or default to normal (2)
+    $priorityId = $priorityIds[$data['priority']] ?? 2;
+    
+    // Prepare the issue data with numeric priority_id
     $issueData = [
         'issue' => [
             'project_id' => $prototypeId,
             'subject' => $data['subject'],
             'description' => $data['description'],
-            'status_id' => 'new',
-            'priority_id' => $data['priority'] ?? 'normal'
+            'priority_id' => $priorityId
         ]
     ];
+    
+    // If status is provided, add it (optional)
+    if (isset($data['status']) && !empty($data['status'])) {
+        $issueData['issue']['status_id'] = $data['status'];
+    }
     
     $options = [
         'http' => [

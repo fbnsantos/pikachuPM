@@ -234,7 +234,7 @@ switch ($method) {
                 ?, ?, ?, ?, ?
             )');
             
-            $stmt->bind_param('sssiiisii', 
+            $stmt->bind_param('sssiiisiis', 
                 $titulo, 
                 $descritivo, 
                 $data_limite, 
@@ -246,6 +246,7 @@ switch ($method) {
                 $projeto_id_param, 
                 $estado
             );
+
             
             $stmt->execute();
             $todo_id = $db->insert_id;

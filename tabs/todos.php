@@ -114,7 +114,7 @@ try {
                     
                     // Bind params - o primeiro parâmetro define os tipos (s=string, i=inteiro, d=double, b=blob)
                     $stmt->bind_param(
-                        'sssiisiii', 
+                        'sssiiisiii', 
                         $titulo, 
                         $descritivo, 
                         $data_limite, 

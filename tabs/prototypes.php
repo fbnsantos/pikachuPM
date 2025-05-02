@@ -42,8 +42,8 @@ function getPrototypes() {
     error_log("Tentando acessar Redmine com URL: " . $baseUrl);
     error_log("Comprimento da chave API: " . strlen($apiKey) . " caracteres");
     
-    // Get all issues from the "prototypes" project with a specific tracker
-    $url = $baseUrl . 'issues.json?project_id=prototypes&tracker_id=prototype&limit=100&status_id=*';
+    // Get all issues from the "prototypes" project without specifying tracker
+    $url = $baseUrl . 'issues.json?project_id=prototypes&limit=100&status_id=*';
     
     // Log the full URL being accessed
     error_log("URL completa: " . $url);
@@ -164,7 +164,6 @@ EOT;
     $issueData = [
         'issue' => [
             'project_id' => 'prototypes',  // Assuming 'prototypes' is the project identifier
-            'tracker_id' => 'prototype',   // Assuming 'prototype' is the tracker identifier
             'subject' => $data['subject'],
             'description' => $description,
             'status_id' => 'new',
@@ -228,7 +227,6 @@ function addBacklogItem($prototypeId, $data) {
     $issueData = [
         'issue' => [
             'project_id' => 'prototypes',
-            'tracker_id' => 'task',
             'subject' => $data['subject'],
             'description' => $data['description'],
             'status_id' => 'new',

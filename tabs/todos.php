@@ -51,6 +51,9 @@ try {
         FOREIGN KEY (responsavel) REFERENCES user_tokens(user_id)
     )');
     
+
+
+
     // Verificar se o usuário atual já tem um token
     $user_id = $_SESSION['user_id'];
     $username = $_SESSION['username'];
@@ -114,7 +117,7 @@ try {
                     
                     // Bind params - o primeiro parâmetro define os tipos (s=string, i=inteiro, d=double, b=blob)
                     $stmt->bind_param(
-                        'sssiiisiii', 
+                        'sssiiisiis', 
                         $titulo, 
                         $descritivo, 
                         $data_limite, 

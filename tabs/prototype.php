@@ -1,22 +1,50 @@
 <?php
 // tabs/prototypes.php - Tab for managing prototypes
 
-// Include configuration file
-include_once __DIR__ . '/../config.php';
+// Incluir arquivo de configuração de forma mais robusta
+$configPath = __DIR__ . '/../config.php';
+if (file_exists($configPath)) {
+    include_once $configPath;
+} else {
+    die('Erro: Arquivo de configuração não encontrado em: ' . $configPath);
+}
 
-// Ensure we have access to Redmine API configuration
-if (!defined('API_KEY') || !defined('BASE_URL')) {
-    die('Erro: Configurações de API do Redmine não encontradas.');
+// Depurar para verificar quais constantes estão disponíveis
+echo "<!-- Verificando configurações disponíveis -->";
+if (defined('API_KEY')) {
+    echo "<!-- API_KEY está definida -->";
+} else {
+    echo "<!-- API_KEY NÃO está definida -->";
+}
+
+if (defined('BASE_URL')) {
+    echo "<!-- BASE_URL está definida -->";
+} else {
+    echo "<!-- BASE_URL NÃO está definida -->";
+}
+
+// Vamos verificar o que está disponível no escopo global
+echo "<!-- Constantes definidas: " . implode(', ', array_keys(get_defined_constants(true)['user'])) . " -->";
+
+// Tentar usar as constantes da sessão ou globais como fallback
+$apiKey = defined('API_KEY') ? API_KEY : ($_SESSION['api_key'] ?? '');
+$baseUrl = defined('BASE_URL') ? BASE_URL : ($_SESSION['base_url'] ?? 'http://localhost/redmine/');
+
+// Verificar se temos os valores necessários
+if (empty($apiKey) || empty($baseUrl)) {
+    die('Erro: Configurações de API do Redmine não encontradas. Verifique seu arquivo config.php.');
 }
 
 // Function to get prototypes from Redmine
 function getPrototypes() {
+    global $apiKey, $baseUrl;
+    
     // Get all issues from the "prototypes" project with a specific tracker
-    $url = BASE_URL . 'issues.json?project_id=prototypes&tracker_id=prototype&limit=100&status_id=*';
+    $url = $baseUrl . 'issues.json?project_id=prototypes&tracker_id=prototype&limit=100&status_id=*';
     
     $options = [
         'http' => [
-            'header' => "X-Redmine-API-Key: " . API_KEY . "\r\n" .
+            'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n" .
                         "Content-Type: application/json\r\n",
             'method' => 'GET'
         ]
@@ -35,7 +63,9 @@ function getPrototypes() {
 
 // Function to create a new prototype
 function createPrototype($data) {
-    $url = BASE_URL . 'issues.json';
+    global $apiKey, $baseUrl;
+    
+    $url = $baseUrl . 'issues.json';
     
     // Format the description based on the template
     $description = <<<EOT
@@ -84,7 +114,7 @@ EOT;
     
     $options = [
         'http' => [
-            'header' => "X-Redmine-API-Key: " . API_KEY . "\r\n" .
+            'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n" .
                         "Content-Type: application/json\r\n",
             'method' => 'POST',
             'content' => json_encode($issueData)
@@ -104,12 +134,14 @@ EOT;
 
 // Function to get backlog items for a prototype
 function getPrototypeBacklog($prototypeId) {
+    global $apiKey, $baseUrl;
+    
     // Get all issues from the "prototypes" project with a specific parent_id
-    $url = BASE_URL . "issues.json?parent_id={$prototypeId}&limit=100&status_id=*";
+    $url = $baseUrl . "issues.json?parent_id={$prototypeId}&limit=100&status_id=*";
     
     $options = [
         'http' => [
-            'header' => "X-Redmine-API-Key: " . API_KEY . "\r\n" .
+            'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n" .
                         "Content-Type: application/json\r\n",
             'method' => 'GET'
         ]
@@ -128,7 +160,9 @@ function getPrototypeBacklog($prototypeId) {
 
 // Function to add a backlog item to a prototype
 function addBacklogItem($prototypeId, $data) {
-    $url = BASE_URL . 'issues.json';
+    global $apiKey, $baseUrl;
+    
+    $url = $baseUrl . 'issues.json';
     
     // Prepare the issue data
     $issueData = [
@@ -145,7 +179,7 @@ function addBacklogItem($prototypeId, $data) {
     
     $options = [
         'http' => [
-            'header' => "X-Redmine-API-Key: " . API_KEY . "\r\n" .
+            'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n" .
                         "Content-Type: application/json\r\n",
             'method' => 'POST',
             'content' => json_encode($issueData)
@@ -367,7 +401,7 @@ function extractSectionContent($description, $sectionHeader) {
                                                 </td>
                                                 <td><?= isset($item['assigned_to']) ? htmlspecialchars($item['assigned_to']['name']) : '-' ?></td>
                                                 <td>
-                                                    <a href="<?= BASE_URL ?>issues/<?= $item['id'] ?>" class="btn btn-sm btn-outline-secondary" target="_blank">
+                                                    <a href="<?= $baseUrl ?>issues/<?= $item['id'] ?>" class="btn btn-sm btn-outline-secondary" target="_blank">
                                                         <i class="bi bi-box-arrow-up-right"></i>
                                                     </a>
                                                 </td>

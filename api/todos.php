@@ -44,24 +44,29 @@ if (!$token) {
     json_error(401, 'Token de autenticação não fornecido');
 }
 
-// Configuração do banco de dados SQLite
-$db_file = '../db/todos.db';
+// Incluir arquivo de configuração
+include_once __DIR__ . '/../config.php';
 
-// Verificar se o banco de dados existe
-if (!file_exists($db_file)) {
-    json_error(500, 'Banco de dados não encontrado');
-}
-
-// Conectar ao banco de dados
+// Conectar ao banco de dados MySQL
 try {
-    $db = new SQLite3($db_file);
-    $db->exec('PRAGMA foreign_keys = ON');
+    // Usar as variáveis de configuração do arquivo config.php
+    $db = new mysqli($db_host, $db_user, $db_pass, $db_name);
+    
+    // Verificar conexão
+    if ($db->connect_error) {
+        throw new Exception("Falha na conexão: " . $db->connect_error);
+    }
+    
+    // Definir conjunto de caracteres para UTF-8
+    $db->set_charset("utf8mb4");
     
     // Verificar se o token é válido
-    $stmt = $db->prepare('SELECT user_id, username FROM user_tokens WHERE token = :token');
-    $stmt->bindValue(':token', $token, SQLITE3_TEXT);
-    $result = $stmt->execute();
-    $user = $result->fetchArray(SQLITE3_ASSOC);
+    $stmt = $db->prepare('SELECT user_id, username FROM user_tokens WHERE token = ?');
+    $stmt->bind_param('s', $token);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $user = $result->fetch_assoc();
+    $stmt->close();
     
     if (!$user) {
         json_error(401, 'Token inválido');
@@ -93,13 +98,13 @@ switch ($method) {
                     FROM todos t
                     LEFT JOIN user_tokens autor_user ON t.autor = autor_user.user_id
                     LEFT JOIN user_tokens resp_user ON t.responsavel = resp_user.user_id
-                    WHERE t.id = :todo_id AND (t.autor = :user_id OR t.responsavel = :user_id)
+                    WHERE t.id = ? AND (t.autor = ? OR t.responsavel = ?)
                 ');
-                $stmt->bindValue(':todo_id', $todo_id, SQLITE3_INTEGER);
-                $stmt->bindValue(':user_id', $user_id, SQLITE3_INTEGER);
-                $result = $stmt->execute();
-                
-                $todo = $result->fetchArray(SQLITE3_ASSOC);
+                $stmt->bind_param('iii', $todo_id, $user_id, $user_id);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $todo = $result->fetch_assoc();
+                $stmt->close();
                 
                 if (!$todo) {
                     json_error(404, 'Tarefa não encontrada ou sem permissão para acessá-la');
@@ -120,20 +125,24 @@ switch ($method) {
                     FROM todos t
                     LEFT JOIN user_tokens autor_user ON t.autor = autor_user.user_id
                     LEFT JOIN user_tokens resp_user ON t.responsavel = resp_user.user_id
-                    WHERE (t.autor = :user_id OR t.responsavel = :user_id)
+                    WHERE (t.autor = ? OR t.responsavel = ?)
                 ';
                 
-                // Adicionar filtros se fornecidos
-                $params = [':user_id' => $user_id];
+                // Preparar tipos e parâmetros
+                $types = 'ii';
+                $params = [$user_id, $user_id];
                 
+                // Adicionar filtros se fornecidos
                 if ($estado) {
-                    $query .= ' AND t.estado = :estado';
-                    $params[':estado'] = $estado;
+                    $query .= ' AND t.estado = ?';
+                    $types .= 's';
+                    $params[] = $estado;
                 }
                 
                 if ($responsavel) {
-                    $query .= ' AND t.responsavel = :responsavel';
-                    $params[':responsavel'] = $responsavel;
+                    $query .= ' AND t.responsavel = ?';
+                    $types .= 'i';
+                    $params[] = $responsavel;
                 }
                 
                 // Adicionar ordenação
@@ -156,16 +165,15 @@ switch ($method) {
                 $stmt = $db->prepare($query);
                 
                 // Vincular parâmetros
-                foreach ($params as $param => $value) {
-                    $stmt->bindValue($param, $value, is_int($value) ? SQLITE3_INTEGER : SQLITE3_TEXT);
-                }
-                
-                $result = $stmt->execute();
+                $stmt->bind_param($types, ...$params);
+                $stmt->execute();
+                $result = $stmt->get_result();
                 
                 $todos = [];
-                while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+                while ($row = $result->fetch_assoc()) {
                     $todos[] = $row;
                 }
+                $stmt->close();
                 
                 echo json_encode(['todos' => $todos]);
             }
@@ -201,37 +209,47 @@ switch ($method) {
             
             // Verificar se o responsável existe
             if ($responsavel !== $user_id) {
-                $check_stmt = $db->prepare('SELECT user_id FROM user_tokens WHERE user_id = :user_id');
-                $check_stmt->bindValue(':user_id', $responsavel, SQLITE3_INTEGER);
-                $check_result = $check_stmt->execute();
+                $check_stmt = $db->prepare('SELECT user_id FROM user_tokens WHERE user_id = ?');
+                $check_stmt->bind_param('i', $responsavel);
+                $check_stmt->execute();
+                $check_result = $check_stmt->get_result();
                 
-                if (!$check_result->fetchArray()) {
+                if ($check_result->num_rows === 0) {
                     json_error(400, 'Responsável inválido');
                 }
+                $check_stmt->close();
             }
+            
+            // Tratar valores nulos adequadamente
+            $task_id_param = ($task_id > 0) ? $task_id : NULL;
+            $milestone_id_param = ($milestone_id > 0) ? $milestone_id : NULL;
+            $projeto_id_param = ($projeto_id > 0) ? $projeto_id : NULL;
             
             // Inserir o todo
             $stmt = $db->prepare('INSERT INTO todos (
                 titulo, descritivo, data_limite, autor, responsavel, 
                 task_id, todo_issue, milestone_id, projeto_id, estado
             ) VALUES (
-                :titulo, :descritivo, :data_limite, :autor, :responsavel,
-                :task_id, :todo_issue, :milestone_id, :projeto_id, :estado
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?
             )');
             
-            $stmt->bindValue(':titulo', $titulo, SQLITE3_TEXT);
-            $stmt->bindValue(':descritivo', $descritivo, SQLITE3_TEXT);
-            $stmt->bindValue(':data_limite', $data_limite, SQLITE3_TEXT);
-            $stmt->bindValue(':autor', $user_id, SQLITE3_INTEGER);
-            $stmt->bindValue(':responsavel', $responsavel, SQLITE3_INTEGER);
-            $stmt->bindValue(':task_id', $task_id, $task_id ? SQLITE3_INTEGER : SQLITE3_NULL);
-            $stmt->bindValue(':todo_issue', $todo_issue, SQLITE3_TEXT);
-            $stmt->bindValue(':milestone_id', $milestone_id, $milestone_id ? SQLITE3_INTEGER : SQLITE3_NULL);
-            $stmt->bindValue(':projeto_id', $projeto_id, $projeto_id ? SQLITE3_INTEGER : SQLITE3_NULL);
-            $stmt->bindValue(':estado', $estado, SQLITE3_TEXT);
+            $stmt->bind_param('sssiiisii', 
+                $titulo, 
+                $descritivo, 
+                $data_limite, 
+                $user_id, 
+                $responsavel,
+                $task_id_param, 
+                $todo_issue, 
+                $milestone_id_param, 
+                $projeto_id_param, 
+                $estado
+            );
             
             $stmt->execute();
-            $todo_id = $db->lastInsertRowID();
+            $todo_id = $db->insert_id;
+            $stmt->close();
             
             // Buscar o todo recém-criado para retornar
             $get_stmt = $db->prepare('
@@ -241,12 +259,13 @@ switch ($method) {
                 FROM todos t
                 LEFT JOIN user_tokens autor_user ON t.autor = autor_user.user_id
                 LEFT JOIN user_tokens resp_user ON t.responsavel = resp_user.user_id
-                WHERE t.id = :todo_id
+                WHERE t.id = ?
             ');
-            $get_stmt->bindValue(':todo_id', $todo_id, SQLITE3_INTEGER);
-            $result = $get_stmt->execute();
-            
-            $todo = $result->fetchArray(SQLITE3_ASSOC);
+            $get_stmt->bind_param('i', $todo_id);
+            $get_stmt->execute();
+            $result = $get_stmt->get_result();
+            $todo = $result->fetch_assoc();
+            $get_stmt->close();
             
             http_response_code(201); // Created
             echo json_encode(['success' => true, 'message' => 'Tarefa criada com sucesso', 'todo' => $todo]);
@@ -267,12 +286,12 @@ switch ($method) {
             $todo_id = (int)$input['id'];
             
             // Verificar se a tarefa existe e se o usuário tem permissão para atualizá-la
-            $check_stmt = $db->prepare('SELECT * FROM todos WHERE id = :todo_id AND (autor = :user_id OR responsavel = :user_id)');
-            $check_stmt->bindValue(':todo_id', $todo_id, SQLITE3_INTEGER);
-            $check_stmt->bindValue(':user_id', $user_id, SQLITE3_INTEGER);
-            $check_result = $check_stmt->execute();
-            
-            $todo = $check_result->fetchArray(SQLITE3_ASSOC);
+            $check_stmt = $db->prepare('SELECT * FROM todos WHERE id = ? AND (autor = ? OR responsavel = ?)');
+            $check_stmt->bind_param('iii', $todo_id, $user_id, $user_id);
+            $check_stmt->execute();
+            $check_result = $check_stmt->get_result();
+            $todo = $check_result->fetch_assoc();
+            $check_stmt->close();
             
             if (!$todo) {
                 json_error(404, 'Tarefa não encontrada ou sem permissão para atualizá-la');
@@ -289,10 +308,10 @@ switch ($method) {
                 }
                 
                 // Atualizar apenas o estado
-                $stmt = $db->prepare('UPDATE todos SET estado = :estado, updated_at = CURRENT_TIMESTAMP WHERE id = :todo_id');
-                $stmt->bindValue(':estado', $estado, SQLITE3_TEXT);
-                $stmt->bindValue(':todo_id', $todo_id, SQLITE3_INTEGER);
+                $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ?');
+                $stmt->bind_param('si', $estado, $todo_id);
                 $stmt->execute();
+                $stmt->close();
                 
                 // Buscar a tarefa atualizada
                 $get_stmt = $db->prepare('
@@ -302,12 +321,13 @@ switch ($method) {
                     FROM todos t
                     LEFT JOIN user_tokens autor_user ON t.autor = autor_user.user_id
                     LEFT JOIN user_tokens resp_user ON t.responsavel = resp_user.user_id
-                    WHERE t.id = :todo_id
+                    WHERE t.id = ?
                 ');
-                $get_stmt->bindValue(':todo_id', $todo_id, SQLITE3_INTEGER);
-                $result = $get_stmt->execute();
-                
-                $updated_todo = $result->fetchArray(SQLITE3_ASSOC);
+                $get_stmt->bind_param('i', $todo_id);
+                $get_stmt->execute();
+                $result = $get_stmt->get_result();
+                $updated_todo = $result->fetch_assoc();
+                $get_stmt->close();
                 
                 echo json_encode(['success' => true, 'message' => 'Estado da tarefa atualizado com sucesso', 'todo' => $updated_todo]);
                 
@@ -340,33 +360,40 @@ switch ($method) {
                     json_error(400, 'Estado inválido. Use: ' . implode(', ', $valid_estados));
                 }
                 
+                // Tratar valores nulos adequadamente
+                $task_id_param = ($task_id > 0) ? $task_id : NULL;
+                $milestone_id_param = ($milestone_id > 0) ? $milestone_id : NULL;
+                $projeto_id_param = ($projeto_id > 0) ? $projeto_id : NULL;
+                
                 // Atualizar a tarefa
                 $stmt = $db->prepare('UPDATE todos SET 
-                    titulo = :titulo,
-                    descritivo = :descritivo,
-                    data_limite = :data_limite,
-                    responsavel = :responsavel,
-                    task_id = :task_id,
-                    todo_issue = :todo_issue,
-                    milestone_id = :milestone_id,
-                    projeto_id = :projeto_id,
-                    estado = :estado,
-                    updated_at = CURRENT_TIMESTAMP
-                    WHERE id = :todo_id
+                    titulo = ?,
+                    descritivo = ?,
+                    data_limite = ?,
+                    responsavel = ?,
+                    task_id = ?,
+                    todo_issue = ?,
+                    milestone_id = ?,
+                    projeto_id = ?,
+                    estado = ?
+                    WHERE id = ?
                 ');
                 
-                $stmt->bindValue(':titulo', $titulo, SQLITE3_TEXT);
-                $stmt->bindValue(':descritivo', $descritivo, SQLITE3_TEXT);
-                $stmt->bindValue(':data_limite', $data_limite, SQLITE3_TEXT);
-                $stmt->bindValue(':responsavel', $responsavel, SQLITE3_INTEGER);
-                $stmt->bindValue(':task_id', $task_id, $task_id ? SQLITE3_INTEGER : SQLITE3_NULL);
-                $stmt->bindValue(':todo_issue', $todo_issue, SQLITE3_TEXT);
-                $stmt->bindValue(':milestone_id', $milestone_id, $milestone_id ? SQLITE3_INTEGER : SQLITE3_NULL);
-                $stmt->bindValue(':projeto_id', $projeto_id, $projeto_id ? SQLITE3_INTEGER : SQLITE3_NULL);
-                $stmt->bindValue(':estado', $estado, SQLITE3_TEXT);
-                $stmt->bindValue(':todo_id', $todo_id, SQLITE3_INTEGER);
+                $stmt->bind_param('sssiiisiis', 
+                    $titulo, 
+                    $descritivo, 
+                    $data_limite, 
+                    $responsavel, 
+                    $task_id_param, 
+                    $todo_issue, 
+                    $milestone_id_param, 
+                    $projeto_id_param, 
+                    $estado,
+                    $todo_id
+                );
                 
                 $stmt->execute();
+                $stmt->close();
                 
                 // Buscar a tarefa atualizada
                 $get_stmt = $db->prepare('
@@ -376,12 +403,13 @@ switch ($method) {
                     FROM todos t
                     LEFT JOIN user_tokens autor_user ON t.autor = autor_user.user_id
                     LEFT JOIN user_tokens resp_user ON t.responsavel = resp_user.user_id
-                    WHERE t.id = :todo_id
+                    WHERE t.id = ?
                 ');
-                $get_stmt->bindValue(':todo_id', $todo_id, SQLITE3_INTEGER);
-                $result = $get_stmt->execute();
-                
-                $updated_todo = $result->fetchArray(SQLITE3_ASSOC);
+                $get_stmt->bind_param('i', $todo_id);
+                $get_stmt->execute();
+                $result = $get_stmt->get_result();
+                $updated_todo = $result->fetch_assoc();
+                $get_stmt->close();
                 
                 echo json_encode(['success' => true, 'message' => 'Tarefa atualizada com sucesso', 'todo' => $updated_todo]);
             }
@@ -402,20 +430,21 @@ switch ($method) {
             $todo_id = (int)$_GET['id'];
             
             // Verificar se a tarefa existe e se o usuário é o autor (apenas autores podem excluir)
-            $check_stmt = $db->prepare('SELECT * FROM todos WHERE id = :todo_id AND autor = :user_id');
-            $check_stmt->bindValue(':todo_id', $todo_id, SQLITE3_INTEGER);
-            $check_stmt->bindValue(':user_id', $user_id, SQLITE3_INTEGER);
-            $check_result = $check_stmt->execute();
+            $check_stmt = $db->prepare('SELECT * FROM todos WHERE id = ? AND autor = ?');
+            $check_stmt->bind_param('ii', $todo_id, $user_id);
+            $check_stmt->execute();
+            $check_result = $check_stmt->get_result();
             
-            if (!$check_result->fetchArray()) {
+            if ($check_result->num_rows === 0) {
                 json_error(404, 'Tarefa não encontrada ou sem permissão para excluí-la');
             }
+            $check_stmt->close();
             
             // Excluir a tarefa
-            $stmt = $db->prepare('DELETE FROM todos WHERE id = :todo_id AND autor = :user_id');
-            $stmt->bindValue(':todo_id', $todo_id, SQLITE3_INTEGER);
-            $stmt->bindValue(':user_id', $user_id, SQLITE3_INTEGER);
+            $stmt = $db->prepare('DELETE FROM todos WHERE id = ? AND autor = ?');
+            $stmt->bind_param('ii', $todo_id, $user_id);
             $stmt->execute();
+            $stmt->close();
             
             echo json_encode(['success' => true, 'message' => 'Tarefa excluída com sucesso']);
             
@@ -428,3 +457,6 @@ switch ($method) {
         // Método não suportado
         json_error(405, 'Método não permitido');
 }
+
+// Fechar a conexão com o banco de dados
+$db->close();

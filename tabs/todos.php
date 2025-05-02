@@ -400,45 +400,48 @@ try {
     </div>
     <?php endif; ?>
     
-    <!-- Formulário de nova tarefa (inicialmente escondido) -->
-    <div class="row mb-4" id="new-task-form-container" style="display: none;">
+    <!-- Formulário de nova tarefa (inicialmente escondido a menos que esteja em modo de edição) -->
+    <div class="row mb-4" id="new-task-form-container" style="display: <?= $edit_mode ? 'block' : 'none' ?>;">
         <div class="col-12">
             <div class="card">
                 <div class="card-header bg-primary text-white">
-                    <h5 class="card-title mb-0"><i class="bi bi-plus-circle"></i> Nova Tarefa</h5>
+                    <h5 class="card-title mb-0"><i class="bi bi-<?= $edit_mode ? 'pencil' : 'plus-circle' ?>"></i> <?= $edit_mode ? 'Editar' : 'Nova' ?> Tarefa</h5>
                 </div>
                 <div class="card-body">
                     <form method="post" action="" id="new-task-form">
-                        <input type="hidden" name="action" value="add">
+                        <input type="hidden" name="action" value="<?= $edit_mode ? 'edit_task' : 'add' ?>">
                         <input type="hidden" name="tab" value="todos">
+                        <?php if ($edit_mode): ?>
+                        <input type="hidden" name="todo_id" value="<?= $task_to_edit['id'] ?>">
+                        <?php endif; ?>
                         
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label for="titulo" class="form-label">Título da Tarefa*</label>
-                                    <input type="text" class="form-control" id="titulo" name="titulo" required>
+                                    <input type="text" class="form-control" id="titulo" name="titulo" required value="<?= $edit_mode ? htmlspecialchars($task_to_edit['titulo']) : '' ?>">
                                 </div>
                                 
                                 <div class="mb-3">
                                     <label for="descritivo" class="form-label">Descrição</label>
-                                    <textarea class="form-control" id="descritivo" name="descritivo" rows="3"></textarea>
+                                    <textarea class="form-control" id="descritivo" name="descritivo" rows="3"><?= $edit_mode ? htmlspecialchars($task_to_edit['descritivo']) : '' ?></textarea>
                                 </div>
                                 
                                 <div class="row">
                                     <div class="col-md-6">
                                         <div class="mb-3">
                                             <label for="data_limite" class="form-label">Data Limite</label>
-                                            <input type="date" class="form-control" id="data_limite" name="data_limite">
+                                            <input type="date" class="form-control" id="data_limite" name="data_limite" value="<?= $edit_mode ? htmlspecialchars($task_to_edit['data_limite']) : '' ?>">
                                         </div>
                                     </div>
                                     <div class="col-md-6">
                                         <div class="mb-3">
                                             <label for="estado" class="form-label">Estado</label>
                                             <select class="form-select" id="estado" name="estado">
-                                                <option value="aberta" selected>Aberta</option>
-                                                <option value="em execução">Em Execução</option>
-                                                <option value="suspensa">Suspensa</option>
-                                                <option value="completada">Completada</option>
+                                                <option value="aberta" <?= ($edit_mode && $task_to_edit['estado'] == 'aberta') ? 'selected' : '' ?>>Aberta</option>
+                                                <option value="em execução" <?= ($edit_mode && $task_to_edit['estado'] == 'em execução') ? 'selected' : '' ?>>Em Execução</option>
+                                                <option value="suspensa" <?= ($edit_mode && $task_to_edit['estado'] == 'suspensa') ? 'selected' : '' ?>>Suspensa</option>
+                                                <option value="completada" <?= ($edit_mode && $task_to_edit['estado'] == 'completada') ? 'selected' : '' ?>>Completada</option>
                                             </select>
                                         </div>
                                     </div>
@@ -450,7 +453,7 @@ try {
                                     <label for="responsavel" class="form-label">Responsável</label>
                                     <select class="form-select" id="responsavel" name="responsavel">
                                         <?php foreach ($users as $u): ?>
-                                        <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $user_id ? 'selected' : '' ?>>
+                                        <option value="<?= $u['user_id'] ?>" <?= ($edit_mode && $task_to_edit['responsavel'] == $u['user_id']) || (!$edit_mode && $u['user_id'] == $user_id) ? 'selected' : '' ?>>
                                             <?= htmlspecialchars($u['username']) ?>
                                         </option>
                                         <?php endforeach; ?>
@@ -461,18 +464,18 @@ try {
                                     <label class="form-label">Informações do Redmine (Opcional)</label>
                                     <div class="row g-2">
                                         <div class="col-md-6">
-                                            <input type="number" class="form-control" id="task_id" name="task_id" placeholder="ID da Tarefa">
+                                            <input type="number" class="form-control" id="task_id" name="task_id" placeholder="ID da Tarefa" value="<?= $edit_mode && $task_to_edit['task_id'] ? htmlspecialchars($task_to_edit['task_id']) : '' ?>">
                                         </div>
                                         <div class="col-md-6">
-                                            <input type="text" class="form-control" id="todo_issue" name="todo_issue" placeholder="ToDo do Issue">
+                                            <input type="text" class="form-control" id="todo_issue" name="todo_issue" placeholder="ToDo do Issue" value="<?= $edit_mode && $task_to_edit['todo_issue'] ? htmlspecialchars($task_to_edit['todo_issue']) : '' ?>">
                                         </div>
                                     </div>
                                     <div class="row g-2 mt-2">
                                         <div class="col-md-6">
-                                            <input type="number" class="form-control" id="milestone_id" name="milestone_id" placeholder="ID do Milestone">
+                                            <input type="number" class="form-control" id="milestone_id" name="milestone_id" placeholder="ID do Milestone" value="<?= $edit_mode && $task_to_edit['milestone_id'] ? htmlspecialchars($task_to_edit['milestone_id']) : '' ?>">
                                         </div>
                                         <div class="col-md-6">
-                                            <input type="number" class="form-control" id="projeto_id" name="projeto_id" placeholder="ID do Projeto">
+                                            <input type="number" class="form-control" id="projeto_id" name="projeto_id" placeholder="ID do Projeto" value="<?= $edit_mode && $task_to_edit['projeto_id'] ? htmlspecialchars($task_to_edit['projeto_id']) : '' ?>">
                                         </div>
                                     </div>
                                 </div>
@@ -485,7 +488,7 @@ try {
                                     Cancelar
                                 </button>
                                 <button type="submit" class="btn btn-primary">
-                                    <i class="bi bi-plus-circle"></i> Adicionar Tarefa
+                                    <i class="bi bi-<?= $edit_mode ? 'save' : 'plus-circle' ?>"></i> <?= $edit_mode ? 'Salvar Alterações' : 'Adicionar Tarefa' ?>
                                 </button>
                             </div>
                         </div>

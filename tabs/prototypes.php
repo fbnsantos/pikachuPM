@@ -17,30 +17,11 @@ foreach ($userConstants as $key => $value) {
     echo "<!-- Constante: " . $key . " -->";
 }
 
-// Tentar diferentes possibilidades para a chave API e URL
-// Estas são possibilidades comuns para os nomes dessas constantes
-$possibleApiKeys = ['API_KEY', 'REDMINE_API_KEY', 'APIKEY', 'KEY', 'api_key', 'redmine_api_key'];
-$possibleBaseUrls = ['BASE_URL', 'REDMINE_URL', 'BASEURL', 'URL', 'API_URL', 'base_url', 'redmine_url'];
 
-global $BASE_URL, $user, $pass;
-$apiKey = '';
-foreach ($possibleApiKeys as $key) {
-    if (defined($key)) {
-        $apiKey = constant($key);
-        echo "<!-- Usando $key como chave de API -->";
-        break;
-    }
-}
-
+global $BASE_URL, $API_KEY, $user, $pass;
+$apiKey = $API_KEY;
 $baseUrl = $BASE_URL;
-foreach ($possibleBaseUrls as $url) {
-    
-    if (defined($url)) {
-        $baseUrl = constant($BASE_URL);
-        echo "<!-- Usando $url como URL base -->";
-        break;
-    }
-}
+
 
 // Se ainda não encontramos, vamos tentar olhar na sessão ou em outras variáveis globais
 if (empty($apiKey) && isset($_SESSION['api_key'])) {

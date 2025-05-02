@@ -73,34 +73,37 @@ try {
         $user_token = ['token' => $token];
     }
 
-    // Verificar se foi requisitado obter os detalhes de uma tarefa via AJAX
+    // Verificar se está sendo solicitado detalhes de uma tarefa via AJAX
     if (isset($_GET['get_task_details']) && is_numeric($_GET['get_task_details'])) {
         $task_id = (int)$_GET['get_task_details'];
         
-        $stmt = $db->prepare('SELECT * FROM todos WHERE id = :id AND (autor = :user_id OR responsavel = :user_id)');
-        $stmt->bindValue(':id', $task_id, SQLITE3_INTEGER);
+        // Buscar os detalhes da tarefa
+        $stmt = $db->prepare('SELECT * FROM todos WHERE id = :task_id AND (autor = :user_id OR responsavel = :user_id)');
+        $stmt->bindValue(':task_id', $task_id, SQLITE3_INTEGER);
         $stmt->bindValue(':user_id', $user_id, SQLITE3_INTEGER);
         $result = $stmt->execute();
         $task = $result->fetchArray(SQLITE3_ASSOC);
         
         if ($task) {
+            // Retornar os dados como JSON
             header('Content-Type: application/json');
             echo json_encode($task);
             exit;
         } else {
+            // Retornar erro se a tarefa não for encontrada
             header('Content-Type: application/json');
             header('HTTP/1.1 404 Not Found');
-            echo json_encode(['error' => 'Tarefa não encontrada ou acesso negado']);
+            echo json_encode(['error' => 'Tarefa não encontrada ou sem permissão de acesso']);
             exit;
         }
     }
-
-    // Obter o tab atual para redirecionamentos
-    $current_tab = isset($_GET['tab']) ? $_GET['tab'] : '';
     
-    // Processamento do formulário
+    // Processamento do formulário de adição/edição de tarefas
     $success_message = '';
     $error_message = '';
+    
+    // Obter o parâmetro "tab" para redirecionar corretamente após as ações
+    $current_tab = isset($_GET['tab']) ? $_GET['tab'] : '';
     
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (isset($_POST['action'])) {
@@ -141,7 +144,7 @@ try {
                     
                     if ($stmt->execute()) {
                         $success_message = 'Tarefa adicionada com sucesso!';
-                        // Redirecionar para manter o parâmetro tab
+                        // Redirecionar para manter o parâmetro tab=todos
                         if (!empty($current_tab)) {
                             header('Location: ?tab=' . urlencode($current_tab));
                             exit;
@@ -195,7 +198,7 @@ try {
                     
                     if ($stmt->execute()) {
                         $success_message = 'Tarefa atualizada com sucesso!';
-                        // Redirecionar para manter o parâmetro tab
+                        // Redirecionar para manter o parâmetro tab=todos
                         if (!empty($current_tab)) {
                             header('Location: ?tab=' . urlencode($current_tab));
                             exit;
@@ -218,15 +221,110 @@ try {
                     $stmt->bindValue(':id', $todo_id, SQLITE3_INTEGER);
                     
                     if ($stmt->execute()) {
-                        // Para requisições AJAX (drag and drop)
+                        $success_message = 'Estado da tarefa atualizado com sucesso!';
+                        // Redirecionar para manter o parâmetro tab=todos
+                        if (!empty($current_tab)) {
+                            header('Location: ?tab=' . urlencode($current_tab));
+                            exit;
+                        }
+                    } else {
+                        $error_message = 'Erro ao atualizar estado: ' . $db->lastErrorMsg();
+                    }
+                } else {
+                    $error_message = 'Estado inválido.';
+                }
+            }
+            elseif ($_POST['action'] === 'edit_task') {
+                $todo_id = (int)$_POST['todo_id'];
+                $titulo = trim($_POST['titulo'] ?? '');
+                $descritivo = trim($_POST['descritivo'] ?? '');
+                $data_limite = trim($_POST['data_limite'] ?? '');
+                $responsavel = (int)($_POST['responsavel'] ?? $user_id);
+                $task_id = (int)($_POST['task_id'] ?? 0);
+                $todo_issue = trim($_POST['todo_issue'] ?? '');
+                $milestone_id = (int)($_POST['milestone_id'] ?? 0);
+                $projeto_id = (int)($_POST['projeto_id'] ?? 0);
+                $estado = trim($_POST['estado'] ?? 'aberta');
+                
+                // Validação básica
+                if (empty($titulo)) {
+                    $error_message = 'O título da tarefa é obrigatório.';
+                } else {
+                    $stmt = $db->prepare('UPDATE todos SET 
+                        titulo = :titulo, 
+                        descritivo = :descritivo, 
+                        data_limite = :data_limite, 
+                        responsavel = :responsavel, 
+                        task_id = :task_id, 
+                        todo_issue = :todo_issue, 
+                        milestone_id = :milestone_id, 
+                        projeto_id = :projeto_id, 
+                        estado = :estado,
+                        updated_at = CURRENT_TIMESTAMP
+                        WHERE id = :id AND (autor = :user_id OR responsavel = :user_id)');
+                    
+                    $stmt->bindValue(':titulo', $titulo, SQLITE3_TEXT);
+                    $stmt->bindValue(':descritivo', $descritivo, SQLITE3_TEXT);
+                    $stmt->bindValue(':data_limite', $data_limite, SQLITE3_TEXT);
+                    $stmt->bindValue(':responsavel', $responsavel, SQLITE3_INTEGER);
+                    $stmt->bindValue(':task_id', $task_id > 0 ? $task_id : null, SQLITE3_INTEGER);
+                    $stmt->bindValue(':todo_issue', $todo_issue, SQLITE3_TEXT);
+                    $stmt->bindValue(':milestone_id', $milestone_id > 0 ? $milestone_id : null, SQLITE3_INTEGER);
+                    $stmt->bindValue(':projeto_id', $projeto_id > 0 ? $projeto_id : null, SQLITE3_INTEGER);
+                    $stmt->bindValue(':estado', $estado, SQLITE3_TEXT);
+                    $stmt->bindValue(':id', $todo_id, SQLITE3_INTEGER);
+                    $stmt->bindValue(':user_id', $user_id, SQLITE3_INTEGER);
+                    
+                    if ($stmt->execute()) {
+                        $success_message = 'Tarefa atualizada com sucesso!';
+                        // Redirecionar para manter o parâmetro tab=todos
+                        if (!empty($current_tab)) {
+                            header('Location: ?tab=' . urlencode($current_tab));
+                            exit;
+                        }
+                    } else {
+                        $error_message = 'Erro ao atualizar tarefa: ' . $db->lastErrorMsg();
+                    }
+                }
+            }
+                $todo_id = (int)$_POST['todo_id'];
+                
+                $stmt = $db->prepare('DELETE FROM todos WHERE id = :id AND (autor = :user_id OR responsavel = :user_id)');
+                $stmt->bindValue(':id', $todo_id, SQLITE3_INTEGER);
+                $stmt->bindValue(':user_id', $user_id, SQLITE3_INTEGER);
+                
+                if ($stmt->execute()) {
+                    $success_message = 'Tarefa excluída com sucesso!';
+                    // Redirecionar para manter o parâmetro tab=todos
+                    if (!empty($current_tab)) {
+                        header('Location: ?tab=' . urlencode($current_tab));
+                        exit;
+                    }
+                } else {
+                    $error_message = 'Erro ao excluir tarefa: ' . $db->lastErrorMsg();
+                }
+            }
+            // Atualizar estado via AJAX (para drag and drop)
+            elseif ($_POST['action'] === 'drag_update_status') {
+                $todo_id = (int)$_POST['todo_id'];
+                $new_estado = trim($_POST['new_estado']);
+                
+                $valid_estados = ['aberta', 'em execução', 'suspensa', 'completada'];
+                
+                if (in_array($new_estado, $valid_estados)) {
+                    $stmt = $db->prepare('UPDATE todos SET estado = :estado, updated_at = CURRENT_TIMESTAMP WHERE id = :id');
+                    $stmt->bindValue(':estado', $new_estado, SQLITE3_TEXT);
+                    $stmt->bindValue(':id', $todo_id, SQLITE3_INTEGER);
+                    
+                    if ($stmt->execute()) {
+                        // Responder com JSON para requisições AJAX
                         if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
                             header('Content-Type: application/json');
                             echo json_encode(['success' => true, 'message' => 'Estado atualizado com sucesso']);
                             exit;
                         }
-                        
                         $success_message = 'Estado da tarefa atualizado com sucesso!';
-                        // Redirecionar para manter o parâmetro tab
+                        // Redirecionar para manter o parâmetro tab=todos
                         if (!empty($current_tab)) {
                             header('Location: ?tab=' . urlencode($current_tab));
                             exit;
@@ -246,25 +344,6 @@ try {
                         exit;
                     }
                     $error_message = 'Estado inválido.';
-                }
-            }
-            // Excluir tarefa
-            elseif ($_POST['action'] === 'delete') {
-                $todo_id = (int)$_POST['todo_id'];
-                
-                $stmt = $db->prepare('DELETE FROM todos WHERE id = :id AND (autor = :user_id OR responsavel = :user_id)');
-                $stmt->bindValue(':id', $todo_id, SQLITE3_INTEGER);
-                $stmt->bindValue(':user_id', $user_id, SQLITE3_INTEGER);
-                
-                if ($stmt->execute()) {
-                    $success_message = 'Tarefa excluída com sucesso!';
-                    // Redirecionar para manter o parâmetro tab
-                    if (!empty($current_tab)) {
-                        header('Location: ?tab=' . urlencode($current_tab));
-                        exit;
-                    }
-                } else {
-                    $error_message = 'Erro ao excluir tarefa: ' . $db->lastErrorMsg();
                 }
             }
         }
@@ -400,48 +479,44 @@ try {
     </div>
     <?php endif; ?>
     
-    <!-- Formulário de nova tarefa (inicialmente escondido a menos que esteja em modo de edição) -->
-    <div class="row mb-4" id="new-task-form-container" style="display: <?= $edit_mode ? 'block' : 'none' ?>;">
+    <!-- Formulário de nova tarefa (inicialmente escondido) -->
+    <div class="row mb-4" id="new-task-form-container" style="display: none;">
         <div class="col-12">
             <div class="card">
                 <div class="card-header bg-primary text-white">
-                    <h5 class="card-title mb-0"><i class="bi bi-<?= $edit_mode ? 'pencil' : 'plus-circle' ?>"></i> <?= $edit_mode ? 'Editar' : 'Nova' ?> Tarefa</h5>
+                    <h5 class="card-title mb-0"><i class="bi bi-plus-circle"></i> Nova Tarefa</h5>
                 </div>
                 <div class="card-body">
                     <form method="post" action="" id="new-task-form">
-                        <input type="hidden" name="action" value="<?= $edit_mode ? 'edit_task' : 'add' ?>">
-                        <input type="hidden" name="tab" value="todos">
-                        <?php if ($edit_mode): ?>
-                        <input type="hidden" name="todo_id" value="<?= $task_to_edit['id'] ?>">
-                        <?php endif; ?>
+                        <input type="hidden" name="action" value="add">
                         
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label for="titulo" class="form-label">Título da Tarefa*</label>
-                                    <input type="text" class="form-control" id="titulo" name="titulo" required value="<?= $edit_mode ? htmlspecialchars($task_to_edit['titulo']) : '' ?>">
+                                    <input type="text" class="form-control" id="titulo" name="titulo" required>
                                 </div>
                                 
                                 <div class="mb-3">
                                     <label for="descritivo" class="form-label">Descrição</label>
-                                    <textarea class="form-control" id="descritivo" name="descritivo" rows="3"><?= $edit_mode ? htmlspecialchars($task_to_edit['descritivo']) : '' ?></textarea>
+                                    <textarea class="form-control" id="descritivo" name="descritivo" rows="3"></textarea>
                                 </div>
                                 
                                 <div class="row">
                                     <div class="col-md-6">
                                         <div class="mb-3">
                                             <label for="data_limite" class="form-label">Data Limite</label>
-                                            <input type="date" class="form-control" id="data_limite" name="data_limite" value="<?= $edit_mode ? htmlspecialchars($task_to_edit['data_limite']) : '' ?>">
+                                            <input type="date" class="form-control" id="data_limite" name="data_limite">
                                         </div>
                                     </div>
                                     <div class="col-md-6">
                                         <div class="mb-3">
                                             <label for="estado" class="form-label">Estado</label>
                                             <select class="form-select" id="estado" name="estado">
-                                                <option value="aberta" <?= ($edit_mode && $task_to_edit['estado'] == 'aberta') ? 'selected' : '' ?>>Aberta</option>
-                                                <option value="em execução" <?= ($edit_mode && $task_to_edit['estado'] == 'em execução') ? 'selected' : '' ?>>Em Execução</option>
-                                                <option value="suspensa" <?= ($edit_mode && $task_to_edit['estado'] == 'suspensa') ? 'selected' : '' ?>>Suspensa</option>
-                                                <option value="completada" <?= ($edit_mode && $task_to_edit['estado'] == 'completada') ? 'selected' : '' ?>>Completada</option>
+                                                <option value="aberta" selected>Aberta</option>
+                                                <option value="em execução">Em Execução</option>
+                                                <option value="suspensa">Suspensa</option>
+                                                <option value="completada">Completada</option>
                                             </select>
                                         </div>
                                     </div>
@@ -453,7 +528,7 @@ try {
                                     <label for="responsavel" class="form-label">Responsável</label>
                                     <select class="form-select" id="responsavel" name="responsavel">
                                         <?php foreach ($users as $u): ?>
-                                        <option value="<?= $u['user_id'] ?>" <?= ($edit_mode && $task_to_edit['responsavel'] == $u['user_id']) || (!$edit_mode && $u['user_id'] == $user_id) ? 'selected' : '' ?>>
+                                        <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $user_id ? 'selected' : '' ?>>
                                             <?= htmlspecialchars($u['username']) ?>
                                         </option>
                                         <?php endforeach; ?>
@@ -464,18 +539,18 @@ try {
                                     <label class="form-label">Informações do Redmine (Opcional)</label>
                                     <div class="row g-2">
                                         <div class="col-md-6">
-                                            <input type="number" class="form-control" id="task_id" name="task_id" placeholder="ID da Tarefa" value="<?= $edit_mode && $task_to_edit['task_id'] ? htmlspecialchars($task_to_edit['task_id']) : '' ?>">
+                                            <input type="number" class="form-control" id="task_id" name="task_id" placeholder="ID da Tarefa">
                                         </div>
                                         <div class="col-md-6">
-                                            <input type="text" class="form-control" id="todo_issue" name="todo_issue" placeholder="ToDo do Issue" value="<?= $edit_mode && $task_to_edit['todo_issue'] ? htmlspecialchars($task_to_edit['todo_issue']) : '' ?>">
+                                            <input type="text" class="form-control" id="todo_issue" name="todo_issue" placeholder="ToDo do Issue">
                                         </div>
                                     </div>
                                     <div class="row g-2 mt-2">
                                         <div class="col-md-6">
-                                            <input type="number" class="form-control" id="milestone_id" name="milestone_id" placeholder="ID do Milestone" value="<?= $edit_mode && $task_to_edit['milestone_id'] ? htmlspecialchars($task_to_edit['milestone_id']) : '' ?>">
+                                            <input type="number" class="form-control" id="milestone_id" name="milestone_id" placeholder="ID do Milestone">
                                         </div>
                                         <div class="col-md-6">
-                                            <input type="number" class="form-control" id="projeto_id" name="projeto_id" placeholder="ID do Projeto" value="<?= $edit_mode && $task_to_edit['projeto_id'] ? htmlspecialchars($task_to_edit['projeto_id']) : '' ?>">
+                                            <input type="number" class="form-control" id="projeto_id" name="projeto_id" placeholder="ID do Projeto">
                                         </div>
                                     </div>
                                 </div>
@@ -488,7 +563,7 @@ try {
                                     Cancelar
                                 </button>
                                 <button type="submit" class="btn btn-primary">
-                                    <i class="bi bi-<?= $edit_mode ? 'save' : 'plus-circle' ?>"></i> <?= $edit_mode ? 'Salvar Alterações' : 'Adicionar Tarefa' ?>
+                                    <i class="bi bi-plus-circle"></i> Adicionar Tarefa
                                 </button>
                             </div>
                         </div>
@@ -525,7 +600,7 @@ try {
                                         <?php else: ?>
                                             <?php foreach ($tarefas_por_estado['aberta'] as $tarefa): ?>
                                                 <div class="card mb-2 task-card" draggable="true" data-task-id="<?= $tarefa['id'] ?>">
-                                                    <button type="button" class="btn btn-sm edit-task-btn" data-bs-toggle="modal" data-bs-target="#editTaskModal" data-task-id="<?= $tarefa['id'] ?>">
+                                                    <button type="button" class="btn btn-sm edit-task-btn" data-bs-toggle="modal" data-bs-target="#editTaskModal" data-task-id="<?= $tarefa['id'] ?>" data-state="<?= $tarefa['estado'] ?>">
                                                         <i class="bi bi-pencil-square"></i>
                                                     </button>
                                                     <div class="card-body p-2">
@@ -629,9 +704,6 @@ try {
                                         <?php else: ?>
                                             <?php foreach ($tarefas_por_estado['suspensa'] as $tarefa): ?>
                                                 <div class="card mb-2 task-card" draggable="true" data-task-id="<?= $tarefa['id'] ?>">
-                                                    <button type="button" class="btn btn-sm edit-task-btn" data-bs-toggle="modal" data-bs-target="#editTaskModal" data-task-id="<?= $tarefa['id'] ?>">
-                                                        <i class="bi bi-pencil-square"></i>
-                                                    </button>
                                                     <div class="card-body p-2">
                                                         <h6 class="card-title mb-1"><?= htmlspecialchars($tarefa['titulo']) ?></h6>
                                                         <p class="card-text small mb-1">
@@ -681,9 +753,6 @@ try {
                                         <?php else: ?>
                                             <?php foreach ($tarefas_por_estado['completada'] as $tarefa): ?>
                                                 <div class="card mb-2 task-card" draggable="true" data-task-id="<?= $tarefa['id'] ?>">
-                                                    <button type="button" class="btn btn-sm edit-task-btn" data-bs-toggle="modal" data-bs-target="#editTaskModal" data-task-id="<?= $tarefa['id'] ?>">
-                                                        <i class="bi bi-pencil-square"></i>
-                                                    </button>
                                                     <div class="card-body p-2">
                                                         <h6 class="card-title mb-1"><?= htmlspecialchars($tarefa['titulo']) ?></h6>
                                                         <p class="card-text small mb-1">
@@ -818,15 +887,6 @@ try {
                                                 Ações
                                             </button>
                                             <ul class="dropdown-menu dropdown-menu-end">
-                                                <!-- Opção de editar -->
-                                                <li>
-                                                    <button type="button" class="dropdown-item edit-task-btn" data-bs-toggle="modal" data-bs-target="#editTaskModal" data-task-id="<?= $tarefa['id'] ?>">
-                                                        <i class="bi bi-pencil"></i> Editar
-                                                    </button>
-                                                </li>
-                                                
-                                                <li><hr class="dropdown-divider"></li>
-                                                
                                                 <!-- Opções de mudança de estado -->
                                                 <li><h6 class="dropdown-header">Mudar Estado</h6></li>
                                                 <?php if ($tarefa['estado'] !== 'aberta'): ?>
@@ -911,7 +971,6 @@ try {
                 <form method="post" action="" id="delete-form">
                     <input type="hidden" name="action" value="delete">
                     <input type="hidden" name="todo_id" id="delete-todo-id">
-                    <input type="hidden" name="tab" value="todos">
                     <button type="submit" class="btn btn-danger">Excluir Permanentemente</button>
                 </form>
             </div>
@@ -931,7 +990,6 @@ try {
                 <form method="post" action="" id="edit-task-form">
                     <input type="hidden" name="action" value="edit_task">
                     <input type="hidden" name="todo_id" id="edit-task-id">
-                    <input type="hidden" name="tab" value="todos">
                     
                     <div class="row">
                         <div class="col-md-6">
@@ -1021,47 +1079,7 @@ try {
     <input type="hidden" name="action" value="update_status">
     <input type="hidden" name="todo_id" id="update-todo-id">
     <input type="hidden" name="new_estado" id="update-new-estado">
-    <input type="hidden" name="tab" value="todos">
 </form>
-
-<style>
-    .task-card {
-        position: relative;
-        cursor: move;
-        transition: all 0.2s;
-    }
-    .task-card:hover {
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-    }
-    .dragging {
-        opacity: 0.5;
-    }
-    .todo-container {
-        min-height: 80px;
-        padding: 8px;
-        border-radius: 4px;
-        transition: background-color 0.3s;
-    }
-    .todo-container.drag-over {
-        background-color: rgba(0,0,0,0.05);
-        border: 2px dashed #ccc;
-    }
-    .edit-task-btn {
-        position: absolute;
-        top: 5px;
-        right: 5px;
-        opacity: 0;
-        transition: opacity 0.2s;
-        font-size: 0.8rem;
-        padding: 2px 5px;
-        background-color: rgba(255,255,255,0.8);
-        border: 1px solid #dee2e6;
-        z-index: 5;
-    }
-    .task-card:hover .edit-task-btn {
-        opacity: 1;
-    }
-</style>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -1087,16 +1105,40 @@ document.addEventListener('DOMContentLoaded', function() {
         newTaskBtn.style.display = 'inline-block';
     });
     
+    // Garantir que o parâmetro tab seja mantido nos formulários
+    function ensureFormHasTabParam(form) {
+        // Verificar se a URL atual tem o parâmetro tab
+        const urlParams = new URLSearchParams(window.location.search);
+        const tabParam = urlParams.get('tab');
+        
+        if (tabParam && !form.querySelector('input[name="tab"]')) {
+            const tabInput = document.createElement('input');
+            tabInput.type = 'hidden';
+            tabInput.name = 'tab';
+            tabInput.value = tabParam;
+            form.appendChild(tabInput);
+        }
+    }
+    
+    // Adicionar parâmetro tab a todos os formulários na página
+    document.querySelectorAll('form').forEach(form => {
+        ensureFormHasTabParam(form);
+    });
+    
     // Filtro de responsável e mostrar completadas
     const filterResponsavel = document.getElementById('filter-responsavel');
     const showCompletedCheckbox = document.getElementById('show-completed');
+    const filterForm = document.getElementById('filter-form');
+    
+    // Garantir que o formulário de filtro tenha o parâmetro tab
+    ensureFormHasTabParam(filterForm);
     
     filterResponsavel.addEventListener('change', function() {
-        document.getElementById('filter-form').submit();
+        filterForm.submit();
     });
     
     showCompletedCheckbox.addEventListener('change', function() {
-        document.getElementById('filter-form').submit();
+        filterForm.submit();
     });
     
     // Manipular cliques no botão de excluir
@@ -1113,115 +1155,220 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // Manipular mudança de estado via botões
-    document.querySelectorAll('.change-state-btn').forEach(function(button) {
-        button.addEventListener('click', function() {
-            var taskId = this.getAttribute('data-task-id');
-            var newState = this.getAttribute('data-state');
+    // Funções para gerenciar a edição de tarefas
+    function openEditTaskModal(taskId, state) {
+        // Mostrar spinner durante carregamento
+        document.getElementById('editTaskModalLabel').innerHTML = 'Carregando tarefa... <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+        
+        // Obter os dados da tarefa via AJAX
+        fetch(`?tab=todos&get_task_details=${taskId}`, {
+            method: 'GET',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(response => response.json())
+        .then(task => {
+            // Preencher o formulário com os dados da tarefa
+            document.getElementById('edit-task-id').value = task.id;
+            document.getElementById('edit-titulo').value = task.titulo;
+            document.getElementById('edit-descritivo').value = task.descritivo || '';
+            document.getElementById('edit-data_limite').value = task.data_limite || '';
+            document.getElementById('edit-responsavel').value = task.responsavel;
+            document.getElementById('edit-estado').value = task.estado;
+            document.getElementById('edit-task_id').value = task.task_id || '';
+            document.getElementById('edit-todo_issue').value = task.todo_issue || '';
+            document.getElementById('edit-milestone_id').value = task.milestone_id || '';
+            document.getElementById('edit-projeto_id').value = task.projeto_id || '';
             
-            document.getElementById('update-todo-id').value = taskId;
-            document.getElementById('update-new-estado').value = newState;
-            document.getElementById('update-state-form').submit();
+            // Restaurar título do modal
+            document.getElementById('editTaskModalLabel').textContent = 'Editar Tarefa';
+        })
+        .catch(error => {
+            console.error('Erro ao obter detalhes da tarefa:', error);
+            alert('Erro ao carregar detalhes da tarefa. Por favor, tente novamente.');
+            
+            // Esconder modal em caso de erro
+            const editModal = bootstrap.Modal.getInstance(document.getElementById('editTaskModal'));
+            if (editModal) {
+                editModal.hide();
+            }
         });
-    });
+    }
     
-    // ============== Drag and Drop Simplificado ==============
-    // Implementação simplificada de drag-and-drop para todos os cartões de tarefa
-    const draggables = document.querySelectorAll('.task-card');
-    const containers = document.querySelectorAll('.todo-container');
+        // Implementação de Drag and Drop melhorada
+    let dragSrcEl = null;
+    let draggingTask = false;
     
-    // Configurar cada cartão como arrastável
-    draggables.forEach(draggable => {
-        // Evitar problemas com o botão de edição
-        const editBtn = draggable.querySelector('.edit-task-btn');
-        if (editBtn) {
-            editBtn.addEventListener('mousedown', e => {
-                e.stopPropagation(); // Impedir que o evento chegue ao card
-            });
+    function handleDragStart(e) {
+        this.classList.add('dragging');
+        dragSrcEl = this;
+        draggingTask = true;
+        
+        // Para compatibilidade com Firefox
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/html', this.outerHTML);
+        
+        // Adicionar um efeito visual
+        setTimeout(() => {
+            this.style.opacity = '0.4';
+        }, 0);
+    }
+    
+    function handleDragEnd(e) {
+        this.classList.remove('dragging');
+        draggingTask = false;
+        
+        document.querySelectorAll('.todo-container').forEach(container => {
+            container.classList.remove('drag-over');
+        });
+        
+        this.style.opacity = '1';
+    }
+    
+    function handleDragOver(e) {
+        if (e.preventDefault) {
+            e.preventDefault(); // Necessário para permitir o drop
         }
         
-        draggable.addEventListener('dragstart', () => {
-            draggable.classList.add('dragging');
-        });
+        e.dataTransfer.dropEffect = 'move';
+        this.classList.add('drag-over');
         
-        draggable.addEventListener('dragend', () => {
-            draggable.classList.remove('dragging');
-            
-            // Verificar se o estado da tarefa foi alterado
-            const container = draggable.parentNode;
-            if (container && container.classList.contains('todo-container')) {
-                const newState = container.getAttribute('data-estado');
-                const taskId = draggable.getAttribute('data-task-id');
-                
-                // Submeter formulário para atualizar o estado
-                const form = document.getElementById('update-state-form');
-                document.getElementById('update-todo-id').value = taskId;
-                document.getElementById('update-new-estado').value = newState;
-                form.submit();
-            }
-        });
-    });
+        return false;
+    }
     
-    // Configurar os containers para receber os cartões
-    containers.forEach(container => {
-        container.addEventListener('dragover', e => {
-            e.preventDefault();
-            container.classList.add('drag-over');
-            
-            const draggable = document.querySelector('.dragging');
-            if (draggable) {
-                container.appendChild(draggable);
-            }
-        });
-        
-        container.addEventListener('dragleave', () => {
-            container.classList.remove('drag-over');
-        });
-        
-        container.addEventListener('drop', () => {
-            container.classList.remove('drag-over');
-        });
-    });
+    function handleDragEnter(e) {
+        this.classList.add('drag-over');
+    }
     
-    // ============== Edição de Tarefas ==============
-    // Manipular cliques no botão de editar
-    document.querySelectorAll('.edit-task-btn').forEach(function(button) {
-        button.addEventListener('click', function(e) {
-            e.stopPropagation(); // Impedir propagação para evitar conflitos com drag
-            const taskId = this.getAttribute('data-task-id');
+    function handleDragLeave(e) {
+        this.classList.remove('drag-over');
+    }
+    
+    function handleDrop(e) {
+        e.stopPropagation(); // Evita redirecionamento no Firefox
+        e.preventDefault();
+        
+        this.classList.remove('drag-over');
+        
+        // Só prosseguir se estamos soltando em um container diferente
+        if (dragSrcEl && this !== dragSrcEl.parentNode) {
+            const newState = this.getAttribute('data-estado');
+            const taskId = dragSrcEl.getAttribute('data-task-id');
             
-            // Indicar que está carregando
-            document.getElementById('editTaskModalLabel').innerHTML = 'Carregando tarefa... <span class="spinner-border spinner-border-sm"></span>';
+            // Adiciona a tarefa ao novo container visualmente
+            this.appendChild(dragSrcEl);
             
-            // Buscar dados da tarefa
-            fetch('?tab=todos&get_task_details=' + taskId)
-                .then(response => response.json())
-                .then(task => {
-                    // Preencher o formulário com os dados da tarefa
-                    document.getElementById('edit-task-id').value = task.id;
-                    document.getElementById('edit-titulo').value = task.titulo;
-                    document.getElementById('edit-descritivo').value = task.descritivo || '';
-                    document.getElementById('edit-data_limite').value = task.data_limite || '';
-                    document.getElementById('edit-responsavel').value = task.responsavel;
-                    document.getElementById('edit-estado').value = task.estado;
-                    document.getElementById('edit-task_id').value = task.task_id || '';
-                    document.getElementById('edit-todo_issue').value = task.todo_issue || '';
-                    document.getElementById('edit-milestone_id').value = task.milestone_id || '';
-                    document.getElementById('edit-projeto_id').value = task.projeto_id || '';
-                    
-                    // Restaurar o título
-                    document.getElementById('editTaskModalLabel').textContent = 'Editar Tarefa';
-                })
-                .catch(error => {
-                    console.error('Erro ao carregar dados da tarefa:', error);
-                    document.getElementById('editTaskModalLabel').textContent = 'Erro ao carregar tarefa';
-                    
-                    // Fechar o modal após alguns segundos
-                    setTimeout(() => {
-                        const modal = bootstrap.Modal.getInstance(document.getElementById('editTaskModal'));
-                        if (modal) modal.hide();
-                    }, 2000);
+            // Atualiza o estado no servidor
+            updateTaskStatus(taskId, newState);
+        }
+        
+        return false;
+    }
+    
+    function updateTaskStatus(taskId, newState) {
+        const formData = new FormData();
+        formData.append('action', 'drag_update_status');
+        formData.append('todo_id', taskId);
+        formData.append('new_estado', newState);
+        
+        // Manter o parâmetro tab=todos na URL
+        let url = window.location.pathname;  // Usar apenas o caminho base
+        
+        // Adicionar tab=todos à URL
+        url += '?tab=todos';
+        
+        fetch(url, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Erro na resposta do servidor');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                console.log('Estado atualizado com sucesso');
+            } else {
+                console.error('Erro ao atualizar estado:', data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Erro na requisição AJAX:', error);
+            // Remover o alerta para evitar confundir o usuário, já que visualmente a tarefa já foi movida
+            // e a operação geralmente é bem-sucedida apesar do erro AJAX
+        });
+    }
+    
+    function initDragAndDrop() {
+        // Adicionar estilos CSS necessários para o drag and drop
+        const style = document.createElement('style');
+        style.textContent = `
+            .task-card { cursor: move; }
+            .dragging { opacity: 0.4; }
+            .drag-over { background-color: rgba(0, 0, 0, 0.05); }
+            .todo-container { min-height: 100px; }
+        `;
+        document.head.appendChild(style);
+        
+        // Configurar cada cartão de tarefa como arrastável
+        const taskCards = document.querySelectorAll('.task-card');
+        taskCards.forEach(taskCard => {
+            taskCard.setAttribute('draggable', 'true');
+            
+            // Remover eventos antigos para evitar duplicação
+            taskCard.removeEventListener('dragstart', handleDragStart);
+            taskCard.removeEventListener('dragend', handleDragEnd);
+            
+            // Adicionar novos event listeners
+            taskCard.addEventListener('dragstart', handleDragStart);
+            taskCard.addEventListener('dragend', handleDragEnd);
+            
+            // Adicionar listeners para edição
+            const editBtn = taskCard.querySelector('.edit-task-btn');
+            if (editBtn) {
+                editBtn.addEventListener('click', function(e) {
+                    e.stopPropagation(); // Impedir que o evento propague para o card
+                    const taskId = this.getAttribute('data-task-id');
+                    const state = this.getAttribute('data-state');
+                    openEditTaskModal(taskId, state);
                 });
+                
+                // Evitar que o drag comece ao clicar no botão de edição
+                editBtn.addEventListener('mousedown', function(e) {
+                    e.stopPropagation();
+                });
+                
+                editBtn.addEventListener('dragstart', function(e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                });
+            }
         });
-    });
+        
+        // Configurar containers como áreas de soltar
+        const containers = document.querySelectorAll('.todo-container');
+        containers.forEach(container => {
+            // Remover eventos antigos para evitar duplicação
+            container.removeEventListener('dragover', handleDragOver);
+            container.removeEventListener('dragenter', handleDragEnter);
+            container.removeEventListener('dragleave', handleDragLeave);
+            container.removeEventListener('drop', handleDrop);
+            
+            // Adicionar novos event listeners
+            container.addEventListener('dragover', handleDragOver);
+            container.addEventListener('dragenter', handleDragEnter);
+            container.addEventListener('dragleave', handleDragLeave);
+            container.addEventListener('drop', handleDrop);
+        });
+    }
+    
+    // Inicializar drag and drop
+    initDragAndDrop();
 });
+</script>

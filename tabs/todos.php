@@ -8,7 +8,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 // Incluir arquivo de configuração
-require_once('../config.php');
+include_once __DIR__ . '/../config.php';
 
 // Conectar ao banco de dados MySQL
 try {

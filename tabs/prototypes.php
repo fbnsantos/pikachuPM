@@ -24,6 +24,16 @@ if (substr($baseUrl, -1) !== '/') {
     $baseUrl .= '/';
 }
 
+// Inicializar variáveis usadas em todo o código
+$mostrar_diagnostico = isset($_GET['diagnostico']) && $_GET['diagnostico'] === '1';
+$resultados_diagnostico = [];
+$message = '';
+$messageType = '';
+$errorMessage = '';
+$prototypes = [];
+$selectedPrototype = null;
+$prototypeBacklog = [];
+
 // Function to get prototypes from Redmine
 function getPrototypes() {
     global $apiKey, $baseUrl;

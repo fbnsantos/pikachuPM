@@ -453,7 +453,7 @@ try {
                 <div class="card-body">
                     <div class="row g-3">
                         <!-- Coluna: Aberta -->
-                        <div class="col-md-3">
+                        <div class="col-md-<?= $show_completed ? '3' : '4' ?>">
                             <div class="card h-100 border-primary">
                                 <div class="card-header bg-primary text-white">
                                     <h6 class="card-title mb-0">
@@ -502,7 +502,7 @@ try {
                         </div>
                         
                         <!-- Coluna: Em Execução -->
-                        <div class="col-md-3">
+                        <div class="col-md-<?= $show_completed ? '3' : '4' ?>">
                             <div class="card h-100 border-info">
                                 <div class="card-header bg-info text-dark">
                                     <h6 class="card-title mb-0">
@@ -551,7 +551,7 @@ try {
                         </div>
                         
                         <!-- Coluna: Suspensa -->
-                        <div class="col-md-3">
+                        <div class="col-md-<?= $show_completed ? '3' : '4' ?>">
                             <div class="card h-100 border-warning">
                                 <div class="card-header bg-warning text-dark">
                                     <h6 class="card-title mb-0">
@@ -599,8 +599,8 @@ try {
                             </div>
                         </div>
                         
-                        <!-- Coluna: Completada -->
-                        <div class="col-md-3">
+                        <!-- Coluna: Completada (só visível se show_completed=1) -->
+                        <div class="col-md-3" id="completada-column" <?= $show_completed ? '' : 'style="display: none;"' ?>>
                             <div class="card h-100 border-success">
                                 <div class="card-header bg-success text-white">
                                     <h6 class="card-title mb-0">
@@ -684,7 +684,12 @@ try {
                             </thead>
                             <tbody>
                                 <?php 
-                                $estados_ordem = ['aberta', 'em execução', 'suspensa', 'completada'];
+                                $estados_ordem = ['aberta', 'em execução', 'suspensa'];
+                                // Adicionar 'completada' apenas se show_completed estiver ativado
+                                if ($show_completed) {
+                                    $estados_ordem[] = 'completada';
+                                }
+                                
                                 foreach ($estados_ordem as $estado):
                                     foreach ($tarefas_por_estado[$estado] as $tarefa): 
                                 ?>

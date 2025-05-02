@@ -35,15 +35,15 @@ if (substr($baseUrl, -1) !== '/') {
 
 // Opções de teste
 $endpoints = [
-    "projects.json" => "Lista de Projetos",
+    "projects.json?limit=100" => "Lista de Projetos (100 max)",
     "trackers.json" => "Lista de Trackers",
     "issues.json?limit=5" => "5 Issues Recentes",
     "issues.json?project_id=prototypes&tracker_id=prototype&limit=100&status_id=*" => "Protótipos (url original)",
 ];
 
-$endpointSelecionado = isset($_GET['endpoint']) ? $_GET['endpoint'] : 'projects.json';
+$endpointSelecionado = isset($_GET['endpoint']) ? $_GET['endpoint'] : 'projects.json?limit=100';
 if (!array_key_exists($endpointSelecionado, $endpoints)) {
-    $endpointSelecionado = 'projects.json';
+    $endpointSelecionado = 'projects.json?limit=100';
 }
 
 // Interface para seleção do endpoint
@@ -57,11 +57,27 @@ foreach ($endpoints as $ep => $desc) {
 echo "</select>";
 echo "</form>";
 
+// Adição de paginação para projetos
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+if ($page < 1) $page = 1;
+
+// Adicionar paginação ao endpoint se for projects.json
+if (strpos($endpointSelecionado, 'projects.json') === 0) {
+    // Se já tiver parâmetros, adicione &page=X, caso contrário ?page=X
+    if (strpos($endpointSelecionado, '?') !== false) {
+        $api_endpoint = $endpointSelecionado . "&page=" . $page;
+    } else {
+        $api_endpoint = $endpointSelecionado . "?page=" . $page;
+    }
+} else {
+    $api_endpoint = $endpointSelecionado;
+}
+
 // Teste da API do Redmine
 echo "<h2>Teste da API: " . htmlspecialchars($endpoints[$endpointSelecionado]) . "</h2>";
-echo "<p>URL: <code>" . htmlspecialchars($baseUrl . $endpointSelecionado) . "</code></p>";
+echo "<p>URL: <code>" . htmlspecialchars($baseUrl . $api_endpoint) . "</code></p>";
 
-$api_url = $baseUrl . $endpointSelecionado;
+$api_url = $baseUrl . $api_endpoint;
 $options = [
     'http' => [
         'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n" .
@@ -115,10 +131,33 @@ if ($response === FALSE) {
         // Análise específica baseada no endpoint
         echo "<h3>Análise da Resposta:</h3>";
         
-        if ($endpointSelecionado === 'projects.json' && isset($data['projects'])) {
-            echo "<p>Total de projetos: " . count($data['projects']) . "</p>";
-            echo "<table border='1' cellpadding='5' style='border-collapse: collapse;'>";
-            echo "<tr><th>ID</th><th>Nome</th><th>Identificador</th></tr>";
+        if ($endpointSelecionado === 'projects.json?limit=100' && isset($data['projects'])) {
+            // Informações de paginação, se disponíveis
+            $total_count = $data['total_count'] ?? count($data['projects']);
+            $offset = $data['offset'] ?? 0;
+            $limit = $data['limit'] ?? 25;
+            
+            echo "<p>Total de projetos: " . htmlspecialchars($total_count) . 
+                 " (Exibindo " . count($data['projects']) . " projetos, página $page)</p>";
+            
+            // Controles de paginação
+            echo "<div style='margin-bottom: 15px;'>";
+            if ($page > 1) {
+                echo "<a href='?endpoint=" . urlencode($endpointSelecionado) . "&page=" . ($page-1) . "' class='btn'>&laquo; Página Anterior</a> ";
+            }
+            if (count($data['projects']) >= $limit) {
+                echo "<a href='?endpoint=" . urlencode($endpointSelecionado) . "&page=" . ($page+1) . "' class='btn'>Próxima Página &raquo;</a>";
+            }
+            echo "</div>";
+            
+            // Campo de busca para filtrar projetos na página
+            echo "<div style='margin-bottom: 15px;'>";
+            echo "<input type='text' id='projetoFiltro' onkeyup='filtrarProjetos()' ";
+            echo "placeholder='Filtrar projetos...' style='padding: 8px; width: 300px; border-radius: 4px; border: 1px solid #ccc;'>";
+            echo "</div>";
+            
+            echo "<table border='1' cellpadding='5' style='border-collapse: collapse;' id='tabelaProjetos'>";
+            echo "<tr><th>ID</th><th>Nome</th><th>Identificador</th><th>Ações</th></tr>";
             
             $temProtoypes = false;
             foreach ($data['projects'] as $project) {
@@ -126,6 +165,8 @@ if ($response === FALSE) {
                 echo "<td>" . htmlspecialchars($project['id']) . "</td>";
                 echo "<td>" . htmlspecialchars($project['name']) . "</td>";
                 echo "<td>" . htmlspecialchars($project['identifier']) . "</td>";
+                echo "<td><a href='" . htmlspecialchars($baseUrl) . "projects/" . htmlspecialchars($project['identifier']) . 
+                     "' target='_blank' class='btn-small'>Ver no Redmine</a></td>";
                 echo "</tr>";
                 
                 if ($project['identifier'] === 'prototypes') {
@@ -134,10 +175,42 @@ if ($response === FALSE) {
             }
             echo "</table>";
             
+            // Script de filtro para projetos
+            echo "<script>
+            function filtrarProjetos() {
+                var input, filter, table, tr, td, i, txtValue;
+                input = document.getElementById('projetoFiltro');
+                filter = input.value.toUpperCase();
+                table = document.getElementById('tabelaProjetos');
+                tr = table.getElementsByTagName('tr');
+                
+                for (i = 1; i < tr.length; i++) { // Começar do 1 para pular o cabeçalho
+                    td = tr[i].getElementsByTagName('td');
+                    var encontrado = false;
+                    
+                    // Verificar colunas 1 (Nome) e 2 (Identificador)
+                    for (var j = 1; j <= 2; j++) {
+                        txtValue = td[j].textContent || td[j].innerText;
+                        if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                            encontrado = true;
+                            break;
+                        }
+                    }
+                    
+                    if (encontrado) {
+                        tr[i].style.display = '';
+                    } else {
+                        tr[i].style.display = 'none';
+                    }
+                }
+            }
+            </script>";
+            
             if ($temProtoypes) {
                 echo "<p style='color: green;'>✅ Projeto 'prototypes' encontrado!</p>";
             } else {
-                echo "<p style='color: red;'>❌ Projeto 'prototypes' NÃO encontrado! É necessário criar este projeto no Redmine.</p>";
+                echo "<p style='color: orange;'>⚠️ Projeto 'prototypes' NÃO encontrado nesta página!</p>";
+                echo "<p>Tente buscar o projeto no campo de filtro acima ou verifique outras páginas.</p>";
             }
         }
         
@@ -207,6 +280,67 @@ if ($response === FALSE) {
             }
         }
     }
+}
+
+echo "<hr>";
+echo "<h3>Recomendações para o Código do Prototypes:</h3>";
+echo "<p>Baseado nos resultados da consulta, aqui estão sugestões para modificar o código de prototypes.php:</p>";
+
+// Verificar se está na endpoint de projetos e se prototypes foi encontrado
+if (strpos($endpointSelecionado, 'projects.json') === 0) {
+    echo "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; border-left: 4px solid #2c5aa0;'>";
+    
+    if (!$temProtoypes) {
+        echo "<p><strong>Opção 1:</strong> Criar o projeto 'prototypes' no Redmine.</p>";
+        echo "<p><strong>Opção 2:</strong> Modificar o código para usar um projeto existente:</p>";
+        echo "<pre style='background-color: #f0f0f0; padding: 10px;'>";
+        echo "// Em prototypes.php, procure por todas as ocorrências de 'prototypes' e substitua pelo ID do projeto\n";
+        echo "// Exemplo (substitua 'projeto_existente' pelo identificador do projeto que deseja usar):\n\n";
+        echo '$url = $baseUrl . "issues.json?<mark>project_id=projeto_existente</mark>&tracker_id=prototype&limit=100&status_id=*";';
+        echo "</pre>";
+    } else {
+        echo "<p>✅ O projeto 'prototypes' foi encontrado! Não é necessário modificar o identificador do projeto no código.</p>";
+    }
+    
+    echo "</div>";
+}
+
+// Verificar se está na endpoint de trackers
+if ($endpointSelecionado === 'trackers.json' && isset($data['trackers'])) {
+    $temPrototype = false;
+    $trackerId = null;
+    
+    foreach ($data['trackers'] as $tracker) {
+        if (strtolower($tracker['name']) === 'prototype') {
+            $temPrototype = true;
+            $trackerId = $tracker['id'];
+            break;
+        }
+    }
+    
+    echo "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; border-left: 4px solid #2c5aa0; margin-top: 15px;'>";
+    
+    if (!$temPrototype) {
+        echo "<p><strong>Opção 1:</strong> Criar o tracker 'prototype' no Redmine.</p>";
+        echo "<p><strong>Opção 2:</strong> Modificar o código para usar um tracker existente:</p>";
+        
+        echo "<p>Trackers disponíveis:</p>";
+        echo "<ul>";
+        foreach ($data['trackers'] as $tracker) {
+            echo "<li><strong>" . htmlspecialchars($tracker['name']) . "</strong> (id: " . $tracker['id'] . ")</li>";
+        }
+        echo "</ul>";
+        
+        echo "<pre style='background-color: #f0f0f0; padding: 10px;'>";
+        echo "// Em prototypes.php, procure por todas as ocorrências de 'tracker_id=prototype' e substitua pelo ID\n";
+        echo "// Exemplo (substitua '1' pelo ID do tracker que deseja usar):\n\n";
+        echo '$url = $baseUrl . "issues.json?project_id=prototypes&<mark>tracker_id=1</mark>&limit=100&status_id=*";';
+        echo "</pre>";
+    } else {
+        echo "<p>✅ O tracker 'prototype' foi encontrado (ID: $trackerId)! Você pode continuar usando o nome 'prototype' no código.</p>";
+    }
+    
+    echo "</div>";
 }
 
 echo "<hr>";
@@ -283,5 +417,29 @@ th {
 }
 tr:nth-child(even) {
     background-color: #f9f9f9;
+}
+.btn {
+    display: inline-block;
+    padding: 8px 12px;
+    background-color: #2c5aa0;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    margin-right: 10px;
+}
+.btn:hover {
+    background-color: #1d4580;
+}
+.btn-small {
+    display: inline-block;
+    padding: 4px 8px;
+    background-color: #f0f0f0;
+    color: #333;
+    text-decoration: none;
+    border-radius: 4px;
+    font-size: 12px;
+}
+.btn-small:hover {
+    background-color: #e0e0e0;
 }
 </style>

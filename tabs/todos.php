@@ -439,8 +439,6 @@ try {
     exit;
 }
 
-// A partir daqui, o HTML permanece o mesmo...
-// Apenas continue com o HTML que já existe no seu arquivo
 ?>
 
 <div class="container-fluid">

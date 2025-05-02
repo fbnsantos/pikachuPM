@@ -1,0 +1,32 @@
+{
+    "timeZone": "Europe/Lisbon",
+    "dependencies": {
+      "enabledAdvancedServices": [{
+        "userSymbol": "Gmail",
+        "serviceId": "gmail",
+        "version": "v1"
+      }]
+    },
+    "oauthScopes": [
+        "https://www.googleapis.com/auth/gmail.addons.execute",
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/script.external_request",
+        "https://www.googleapis.com/auth/script.scriptapp",
+        "https://www.googleapis.com/auth/userinfo.email"
+    ],
+    "gmail": {
+      "name": "PKMT-Agile Manager",
+      "logoUrl": "http://criis-projects.inesctec.pt/PK/images/pikachu_logo.png",
+      "primaryColor": "#3a763a",
+      "secondaryColor": "#276727",
+      "contextualTriggers": [{
+        "unconditional": {},
+        "onTriggerFunction": "onGmailMessage"
+      }],
+      "homepageTrigger": {
+        "runFunction": "onHomepage"
+      }
+    },
+    "exceptionLogging": "STACKDRIVER",
+    "runtimeVersion": "V8"
+  }

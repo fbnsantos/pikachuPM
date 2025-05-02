@@ -38,7 +38,7 @@ $endpoints = [
     "projects.json?limit=100" => "Lista de Projetos (100 max)",
     "trackers.json" => "Lista de Trackers",
     "issues.json?limit=5" => "5 Issues Recentes",
-    "issues.json?project_id=prototypes&tracker_id=prototype&limit=100&status_id=*" => "Protótipos (url original)",
+    "issues.json?project_id=tribeprototypes&tracker_id=prototype&limit=100&status_id=*" => "Protótipos (url original)",
 ];
 
 $endpointSelecionado = isset($_GET['endpoint']) ? $_GET['endpoint'] : 'projects.json?limit=100';
@@ -169,7 +169,7 @@ if ($response === FALSE) {
                      "' target='_blank' class='btn-small'>Ver no Redmine</a></td>";
                 echo "</tr>";
                 
-                if ($project['identifier'] === 'prototypes') {
+                if ($project['identifier'] === 'tribeprototypes') {
                     $temProtoypes = true;
                 }
             }
@@ -207,9 +207,9 @@ if ($response === FALSE) {
             </script>";
             
             if ($temProtoypes) {
-                echo "<p style='color: green;'>✅ Projeto 'prototypes' encontrado!</p>";
+                echo "<p style='color: green;'>✅ Projeto 'tribeprototypes' encontrado!</p>";
             } else {
-                echo "<p style='color: orange;'>⚠️ Projeto 'prototypes' NÃO encontrado nesta página!</p>";
+                echo "<p style='color: orange;'>⚠️ Projeto 'tribeprototypes' NÃO encontrado nesta página!</p>";
                 echo "<p>Tente buscar o projeto no campo de filtro acima ou verifique outras páginas.</p>";
             }
         }
@@ -246,11 +246,11 @@ if ($response === FALSE) {
                 if (count($data['issues']) === 0) {
                     echo "<p>Nenhuma issue encontrada para os critérios especificados.</p>";
                     
-                    if (strpos($endpointSelecionado, 'project_id=prototypes') !== false) {
+                    if (strpos($endpointSelecionado, 'project_id=tribeprototypes') !== false) {
                         echo "<p>Isso pode significar que:</p>";
                         echo "<ol>";
-                        echo "<li>O projeto 'prototypes' existe mas não tem issues, ou</li>";
-                        echo "<li>O projeto 'prototypes' não existe, ou</li>";
+                        echo "<li>O projeto 'tribeprototypes' existe mas não tem issues, ou</li>";
+                        echo "<li>O projeto 'tribeprototypes' não existe, ou</li>";
                         echo "<li>O tracker 'prototype' não existe ou não está associado ao projeto.</li>";
                         echo "</ol>";
                     }
@@ -291,15 +291,15 @@ if (strpos($endpointSelecionado, 'projects.json') === 0) {
     echo "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; border-left: 4px solid #2c5aa0;'>";
     
     if (!$temProtoypes) {
-        echo "<p><strong>Opção 1:</strong> Criar o projeto 'prototypes' no Redmine.</p>";
+        echo "<p><strong>Opção 1:</strong> Criar o projeto 'tribeprototypes' no Redmine.</p>";
         echo "<p><strong>Opção 2:</strong> Modificar o código para usar um projeto existente:</p>";
         echo "<pre style='background-color: #f0f0f0; padding: 10px;'>";
-        echo "// Em prototypes.php, procure por todas as ocorrências de 'prototypes' e substitua pelo ID do projeto\n";
+        echo "// Em prototypes.php, procure por todas as ocorrências de 'tribeprototypes' e substitua pelo ID do projeto\n";
         echo "// Exemplo (substitua 'projeto_existente' pelo identificador do projeto que deseja usar):\n\n";
         echo '$url = $baseUrl . "issues.json?<mark>project_id=projeto_existente</mark>&tracker_id=prototype&limit=100&status_id=*";';
         echo "</pre>";
     } else {
-        echo "<p>✅ O projeto 'prototypes' foi encontrado! Não é necessário modificar o identificador do projeto no código.</p>";
+        echo "<p>✅ O projeto 'tribeprototypes' foi encontrado! Não é necessário modificar o identificador do projeto no código.</p>";
     }
     
     echo "</div>";
@@ -334,7 +334,7 @@ if ($endpointSelecionado === 'trackers.json' && isset($data['trackers'])) {
         echo "<pre style='background-color: #f0f0f0; padding: 10px;'>";
         echo "// Em prototypes.php, procure por todas as ocorrências de 'tracker_id=prototype' e substitua pelo ID\n";
         echo "// Exemplo (substitua '1' pelo ID do tracker que deseja usar):\n\n";
-        echo '$url = $baseUrl . "issues.json?project_id=prototypes&<mark>tracker_id=1</mark>&limit=100&status_id=*";';
+        echo '$url = $baseUrl . "issues.json?project_id=tribeprototypes&<mark>tracker_id=1</mark>&limit=100&status_id=*";';
         echo "</pre>";
     } else {
         echo "<p>✅ O tracker 'prototype' foi encontrado (ID: $trackerId)! Você pode continuar usando o nome 'prototype' no código.</p>";
@@ -350,10 +350,10 @@ echo "<ul>";
 if (strpos($status, '200') !== false) {
     echo "<li>A API está respondendo com sucesso (200 OK).</li>";
     
-    if (isset($data['issues']) && empty($data['issues']) && strpos($endpointSelecionado, 'project_id=prototypes') !== false) {
-        echo "<li style='color: blue;'>Verifique se o projeto 'prototypes' existe (teste o endpoint 'projects.json').</li>";
+    if (isset($data['issues']) && empty($data['issues']) && strpos($endpointSelecionado, 'project_id=tribeprototypes') !== false) {
+        echo "<li style='color: blue;'>Verifique se o projeto 'tribeprototypes' existe (teste o endpoint 'projects.json').</li>";
         echo "<li style='color: blue;'>Verifique se o tracker 'prototype' existe (teste o endpoint 'trackers.json').</li>";
-        echo "<li style='color: blue;'>Você pode precisar criar o projeto 'prototypes' e/ou o tracker 'prototype' no Redmine.</li>";
+        echo "<li style='color: blue;'>Você pode precisar criar o projeto 'tribeprototypes' e/ou o tracker 'prototype' no Redmine.</li>";
         echo "<li style='color: blue;'>Outra opção é modificar o código para usar um projeto e tracker existentes.</li>";
     }
 } else {

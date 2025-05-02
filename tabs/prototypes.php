@@ -142,21 +142,47 @@ function getPrototypes() {
     error_log("Resposta da API Redmine: " . $status_line);
     
     if ($response === FALSE) {
-        error_log("Falha ao acessar a API do Redmine. Último erro: " . error_get_last()['message'] ?? 'Desconhecido');
-        return ['error' => 'Falha ao obter protótipos do Redmine. Detalhes no log do servidor.'];
+        $error_msg = error_get_last()['message'] ?? 'Desconhecido';
+        error_log("Falha ao acessar a API do Redmine. Último erro: " . $error_msg);
+        return [
+            'error' => 'Falha ao obter protótipos do Redmine. Erro: ' . $error_msg,
+            'raw_response' => null
+        ];
     }
+    
+    // Save the raw response for debugging
+    $raw_response = substr($response, 0, 1000); // Limit to first 1000 chars
     
     // Check if we have a valid JSON response
     $data = json_decode($response, true);
     if (json_last_error() !== JSON_ERROR_NONE) {
-        error_log("Resposta não é um JSON válido: " . substr($response, 0, 500));
-        return ['error' => 'Resposta inválida da API do Redmine. Verifique os logs.'];
+        $error_msg = "Resposta não é um JSON válido: " . json_last_error_msg();
+        error_log($error_msg);
+        error_log("Resposta: " . substr($response, 0, 500));
+        return [
+            'error' => 'Resposta inválida da API do Redmine: ' . $error_msg,
+            'raw_response' => $raw_response
+        ];
     }
     
     // Check if we have an error in the response
     if (isset($data['errors'])) {
-        error_log("Erro retornado pela API do Redmine: " . print_r($data['errors'], true));
-        return ['error' => 'Erro retornado pela API: ' . implode(', ', $data['errors'])];
+        $error_msg = implode(', ', $data['errors']);
+        error_log("Erro retornado pela API do Redmine: " . $error_msg);
+        return [
+            'error' => 'Erro retornado pela API: ' . $error_msg,
+            'raw_response' => $raw_response
+        ];
+    }
+    
+    // Check if the issues key is missing
+    if (!isset($data['issues']) && !empty($data)) {
+        $keys = implode(', ', array_keys($data));
+        error_log("A resposta não contém a chave 'issues'. Chaves disponíveis: " . $keys);
+        return [
+            'error' => "A resposta não contém informações de protótipos. Verifique se o projeto 'prototypes' existe e se o tracker 'prototype' está configurado.",
+            'raw_response' => $raw_response
+        ];
     }
     
     return $data['issues'] ?? [];
@@ -404,8 +430,37 @@ function extractSectionContent($description, $sectionHeader) {
     
     <?php if (!empty($errorMessage)): ?>
     <div class="alert alert-danger" role="alert">
-        <?= $errorMessage ?>
-        <a href="?tab=prototypes&diagnostico=1" class="btn btn-sm btn-warning ms-2">Executar Diagnóstico</a>
+        <p><strong>Erro:</strong> <?= $errorMessage ?></p>
+        
+        <?php if (isset($prototypes['raw_response'])): ?>
+        <div class="mt-2">
+            <p><strong>Detalhes da resposta:</strong></p>
+            <div class="bg-light p-2 mt-1 rounded">
+                <pre class="mb-0" style="white-space: pre-wrap; word-break: break-all;"><?= htmlspecialchars($prototypes['raw_response'] ?? '[Sem resposta]') ?></pre>
+            </div>
+        </div>
+        <?php endif; ?>
+        
+        <div class="mt-2">
+            <a href="?tab=prototypes&diagnostico=1" class="btn btn-sm btn-warning me-2">Executar Diagnóstico</a>
+            <button class="btn btn-sm btn-info" type="button" data-bs-toggle="collapse" data-bs-target="#ajudaConexaoCollapse">
+                Sugestões de solução
+            </button>
+        </div>
+        
+        <div class="collapse mt-3" id="ajudaConexaoCollapse">
+            <div class="card card-body">
+                <h6>Possíveis soluções:</h6>
+                <ol>
+                    <li>Verifique se o projeto <strong>'prototypes'</strong> existe no seu Redmine</li>
+                    <li>Verifique se o tracker <strong>'prototype'</strong> está configurado</li>
+                    <li>Confirme se a URL do Redmine está correta: <code><?= htmlspecialchars($baseUrl) ?></code></li>
+                    <li>Verifique se a chave API tem permissões adequadas</li>
+                    <li>Tente acessar diretamente a URL do Redmine em seu navegador</li>
+                    <li>Execute o diagnóstico para mais detalhes</li>
+                </ol>
+            </div>
+        </div>
     </div>
     <?php endif; ?>
     

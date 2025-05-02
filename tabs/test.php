@@ -1,194 +1,287 @@
 <?php
-// config_check.php - Script para verificar a configuração MySQL
+// teste_redmine.php - Script simples para testar conexão com Redmine
 
-// Ativar exibição de erros
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
+// Desativar relatório de erros na saída (manterá apenas no log)
+ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
-echo "<html><head><title>Verificação de Configuração MySQL</title>";
-echo "<style>
-    body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; }
-    .success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 10px; margin: 10px 0; border-radius: 4px; }
-    .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 10px; margin: 10px 0; border-radius: 4px; }
-    .warning { background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px; margin: 10px 0; border-radius: 4px; }
-    .info { background: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460; padding: 10px; margin: 10px 0; border-radius: 4px; }
-    pre { margin: 10px 0; padding: 10px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 4px; overflow: auto; }
-    table { border-collapse: collapse; width: 100%; margin: 15px 0; }
-    table, th, td { border: 1px solid #ddd; }
-    th, td { padding: 10px; text-align: left; }
-    th { background-color: #f2f2f2; }
-</style></head><body>";
-
-echo "<h1>Verificação de Configuração MySQL</h1>";
-
-// Verificar se PHP tem as extensões necessárias
-echo "<h2>1. Verificando extensões PHP</h2>";
-if (extension_loaded('mysqli')) {
-    echo "<div class='success'>✅ Extensão MySQLi está carregada.</div>";
+// Incluir arquivo de configuração
+$configPath = __DIR__ . '/../config.php';
+if (file_exists($configPath)) {
+    include_once $configPath;
+    echo "<p>✅ Arquivo de configuração carregado.</p>";
 } else {
-    echo "<div class='error'>❌ Extensão MySQLi NÃO está carregada. Esta extensão é obrigatória para conectar ao MySQL.</div>";
+    echo "<p>❌ Arquivo de configuração não encontrado em: " . $configPath . "</p>";
+    exit;
 }
 
-// Verificar arquivo de configuração
-echo "<h2>2. Verificando arquivo de configuração</h2>";
-$config_file = '../config.php';
-if (file_exists($config_file)) {
-    echo "<div class='success'>✅ Arquivo de configuração encontrado: $config_file</div>";
-    
-    // Incluir arquivo e verificar variáveis
-    try {
-        include($config_file);
-        
-        echo "<h3>Variáveis de configuração:</h3>";
-        echo "<table>";
-        echo "<tr><th>Variável</th><th>Status</th><th>Valor</th></tr>";
-        
-        // Verificar db_host
-        echo "<tr>";
-        echo "<td><code>\$db_host</code></td>";
-        if (isset($db_host)) {
-            echo "<td class='success'>Definido</td>";
-            echo "<td>" . htmlspecialchars($db_host) . "</td>";
-        } else {
-            echo "<td class='error'>Não definido</td>";
-            echo "<td>-</td>";
-        }
-        echo "</tr>";
-        
-        // Verificar db_name
-        echo "<tr>";
-        echo "<td><code>\$db_name</code></td>";
-        if (isset($db_name)) {
-            echo "<td class='success'>Definido</td>";
-            echo "<td>" . htmlspecialchars($db_name) . "</td>";
-        } else {
-            echo "<td class='error'>Não definido</td>";
-            echo "<td>-</td>";
-        }
-        echo "</tr>";
-        
-        // Verificar db_user
-        echo "<tr>";
-        echo "<td><code>\$db_user</code></td>";
-        if (isset($db_user)) {
-            echo "<td class='success'>Definido</td>";
-            echo "<td>" . htmlspecialchars($db_user) . "</td>";
-        } else {
-            echo "<td class='error'>Não definido</td>";
-            echo "<td>-</td>";
-        }
-        echo "</tr>";
-        
-        // Verificar db_pass
-        echo "<tr>";
-        echo "<td><code>\$db_pass</code></td>";
-        if (isset($db_pass)) {
-            echo "<td class='success'>Definido</td>";
-            echo "<td>[OCULTO]</td>";
-        } else {
-            echo "<td class='error'>Não definido</td>";
-            echo "<td>-</td>";
-        }
-        echo "</tr>";
-        
-        echo "</table>";
-        
-    } catch (Exception $e) {
-        echo "<div class='error'>❌ Erro ao incluir ou processar o arquivo de configuração: " . $e->getMessage() . "</div>";
+// Obter variáveis da configuração
+global $BASE_URL, $API_KEY, $user, $pass;
+$apiKey = $API_KEY;
+$baseUrl = $BASE_URL;
+
+// Verificar se as variáveis estão definidas
+echo "<h2>Verificação de Configuração</h2>";
+echo "<ul>";
+echo "<li>URL Base: " . htmlspecialchars($baseUrl) . (empty($baseUrl) ? " <strong style='color:red'>(VAZIO)</strong>" : "") . "</li>";
+echo "<li>API Key: " . (empty($apiKey) ? "<strong style='color:red'>NÃO DEFINIDA</strong>" : "****" . substr($apiKey, -4) . " (" . strlen($apiKey) . " caracteres)") . "</li>";
+echo "</ul>";
+
+// Garantir que a URL base termine com barra
+if (substr($baseUrl, -1) !== '/') {
+    $baseUrl .= '/';
+    echo "<p>URL ajustada para terminar com barra: " . htmlspecialchars($baseUrl) . "</p>";
+}
+
+// Opções de teste
+$endpoints = [
+    "projects.json" => "Lista de Projetos",
+    "trackers.json" => "Lista de Trackers",
+    "issues.json?limit=5" => "5 Issues Recentes",
+    "issues.json?project_id=prototypes&tracker_id=prototype&limit=100&status_id=*" => "Protótipos (url original)",
+];
+
+$endpointSelecionado = isset($_GET['endpoint']) ? $_GET['endpoint'] : 'projects.json';
+if (!array_key_exists($endpointSelecionado, $endpoints)) {
+    $endpointSelecionado = 'projects.json';
+}
+
+// Interface para seleção do endpoint
+echo "<h2>Selecione o Endpoint para Testar</h2>";
+echo "<form method='get' action=''>";
+echo "<select name='endpoint' onchange='this.form.submit()'>";
+foreach ($endpoints as $ep => $desc) {
+    $selected = ($ep === $endpointSelecionado) ? 'selected' : '';
+    echo "<option value='" . htmlspecialchars($ep) . "' $selected>" . htmlspecialchars($desc) . "</option>";
+}
+echo "</select>";
+echo "</form>";
+
+// Teste da API do Redmine
+echo "<h2>Teste da API: " . htmlspecialchars($endpoints[$endpointSelecionado]) . "</h2>";
+echo "<p>URL: <code>" . htmlspecialchars($baseUrl . $endpointSelecionado) . "</code></p>";
+
+$api_url = $baseUrl . $endpointSelecionado;
+$options = [
+    'http' => [
+        'header' => "X-Redmine-API-Key: " . $apiKey . "\r\n" .
+                    "Content-Type: application/json\r\n",
+        'method' => 'GET',
+        'ignore_errors' => true  // Isso permite obter a resposta mesmo em caso de erro
+    ]
+];
+
+$context = stream_context_create($options);
+$response = @file_get_contents($api_url, false, $context);
+
+// Verificar status HTTP
+$status = $http_response_header[0] ?? 'Status desconhecido';
+echo "<p><strong>Status da resposta:</strong> " . htmlspecialchars($status) . "</p>";
+
+// Exibir cabeçalhos da resposta
+echo "<h3>Cabeçalhos da Resposta:</h3>";
+echo "<pre style='background-color: #f5f5f5; padding: 10px; border-radius: 5px; max-height: 200px; overflow: auto;'>";
+foreach ($http_response_header as $header) {
+    echo htmlspecialchars($header) . "\n";
+}
+echo "</pre>";
+
+// Verificar se temos uma resposta
+if ($response === FALSE) {
+    $error = error_get_last();
+    echo "<h3 style='color: red;'>Erro ao acessar a API</h3>";
+    echo "<p>" . htmlspecialchars($error['message'] ?? 'Erro desconhecido') . "</p>";
+} else {
+    // Exibir resposta bruta
+    echo "<h3>Resposta Bruta:</h3>";
+    echo "<pre style='background-color: #f5f5f5; padding: 10px; border-radius: 5px; max-height: 200px; overflow: auto;'>";
+    echo htmlspecialchars(substr($response, 0, 2000)); // Limitar a 2000 caracteres
+    if (strlen($response) > 2000) {
+        echo "\n...(truncado)...";
     }
+    echo "</pre>";
     
-} else {
-    echo "<div class='error'>❌ Arquivo de configuração NÃO encontrado: $config_file</div>";
-    echo "<div class='info'>Crie o arquivo config.php na pasta pai com o seguinte conteúdo:</div>";
-    echo "<pre>&lt;?php
-// Configurações do banco de dados
-\$db_host = 'localhost';     // Host do banco de dados
-\$db_name = 'pikachu_pm';    // Nome do banco de dados 
-\$db_user = 'root';          // Usuário do MySQL
-\$db_pass = 'sua_senha';     // Senha do MySQL
-?&gt;</pre>";
-}
-
-// Testar conexão com o MySQL
-echo "<h2>3. Testando conexão com o MySQL</h2>";
-
-if (isset($db_host) && isset($db_user) && isset($db_pass) && isset($db_name)) {
-    try {
-        $mysqli = new mysqli($db_host, $db_user, $db_pass, $db_name);
+    // Tentar analisar como JSON
+    $data = json_decode($response, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        echo "<h3 style='color: red;'>Erro ao analisar JSON</h3>";
+        echo "<p>" . htmlspecialchars(json_last_error_msg()) . "</p>";
+    } else {
+        echo "<h3>Resposta JSON Formatada:</h3>";
+        echo "<pre style='background-color: #f5f5f5; padding: 10px; border-radius: 5px; max-height: 400px; overflow: auto;'>";
+        echo htmlspecialchars(json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        echo "</pre>";
         
-        if ($mysqli->connect_error) {
-            echo "<div class='error'>❌ Falha na conexão: " . htmlspecialchars($mysqli->connect_error) . "</div>";
+        // Análise específica baseada no endpoint
+        echo "<h3>Análise da Resposta:</h3>";
+        
+        if ($endpointSelecionado === 'projects.json' && isset($data['projects'])) {
+            echo "<p>Total de projetos: " . count($data['projects']) . "</p>";
+            echo "<table border='1' cellpadding='5' style='border-collapse: collapse;'>";
+            echo "<tr><th>ID</th><th>Nome</th><th>Identificador</th></tr>";
             
-            // Verificar se o banco existe
-            try {
-                $mysqli_check = new mysqli($db_host, $db_user, $db_pass);
-                
-                if (!$mysqli_check->connect_error) {
-                    $result = $mysqli_check->query("SHOW DATABASES LIKE '" . $mysqli_check->real_escape_string($db_name) . "'");
-                    if ($result->num_rows == 0) {
-                        echo "<div class='warning'>⚠️ O banco de dados '$db_name' não existe. Tentando criar...</div>";
-                        
-                        if ($mysqli_check->query("CREATE DATABASE IF NOT EXISTS `" . $mysqli_check->real_escape_string($db_name) . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")) {
-                            echo "<div class='success'>✅ Banco de dados '$db_name' criado com sucesso!</div>";
-                        } else {
-                            echo "<div class='error'>❌ Erro ao criar o banco de dados: " . $mysqli_check->error . "</div>";
-                        }
-                    }
-                    $mysqli_check->close();
-                }
-            } catch (Exception $e) {
-                echo "<div class='error'>❌ Erro ao verificar banco de dados: " . $e->getMessage() . "</div>";
-            }
-        } else {
-            echo "<div class='success'>✅ Conexão estabelecida com sucesso!</div>";
-            
-            // Testar criação de tabela
-            echo "<h3>Testando permissões para criar tabelas:</h3>";
-            
-            if ($mysqli->query("CREATE TABLE IF NOT EXISTS _config_test (id INT)")) {
-                echo "<div class='success'>✅ Permissão para criar tabelas confirmada</div>";
-                $mysqli->query("DROP TABLE IF EXISTS _config_test");
-            } else {
-                echo "<div class='error'>❌ Sem permissão para criar tabelas: " . $mysqli->error . "</div>";
-            }
-            
-            // Verificar se as tabelas existem
-            echo "<h3>Verificando tabelas do sistema:</h3>";
-            echo "<table>";
-            echo "<tr><th>Tabela</th><th>Status</th></tr>";
-            
-            $tables = ['user_tokens', 'todos'];
-            foreach ($tables as $table) {
-                $result = $mysqli->query("SHOW TABLES LIKE '$table'");
+            $temProtoypes = false;
+            foreach ($data['projects'] as $project) {
                 echo "<tr>";
-                echo "<td><code>$table</code></td>";
-                if ($result->num_rows > 0) {
-                    echo "<td class='success'>Existe</td>";
-                } else {
-                    echo "<td class='warning'>Não existe</td>";
-                }
+                echo "<td>" . htmlspecialchars($project['id']) . "</td>";
+                echo "<td>" . htmlspecialchars($project['name']) . "</td>";
+                echo "<td>" . htmlspecialchars($project['identifier']) . "</td>";
                 echo "</tr>";
+                
+                if ($project['identifier'] === 'prototypes') {
+                    $temProtoypes = true;
+                }
             }
-            
             echo "</table>";
             
-            $mysqli->close();
+            if ($temProtoypes) {
+                echo "<p style='color: green;'>✅ Projeto 'prototypes' encontrado!</p>";
+            } else {
+                echo "<p style='color: red;'>❌ Projeto 'prototypes' NÃO encontrado! É necessário criar este projeto no Redmine.</p>";
+            }
         }
-    } catch (Exception $e) {
-        echo "<div class='error'>❌ Exceção ao conectar ao MySQL: " . $e->getMessage() . "</div>";
+        
+        if ($endpointSelecionado === 'trackers.json' && isset($data['trackers'])) {
+            echo "<p>Total de trackers: " . count($data['trackers']) . "</p>";
+            echo "<table border='1' cellpadding='5' style='border-collapse: collapse;'>";
+            echo "<tr><th>ID</th><th>Nome</th></tr>";
+            
+            $temPrototype = false;
+            foreach ($data['trackers'] as $tracker) {
+                echo "<tr>";
+                echo "<td>" . htmlspecialchars($tracker['id']) . "</td>";
+                echo "<td>" . htmlspecialchars($tracker['name']) . "</td>";
+                echo "</tr>";
+                
+                if (strtolower($tracker['name']) === 'prototype') {
+                    $temPrototype = true;
+                }
+            }
+            echo "</table>";
+            
+            if ($temPrototype) {
+                echo "<p style='color: green;'>✅ Tracker 'prototype' encontrado!</p>";
+            } else {
+                echo "<p style='color: red;'>❌ Tracker 'prototype' NÃO encontrado! É necessário criar este tracker no Redmine.</p>";
+            }
+        }
+        
+        if (strpos($endpointSelecionado, 'issues.json') === 0) {
+            if (isset($data['issues'])) {
+                echo "<p>Total de issues: " . count($data['issues']) . "</p>";
+                
+                if (count($data['issues']) === 0) {
+                    echo "<p>Nenhuma issue encontrada para os critérios especificados.</p>";
+                    
+                    if (strpos($endpointSelecionado, 'project_id=prototypes') !== false) {
+                        echo "<p>Isso pode significar que:</p>";
+                        echo "<ol>";
+                        echo "<li>O projeto 'prototypes' existe mas não tem issues, ou</li>";
+                        echo "<li>O projeto 'prototypes' não existe, ou</li>";
+                        echo "<li>O tracker 'prototype' não existe ou não está associado ao projeto.</li>";
+                        echo "</ol>";
+                    }
+                } else {
+                    echo "<table border='1' cellpadding='5' style='border-collapse: collapse;'>";
+                    echo "<tr><th>ID</th><th>Assunto</th><th>Status</th><th>Projeto</th><th>Tracker</th></tr>";
+                    
+                    foreach ($data['issues'] as $issue) {
+                        echo "<tr>";
+                        echo "<td>" . htmlspecialchars($issue['id']) . "</td>";
+                        echo "<td>" . htmlspecialchars($issue['subject']) . "</td>";
+                        echo "<td>" . htmlspecialchars($issue['status']['name']) . "</td>";
+                        echo "<td>" . htmlspecialchars($issue['project']['name']) . "</td>";
+                        echo "<td>" . htmlspecialchars($issue['tracker']['name']) . "</td>";
+                        echo "</tr>";
+                    }
+                    echo "</table>";
+                }
+            } else {
+                echo "<p style='color: red;'>A resposta não contém o campo 'issues'.</p>";
+                echo "<p>Estrutura da resposta:</p>";
+                echo "<ul>";
+                foreach (array_keys($data) as $key) {
+                    echo "<li>" . htmlspecialchars($key) . "</li>";
+                }
+                echo "</ul>";
+            }
+        }
     }
-} else {
-    echo "<div class='error'>❌ Informações de conexão incompletas. Verifique o arquivo de configuração.</div>";
 }
 
-echo "<h2>4. Próximos passos</h2>";
-echo "<ol>";
-echo "<li>Certifique-se de que todas as verificações acima estão passando</li>";
-echo "<li>Se o banco de dados ou tabelas não existirem, você pode executar o script <code>todos.php</code> para criá-los automaticamente</li>";
-echo "<li>Se os erros persistirem, verifique os logs de erro do MySQL (geralmente em /var/log/mysql/error.log no Linux)</li>";
-echo "<li>Confirme se o usuário MySQL tem permissões suficientes para criar e modificar tabelas</li>";
-echo "</ol>";
+echo "<hr>";
+echo "<h3>Próximos Passos:</h3>";
+echo "<ul>";
 
-echo "</body></html>";
+if (strpos($status, '200') !== false) {
+    echo "<li>A API está respondendo com sucesso (200 OK).</li>";
+    
+    if (isset($data['issues']) && empty($data['issues']) && strpos($endpointSelecionado, 'project_id=prototypes') !== false) {
+        echo "<li style='color: blue;'>Verifique se o projeto 'prototypes' existe (teste o endpoint 'projects.json').</li>";
+        echo "<li style='color: blue;'>Verifique se o tracker 'prototype' existe (teste o endpoint 'trackers.json').</li>";
+        echo "<li style='color: blue;'>Você pode precisar criar o projeto 'prototypes' e/ou o tracker 'prototype' no Redmine.</li>";
+        echo "<li style='color: blue;'>Outra opção é modificar o código para usar um projeto e tracker existentes.</li>";
+    }
+} else {
+    echo "<li style='color: red;'>A API retornou um erro: " . htmlspecialchars($status) . "</li>";
+    
+    if (strpos($status, '401') !== false) {
+        echo "<li style='color: red;'>Erro de autenticação. Verifique se a chave API está correta e não expirou.</li>";
+    } elseif (strpos($status, '403') !== false) {
+        echo "<li style='color: red;'>Acesso proibido. Verifique se a chave API tem permissões suficientes.</li>";
+    } elseif (strpos($status, '404') !== false) {
+        echo "<li style='color: red;'>Recurso não encontrado. Verifique se a URL está correta.</li>";
+    }
+}
+
+echo "</ul>";
 ?>
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+    margin: 20px;
+    padding: 0;
+    color: #333;
+}
+h2 {
+    color: #2c5aa0;
+    margin-top: 30px;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 5px;
+}
+h3 {
+    color: #2c5aa0;
+    margin-top: 20px;
+}
+pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+code {
+    background-color: #f5f5f5;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+select {
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    font-size: 14px;
+    width: 300px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    margin-bottom: 20px;
+}
+th {
+    background-color: #f2f2f2;
+    text-align: left;
+}
+tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+</style>

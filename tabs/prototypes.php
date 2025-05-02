@@ -33,8 +33,9 @@ foreach ($possibleApiKeys as $key) {
 
 $baseUrl = '';
 foreach ($possibleBaseUrls as $url) {
+    global $BASE_URL, $user, $pass;
     if (defined($url)) {
-        $baseUrl = constant($url);
+        $baseUrl = constant($BASE_URL);
         echo "<!-- Usando $url como URL base -->";
         break;
     }

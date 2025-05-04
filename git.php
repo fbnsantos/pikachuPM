@@ -27,10 +27,6 @@ echo "<pre>$output</pre>";
 $output = shell_exec("cd PKMT && npm install 2>&1");
 echo "<pre>$output</pre>";
 
-$output = shell_exec("cd PKMT && npm run dev 2>&1");
-echo "<pre>$output</pre>";
-exit;
-
 $output = shell_exec("cd PKMT && npm run build 2>&1");
 echo "<pre>$output</pre>";
 

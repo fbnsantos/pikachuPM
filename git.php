@@ -22,14 +22,14 @@ echo "done";
 $output = shell_exec("cd PKMT 2>&1");
 echo "<pre>$output</pre>";
 
-$output = shell_exec("npm install 2>&1");
+$output = shell_exec("cd PKMT && npm install 2>&1");
 echo "<pre>$output</pre>";
 
-$output = shell_exec("npm run dev 2>&1");
+$output = shell_exec("cd PKMT && npm run dev 2>&1");
 echo "<pre>$output</pre>";
 
 
-$output = shell_exec("npm run build 2>&1");
+$output = shell_exec("cd PKMT && npm run build 2>&1");
 echo "<pre>$output</pre>";
 
 exit;

@@ -10,13 +10,20 @@ export async function fetchTodos(token) {
 }
 
 export async function createTodo(token, todo) {
+  const newTodo = {
+    titulo: "Tarefa de teste",
+    descritivo: "Descrição de teste",
+    data_limite: "2025-05-30",
+    estado: "aberta"
+  };
+
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`
     },
-    body: JSON.stringify(todo)
+    body: JSON.stringify(newTodo)
   });
   return await res.json();
 }

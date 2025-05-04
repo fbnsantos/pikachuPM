@@ -17,6 +17,8 @@ export async function createTodo(token, todo) {
     estado: "aberta"
   };
 
+  console.log("Enviando:", newTodo);
+  
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: {

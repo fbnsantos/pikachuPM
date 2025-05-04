@@ -14,15 +14,39 @@ export default function TodoList({ token }) {
     loadTodos();
   }, [token]);
 
-  const handleAdd = () => {
-    console.log("Vlic:");
-    if (!newTodo.trim()) return;
-    createTodo(token, { titulo: newTodo }).then(() => {
+  const handleAdd = async () => {
+    console.log("Clique no botão Adicionar");
+    
+    if (!newTodo.trim()) {
+      console.log("Texto vazio, não adicionando tarefa");
+      return;
+    }
+    
+    try {
+      // Já que a função createTodo foi atualizada para aceitar tanto string como objeto
+      // Podemos simplificar a chamada
+      const response = await createTodo(token, { 
+        titulo: newTodo.trim(),
+        descritivo: ""
+      });
+      
+      console.log("Resposta da API após criação:", response);
+      
+      if (response.error) {
+        console.error("Erro retornado pela API:", response.error);
+        // Aqui você poderia adicionar um feedback visual para o usuário
+        return;
+      }
+      
+      // Limpar o campo de entrada e recarregar a lista
       setNewTodo('');
       loadTodos();
-    });
+    } catch (error) {
+      console.error("Erro ao adicionar tarefa:", error);
+      // Aqui você poderia adicionar um feedback visual para o usuário
+    }
   };
-
+  
   const handleDelete = (id) => {
     deleteTodo(token, id).then(() => loadTodos());
   };

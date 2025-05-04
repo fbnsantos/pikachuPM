@@ -9,25 +9,42 @@ export async function fetchTodos(token) {
   return await res.json();
 }
 
-export async function createTodo(token, todo) {
-  const newTodo = {
-    titulo: "Tarefa de teste",
-    descritivo: "Descrição de teste",
-    data_limite: "2025-05-30",
-    estado: "aberta"
-  };
+export async function createTodo(token, todo, descritivo = '') {
+  // Se todo for uma string, criar um objeto com título
+  // Se todo já for um objeto, usá-lo diretamente
+  const todoData = typeof todo === 'string' 
+    ? {
+        titulo: todo,
+        descritivo: descritivo,
+        data_limite: "2025-05-30",
+        estado: "aberta"
+      }
+    : todo;
 
-  console.log("Enviando:", newTodo);
-  
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify(newTodo)
-  });
-  return await res.json();
+  console.log("Enviando para API:", todoData);
+
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(todoData)
+    });
+    
+    // Verificar se a resposta foi bem-sucedida
+    if (!res.ok) {
+      const errorData = await res.json();
+      console.error("Erro da API:", errorData);
+      return errorData;
+    }
+    
+    return await res.json();
+  } catch (error) {
+    console.error("Erro na requisição:", error);
+    return { error: error.message || 'Erro na comunicação com o servidor' };
+  }
 }
 
 export async function updateTodo(token, todo) {

@@ -15,6 +15,7 @@ export default function TodoList({ token }) {
   }, [token]);
 
   const handleAdd = () => {
+    console.log("Vlic:");
     if (!newTodo.trim()) return;
     createTodo(token, { titulo: newTodo }).then(() => {
       setNewTodo('');

@@ -1,5 +1,7 @@
 <?php
 
+echo "OLA FBN";
+
 putenv("HOME=/home/criisadmin");
 
 $currentUser = get_current_user();

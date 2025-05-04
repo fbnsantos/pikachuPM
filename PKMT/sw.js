@@ -1,4 +1,4 @@
-const CACHE_NAME = 'todo-pwa-v3'; // muda este nome a cada build
+const CACHE_NAME = 'todo-pwa-v4'; // muda este nome a cada build
 const FILES_TO_CACHE = [
   '/',
   '/index.html',

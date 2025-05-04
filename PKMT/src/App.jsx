@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import TodoList from './components/TodoList';
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
@@ -36,13 +37,14 @@ export default function App() {
 
   return (
     <div>
-      <h1>ToDo PWA V0.3</h1>
+      <h1>ToDo PWA</h1>
 
       {!token ? (
         <button onClick={handleLogin}>Login com Token</button>
       ) : (
-        <p>Bem-vindo!</p>
+        <TodoList token={token} />
       )}
+
 
       {showInstallButton && (
         <button onClick={handleInstallClick} style={{ marginTop: '10px' }}>

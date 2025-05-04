@@ -21,10 +21,14 @@ export async function createTodo(token, todo, descritivo = '') {
     todoData.estado = "aberta";
   }
   
-  // Se não houver data_limite definida ou for null, remova o campo completamente
-  // em vez de enviar null ou string vazia
+  // Definir uma data padrão de 90 dias no futuro se não houver data_limite
   if (!todoData.data_limite) {
-    delete todoData.data_limite;
+    // Criar data atual
+    const dataAtual = new Date();
+    // Adicionar 90 dias
+    dataAtual.setDate(dataAtual.getDate() + 90);
+    // Formatar como YYYY-MM-DD (formato aceito pelo MySQL)
+    todoData.data_limite = dataAtual.toISOString().split('T')[0];
   }
 
   console.log("Enviando para API:", todoData);

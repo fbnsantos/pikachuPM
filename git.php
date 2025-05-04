@@ -19,6 +19,19 @@ $output = shell_exec('git pull 2>&1');
 echo "<pre>$output</pre>";
 echo "done";
 
+$output = shell_exec("cd PKMT 2>&1");
+echo "<pre>$output</pre>";
+
+$output = shell_exec("npm install 2>&1");
+echo "<pre>$output</pre>";
+
+$output = shell_exec("npm run dev 2>&1");
+echo "<pre>$output</pre>";
+
+
+$output = shell_exec("npm run build 2>&1");
+echo "<pre>$output</pre>";
+
 exit;
 // Nome do arquivo PHP a ser gerado
 //$newFileName = 'config.php';

@@ -1,7 +1,7 @@
 {
   "name": "Gestor de Tarefas",
   "short_name": "Tarefas",
-  "start_url": "/pikachu/PKMT/",
+  "start_url": "/pikachu/PKMT/dist",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#317EFB",

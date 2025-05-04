@@ -20,7 +20,7 @@ $output = shell_exec('git pull 2>&1');
 // Exibir a saída do comando
 echo "<pre>$output</pre>";
 echo "done";
-exit;
+
 $output = shell_exec("cd PKMT 2>&1");
 echo "<pre>$output</pre>";
 
@@ -29,7 +29,7 @@ echo "<pre>$output</pre>";
 
 $output = shell_exec("cd PKMT && npm run dev 2>&1");
 echo "<pre>$output</pre>";
-
+exit;
 
 $output = shell_exec("cd PKMT && npm run build 2>&1");
 echo "<pre>$output</pre>";

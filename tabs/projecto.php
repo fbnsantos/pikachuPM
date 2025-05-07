@@ -88,8 +88,11 @@ function getChildProjects($parentId) {
 }
 
 // Função para buscar as issues de um projeto com opção de filtro por atribuição
-function getProjectIssues($projectId, $assignedToId = null) {
-    $endpoint = "/$projectId/issues.json?status_id=*&sort=updated_on:desc";
+function getProjectIssues($projectId, $assignedToId = null, $includeClosedIssues = false) {
+    // Status abertos por padrão, ou todos se includeClosedIssues for true
+    $statusFilter = $includeClosedIssues ? "*" : "open";
+    
+    $endpoint = "/$projectId/issues.json?status_id=$statusFilter&sort=updated_on:desc";
     
     // Adicionar filtro por atribuição se necessário
     if ($assignedToId) {
@@ -207,7 +210,22 @@ function updateIssueStatus($issueId, $statusId) {
     return !isset($result['error']);
 }
 
-// Buscar issue geral (é a primeira issue do projeto com "geral" no título)
+// Criar um novo projeto
+function createProject($data) {
+    $projectData = [
+        'project' => $data
+    ];
+    
+    error_log("Criando novo projeto: " . json_encode($projectData));
+    
+    $result = redmineAPI(".json", 'POST', $projectData);
+    
+    if (isset($result['error'])) {
+        error_log("Erro ao criar projeto: " . print_r($result, true));
+    }
+    
+    return $result;
+}
 function findGeneralIssue($projectId) {
     $issues = getProjectIssues($projectId);
     error_log("Procurando issue geral para o projeto $projectId. Total de issues: " . count($issues));

@@ -7,7 +7,19 @@ require_once 'config.php';
 function redmineAPI($endpoint, $method = 'GET', $data = null) {
     global $API_KEY, $BASE_URL;
     
-    $url = $BASE_URL . '/projects' . $endpoint;
+    // Verificar se endpoint começa com / para evitar problemas de URL
+    if ($endpoint[0] !== '/' && !strpos($endpoint, 'http') === 0) {
+        $endpoint = '/' . $endpoint;
+    }
+    
+    // Determinar URL base com base no endpoint
+    if (strpos($endpoint, '/issues') === 0 || strpos($endpoint, '/users') === 0 || 
+        strpos($endpoint, '/trackers') === 0 || strpos($endpoint, '/enumerations') === 0) {
+        $url = $BASE_URL . $endpoint;
+    } else {
+        $url = $BASE_URL . '/projects' . $endpoint;
+    }
+    
     $ch = curl_init($url);
     
     $headers = [
@@ -28,13 +40,19 @@ function redmineAPI($endpoint, $method = 'GET', $data = null) {
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     
+    if (curl_errno($ch)) {
+        error_log("Erro CURL: " . curl_error($ch));
+        curl_close($ch);
+        return ['error' => "Erro de conexão: " . curl_error($ch)];
+    }
+    
     curl_close($ch);
     
     if ($httpCode >= 200 && $httpCode < 300) {
         return json_decode($response, true);
     } else {
         error_log("Erro API Redmine ($httpCode): $response");
-        return ['error' => "Erro ao acessar API ($httpCode)"];
+        return ['error' => "Erro ao acessar API ($httpCode): " . $response];
     }
 }
 
@@ -43,6 +61,7 @@ function getTribeProjects() {
     $response = redmineAPI('/tribeprojects.json?include=children');
     
     if (isset($response['error'])) {
+        error_log("Erro ao buscar projeto pai: " . print_r($response, true));
         return null;
     }
     
@@ -54,6 +73,7 @@ function getChildProjects($parentId) {
     $response = redmineAPI(".json?parent_id=$parentId");
     
     if (isset($response['error'])) {
+        error_log("Erro ao buscar projetos filhos: " . print_r($response, true));
         return [];
     }
     
@@ -91,7 +111,17 @@ function saveIssue($data, $issueId = null) {
         'issue' => $data
     ];
     
-    return redmineAPI($endpoint, $method, $issueData);
+    // Depuração da chamada à API
+    error_log("Chamando API para " . ($issueId ? "atualizar" : "criar") . " issue: " . json_encode($issueData));
+    
+    $result = redmineAPI($endpoint, $method, $issueData);
+    
+    // Depuração do resultado
+    if (isset($result['error'])) {
+        error_log("Erro ao salvar issue: " . print_r($result, true));
+    }
+    
+    return $result;
 }
 
 // Buscar trackers disponíveis (tipos de issues)
@@ -99,6 +129,7 @@ function getTrackers() {
     $response = redmineAPI("/trackers.json");
     
     if (isset($response['error'])) {
+        error_log("Erro ao buscar trackers: " . print_r($response, true));
         return [];
     }
     
@@ -110,6 +141,7 @@ function getPriorities() {
     $response = redmineAPI("/enumerations/issue_priorities.json");
     
     if (isset($response['error'])) {
+        error_log("Erro ao buscar prioridades: " . print_r($response, true));
         return [];
     }
     
@@ -118,9 +150,11 @@ function getPriorities() {
 
 // Buscar usuários para atribuição
 function getUsers() {
-    $response = redmineAPI("/users.json");
+    // No Redmine, precisamos usar o endpoint correto para buscar usuários
+    $response = redmineAPI("/users.json?limit=100");
     
     if (isset($response['error'])) {
+        error_log("Erro ao buscar usuários: " . $response['error']);
         return [];
     }
     
@@ -132,19 +166,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = $_POST['action'];
     
     if ($action === 'save_issue') {
+        // Depuração dos dados do POST
+        error_log("Dados do POST para save_issue: " . print_r($_POST, true));
+        
         $issueData = [
-            'project_id' => $_POST['project_id'],
+            'project_id' => (int)$_POST['project_id'],
             'subject' => $_POST['subject'],
             'description' => $_POST['description'],
-            'tracker_id' => $_POST['tracker_id'],
-            'priority_id' => $_POST['priority_id']
+            'tracker_id' => (int)$_POST['tracker_id'],
+            'priority_id' => (int)$_POST['priority_id']
         ];
         
         if (!empty($_POST['assigned_to_id'])) {
-            $issueData['assigned_to_id'] = $_POST['assigned_to_id'];
+            $issueData['assigned_to_id'] = (int)$_POST['assigned_to_id'];
         }
         
-        $issueId = isset($_POST['issue_id']) ? $_POST['issue_id'] : null;
+        $issueId = isset($_POST['issue_id']) ? (int)$_POST['issue_id'] : null;
         $result = saveIssue($issueData, $issueId);
         
         if (!isset($result['error'])) {
@@ -152,6 +189,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit;
         } else {
             $error = $result['error'];
+            // Adicionar exibição de erro para depuração
+            echo '<div class="alert alert-danger mb-4">' . 
+                 '<strong>Erro ao salvar issue:</strong> ' . htmlspecialchars($error) .
+                 '</div>';
         }
     }
 }
@@ -173,13 +214,17 @@ $users = getUsers();
 // Buscar issue geral (é a primeira issue do projeto com "geral" no título)
 function findGeneralIssue($projectId) {
     $issues = getProjectIssues($projectId);
+    error_log("Procurando issue geral para o projeto $projectId. Total de issues: " . count($issues));
     
     foreach ($issues as $issue) {
-        if (stripos($issue['subject'], 'geral') !== false) {
+        if (stripos($issue['subject'], 'geral') !== false || 
+            stripos($issue['subject'], 'Informações Gerais') !== false) {
+            error_log("Issue geral encontrada: ID=" . $issue['id'] . ", Subject=" . $issue['subject']);
             return $issue;
         }
     }
     
+    error_log("Nenhuma issue geral encontrada para o projeto $projectId");
     return null;
 }
 
@@ -194,8 +239,30 @@ if ($action === 'create_general' && $selectedProjectId) {
     $generalIssue = findGeneralIssue($selectedProjectId);
     
     if (!$generalIssue) {
-        $defaultTrackerId = $trackers[0]['id'] ?? 1;
-        $defaultPriorityId = $priorities[0]['id'] ?? 3;
+        // Obter trackers e prioridades novamente para garantir que temos dados
+        if (empty($trackers)) {
+            $trackers = getTrackers();
+        }
+        if (empty($priorities)) {
+            $priorities = getPriorities();
+        }
+        
+        // Encontrar IDs para o tracker e prioridade (ou usar valores padrão se não encontrados)
+        $defaultTrackerId = 1; // Valor padrão para tracker (geralmente "Bug")
+        $defaultPriorityId = 2; // Valor padrão para prioridade (geralmente "Normal")
+        
+        if (!empty($trackers)) {
+            $defaultTrackerId = $trackers[0]['id'];
+        }
+        
+        if (!empty($priorities)) {
+            foreach ($priorities as $priority) {
+                if ($priority['name'] === 'Normal') {
+                    $defaultPriorityId = $priority['id'];
+                    break;
+                }
+            }
+        }
         
         $issueData = [
             'project_id' => $selectedProjectId,
@@ -212,6 +279,8 @@ if ($action === 'create_general' && $selectedProjectId) {
             exit;
         } else {
             $error = $result['error'];
+            // Depuração
+            error_log("Erro ao criar issue geral: " . print_r($result, true));
         }
     } else {
         header("Location: ?tab=projecto&project_id=$selectedProjectId&issue_id=" . $generalIssue['id'] . "&action=edit");
@@ -359,12 +428,18 @@ if ($action === 'create_general' && $selectedProjectId) {
                                             <label for="assigned_to_id" class="form-label">Atribuir para</label>
                                             <select class="form-select" id="assigned_to_id" name="assigned_to_id">
                                                 <option value="">Ninguém</option>
-                                                <?php foreach ($users as $user): ?>
+                                                <?php 
+                                                if (!empty($users)):
+                                                    foreach ($users as $user): 
+                                                ?>
                                                     <option value="<?= $user['id'] ?>"
                                                             <?= isset($currentIssue['assigned_to']) && $currentIssue['assigned_to']['id'] == $user['id'] ? 'selected' : '' ?>>
-                                                        <?= htmlspecialchars($user['name']) ?>
+                                                        <?= htmlspecialchars($user['firstname'] . ' ' . $user['lastname']) ?>
                                                     </option>
-                                                <?php endforeach; ?>
+                                                <?php 
+                                                    endforeach;
+                                                endif;
+                                                ?>
                                             </select>
                                         </div>
                                     </div>
@@ -424,11 +499,17 @@ if ($action === 'create_general' && $selectedProjectId) {
                                             <label for="assigned_to_id" class="form-label">Atribuir para</label>
                                             <select class="form-select" id="assigned_to_id" name="assigned_to_id">
                                                 <option value="">Ninguém</option>
-                                                <?php foreach ($users as $user): ?>
+                                                <?php 
+                                                if (!empty($users)):
+                                                    foreach ($users as $user): 
+                                                ?>
                                                     <option value="<?= $user['id'] ?>">
-                                                        <?= htmlspecialchars($user['name']) ?>
+                                                        <?= htmlspecialchars($user['firstname'] . ' ' . $user['lastname']) ?>
                                                     </option>
-                                                <?php endforeach; ?>
+                                                <?php 
+                                                    endforeach;
+                                                endif;
+                                                ?>
                                             </select>
                                         </div>
                                     </div>

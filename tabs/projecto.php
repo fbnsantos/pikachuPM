@@ -243,6 +243,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 $filterAssigned = isset($_GET['assigned']) ? $_GET['assigned'] : 'all';
 $currentUserId = $_SESSION['user_id'] ?? null;
 
+// Obter trackers, prioridades e usuários para formulários
+$trackers = getTrackers();
+$priorities = getPriorities();
+$users = getUsers();
+
+// Obter status disponíveis para issues
+$statuses = getStatuses();
+
+// Processar alterações de status
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_status') {
+    if (isset($_POST['issue_id']) && isset($_POST['status_id'])) {
+        $issueId = (int)$_POST['issue_id'];
+        $statusId = (int)$_POST['status_id'];
+        $projectId = $_POST['project_id'] ?? null;
+        
+        $success = updateIssueStatus($issueId, $statusId);
+        
+        if ($success && $projectId) {
+            // Redirecionar para a mesma página com uma mensagem de sucesso
+            header("Location: ?tab=projecto&project_id=$projectId&status_updated=1");
+            exit;
+        } else {
+            $error = "Falha ao atualizar o status da tarefa.";
+        }
+    }
+}
+
 // Buscar issue geral (é a primeira issue do projeto com "geral" no título)
 function findGeneralIssue($projectId) {
     $issues = getProjectIssues($projectId);

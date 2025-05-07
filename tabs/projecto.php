@@ -1,4 +1,7 @@
-<?php
+// Obter trackers, prioridades e usuários para formulários
+$trackers = getTrackers();
+$priorities = getPriorities();
+$users = getUsers();<?php
 // tabs/projecto.php
 // Inclui o arquivo de configuração
 require_once 'config.php';
@@ -80,11 +83,19 @@ function getChildProjects($parentId) {
     return $response['projects'] ?? [];
 }
 
-// Buscar as issues de um projeto
-function getProjectIssues($projectId) {
-    $response = redmineAPI("/$projectId/issues.json?status_id=*&sort=updated_on:desc");
+// Função para buscar as issues de um projeto com opção de filtro por atribuição
+function getProjectIssues($projectId, $assignedToId = null) {
+    $endpoint = "/$projectId/issues.json?status_id=*&sort=updated_on:desc";
+    
+    // Adicionar filtro por atribuição se necessário
+    if ($assignedToId) {
+        $endpoint .= "&assigned_to_id=$assignedToId";
+    }
+    
+    $response = redmineAPI($endpoint);
     
     if (isset($response['error'])) {
+        error_log("Erro ao buscar issues: " . print_r($response, true));
         return [];
     }
     
@@ -206,10 +217,31 @@ $action = $_GET['action'] ?? 'list';
 $tribeProjects = getTribeProjects();
 $childProjects = $tribeProjects ? getChildProjects($tribeProjects['id']) : [];
 
-// Obter trackers, prioridades e usuários para formulários
-$trackers = getTrackers();
-$priorities = getPriorities();
-$users = getUsers();
+// Obter status disponíveis para issues
+$statuses = getStatuses();
+
+// Processar alterações de status
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_status') {
+    if (isset($_POST['issue_id']) && isset($_POST['status_id'])) {
+        $issueId = (int)$_POST['issue_id'];
+        $statusId = (int)$_POST['status_id'];
+        $projectId = $_POST['project_id'] ?? null;
+        
+        $success = updateIssueStatus($issueId, $statusId);
+        
+        if ($success && $projectId) {
+            // Redirecionar para a mesma página com uma mensagem de sucesso
+            header("Location: ?tab=projecto&project_id=$projectId&status_updated=1");
+            exit;
+        } else {
+            $error = "Falha ao atualizar o status da tarefa.";
+        }
+    }
+}
+
+// Verificar filtro de atribuição
+$filterAssigned = isset($_GET['assigned']) ? $_GET['assigned'] : 'all';
+$currentUserId = $_SESSION['user_id'] ?? null;
 
 // Buscar issue geral (é a primeira issue do projeto com "geral" no título)
 function findGeneralIssue($projectId) {
@@ -339,6 +371,18 @@ if ($action === 'create_general' && $selectedProjectId) {
                             <i class="bi bi-folder-check me-2"></i> <?= htmlspecialchars($projectDetails['name'] ?? 'Projeto') ?>
                         </h5>
                         <div>
+                            <!-- Filtro de visualização por atribuição -->
+                            <div class="btn-group me-2">
+                                <a href="?tab=projecto&project_id=<?= $selectedProjectId ?>&assigned=all" 
+                                   class="btn btn-<?= $filterAssigned === 'all' ? 'light' : 'outline-light' ?> btn-sm">
+                                    <i class="bi bi-people-fill me-1"></i> Todas as tarefas
+                                </a>
+                                <a href="?tab=projecto&project_id=<?= $selectedProjectId ?>&assigned=me" 
+                                   class="btn btn-<?= $filterAssigned === 'me' ? 'light' : 'outline-light' ?> btn-sm">
+                                    <i class="bi bi-person-fill me-1"></i> Minhas tarefas
+                                </a>
+                            </div>
+                            
                             <?php if ($generalIssue): ?>
                                 <a href="?tab=projecto&project_id=<?= $selectedProjectId ?>&issue_id=<?= $generalIssue['id'] ?>&action=edit" 
                                    class="btn btn-light btn-sm">
@@ -562,9 +606,16 @@ if ($action === 'create_general' && $selectedProjectId) {
                         
                     <?php else: ?>
                         <div class="card-body">
+                            <?php if (isset($_GET['status_updated']) && $_GET['status_updated'] == 1): ?>
+                                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                                    <i class="bi bi-check-circle-fill me-2"></i> Status da tarefa atualizado com sucesso!
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                                </div>
+                            <?php endif; ?>
+                            
                             <?php if (empty($issues)): ?>
                                 <div class="alert alert-info">
-                                    Nenhuma issue encontrada para este projeto.
+                                    <i class="bi bi-info-circle me-2"></i> Nenhuma issue encontrada para este projeto.
                                 </div>
                             <?php else: ?>
                                 <div class="table-responsive">
@@ -586,6 +637,13 @@ if ($action === 'create_general' && $selectedProjectId) {
                                                 if ($generalIssue && $issue['id'] == $generalIssue['id']) {
                                                     continue; // Pular a issue geral, já que ela está mostrada no topo
                                                 }
+                                                
+                                                // Filtrar por atribuição se necessário
+                                                if ($filterAssigned === 'me' && 
+                                                    (!isset($issue['assigned_to']) || $issue['assigned_to']['id'] != $currentUserId)) {
+                                                    continue; // Pular issues não atribuídas ao usuário atual
+                                                }
+                                                
                                                 $normalIssues[] = $issue;
                                             }
                                             
@@ -607,10 +665,22 @@ if ($action === 'create_general' && $selectedProjectId) {
                                                         <?php endif; ?>
                                                     </td>
                                                     <td>
-                                                        <span class="badge <?= $issue['status']['name'] == 'Closed' ? 'bg-success' : 
-                                                                              ($issue['status']['name'] == 'New' ? 'bg-primary' : 'bg-warning') ?>">
-                                                            <?= htmlspecialchars($issue['status']['name']) ?>
-                                                        </span>
+                                                        <!-- Dropdown para alterar status -->
+                                                        <form method="post" action="" class="status-form">
+                                                            <input type="hidden" name="action" value="update_status">
+                                                            <input type="hidden" name="issue_id" value="<?= $issue['id'] ?>">
+                                                            <input type="hidden" name="project_id" value="<?= $selectedProjectId ?>">
+                                                            <select name="status_id" class="form-select form-select-sm status-select" 
+                                                                    aria-label="Alterar status">
+                                                                <?php foreach ($statuses as $status): ?>
+                                                                    <option value="<?= $status['id'] ?>" 
+                                                                            <?= $issue['status']['id'] == $status['id'] ? 'selected' : '' ?>
+                                                                            class="status-option-<?= strtolower(str_replace(' ', '-', $status['name'])) ?>">
+                                                                        <?= htmlspecialchars($status['name']) ?>
+                                                                    </option>
+                                                                <?php endforeach; ?>
+                                                            </select>
+                                                        </form>
                                                     </td>
                                                     <td>
                                                         <?php 
@@ -870,7 +940,21 @@ document.addEventListener('DOMContentLoaded', function() {
         descriptionTextarea.addEventListener('input', updateMarkdownPreview);
     }
     
-    // Estilos adicionais para o editor Markdown
+    // Alteração automática de status quando o usuário muda a seleção
+    const statusSelects = document.querySelectorAll('.status-select');
+    if (statusSelects.length > 0) {
+        statusSelects.forEach(select => {
+            select.addEventListener('change', function() {
+                // Encontrar o formulário pai e submetê-lo
+                const form = this.closest('form');
+                if (form) {
+                    form.submit();
+                }
+            });
+        });
+    }
+    
+    // Estilos adicionais para o editor Markdown e status
     const style = document.createElement('style');
     style.textContent = `
         .markdown-toolbar {
@@ -918,6 +1002,31 @@ document.addEventListener('DOMContentLoaded', function() {
             background-color: #e9ecef;
             padding: 0.2rem 0.4rem;
             border-radius: 0.2rem;
+        }
+        
+        /* Estilos para os status no select */
+        .status-select {
+            font-weight: 500;
+        }
+        
+        .status-option-new {
+            background-color: #cfe2ff;
+            color: #084298;
+        }
+        
+        .status-option-in-progress {
+            background-color: #fff3cd;
+            color: #664d03;
+        }
+        
+        .status-option-closed {
+            background-color: #d1e7dd;
+            color: #0f5132;
+        }
+        
+        .status-option-feedback {
+            background-color: #f8d7da;
+            color: #842029;
         }
     `;
     document.head.appendChild(style);

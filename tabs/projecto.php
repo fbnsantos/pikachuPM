@@ -1,10 +1,9 @@
-// Obter trackers, prioridades e usuários para formulários
-$trackers = getTrackers();
-$priorities = getPriorities();
-$users = getUsers();<?php
+<?php
 // tabs/projecto.php
 // Inclui o arquivo de configuração
 require_once 'config.php';
+
+// ======== DEFINIÇÕES DE FUNÇÕES ========
 
 // Função para fazer requisições à API do Redmine
 function redmineAPI($endpoint, $method = 'GET', $data = null) {
@@ -17,11 +16,14 @@ function redmineAPI($endpoint, $method = 'GET', $data = null) {
     
     // Determinar URL base com base no endpoint
     if (strpos($endpoint, '/issues') === 0 || strpos($endpoint, '/users') === 0 || 
-        strpos($endpoint, '/trackers') === 0 || strpos($endpoint, '/enumerations') === 0) {
+        strpos($endpoint, '/trackers') === 0 || strpos($endpoint, '/enumerations') === 0 ||
+        strpos($endpoint, '/issue_statuses') === 0) {
         $url = $BASE_URL . $endpoint;
     } else {
         $url = $BASE_URL . '/projects' . $endpoint;
     }
+    
+    error_log("URL completa: $url");
     
     $ch = curl_init($url);
     
@@ -42,6 +44,8 @@ function redmineAPI($endpoint, $method = 'GET', $data = null) {
     
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    
+    error_log("Resposta da API Redmine: HTTP/1.1 $httpCode " . (curl_getinfo($ch, CURLINFO_HTTP_CODE_STR) ?? ''));
     
     if (curl_errno($ch)) {
         error_log("Erro CURL: " . curl_error($ch));
@@ -165,12 +169,71 @@ function getUsers() {
     $response = redmineAPI("/users.json?limit=100");
     
     if (isset($response['error'])) {
-        error_log("Erro ao buscar usuários: " . $response['error']);
+        error_log("Erro ao buscar usuários: " . print_r($response, true));
         return [];
     }
     
     return $response['users'] ?? [];
 }
+
+// Adicionar função para buscar status disponíveis no Redmine
+function getStatuses() {
+    $response = redmineAPI("/issue_statuses.json");
+    
+    if (isset($response['error'])) {
+        error_log("Erro ao buscar status: " . print_r($response, true));
+        return [];
+    }
+    
+    return $response['issue_statuses'] ?? [];
+}
+
+// Atualizar apenas o status de uma issue
+function updateIssueStatus($issueId, $statusId) {
+    $issueData = [
+        'issue' => [
+            'status_id' => (int)$statusId
+        ]
+    ];
+    
+    error_log("Atualizando status da issue $issueId para $statusId");
+    
+    $result = redmineAPI("/issues/$issueId.json", 'PUT', $issueData);
+    
+    if (isset($result['error'])) {
+        error_log("Erro ao atualizar status: " . print_r($result, true));
+    }
+    
+    return !isset($result['error']);
+}
+
+// Buscar issue geral (é a primeira issue do projeto com "geral" no título)
+function findGeneralIssue($projectId) {
+    $issues = getProjectIssues($projectId);
+    error_log("Procurando issue geral para o projeto $projectId. Total de issues: " . count($issues));
+    
+    foreach ($issues as $issue) {
+        if (stripos($issue['subject'], 'geral') !== false || 
+            stripos($issue['subject'], 'Informações Gerais') !== false) {
+            error_log("Issue geral encontrada: ID=" . $issue['id'] . ", Subject=" . $issue['subject']);
+            return $issue;
+        }
+    }
+    
+    error_log("Nenhuma issue geral encontrada para o projeto $projectId");
+    return null;
+}
+
+// ======== INÍCIO DO CÓDIGO PRINCIPAL ========
+
+// Verificar se um projeto específico foi selecionado
+$selectedProjectId = $_GET['project_id'] ?? null;
+$selectedIssueId = $_GET['issue_id'] ?? null;
+$action = $_GET['action'] ?? 'list';
+
+// Verificar filtro de atribuição
+$filterAssigned = isset($_GET['assigned']) ? $_GET['assigned'] : 'all';
+$currentUserId = $_SESSION['user_id'] ?? null;
 
 // Processar formulário de issue
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -226,124 +289,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-// Verificar se um projeto específico foi selecionado
-$selectedProjectId = $_GET['project_id'] ?? null;
-$selectedIssueId = $_GET['issue_id'] ?? null;
-$action = $_GET['action'] ?? 'list';
+// IMPORTANTE: Carregar todos os dados DEPOIS de definir todas as funções para evitar erros
+try {
+    // Obter projetos
+    $tribeProjects = getTribeProjects();
+    $childProjects = $tribeProjects ? getChildProjects($tribeProjects['id']) : [];
 
-// Obter projetos
-$tribeProjects = getTribeProjects();
-$childProjects = $tribeProjects ? getChildProjects($tribeProjects['id']) : [];
+    // Obter trackers, prioridades e usuários para formulários
+    $trackers = getTrackers();
+    $priorities = getPriorities();
+    $users = getUsers();
+    
+    // Obter status disponíveis para issues
+    $statuses = getStatuses();
 
-// Obter status disponíveis para issues
-$statuses = getStatuses();
-
-// Processar alterações de status
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_status') {
-    if (isset($_POST['issue_id']) && isset($_POST['status_id'])) {
-        $issueId = (int)$_POST['issue_id'];
-        $statusId = (int)$_POST['status_id'];
-        $projectId = $_POST['project_id'] ?? null;
-        
-        $success = updateIssueStatus($issueId, $statusId);
-        
-        if ($success && $projectId) {
-            // Redirecionar para a mesma página com uma mensagem de sucesso
-            header("Location: ?tab=projecto&project_id=$projectId&status_updated=1");
-            exit;
-        } else {
-            $error = "Falha ao atualizar o status da tarefa.";
-        }
+    // Verificar se estamos visualizando ou editando uma issue específica
+    $currentIssue = null;
+    if ($selectedIssueId) {
+        $currentIssue = getIssueDetails($selectedIssueId);
     }
-}
 
-// Verificar filtro de atribuição
-$filterAssigned = isset($_GET['assigned']) ? $_GET['assigned'] : 'all';
-$currentUserId = $_SESSION['user_id'] ?? null;
-
-// Obter trackers, prioridades e usuários para formulários
-$trackers = getTrackers();
-$priorities = getPriorities();
-$users = getUsers();
-
-// Obter status disponíveis para issues
-$statuses = getStatuses();
-
-// Buscar issue geral (é a primeira issue do projeto com "geral" no título)
-function findGeneralIssue($projectId) {
-    $issues = getProjectIssues($projectId);
-    error_log("Procurando issue geral para o projeto $projectId. Total de issues: " . count($issues));
-    
-    foreach ($issues as $issue) {
-        if (stripos($issue['subject'], 'geral') !== false || 
-            stripos($issue['subject'], 'Informações Gerais') !== false) {
-            error_log("Issue geral encontrada: ID=" . $issue['id'] . ", Subject=" . $issue['subject']);
-            return $issue;
-        }
-    }
-    
-    error_log("Nenhuma issue geral encontrada para o projeto $projectId");
-    return null;
-}
-
-// Verificar se estamos visualizando ou editando uma issue específica
-$currentIssue = null;
-if ($selectedIssueId) {
-    $currentIssue = getIssueDetails($selectedIssueId);
-}
-
-// Verificar se estamos criando uma issue geral para um projeto que não tem
-if ($action === 'create_general' && $selectedProjectId) {
-    $generalIssue = findGeneralIssue($selectedProjectId);
-    
-    if (!$generalIssue) {
-        // Obter trackers e prioridades novamente para garantir que temos dados
-        if (empty($trackers)) {
-            $trackers = getTrackers();
-        }
-        if (empty($priorities)) {
-            $priorities = getPriorities();
-        }
+    // Verificar se estamos criando uma issue geral para um projeto que não tem
+    if ($action === 'create_general' && $selectedProjectId) {
+        $generalIssue = findGeneralIssue($selectedProjectId);
         
-        // Encontrar IDs para o tracker e prioridade (ou usar valores padrão se não encontrados)
-        $defaultTrackerId = 1; // Valor padrão para tracker (geralmente "Bug")
-        $defaultPriorityId = 2; // Valor padrão para prioridade (geralmente "Normal")
-        
-        if (!empty($trackers)) {
-            $defaultTrackerId = $trackers[0]['id'];
-        }
-        
-        if (!empty($priorities)) {
-            foreach ($priorities as $priority) {
-                if ($priority['name'] === 'Normal') {
-                    $defaultPriorityId = $priority['id'];
-                    break;
+        if (!$generalIssue) {
+            // Obter trackers e prioridades novamente para garantir que temos dados
+            if (empty($trackers)) {
+                $trackers = getTrackers();
+            }
+            if (empty($priorities)) {
+                $priorities = getPriorities();
+            }
+            
+            // Encontrar IDs para o tracker e prioridade (ou usar valores padrão se não encontrados)
+            $defaultTrackerId = 1; // Valor padrão para tracker (geralmente "Bug")
+            $defaultPriorityId = 2; // Valor padrão para prioridade (geralmente "Normal")
+            
+            if (!empty($trackers)) {
+                $defaultTrackerId = $trackers[0]['id'];
+            }
+            
+            if (!empty($priorities)) {
+                foreach ($priorities as $priority) {
+                    if ($priority['name'] === 'Normal') {
+                        $defaultPriorityId = $priority['id'];
+                        break;
+                    }
                 }
             }
-        }
-        
-        $issueData = [
-            'project_id' => $selectedProjectId,
-            'subject' => 'Informações Gerais do Projeto',
-            'description' => "# Links e recursos do projeto\n\n* [Documentação]\n* [Repositório]\n* [Ambiente de teste]\n\n## Notas gerais\n\nAdicione aqui informações gerais do projeto.",
-            'tracker_id' => $defaultTrackerId,
-            'priority_id' => $defaultPriorityId
-        ];
-        
-        $result = saveIssue($issueData);
-        
-        if (!isset($result['error'])) {
-            header("Location: ?tab=projecto&project_id=$selectedProjectId");
-            exit;
+            
+            $issueData = [
+                'project_id' => $selectedProjectId,
+                'subject' => 'Informações Gerais do Projeto',
+                'description' => "# Links e recursos do projeto\n\n* [Documentação]\n* [Repositório]\n* [Ambiente de teste]\n\n## Notas gerais\n\nAdicione aqui informações gerais do projeto.",
+                'tracker_id' => $defaultTrackerId,
+                'priority_id' => $defaultPriorityId
+            ];
+            
+            $result = saveIssue($issueData);
+            
+            if (!isset($result['error'])) {
+                header("Location: ?tab=projecto&project_id=$selectedProjectId");
+                exit;
+            } else {
+                $error = $result['error'];
+                // Depuração
+                error_log("Erro ao criar issue geral: " . print_r($result, true));
+            }
         } else {
-            $error = $result['error'];
-            // Depuração
-            error_log("Erro ao criar issue geral: " . print_r($result, true));
+            header("Location: ?tab=projecto&project_id=$selectedProjectId&issue_id=" . $generalIssue['id'] . "&action=edit");
+            exit;
         }
-    } else {
-        header("Location: ?tab=projecto&project_id=$selectedProjectId&issue_id=" . $generalIssue['id'] . "&action=edit");
-        exit;
     }
+} catch (Exception $e) {
+    error_log("Erro ao carregar dados: " . $e->getMessage());
+    $error = "Ocorreu um erro ao carregar os dados. Verifique o log para mais detalhes.";
 }
 ?>
 
@@ -574,7 +595,46 @@ if ($action === 'create_general' && $selectedProjectId) {
                                 
                                 <div class="mb-3">
                                     <label for="description" class="form-label">Descrição</label>
-                                    <textarea class="form-control" id="description" name="description" rows="8" required></textarea>
+                                    <div class="mb-2 markdown-toolbar">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="**texto**" title="Negrito">
+                                            <i class="bi bi-type-bold"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="*texto*" title="Itálico">
+                                            <i class="bi bi-type-italic"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="# " title="Título">
+                                            <i class="bi bi-type-h1"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="## " title="Subtítulo">
+                                            <i class="bi bi-type-h2"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="* " title="Lista com marcadores">
+                                            <i class="bi bi-list-ul"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="1. " title="Lista numerada">
+                                            <i class="bi bi-list-ol"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="[texto](url)" title="Link">
+                                            <i class="bi bi-link-45deg"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="---" title="Linha horizontal">
+                                            <i class="bi bi-hr"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="> texto" title="Citação">
+                                            <i class="bi bi-blockquote-left"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" data-markdown="\`código\`" title="Código">
+                                            <i class="bi bi-code"></i>
+                                        </button>
+                                    </div>
+                                    <textarea class="form-control" id="description" name="description" 
+                                              rows="8" required></textarea>
+                                    <div class="form-text">
+                                        <a href="#" id="toggle-preview" class="link-primary">
+                                            <i class="bi bi-eye"></i> Pré-visualizar
+                                        </a>
+                                    </div>
+                                    <div id="markdown-preview" class="card mt-2 p-3 border d-none"></div>
                                 </div>
                                 
                                 <div class="row">

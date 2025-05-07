@@ -392,8 +392,46 @@ if ($action === 'create_general' && $selectedProjectId) {
                                 
                                 <div class="mb-3">
                                     <label for="description" class="form-label">Descrição</label>
+                                    <div class="mb-2 markdown-toolbar">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="**texto**" title="Negrito">
+                                            <i class="bi bi-type-bold"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="*texto*" title="Itálico">
+                                            <i class="bi bi-type-italic"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="# " title="Título">
+                                            <i class="bi bi-type-h1"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="## " title="Subtítulo">
+                                            <i class="bi bi-type-h2"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="* " title="Lista com marcadores">
+                                            <i class="bi bi-list-ul"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="1. " title="Lista numerada">
+                                            <i class="bi bi-list-ol"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="[texto](url)" title="Link">
+                                            <i class="bi bi-link-45deg"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="---" title="Linha horizontal">
+                                            <i class="bi bi-hr"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-markdown="> texto" title="Citação">
+                                            <i class="bi bi-blockquote-left"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" data-markdown="\`código\`" title="Código">
+                                            <i class="bi bi-code"></i>
+                                        </button>
+                                    </div>
                                     <textarea class="form-control" id="description" name="description" 
                                               rows="8" required><?= htmlspecialchars($currentIssue['description']) ?></textarea>
+                                    <div class="form-text">
+                                        <a href="#" id="toggle-preview" class="link-primary">
+                                            <i class="bi bi-eye"></i> Pré-visualizar
+                                        </a>
+                                    </div>
+                                    <div id="markdown-preview" class="card mt-2 p-3 border d-none"></div>
                                 </div>
                                 
                                 <div class="row">
@@ -676,5 +714,212 @@ document.addEventListener('DOMContentLoaded', function() {
         // Aplicar a transformação
         issueDescription.innerHTML = html;
     }
+    
+    // Botões de formatação Markdown
+    const markdownButtons = document.querySelectorAll('[data-markdown]');
+    const descriptionTextarea = document.getElementById('description');
+    
+    if (markdownButtons.length > 0 && descriptionTextarea) {
+        markdownButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const markdownTemplate = this.getAttribute('data-markdown');
+                const selectionStart = descriptionTextarea.selectionStart;
+                const selectionEnd = descriptionTextarea.selectionEnd;
+                const currentValue = descriptionTextarea.value;
+                
+                // Se texto selecionado, aplicar markdown ao redor
+                if (selectionStart !== selectionEnd) {
+                    const selectedText = currentValue.substring(selectionStart, selectionEnd);
+                    let newText;
+                    
+                    if (markdownTemplate.includes('texto')) {
+                        // Para tags como **texto** ou [texto](url)
+                        if (markdownTemplate === '[texto](url)') {
+                            newText = markdownTemplate.replace('texto', selectedText).replace('url', 'https://');
+                        } else {
+                            newText = markdownTemplate.replace('texto', selectedText);
+                        }
+                    } else if (markdownTemplate.trim().endsWith(' ')) {
+                        // Para prefixos como "# " ou "* "
+                        // Adicionar no início de cada linha
+                        const lines = selectedText.split('\n');
+                        newText = lines.map(line => markdownTemplate + line).join('\n');
+                    } else {
+                        // Para outros casos (como ---)
+                        newText = markdownTemplate;
+                    }
+                    
+                    // Substituir a seleção pelo texto formatado
+                    descriptionTextarea.value = currentValue.substring(0, selectionStart) + 
+                                             newText + 
+                                             currentValue.substring(selectionEnd);
+                    
+                    // Reposicionar o cursor após a formatação
+                    descriptionTextarea.focus();
+                    descriptionTextarea.selectionStart = selectionStart + newText.length;
+                    descriptionTextarea.selectionEnd = selectionStart + newText.length;
+                } else {
+                    // Se não houver seleção, inserir o template na posição do cursor
+                    let newText;
+                    if (markdownTemplate === '[texto](url)') {
+                        newText = '[texto](https://)';
+                    } else if (markdownTemplate.includes('texto')) {
+                        newText = markdownTemplate;
+                    } else {
+                        newText = markdownTemplate;
+                    }
+                    
+                    descriptionTextarea.value = currentValue.substring(0, selectionStart) + 
+                                             newText + 
+                                             currentValue.substring(selectionStart);
+                    
+                    // Colocar o cursor na posição adequada
+                    if (markdownTemplate.includes('texto')) {
+                        const cursorPos = selectionStart + markdownTemplate.indexOf('texto');
+                        descriptionTextarea.focus();
+                        descriptionTextarea.selectionStart = cursorPos;
+                        descriptionTextarea.selectionEnd = cursorPos + 5; // "texto" tem 5 caracteres
+                    } else {
+                        descriptionTextarea.focus();
+                        descriptionTextarea.selectionStart = selectionStart + newText.length;
+                        descriptionTextarea.selectionEnd = selectionStart + newText.length;
+                    }
+                }
+                
+                // Atualizar a pré-visualização se estiver visível
+                updateMarkdownPreview();
+            });
+        });
+    }
+    
+    // Pré-visualização de Markdown
+    const togglePreviewButton = document.getElementById('toggle-preview');
+    const markdownPreview = document.getElementById('markdown-preview');
+    
+    function updateMarkdownPreview() {
+        if (!markdownPreview || markdownPreview.classList.contains('d-none')) {
+            return;
+        }
+        
+        if (descriptionTextarea) {
+            const markdown = descriptionTextarea.value;
+            
+            // Conversão simples de markdown para HTML
+            let html = markdown;
+            
+            // Converter títulos
+            html = html.replace(/^# (.*?)$/gm, '<h3>$1</h3>');
+            html = html.replace(/^## (.*?)$/gm, '<h4>$1</h4>');
+            html = html.replace(/^### (.*?)$/gm, '<h5>$1</h5>');
+            
+            // Converter negrito e itálico
+            html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+            
+            // Converter links
+            html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank">$1</a>');
+            
+            // Converter listas não ordenadas
+            html = html.replace(/^\* (.*?)$/gm, '<li>$1</li>');
+            html = html.replace(/(<li>.*?<\/li>\n*)+/gs, match => `<ul>${match}</ul>`);
+            
+            // Converter listas ordenadas
+            html = html.replace(/^(\d+)\. (.*?)$/gm, '<li>$2</li>');
+            html = html.replace(/(<li>.*?<\/li>\n*)+/gs, match => {
+                // Verificar se é realmente uma lista ordenada (começa com número)
+                if (/^\d+\./.test(match)) {
+                    return `<ol>${match}</ol>`;
+                }
+                return match;
+            });
+            
+            // Converter citações
+            html = html.replace(/^> (.*?)$/gm, '<blockquote>$1</blockquote>');
+            
+            // Converter código inline
+            html = html.replace(/`(.*?)`/g, '<code>$1</code>');
+            
+            // Converter linha horizontal
+            html = html.replace(/^---+$/gm, '<hr>');
+            
+            // Aplicar quebras de linha
+            html = html.replace(/\n/g, '<br>');
+            
+            // Exibir HTML na pré-visualização
+            markdownPreview.innerHTML = html;
+        }
+    }
+    
+    if (togglePreviewButton && markdownPreview && descriptionTextarea) {
+        togglePreviewButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            if (markdownPreview.classList.contains('d-none')) {
+                // Mostrar pré-visualização
+                markdownPreview.classList.remove('d-none');
+                togglePreviewButton.innerHTML = '<i class="bi bi-eye-slash"></i> Ocultar pré-visualização';
+                updateMarkdownPreview();
+            } else {
+                // Ocultar pré-visualização
+                markdownPreview.classList.add('d-none');
+                togglePreviewButton.innerHTML = '<i class="bi bi-eye"></i> Pré-visualizar';
+            }
+        });
+        
+        // Atualizar pré-visualização quando o conteúdo muda
+        descriptionTextarea.addEventListener('input', updateMarkdownPreview);
+    }
+    
+    // Estilos adicionais para o editor Markdown
+    const style = document.createElement('style');
+    style.textContent = `
+        .markdown-toolbar {
+            background-color: #f8f9fa;
+            border: 1px solid #ced4da;
+            border-bottom: none;
+            border-radius: 0.25rem 0.25rem 0 0;
+            padding: 0.5rem;
+        }
+        
+        #description {
+            border-top-left-radius: 0;
+            border-top-right-radius: 0;
+        }
+        
+        #markdown-preview {
+            max-height: 500px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+        }
+        
+        #markdown-preview h3 {
+            font-size: 1.5rem;
+            border-bottom: 1px solid #dee2e6;
+            padding-bottom: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        #markdown-preview h4 {
+            font-size: 1.25rem;
+            margin-top: 1rem;
+        }
+        
+        #markdown-preview ul, #markdown-preview ol {
+            padding-left: 2rem;
+        }
+        
+        #markdown-preview blockquote {
+            border-left: 3px solid #dee2e6;
+            padding-left: 1rem;
+            color: #6c757d;
+        }
+        
+        #markdown-preview code {
+            background-color: #e9ecef;
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.2rem;
+        }
+    `;
+    document.head.appendChild(style);
 });
 </script>

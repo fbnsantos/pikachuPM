@@ -45,7 +45,7 @@ function redmineAPI($endpoint, $method = 'GET', $data = null) {
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     
-    error_log("Resposta da API Redmine: HTTP/1.1 $httpCode " . (curl_getinfo($ch, CURLINFO_HTTP_CODE_STR) ?? ''));
+    error_log("Resposta da API Redmine: HTTP/1.1 $httpCode");
     
     if (curl_errno($ch)) {
         error_log("Erro CURL: " . curl_error($ch));

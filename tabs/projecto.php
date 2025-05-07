@@ -253,6 +253,9 @@ $action = $_GET['action'] ?? 'list';
 $filterAssigned = isset($_GET['assigned']) ? $_GET['assigned'] : 'all';
 $currentUserId = $_SESSION['user_id'] ?? null;
 
+// Verificar filtro de tarefas fechadas
+$showClosedIssues = isset($_GET['show_closed']) && $_GET['show_closed'] === '1';
+
 // Processar formulário de issue
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = $_POST['action'];
@@ -303,6 +306,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             } else {
                 $error = "Falha ao atualizar o status da tarefa.";
             }
+        }
+    }
+    
+    if ($action === 'create_project') {
+        // Validar dados do projeto
+        if (!empty($_POST['name']) && !empty($_POST['identifier'])) {
+            $projectData = [
+                'name' => $_POST['name'],
+                'identifier' => $_POST['identifier'],
+                'description' => $_POST['description'] ?? ''
+            ];
+            
+            // Definir projeto pai se especificado
+            if (!empty($_POST['parent_id'])) {
+                $projectData['parent_id'] = (int)$_POST['parent_id'];
+            }
+            
+            $result = createProject($projectData);
+            
+            if (!isset($result['error'])) {
+                // Redirecionar para a lista de projetos com mensagem de sucesso
+                header("Location: ?tab=projecto&project_created=1");
+                exit;
+            } else {
+                $error = $result['error'];
+                echo '<div class="alert alert-danger mb-4">' . 
+                     '<strong>Erro ao criar projeto:</strong> ' . htmlspecialchars($error) .
+                     '</div>';
+            }
+        } else {
+            $error = "Nome e identificador são obrigatórios.";
         }
     }
 }
@@ -427,7 +461,7 @@ try {
                 }
                 
                 $generalIssue = findGeneralIssue($selectedProjectId);
-                $issues = getProjectIssues($selectedProjectId);
+                $issues = getProjectIssues($selectedProjectId, $filterAssigned === 'me' ? $currentUserId : null, $showClosedIssues);
                 ?>
                 
                 <div class="card mb-4">
@@ -438,14 +472,24 @@ try {
                         <div>
                             <!-- Filtro de visualização por atribuição -->
                             <div class="btn-group me-2">
-                                <a href="?tab=projecto&project_id=<?= $selectedProjectId ?>&assigned=all" 
+                                <a href="?tab=projecto&project_id=<?= $selectedProjectId ?>&assigned=all<?= $showClosedIssues ? '&show_closed=1' : '' ?>" 
                                    class="btn btn-<?= $filterAssigned === 'all' ? 'light' : 'outline-light' ?> btn-sm">
                                     <i class="bi bi-people-fill me-1"></i> Todas as tarefas
                                 </a>
-                                <a href="?tab=projecto&project_id=<?= $selectedProjectId ?>&assigned=me" 
+                                <a href="?tab=projecto&project_id=<?= $selectedProjectId ?>&assigned=me<?= $showClosedIssues ? '&show_closed=1' : '' ?>" 
                                    class="btn btn-<?= $filterAssigned === 'me' ? 'light' : 'outline-light' ?> btn-sm">
                                     <i class="bi bi-person-fill me-1"></i> Minhas tarefas
                                 </a>
+                            </div>
+                            
+                            <!-- Filtro para mostrar/ocultar tarefas fechadas -->
+                            <div class="form-check form-check-inline me-2">
+                                <input class="form-check-input" type="checkbox" id="showClosedTasks" 
+                                       <?= $showClosedIssues ? 'checked' : '' ?>
+                                       onchange="window.location.href='?tab=projecto&project_id=<?= $selectedProjectId ?>&assigned=<?= $filterAssigned ?>&show_closed=' + (this.checked ? '1' : '0')">
+                                <label class="form-check-label text-white" for="showClosedTasks">
+                                    <i class="bi bi-archive me-1"></i> Incluir fechadas
+                                </label>
                             </div>
                             
                             <?php if ($generalIssue): ?>
@@ -748,6 +792,14 @@ try {
                                                     continue; // Pular issues não atribuídas ao usuário atual
                                                 }
                                                 
+                                                // Filtrar tarefas fechadas ou rejeitadas se necessário
+                                                if (!$showClosedIssues) {
+                                                    $closedStatusNames = ['Closed', 'Rejected', 'Fechada', 'Rejeitada', 'Encerrada'];
+                                                    if (isset($issue['status']) && in_array($issue['status']['name'], $closedStatusNames)) {
+                                                        continue; // Pular issues fechadas ou rejeitadas
+                                                    }
+                                                }
+                                                
                                                 $normalIssues[] = $issue;
                                             }
                                             
@@ -823,43 +875,95 @@ try {
                 
             <?php else: ?>
                 <div class="card">
-                    <div class="card-header bg-primary text-white">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">Gestão de Projetos</h5>
+                        <a href="?tab=projecto&action=new_project" class="btn btn-success btn-sm">
+                            <i class="bi bi-folder-plus me-1"></i> Novo Projeto
+                        </a>
                     </div>
                     <div class="card-body">
-                        <div class="alert alert-info">
-                            <i class="bi bi-info-circle me-2"></i> Selecione um projeto no menu lateral para visualizar e gerenciar suas issues.
-                        </div>
-                        
-                        <div class="row mt-4">
-                            <div class="col-md-4">
-                                <div class="card h-100">
-                                    <div class="card-body text-center">
-                                        <i class="bi bi-folder-plus display-4 text-primary"></i>
-                                        <h5 class="mt-3">Projetos</h5>
-                                        <p class="text-muted">Visualize e gerencie projetos na estrutura do Redmine.</p>
+                        <?php if (isset($_GET['project_created']) && $_GET['project_created'] == 1): ?>
+                            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                                <i class="bi bi-check-circle-fill me-2"></i> Projeto criado com sucesso!
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        <?php endif; ?>
+                    
+                        <?php if ($action === 'new_project'): ?>
+                            <h5>Criar Novo Projeto</h5>
+                            <form method="post" action="" class="mt-3">
+                                <input type="hidden" name="action" value="create_project">
+                                
+                                <div class="mb-3">
+                                    <label for="name" class="form-label">Nome do Projeto <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" id="name" name="name" required>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="identifier" class="form-label">Identificador <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" id="identifier" name="identifier" 
+                                           pattern="[a-z0-9\-_]+" title="Somente letras minúsculas, números, hífens e underscores" required>
+                                    <div class="form-text">Somente letras minúsculas, números, hífens e underscores</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="description" class="form-label">Descrição</label>
+                                    <textarea class="form-control" id="description" name="description" rows="5"></textarea>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="parent_id" class="form-label">Projeto Pai</label>
+                                    <select class="form-select" id="parent_id" name="parent_id">
+                                        <option value="">Nenhum (projeto raiz)</option>
+                                        <?php if ($tribeProjects): ?>
+                                            <option value="<?= $tribeProjects['id'] ?>"><?= htmlspecialchars($tribeProjects['name']) ?></option>
+                                            <?php foreach ($childProjects as $project): ?>
+                                                <option value="<?= $project['id'] ?>"><?= htmlspecialchars($project['name']) ?></option>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
+                                    </select>
+                                </div>
+                                
+                                <div class="d-flex justify-content-end">
+                                    <a href="?tab=projecto" class="btn btn-secondary me-2">Cancelar</a>
+                                    <button type="submit" class="btn btn-primary">Criar Projeto</button>
+                                </div>
+                            </form>
+                        <?php else: ?>
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle me-2"></i> Selecione um projeto no menu lateral para visualizar e gerenciar suas issues.
+                            </div>
+                            
+                            <div class="row mt-4">
+                                <div class="col-md-4">
+                                    <div class="card h-100">
+                                        <div class="card-body text-center">
+                                            <i class="bi bi-folder-plus display-4 text-primary"></i>
+                                            <h5 class="mt-3">Projetos</h5>
+                                            <p class="text-muted">Visualize e gerencie projetos na estrutura do Redmine.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="card h-100">
+                                        <div class="card-body text-center">
+                                            <i class="bi bi-card-checklist display-4 text-success"></i>
+                                            <h5 class="mt-3">Issues</h5>
+                                            <p class="text-muted">Crie, edite e acompanhe issues de cada projeto.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="card h-100">
+                                        <div class="card-body text-center">
+                                            <i class="bi bi-info-circle display-4 text-info"></i>
+                                            <h5 class="mt-3">Informações Gerais</h5>
+                                            <p class="text-muted">Acesse facilmente informações importantes de cada projeto.</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-4">
-                                <div class="card h-100">
-                                    <div class="card-body text-center">
-                                        <i class="bi bi-card-checklist display-4 text-success"></i>
-                                        <h5 class="mt-3">Issues</h5>
-                                        <p class="text-muted">Crie, edite e acompanhe issues de cada projeto.</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="card h-100">
-                                    <div class="card-body text-center">
-                                        <i class="bi bi-info-circle display-4 text-info"></i>
-                                        <h5 class="mt-3">Informações Gerais</h5>
-                                        <p class="text-muted">Acesse facilmente informações importantes de cada projeto.</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             <?php endif; ?>

@@ -23,11 +23,14 @@
         <label>Diâmetro do Fio (mm):</label>
         <input type="number" id="wireDiameter" placeholder="Diâmetro">
         <button onclick="saveSettings()">Salvar Configurações</button>
+        <button onclick="generateTrajectory()">Gerar Trajetória</button>
     </div>
     <div id="canvas-container">
         <canvas id="workspace"></canvas>
     </div>
     <script>
+        let points = [];
+
         function setup() {
             let canvas = createCanvas(window.innerWidth, window.innerHeight);
             canvas.parent('canvas-container');
@@ -42,6 +45,7 @@
         }
 
         function addPoint(x, y) {
+            points.push({x, y});
             ellipse(x, y, 10, 10);
             savePoint(x, y);
         }
@@ -57,7 +61,8 @@
         function loadPoints() {
             fetch('load_points.php')
                 .then(response => response.json())
-                .then(points => {
+                .then(loadedPoints => {
+                    points = loadedPoints;
                     points.forEach(point => {
                         ellipse(point.x, point.y, 10, 10);
                     });
@@ -75,6 +80,29 @@
                 body: JSON.stringify({ width, height, pinDiameter, wireDiameter })
             });
         }
+
+        function generateTrajectory() {
+            if (points.length < 2) return alert('Adiciona pelo menos dois pontos.');
+            background(240);
+            for (let i = 0; i < points.length - 1; i++) {
+                let p1 = points[i];
+                let p2 = points[i + 1];
+                drawSpline(p1, p2);
+            }
+        }
+
+        function drawSpline(p1, p2) {
+            noFill();
+            stroke(0);
+            beginShape();
+            for (let t = 0; t <= 1; t += 0.05) {
+                let x = lerp(p1.x, p2.x, t);
+                let y = lerp(p1.y, p2.y, t);
+                vertex(x, y);
+            }
+            endShape();
+        }
     </script>
 </body>
 </html>
+

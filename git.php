@@ -30,6 +30,15 @@ echo "<pre>$output</pre>";
 $output = shell_exec("cd PKMT && npm run build 2>&1");
 echo "<pre>$output</pre>";
 
+// Verifica se o parâmetro 'var' está presente na URL
+if (isset($_GET['dbhost'])) {
+    // Imprime o valor do parâmetro 'var'
+    $var = $_GET['dbhost'];
+    echo "O valor de 'var' é: " . $var;
+} else {
+    echo "O parâmetro 'var' não foi passado.";
+}
+
 exit;
 // Nome do arquivo PHP a ser gerado
 //$newFileName = 'config.php';

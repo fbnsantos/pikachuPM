@@ -1,36 +1,12 @@
-// Obter todos os usuários para atribuição
-function getUsers() {
-    // Primeiro, obter usuários membros do projeto de milestone
-    $mainProjects = getMainProjectIds();
-    
-    if (!$mainProjects['milestone_id']) {
-        return ['error' => 'Projeto de milestones não encontrado'];
-    }
-    
-    // Obter membros do projeto de milestone
-    $members = callRedmineAPI('/projects/' . $mainProjects['milestone_id'] . '/memberships.json');
-    
-    if (isset($members['error'])) {
-        // Se não conseguir obter os membros, usar lista geral de usuários
-        $users = callRedmineAPI('/users.json?limit=100&status=1'); // Status=1 para usuários ativos apenas
-    } else {
-        // Extrair usuários dos membros do projeto
-        $users = ['users' => []];
-        if (isset($members['memberships'])) {
-            foreach ($members['memberships'] as $membership) {
-                if (isset($membership['user'])) {
-                    $users['users'][] = $membership['user'];
-                }
-            }
-        }
-    }
-    
-    if (isset($users['error'])) {
-        return $users;
-    }
-    
-    return isset($users['users']) ? $users['users'] : [];
-}<?php
+<?php
+/**
+ * Arquivo de gerenciamento de milestones
+ * 
+ * Este arquivo gerencia as milestones no Redmine através da API
+ * As milestones são issues do projeto tribemilestone
+ */
+
+// Incluir configurações
 require_once 'config.php';
 
 // Verificar sessão
@@ -197,7 +173,30 @@ function getProjects() {
 
 // Obter todos os usuários para atribuição
 function getUsers() {
-    $users = callRedmineAPI('/users.json?limit=100');
+    // Primeiro, obter usuários membros do projeto de milestone
+    $mainProjects = getMainProjectIds();
+    
+    if (!$mainProjects['milestone_id']) {
+        return ['error' => 'Projeto de milestones não encontrado'];
+    }
+    
+    // Obter membros do projeto de milestone
+    $members = callRedmineAPI('/projects/' . $mainProjects['milestone_id'] . '/memberships.json');
+    
+    if (isset($members['error'])) {
+        // Se não conseguir obter os membros, usar lista geral de usuários
+        $users = callRedmineAPI('/users.json?limit=100&status=1'); // Status=1 para usuários ativos apenas
+    } else {
+        // Extrair usuários dos membros do projeto
+        $users = ['users' => []];
+        if (isset($members['memberships'])) {
+            foreach ($members['memberships'] as $membership) {
+                if (isset($membership['user'])) {
+                    $users['users'][] = $membership['user'];
+                }
+            }
+        }
+    }
     
     if (isset($users['error'])) {
         return $users;
@@ -469,69 +468,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $newStatus = $_POST['new_status'] ?? null;
                 $milestoneId = $_POST['milestone_id'] ?? null;
                 
-                if ($taskId && $newStatus) {
-                    // Mapear o status "lógico" para o ID do status do Redmine
-                    $statusMapping = [
-                        'backlog' => 1,      // Novo/Backlog
-                        'in_progress' => 2,  // Em progresso
-                        'paused' => 3,       // Resolvido/Pausa (exemplo)
-                        'closed' => 5        // Fechado
-                    ];
-                    
-                    $statusId = $statusMapping[$newStatus] ?? 1;
-                    
-                    // Atualizar o status da tarefa no Redmine
-                    $result = updateTaskStatus($taskId, $statusId);
-                    
-                    // Obter milestone atual
-                    $milestone = getMilestoneDetails($milestoneId);
-                    
-                    if (isset($milestone['error'])) {
-                        echo json_encode(['success' => false, 'message' => 'Erro ao obter detalhes da milestone']);
-                        exit;
-                    }
-                    
-                    // Extrair informações atuais
-                    $associated = extractAssociatedProjectsFromDescription($milestone['description']);
-                    $tasks = extractTasksFromDescription($milestone['description']);
-                    
-                    // Encontrar a tarefa para mover
-                    $taskToMove = null;
-                    $currentStatus = null;
-                    
-                    foreach ($tasks as $status => $statusTasks) {
-                        foreach ($statusTasks as $index => $task) {
-                            if ($task['id'] == $taskId) {
-                                $taskToMove = $task;
-                                $currentStatus = $status;
-                                // Remover da lista atual
-                                unset($tasks[$status][$index]);
-                                $tasks[$status] = array_values($tasks[$status]); // Reordenar índices
-                                break 2;
-                            }
-                        }
-                    }
-                    
-                    // Se encontrou a tarefa, adicionar ao novo status
-                    if ($taskToMove) {
-                        $tasks[$newStatus][] = $taskToMove;
-                        
-                        // Atualizar a descrição da milestone
-                        $newDescription = formatMilestoneDescription($associated['prototypes'], $associated['projects'], $tasks);
-                        
-                        $updates = [
-                            'description' => $newDescription
+                if ($taskId && $newStatus && $milestoneId) {
+                    try {
+                        // Mapear o status "lógico" para o ID do status do Redmine
+                        $statusMapping = [
+                            'backlog' => 1,      // Novo/Backlog
+                            'in_progress' => 2,  // Em progresso
+                            'paused' => 3,       // Resolvido/Pausa (exemplo)
+                            'closed' => 5        // Fechado
                         ];
                         
-                        $updateResult = updateMilestone($milestoneId, $updates);
+                        $statusId = $statusMapping[$newStatus] ?? 1;
                         
-                        if (isset($updateResult['error'])) {
-                            echo json_encode(['success' => false, 'message' => 'Erro ao atualizar descrição da milestone']);
-                        } else {
-                            echo json_encode(['success' => true]);
+                        // Atualizar o status da tarefa no Redmine
+                        $result = updateTaskStatus($taskId, $statusId);
+                        
+                        if (isset($result['error'])) {
+                            $errorMessage = 'Erro ao atualizar status da tarefa: ' . $result['error'];
+                            error_log($errorMessage);
+                            echo json_encode(['success' => false, 'message' => $errorMessage]);
+                            exit;
                         }
-                    } else {
-                        echo json_encode(['success' => false, 'message' => 'Tarefa não encontrada na milestone']);
+                        
+                        // Obter milestone atual
+                        $milestone = getMilestoneDetails($milestoneId);
+                        
+                        if (isset($milestone['error'])) {
+                            $errorMessage = 'Erro ao obter detalhes da milestone: ' . $milestone['error'];
+                            error_log($errorMessage);
+                            echo json_encode(['success' => false, 'message' => $errorMessage]);
+                            exit;
+                        }
+                        
+                        // Extrair informações atuais
+                        $associated = extractAssociatedProjectsFromDescription($milestone['description']);
+                        $tasks = extractTasksFromDescription($milestone['description']);
+                        
+                        // Encontrar a tarefa para mover
+                        $taskToMove = null;
+                        $currentStatus = null;
+                        
+                        foreach ($tasks as $status => $statusTasks) {
+                            foreach ($statusTasks as $index => $task) {
+                                if ($task['id'] == $taskId) {
+                                    $taskToMove = $task;
+                                    $currentStatus = $status;
+                                    // Remover da lista atual
+                                    unset($tasks[$status][$index]);
+                                    $tasks[$status] = array_values($tasks[$status]); // Reordenar índices
+                                    break 2;
+                                }
+                            }
+                        }
+                        
+                        // Se encontrou a tarefa, adicionar ao novo status
+                        if ($taskToMove) {
+                            $tasks[$newStatus][] = $taskToMove;
+                            
+                            // Atualizar a descrição da milestone
+                            $newDescription = formatMilestoneDescription($associated['prototypes'], $associated['projects'], $tasks);
+                            
+                            $updates = [
+                                'description' => $newDescription
+                            ];
+                            
+                            $updateResult = updateMilestone($milestoneId, $updates);
+                            
+                            if (isset($updateResult['error'])) {
+                                $errorMessage = 'Erro ao atualizar descrição da milestone: ' . $updateResult['error'];
+                                error_log($errorMessage);
+                                echo json_encode(['success' => false, 'message' => $errorMessage]);
+                            } else {
+                                echo json_encode(['success' => true]);
+                            }
+                        } else {
+                            echo json_encode(['success' => false, 'message' => 'Tarefa não encontrada na milestone']);
+                        }
+                    } catch (Exception $e) {
+                        error_log('Exceção ao mover tarefa: ' . $e->getMessage());
+                        echo json_encode(['success' => false, 'message' => 'Erro interno: ' . $e->getMessage()]);
                     }
                     
                     exit;
@@ -633,48 +648,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $taskId = $_POST['task_id'] ?? null;
                 
                 if ($milestoneId && $taskId) {
-                    // Obter milestone atual
-                    $milestone = getMilestoneDetails($milestoneId);
-                    
-                    if (isset($milestone['error'])) {
-                        echo json_encode(['success' => false, 'message' => 'Erro ao obter detalhes da milestone']);
-                        exit;
-                    }
-                    
-                    // Extrair informações atuais
-                    $associated = extractAssociatedProjectsFromDescription($milestone['description']);
-                    $tasks = extractTasksFromDescription($milestone['description']);
-                    
-                    // Remover a tarefa de todos os status
-                    $taskRemoved = false;
-                    foreach ($tasks as $status => $statusTasks) {
-                        foreach ($statusTasks as $index => $task) {
-                            if ($task['id'] == $taskId) {
-                                unset($tasks[$status][$index]);
-                                $tasks[$status] = array_values($tasks[$status]); // Reordenar índices
-                                $taskRemoved = true;
-                                break;
+                    try {
+                        // Obter milestone atual
+                        $milestone = getMilestoneDetails($milestoneId);
+                        
+                        if (isset($milestone['error'])) {
+                            $errorMessage = 'Erro ao obter detalhes da milestone: ' . $milestone['error'];
+                            error_log($errorMessage);
+                            echo json_encode(['success' => false, 'message' => $errorMessage]);
+                            exit;
+                        }
+                        
+                        // Extrair informações atuais
+                        $associated = extractAssociatedProjectsFromDescription($milestone['description']);
+                        $tasks = extractTasksFromDescription($milestone['description']);
+                        
+                        // Remover a tarefa de todos os status
+                        $taskRemoved = false;
+                        foreach ($tasks as $status => $statusTasks) {
+                            foreach ($statusTasks as $index => $task) {
+                                if ($task['id'] == $taskId) {
+                                    unset($tasks[$status][$index]);
+                                    $tasks[$status] = array_values($tasks[$status]); // Reordenar índices
+                                    $taskRemoved = true;
+                                    break;
+                                }
                             }
                         }
-                    }
-                    
-                    if ($taskRemoved) {
-                        // Atualizar a descrição da milestone
-                        $newDescription = formatMilestoneDescription($associated['prototypes'], $associated['projects'], $tasks);
                         
-                        $updates = [
-                            'description' => $newDescription
-                        ];
-                        
-                        $updateResult = updateMilestone($milestoneId, $updates);
-                        
-                        if (isset($updateResult['error'])) {
-                            echo json_encode(['success' => false, 'message' => 'Erro ao atualizar descrição da milestone']);
+                        if ($taskRemoved) {
+                            // Atualizar a descrição da milestone
+                            $newDescription = formatMilestoneDescription($associated['prototypes'], $associated['projects'], $tasks);
+                            
+                            $updates = [
+                                'description' => $newDescription
+                            ];
+                            
+                            $updateResult = updateMilestone($milestoneId, $updates);
+                            
+                            if (isset($updateResult['error'])) {
+                                $errorMessage = 'Erro ao atualizar descrição da milestone: ' . $updateResult['error'];
+                                error_log($errorMessage);
+                                echo json_encode(['success' => false, 'message' => $errorMessage]);
+                            } else {
+                                echo json_encode(['success' => true]);
+                            }
                         } else {
-                            echo json_encode(['success' => true]);
+                            echo json_encode(['success' => false, 'message' => 'Tarefa não encontrada na milestone']);
                         }
-                    } else {
-                        echo json_encode(['success' => false, 'message' => 'Tarefa não encontrada na milestone']);
+                    } catch (Exception $e) {
+                        error_log('Exceção ao remover tarefa: ' . $e->getMessage());
+                        echo json_encode(['success' => false, 'message' => 'Erro interno: ' . $e->getMessage()]);
                     }
                     
                     exit;
@@ -1153,9 +1177,12 @@ switch ($action) {
                                                                     </p>
                                                                     <h6 class="card-title mb-0 task-title"><?= htmlspecialchars($task['title']) ?></h6>
                                                                     <div class="mt-2 text-end">
-                                                                        <button class="btn btn-sm btn-outline-danger remove-task-btn">
+                                                                        <button class="btn btn-sm btn-outline-danger remove-task-btn" title="Remover da milestone">
                                                                             <i class="bi bi-trash"></i>
                                                                         </button>
+                                                                        <a href="<?= $BASE_URL ?>/redmine/issues/<?= $task['id'] ?>" target="_blank" class="btn btn-sm btn-outline-secondary ms-1" title="Ver no Redmine">
+                                                                            <i class="bi bi-box-arrow-up-right"></i>
+                                                                        </a>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -1184,9 +1211,12 @@ switch ($action) {
                                                                     </p>
                                                                     <h6 class="card-title mb-0 task-title"><?= htmlspecialchars($task['title']) ?></h6>
                                                                     <div class="mt-2 text-end">
-                                                                        <button class="btn btn-sm btn-outline-danger remove-task-btn">
+                                                                        <button class="btn btn-sm btn-outline-danger remove-task-btn" title="Remover da milestone">
                                                                             <i class="bi bi-trash"></i>
                                                                         </button>
+                                                                        <a href="<?= $BASE_URL ?>/redmine/issues/<?= $task['id'] ?>" target="_blank" class="btn btn-sm btn-outline-secondary ms-1" title="Ver no Redmine">
+                                                                            <i class="bi bi-box-arrow-up-right"></i>
+                                                                        </a>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -1564,14 +1594,8 @@ switch ($action) {
                         });
                     }
                 });
-                
-                // Inicializar tooltips do Bootstrap
-                const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-                tooltipTriggerList.map(function (tooltipTriggerEl) {
-                    return new bootstrap.Tooltip(tooltipTriggerEl);
-                });
             </script>
-                
+            
             <!-- Adicionar CSS customizado para a interface de arraste e solte -->
             <style>
                 .task-column {

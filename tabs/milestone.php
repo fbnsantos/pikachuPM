@@ -285,23 +285,30 @@ function extractAssociatedProjectsFromDescription($description) {
         return $associated;
     }
     
+    error_log("Extraindo projetos/protótipos da descrição: " . substr($description, 0, 500));
+    
     // Encontrar protótipos
     if (preg_match('/Protótipos:(.*?)(?:Projetos:|$)/s', $description, $matches)) {
         $prototypesSection = trim($matches[1]);
-        preg_match_all('/\*\s*(.*?)\s*\n/m', $prototypesSection, $prototypeMatches);
+        // Usando um padrão que exclui itens que começam com #
+        preg_match_all('/\*\s*(?!\#)([^*\n]+)(?:\n|$)/m', $prototypesSection, $prototypeMatches);
         if (!empty($prototypeMatches[1])) {
             $associated['prototypes'] = array_map('trim', $prototypeMatches[1]);
         }
     }
     
-    // Encontrar projetos
-    if (preg_match('/Projetos:(.*?)(?:Features:|Tarefas:|$)/s', $description, $matches)) {
+    // Encontrar projetos - excluindo linhas que começam com #, que são tarefas
+    if (preg_match('/Projetos:(.*?)(?:Backlog:|Em Execução:|Pausa:|Fechado:|$)/s', $description, $matches)) {
         $projectsSection = trim($matches[1]);
-        preg_match_all('/\*\s*(.*?)\s*\n/m', $projectsSection, $projectMatches);
+        // Capturar apenas linhas que NÃO começam com #, que são os projetos reais
+        preg_match_all('/\*\s*(?!\#)([^*\n]+)(?:\n|$)/m', $projectsSection, $projectMatches);
         if (!empty($projectMatches[1])) {
             $associated['projects'] = array_map('trim', $projectMatches[1]);
         }
     }
+    
+    error_log("Projetos extraídos: " . json_encode($associated['projects']));
+    error_log("Protótipos extraídos: " . json_encode($associated['prototypes']));
     
     return $associated;
 }
@@ -322,6 +329,30 @@ function extractTasksFromDescription($description) {
     // Log para debug
     error_log("Extraindo tarefas da descrição: " . substr($description, 0, 500) . (strlen($description) > 500 ? "..." : ""));
     
+    // Primeiro, vamos extrair tarefas que possam estar na seção de Projetos
+    if (preg_match('/Projetos:(.*?)(?:Backlog:|Em Execução:|Pausa:|Fechado:|$)/s', $description, $matches)) {
+        $projectsSection = trim($matches[1]);
+        // Capturar linhas que começam com #, que são tarefas
+        preg_match_all('/\*\s*\#(\d+)\s*-\s*(.*?)(?:\n|$)/m', $projectsSection, $taskMatches, PREG_SET_ORDER);
+        
+        if (!empty($taskMatches)) {
+            foreach ($taskMatches as $match) {
+                // Adicionar ao backlog, a menos que esteja em outra seção
+                $taskId = (int)$match[1];
+                $taskTitle = trim($match[2]);
+                
+                // Verificar se esta tarefa já está em alguma outra seção específica
+                $foundInSection = false;
+                
+                // Vamos verificar mais tarde se está em alguma seção específica
+                $tasks['_temp'][] = [
+                    'id' => $taskId,
+                    'title' => $taskTitle
+                ];
+            }
+        }
+    }
+    
     // Para cada seção, extrair tarefas
     $sections = [
         'Backlog:' => 'backlog',
@@ -330,17 +361,23 @@ function extractTasksFromDescription($description) {
         'Fechado:' => 'closed'
     ];
     
+    // Armazenar os IDs das tarefas que encontramos nas seções específicas
+    $specificTaskIds = [];
+    
     foreach ($sections as $sectionHeader => $taskType) {
         if (preg_match('/' . preg_quote($sectionHeader, '/') . '(.*?)(?:' . implode('|', array_map(function($s) { return preg_quote($s, '/'); }, array_keys($sections))) . '|$)/s', $description, $matches)) {
             $sectionContent = trim($matches[1]);
             
-            // Padrão atualizado para capturar tanto "* #12345 - Título" quanto "* #12345 Título" formatos
+            // Padrão flexível para capturar tarefas
             preg_match_all('/\*\s*\#(\d+)(?:\s*-\s*|\s+)(.*?)(?:\n|$)/m', $sectionContent, $taskMatches, PREG_SET_ORDER);
             
             if (!empty($taskMatches)) {
                 foreach ($taskMatches as $match) {
+                    $taskId = (int)$match[1];
+                    $specificTaskIds[] = $taskId; // Marcar que encontramos esta tarefa numa seção específica
+                    
                     $tasks[$taskType][] = [
-                        'id' => (int)$match[1],
+                        'id' => $taskId,
                         'title' => trim($match[2])
                     ];
                 }
@@ -349,6 +386,21 @@ function extractTasksFromDescription($description) {
             // Log das tarefas encontradas
             error_log("Tarefas encontradas na seção '$sectionHeader': " . json_encode($tasks[$taskType]));
         }
+    }
+    
+    // Agora, adicionar as tarefas da seção de Projetos que não estão em seções específicas ao backlog
+    if (isset($tasks['_temp'])) {
+        foreach ($tasks['_temp'] as $task) {
+            if (!in_array($task['id'], $specificTaskIds)) {
+                $tasks['backlog'][] = $task;
+            }
+        }
+        unset($tasks['_temp']);
+    }
+    
+    // Log final das tarefas por seção
+    foreach ($sections as $sectionHeader => $taskType) {
+        error_log("Tarefas na seção '$taskType' (final): " . json_encode($tasks[$taskType]));
     }
     
     return $tasks;
@@ -418,6 +470,12 @@ function updateTaskStatus($taskId, $statusId) {
 
 // Formatar a descrição da milestone com projetos, protótipos e tarefas
 function formatMilestoneDescription($prototypes, $projects, $tasks) {
+    // Log dos dados recebidos
+    error_log("Formatando descrição com: " . 
+              "protótipos=" . json_encode($prototypes) . 
+              ", projetos=" . json_encode($projects) . 
+              ", tarefas=" . json_encode(array_keys($tasks)));
+    
     $description = "Protótipos:\n";
     if (!empty($prototypes)) {
         foreach ($prototypes as $prototype) {
@@ -448,7 +506,10 @@ function formatMilestoneDescription($prototypes, $projects, $tasks) {
         $description .= "\n$label:\n";
         if (!empty($tasks[$status])) {
             foreach ($tasks[$status] as $task) {
-                $description .= "* #" . $task['id'] . " - " . $task['title'] . "\n";
+                // Garantir que temos os campos necessários
+                if (isset($task['id']) && isset($task['title'])) {
+                    $description .= "* #" . $task['id'] . " - " . $task['title'] . "\n";
+                }
             }
         }
     }
@@ -1477,9 +1538,23 @@ switch ($action) {
                                             <div class="card-body p-2">
                                                 <div class="task-list" id="backlog-tasks">
                                                     <?php 
-                                                    error_log("Tarefas no backlog: " . json_encode($tasks['backlog']));
-                                                    if (!empty($tasks['backlog'])): 
-                                                        foreach ($tasks['backlog'] as $task): 
+                                                    error_log("Tarefas no backlog para exibição: " . json_encode($tasks['backlog']));
+                                                    
+                                                    // Remove duplicates based on ID
+                                                    $uniqueTasks = [];
+                                                    $uniqueTaskIds = [];
+                                                    
+                                                    if (!empty($tasks['backlog'])) {
+                                                        foreach ($tasks['backlog'] as $task) {
+                                                            if (!in_array($task['id'], $uniqueTaskIds)) {
+                                                                $uniqueTasks[] = $task;
+                                                                $uniqueTaskIds[] = $task['id'];
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    if (!empty($uniqueTasks)): 
+                                                        foreach ($uniqueTasks as $task): 
                                                     ?>
                                                         <div class="card mb-2 task-card" data-task-id="<?= $task['id'] ?>">
                                                             <div class="card-body p-2">
@@ -1520,25 +1595,47 @@ switch ($action) {
                                             </div>
                                             <div class="card-body p-2">
                                                 <div class="task-list" id="in-progress-tasks">
-                                                    <?php if (!empty($tasks['in_progress'])): ?>
-                                                        <?php foreach ($tasks['in_progress'] as $task): ?>
-                                                            <div class="card mb-2 task-card" data-task-id="<?= $task['id'] ?>">
-                                                                <div class="card-body p-2">
-                                                                    <p class="mb-1">
-                                                                        <small class="text-muted">#<?= $task['id'] ?></small>
-                                                                    </p>
-                                                                    <h6 class="card-title mb-0 task-title"><?= htmlspecialchars($task['title']) ?></h6>
-                                                                    <div class="mt-2 text-end">
-                                                                        <button class="btn btn-sm btn-outline-danger remove-task-btn" title="Remover da milestone">
-                                                                            <i class="bi bi-trash"></i>
-                                                                        </button>
-                                                                        <a href="<?= $BASE_URL ?>/redmine/issues/<?= $task['id'] ?>" target="_blank" class="btn btn-sm btn-outline-secondary ms-1" title="Ver no Redmine">
-                                                                            <i class="bi bi-box-arrow-up-right"></i>
-                                                                        </a>
-                                                                    </div>
+                                                    <?php 
+                                                    // Remove duplicates based on ID
+                                                    $uniqueTasks = [];
+                                                    $uniqueTaskIds = [];
+                                                    
+                                                    if (!empty($tasks['in_progress'])) {
+                                                        foreach ($tasks['in_progress'] as $task) {
+                                                            if (!in_array($task['id'], $uniqueTaskIds)) {
+                                                                $uniqueTasks[] = $task;
+                                                                $uniqueTaskIds[] = $task['id'];
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    if (!empty($uniqueTasks)): 
+                                                        foreach ($uniqueTasks as $task): 
+                                                    ?>
+                                                        <div class="card mb-2 task-card" data-task-id="<?= $task['id'] ?>">
+                                                            <div class="card-body p-2">
+                                                                <p class="mb-1">
+                                                                    <small class="text-muted">#<?= $task['id'] ?></small>
+                                                                </p>
+                                                                <h6 class="card-title mb-0 task-title"><?= htmlspecialchars($task['title']) ?></h6>
+                                                                <div class="mt-2 text-end">
+                                                                    <button class="btn btn-sm btn-outline-danger remove-task-btn" title="Remover da milestone">
+                                                                        <i class="bi bi-trash"></i>
+                                                                    </button>
+                                                                    <a href="<?= $BASE_URL ?>/redmine/issues/<?= $task['id'] ?>" target="_blank" class="btn btn-sm btn-outline-secondary ms-1" title="Ver no Redmine">
+                                                                        <i class="bi bi-box-arrow-up-right"></i>
+                                                                    </a>
                                                                 </div>
                                                             </div>
-                                                        <?php endforeach; ?>
+                                                        </div>
+                                                    <?php 
+                                                        endforeach; 
+                                                    else:
+                                                    ?>
+                                                        <div class="text-muted text-center p-3">
+                                                            <i class="bi bi-calendar-check fs-4 d-block mb-2"></i>
+                                                            Nenhuma tarefa em execução
+                                                        </div>
                                                     <?php endif; ?>
                                                 </div>
                                             </div>
@@ -1554,25 +1651,47 @@ switch ($action) {
                                             </div>
                                             <div class="card-body p-2">
                                                 <div class="task-list" id="paused-tasks">
-                                                    <?php if (!empty($tasks['paused'])): ?>
-                                                        <?php foreach ($tasks['paused'] as $task): ?>
-                                                            <div class="card mb-2 task-card" data-task-id="<?= $task['id'] ?>">
-                                                                <div class="card-body p-2">
-                                                                    <p class="mb-1">
-                                                                        <small class="text-muted">#<?= $task['id'] ?></small>
-                                                                    </p>
-                                                                    <h6 class="card-title mb-0 task-title"><?= htmlspecialchars($task['title']) ?></h6>
-                                                                    <div class="mt-2 text-end">
-                                                                        <button class="btn btn-sm btn-outline-danger remove-task-btn" title="Remover da milestone">
-                                                                            <i class="bi bi-trash"></i>
-                                                                        </button>
-                                                                        <a href="<?= $BASE_URL ?>/redmine/issues/<?= $task['id'] ?>" target="_blank" class="btn btn-sm btn-outline-secondary ms-1" title="Ver no Redmine">
-                                                                            <i class="bi bi-box-arrow-up-right"></i>
-                                                                        </a>
-                                                                    </div>
+                                                    <?php 
+                                                    // Remove duplicates based on ID
+                                                    $uniqueTasks = [];
+                                                    $uniqueTaskIds = [];
+                                                    
+                                                    if (!empty($tasks['paused'])) {
+                                                        foreach ($tasks['paused'] as $task) {
+                                                            if (!in_array($task['id'], $uniqueTaskIds)) {
+                                                                $uniqueTasks[] = $task;
+                                                                $uniqueTaskIds[] = $task['id'];
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    if (!empty($uniqueTasks)): 
+                                                        foreach ($uniqueTasks as $task): 
+                                                    ?>
+                                                        <div class="card mb-2 task-card" data-task-id="<?= $task['id'] ?>">
+                                                            <div class="card-body p-2">
+                                                                <p class="mb-1">
+                                                                    <small class="text-muted">#<?= $task['id'] ?></small>
+                                                                </p>
+                                                                <h6 class="card-title mb-0 task-title"><?= htmlspecialchars($task['title']) ?></h6>
+                                                                <div class="mt-2 text-end">
+                                                                    <button class="btn btn-sm btn-outline-danger remove-task-btn" title="Remover da milestone">
+                                                                        <i class="bi bi-trash"></i>
+                                                                    </button>
+                                                                    <a href="<?= $BASE_URL ?>/redmine/issues/<?= $task['id'] ?>" target="_blank" class="btn btn-sm btn-outline-secondary ms-1" title="Ver no Redmine">
+                                                                        <i class="bi bi-box-arrow-up-right"></i>
+                                                                    </a>
                                                                 </div>
                                                             </div>
-                                                        <?php endforeach; ?>
+                                                        </div>
+                                                    <?php 
+                                                        endforeach; 
+                                                    else:
+                                                    ?>
+                                                        <div class="text-muted text-center p-3">
+                                                            <i class="bi bi-pause-circle fs-4 d-block mb-2"></i>
+                                                            Nenhuma tarefa em pausa
+                                                        </div>
                                                     <?php endif; ?>
                                                 </div>
                                             </div>
@@ -1588,25 +1707,47 @@ switch ($action) {
                                             </div>
                                             <div class="card-body p-2">
                                                 <div class="task-list" id="closed-tasks">
-                                                    <?php if (!empty($tasks['closed'])): ?>
-                                                        <?php foreach ($tasks['closed'] as $task): ?>
-                                                            <div class="card mb-2 task-card" data-task-id="<?= $task['id'] ?>">
-                                                                <div class="card-body p-2">
-                                                                    <p class="mb-1">
-                                                                        <small class="text-muted">#<?= $task['id'] ?></small>
-                                                                    </p>
-                                                                    <h6 class="card-title mb-0 task-title"><?= htmlspecialchars($task['title']) ?></h6>
-                                                                    <div class="mt-2 text-end">
-                                                                        <button class="btn btn-sm btn-outline-danger remove-task-btn" title="Remover da milestone">
-                                                                            <i class="bi bi-trash"></i>
-                                                                        </button>
-                                                                        <a href="<?= $BASE_URL ?>/redmine/issues/<?= $task['id'] ?>" target="_blank" class="btn btn-sm btn-outline-secondary ms-1" title="Ver no Redmine">
-                                                                            <i class="bi bi-box-arrow-up-right"></i>
-                                                                        </a>
-                                                                    </div>
+                                                    <?php 
+                                                    // Remove duplicates based on ID
+                                                    $uniqueTasks = [];
+                                                    $uniqueTaskIds = [];
+                                                    
+                                                    if (!empty($tasks['closed'])) {
+                                                        foreach ($tasks['closed'] as $task) {
+                                                            if (!in_array($task['id'], $uniqueTaskIds)) {
+                                                                $uniqueTasks[] = $task;
+                                                                $uniqueTaskIds[] = $task['id'];
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    if (!empty($uniqueTasks)): 
+                                                        foreach ($uniqueTasks as $task): 
+                                                    ?>
+                                                        <div class="card mb-2 task-card" data-task-id="<?= $task['id'] ?>">
+                                                            <div class="card-body p-2">
+                                                                <p class="mb-1">
+                                                                    <small class="text-muted">#<?= $task['id'] ?></small>
+                                                                </p>
+                                                                <h6 class="card-title mb-0 task-title"><?= htmlspecialchars($task['title']) ?></h6>
+                                                                <div class="mt-2 text-end">
+                                                                    <button class="btn btn-sm btn-outline-danger remove-task-btn" title="Remover da milestone">
+                                                                        <i class="bi bi-trash"></i>
+                                                                    </button>
+                                                                    <a href="<?= $BASE_URL ?>/redmine/issues/<?= $task['id'] ?>" target="_blank" class="btn btn-sm btn-outline-secondary ms-1" title="Ver no Redmine">
+                                                                        <i class="bi bi-box-arrow-up-right"></i>
+                                                                    </a>
                                                                 </div>
                                                             </div>
-                                                        <?php endforeach; ?>
+                                                        </div>
+                                                    <?php 
+                                                        endforeach; 
+                                                    else:
+                                                    ?>
+                                                        <div class="text-muted text-center p-3">
+                                                            <i class="bi bi-check-circle fs-4 d-block mb-2"></i>
+                                                            Nenhuma tarefa fechada
+                                                        </div>
                                                     <?php endif; ?>
                                                 </div>
                                             </div>

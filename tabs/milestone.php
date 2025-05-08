@@ -1430,3 +1430,75 @@ switch ($action) {
                         });
                     }
                 });
+                
+                // Inicializar tooltips do Bootstrap
+                const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+                tooltipTriggerList.map(function (tooltipTriggerEl) {
+                    return new bootstrap.Tooltip(tooltipTriggerEl);
+                });
+            </script>
+                
+            <!-- Adicionar CSS customizado para a interface de arraste e solte -->
+            <style>
+                .task-column {
+                    height: 100%;
+                }
+                
+                .task-list {
+                    min-height: 300px;
+                    padding: 8px;
+                    overflow-y: auto;
+                    max-height: 500px;
+                }
+                
+                .task-card {
+                    cursor: grab;
+                    transition: all 0.2s ease;
+                    border-left: 4px solid #aaa;
+                }
+                
+                .task-card:hover {
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+                }
+                
+                /* Cores para as bordas dos cartões por coluna */
+                #backlog-tasks .task-card {
+                    border-left-color: #0d6efd;
+                }
+                
+                #in-progress-tasks .task-card {
+                    border-left-color: #ffc107;
+                }
+                
+                #paused-tasks .task-card {
+                    border-left-color: #6c757d;
+                }
+                
+                #closed-tasks .task-card {
+                    border-left-color: #198754;
+                }
+                
+                /* Estilo para quando está sendo arrastado */
+                .sortable-ghost {
+                    opacity: 0.4;
+                }
+                
+                .sortable-drag {
+                    opacity: 0.9;
+                    transform: rotate(2deg);
+                    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+                }
+                
+                .task-title {
+                    word-break: break-word;
+                }
+                
+                /* Estilo para destacar uma área de soltar válida */
+                .sortable-over {
+                    background-color: #e9ecef;
+                    border-radius: 5px;
+                }
+            </style>
+        <?php endif; ?>
+    <?php endif; ?>
+</div>

@@ -25,6 +25,7 @@ function callRedmineAPI($endpoint, $method = 'GET', $data = null) {
     $headers = [
         'X-Redmine-API-Key: ' . $API_KEY,
         'Content-Type: application/json',
+        'Accept: application/json'
     ];
     
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -35,14 +36,19 @@ function callRedmineAPI($endpoint, $method = 'GET', $data = null) {
     // Adicionar informações de debug
     $debugInfo = "API Request: $method $url";
     if ($data) {
-        $debugInfo .= "\nData: " . json_encode($data);
+        $debugInfo .= "\nData: " . json_encode($data, JSON_UNESCAPED_UNICODE);
     }
     error_log($debugInfo);
     
     if ($method === 'POST' || $method === 'PUT' || $method === 'PATCH') {
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
         if ($data) {
-            $jsonData = json_encode($data);
+            // Garantir que estamos enviando JSON corretamente formatado
+            $jsonData = json_encode($data, JSON_UNESCAPED_UNICODE);
+            if ($jsonData === false) {
+                error_log("Erro ao codificar JSON: " . json_last_error_msg());
+                return ['error' => 'Erro ao codificar dados para API: ' . json_last_error_msg()];
+            }
             curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonData);
             
             // Log da requisição
@@ -70,16 +76,47 @@ function callRedmineAPI($endpoint, $method = 'GET', $data = null) {
     error_log("API Response ($httpCode): $responseForLog");
     
     if ($httpCode >= 200 && $httpCode < 300) {
-        $decodedResponse = json_decode($response, true);
-        if ($decodedResponse === null && json_last_error() !== JSON_ERROR_NONE) {
-            error_log('Erro ao decodificar resposta JSON: ' . json_last_error_msg());
-            return ['error' => 'Falha ao decodificar resposta JSON: ' . json_last_error_msg(), 'raw_response' => $response];
+        // Verificar se a resposta é vazia
+        if (empty($response)) {
+            return []; // Algumas operações de sucesso retornam um corpo vazio
         }
+        
+        // Tentar decodificar a resposta JSON
+        $decodedResponse = json_decode($response, true);
+        $jsonError = json_last_error();
+        
+        if ($jsonError !== JSON_ERROR_NONE) {
+            $errorMsg = 'Falha ao decodificar resposta JSON: ' . json_last_error_msg();
+            error_log($errorMsg);
+            error_log("Resposta bruta: " . $response);
+            return [
+                'error' => $errorMsg,
+                'raw_response' => $response,
+                'json_error_code' => $jsonError
+            ];
+        }
+        
         return $decodedResponse;
     } else {
         $errorMsg = "API Redmine retornou código HTTP: $httpCode - $response";
         error_log($errorMsg);
-        return ['error' => "API Redmine retornou erro: $httpCode", 'response' => $response, 'http_code' => $httpCode];
+        
+        // Tentar decodificar a resposta de erro, se for JSON
+        $decodedError = json_decode($response, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            $errorDetails = isset($decodedError['errors']) ? implode(", ", $decodedError['errors']) : "Erro desconhecido";
+            return [
+                'error' => "API Redmine retornou erro: $httpCode - $errorDetails",
+                'http_code' => $httpCode,
+                'decoded_response' => $decodedError
+            ];
+        }
+        
+        return [
+            'error' => "API Redmine retornou erro: $httpCode",
+            'response' => $response,
+            'http_code' => $httpCode
+        ];
     }
 }
 
@@ -333,8 +370,21 @@ function updateMilestone($issueId, $updates) {
     $data = [
         'issue' => $updates
     ];
+
+    // Log da requisição para diagnóstico
+    error_log("Atualizando milestone #$issueId: " . json_encode($updates, JSON_UNESCAPED_UNICODE));
     
-    return callRedmineAPI('/issues/' . $issueId . '.json', 'PUT', $data);
+    // Limpar buffers de saída antes da chamada da API para evitar mistura de conteúdo
+    while (ob_get_level()) ob_end_clean();
+    
+    $result = callRedmineAPI('/issues/' . $issueId . '.json', 'PUT', $data);
+    
+    // Log da resposta para diagnóstico
+    if (isset($result['error'])) {
+        error_log("Erro na atualização da milestone #$issueId: " . json_encode($result, JSON_UNESCAPED_UNICODE));
+    }
+    
+    return $result;
 }
 
 // Atualizar status de uma tarefa
@@ -683,8 +733,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $dueDate = $_POST['due_date'] ?? null;
                 
                 // Obter protótipos e projetos selecionados
-                $selectedPrototypes = $_POST['prototypes'] ?? [];
-                $selectedProjects = $_POST['projects'] ?? [];
+                $selectedPrototypes = isset($_POST['prototypes']) && is_array($_POST['prototypes']) ? $_POST['prototypes'] : [];
+                $selectedProjects = isset($_POST['projects']) && is_array($_POST['projects']) ? $_POST['projects'] : [];
                 
                 // Obter as tarefas existentes por status
                 $existingDescription = $_POST['existing_description'] ?? '';
@@ -707,14 +757,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 
                 if ($issueId && !empty($title)) {
+                    // Limpar qualquer saída anterior
+                    while (ob_get_level()) ob_end_clean();
+                    ob_start();
+                    
                     $result = updateMilestone($issueId, $updates);
                     
+                    // Limpar o buffer novamente para garantir que nada comprometeu a resposta
+                    ob_end_clean();
+                    
                     if (isset($result['error'])) {
+                        error_log("Erro na atualização da milestone via formulário: " . json_encode($result));
                         $message = 'Erro ao atualizar milestone: ' . $result['error'];
                         $messageType = 'danger';
                     } else {
                         $message = 'Milestone atualizada com sucesso!';
                         $messageType = 'success';
+                        
                         // Redirecionar para evitar reenvio do formulário
                         header('Location: ?tab=milestone&action=view&id=' . $issueId . '&message=' . urlencode($message) . '&messageType=' . $messageType);
                         exit;

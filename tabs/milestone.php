@@ -364,8 +364,8 @@ function getStatuses() {
 // Extrair projetos e protótipos associados a uma milestone da descrição
 function extractAssociatedProjectsFromDescription($description) {
     $associated = [
-        'prototypes' => [],
-        'projects' => []
+        'prototypes' => [], // Vai conter arrays com 'id' e 'name'
+        'projects' => []    // Vai conter arrays com 'id' e 'name'
     ];
     
     if (empty($description)) {
@@ -377,20 +377,62 @@ function extractAssociatedProjectsFromDescription($description) {
     // Encontrar protótipos
     if (preg_match('/Protótipos:(.*?)(?:Projetos:|$)/s', $description, $matches)) {
         $prototypesSection = trim($matches[1]);
-        // Usando um padrão que exclui itens que começam com #
-        preg_match_all('/\*\s*(?!\#)([^*\n]+)(?:\n|$)/m', $prototypesSection, $prototypeMatches);
-        if (!empty($prototypeMatches[1])) {
-            $associated['prototypes'] = array_map('trim', $prototypeMatches[1]);
+        
+        // Novo formato: "* #123 Nome do Protótipo"
+        preg_match_all('/\*\s*\#(\d+)\s+(.+?)(?:\n|$)/m', $prototypesSection, $prototypeMatches, PREG_SET_ORDER);
+        if (!empty($prototypeMatches)) {
+            foreach ($prototypeMatches as $match) {
+                $associated['prototypes'][] = [
+                    'id' => (int)$match[1],
+                    'name' => trim($match[2])
+                ];
+            }
+        } else {
+            // Formato legado (compatibilidade): "* Nome do Protótipo"
+            preg_match_all('/\*\s*(?!\#)([^*\n]+)(?:\n|$)/m', $prototypesSection, $legacyMatches);
+            if (!empty($legacyMatches[1])) {
+                foreach ($legacyMatches[1] as $name) {
+                    $associated['prototypes'][] = [
+                        'id' => null, // ID desconhecido no formato legado
+                        'name' => trim($name)
+                    ];
+                }
+            }
         }
     }
     
-    // Encontrar projetos - excluindo linhas que começam com #, que são tarefas
+    // Encontrar projetos
     if (preg_match('/Projetos:(.*?)(?:Backlog:|Em Execução:|Pausa:|Fechado:|$)/s', $description, $matches)) {
         $projectsSection = trim($matches[1]);
-        // Capturar apenas linhas que NÃO começam com #, que são os projetos reais
-        preg_match_all('/\*\s*(?!\#)([^*\n]+)(?:\n|$)/m', $projectsSection, $projectMatches);
-        if (!empty($projectMatches[1])) {
-            $associated['projects'] = array_map('trim', $projectMatches[1]);
+        
+        // Novo formato: "* #123 Nome do Projeto"
+        preg_match_all('/\*\s*\#(\d+)\s+(.+?)(?:\n|$)/m', $projectsSection, $projectMatches, PREG_SET_ORDER);
+        if (!empty($projectMatches)) {
+            foreach ($projectMatches as $match) {
+                if (strpos($match[2], '#') === false) { // Garantir que não é uma tarefa
+                    $associated['projects'][] = [
+                        'id' => (int)$match[1],
+                        'name' => trim($match[2])
+                    ];
+                }
+            }
+        }
+        
+        // Formato legado (compatibilidade): "* Nome do Projeto" (sem # no início)
+        preg_match_all('/\*\s*(?!\#)([^*\n]+)(?:\n|$)/m', $projectsSection, $legacyMatches);
+        if (!empty($legacyMatches[1])) {
+            foreach ($legacyMatches[1] as $name) {
+                $associated['projects'][] = [
+                    'id' => null, // ID desconhecido no formato legado
+                    'name' => trim($name)
+                ];
+            }
+        }
+        
+        // Capturar tarefas com o formato antigo que estavam na seção de projetos
+        preg_match_all('/\*\s*\#(\d+)\s*-\s*(.*?)(?:\n|$)/m', $projectsSection, $taskMatches, PREG_SET_ORDER);
+        if (!empty($taskMatches)) {
+            error_log("Atenção: Tarefas encontradas na seção de projetos (formato antigo)");
         }
     }
     
@@ -566,7 +608,13 @@ function formatMilestoneDescription($prototypes, $projects, $tasks) {
     $description = "Protótipos:\n";
     if (!empty($prototypes)) {
         foreach ($prototypes as $prototype) {
-            $description .= "* $prototype\n";
+            // Verificar se é formato novo (array com id e name) ou legado (string)
+            if (is_array($prototype) && isset($prototype['id']) && isset($prototype['name'])) {
+                $description .= "* #" . $prototype['id'] . " " . $prototype['name'] . "\n";
+            } elseif (is_string($prototype)) {
+                // Formato legado - manter como estava
+                $description .= "* $prototype\n";
+            }
         }
     } else {
         $description .= "\n";
@@ -575,7 +623,13 @@ function formatMilestoneDescription($prototypes, $projects, $tasks) {
     $description .= "\nProjetos:\n";
     if (!empty($projects)) {
         foreach ($projects as $project) {
-            $description .= "* $project\n";
+            // Verificar se é formato novo (array com id e name) ou legado (string)
+            if (is_array($project) && isset($project['id']) && isset($project['name'])) {
+                $description .= "* #" . $project['id'] . " " . $project['name'] . "\n";
+            } elseif (is_string($project)) {
+                // Formato legado - manter como estava
+                $description .= "* $project\n";
+            }
         }
     } else {
         $description .= "\n";
@@ -909,16 +963,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $assignedTo = $_POST['assigned_to'] ?? null;
                 $dueDate = $_POST['due_date'] ?? null;
                 
-                // Obter protótipos e projetos selecionados
+                // Obter protótipos e projetos selecionados em formato JSON
                 $selectedPrototypes = isset($_POST['prototypes']) && is_array($_POST['prototypes']) ? $_POST['prototypes'] : [];
                 $selectedProjects = isset($_POST['projects']) && is_array($_POST['projects']) ? $_POST['projects'] : [];
+                
+                // Decodificar JSON para arrays com id e name
+                $decodedPrototypes = [];
+                foreach ($selectedPrototypes as $prototypeJson) {
+                    $prototype = json_decode($prototypeJson, true);
+                    if (json_last_error() === JSON_ERROR_NONE && isset($prototype['id']) && isset($prototype['name'])) {
+                        $decodedPrototypes[] = $prototype;
+                    } else {
+                        // Formato legado ou erro - usar como string
+                        $decodedPrototypes[] = $prototypeJson;
+                    }
+                }
+                
+                $decodedProjects = [];
+                foreach ($selectedProjects as $projectJson) {
+                    $project = json_decode($projectJson, true);
+                    if (json_last_error() === JSON_ERROR_NONE && isset($project['id']) && isset($project['name'])) {
+                        $decodedProjects[] = $project;
+                    } else {
+                        // Formato legado ou erro - usar como string
+                        $decodedProjects[] = $projectJson;
+                    }
+                }
                 
                 // Obter as tarefas existentes por status
                 $existingDescription = $_POST['existing_description'] ?? '';
                 $existingTasks = extractTasksFromDescription($existingDescription);
                 
-                // Formatar nova descrição
-                $newDescription = formatMilestoneDescription($selectedPrototypes, $selectedProjects, $existingTasks);
+                // Formatar nova descrição com os dados decodificados
+                $newDescription = formatMilestoneDescription($decodedPrototypes, $decodedProjects, $existingTasks);
                 
                 $updates = [
                     'subject' => $title,
@@ -1506,9 +1583,30 @@ switch ($action) {
                                     <div class="mb-3">
                                         <label for="prototypes" class="form-label">Protótipos Associados</label>
                                         <select multiple class="form-select" id="prototypes" name="prototypes[]" size="5">
-                                            <?php foreach ($prototypes as $prototype): ?>
-                                                <option value="<?= htmlspecialchars($prototype['name']) ?>" <?= in_array($prototype['name'], $associated['prototypes']) ? 'selected' : '' ?>>
-                                                    <?= htmlspecialchars($prototype['name']) ?>
+                                            <?php foreach ($prototypes as $prototype): 
+                                                // Verificar se este protótipo está na lista de associados
+                                                $isSelected = false;
+                                                foreach ($associated['prototypes'] as $associatedPrototype) {
+                                                    if (
+                                                        // Verificar pelo ID (formato novo)
+                                                        (isset($associatedPrototype['id']) && $associatedPrototype['id'] == $prototype['id']) ||
+                                                        // Verificar pelo nome (formato legado)
+                                                        (is_string($associatedPrototype) && $associatedPrototype == $prototype['name']) ||
+                                                        (isset($associatedPrototype['name']) && $associatedPrototype['name'] == $prototype['name'])
+                                                    ) {
+                                                        $isSelected = true;
+                                                        break;
+                                                    }
+                                                }
+                                                
+                                                // O valor salvo será um JSON contendo id e name
+                                                $prototypeData = json_encode([
+                                                    'id' => $prototype['id'],
+                                                    'name' => $prototype['name']
+                                                ]);
+                                            ?>
+                                                <option value='<?= htmlspecialchars($prototypeData) ?>' <?= $isSelected ? 'selected' : '' ?>>
+                                                    <?= htmlspecialchars($prototype['name']) ?> (#<?= $prototype['id'] ?>)
                                                 </option>
                                             <?php endforeach; ?>
                                         </select>
@@ -1518,9 +1616,30 @@ switch ($action) {
                                     <div class="mb-3">
                                         <label for="projects" class="form-label">Projetos Associados</label>
                                         <select multiple class="form-select" id="projects" name="projects[]" size="5">
-                                            <?php foreach ($projects as $project): ?>
-                                                <option value="<?= htmlspecialchars($project['name']) ?>" <?= in_array($project['name'], $associated['projects']) ? 'selected' : '' ?>>
-                                                    <?= htmlspecialchars($project['name']) ?>
+                                            <?php foreach ($projects as $project): 
+                                                // Verificar se este projeto está na lista de associados
+                                                $isSelected = false;
+                                                foreach ($associated['projects'] as $associatedProject) {
+                                                    if (
+                                                        // Verificar pelo ID (formato novo)
+                                                        (isset($associatedProject['id']) && $associatedProject['id'] == $project['id']) ||
+                                                        // Verificar pelo nome (formato legado)
+                                                        (is_string($associatedProject) && $associatedProject == $project['name']) ||
+                                                        (isset($associatedProject['name']) && $associatedProject['name'] == $project['name'])
+                                                    ) {
+                                                        $isSelected = true;
+                                                        break;
+                                                    }
+                                                }
+                                                
+                                                // O valor salvo será um JSON contendo id e name
+                                                $projectData = json_encode([
+                                                    'id' => $project['id'],
+                                                    'name' => $project['name']
+                                                ]);
+                                            ?>
+                                                <option value='<?= htmlspecialchars($projectData) ?>' <?= $isSelected ? 'selected' : '' ?>>
+                                                    <?= htmlspecialchars($project['name']) ?> (#<?= $project['id'] ?>)
                                                 </option>
                                             <?php endforeach; ?>
                                         </select>
@@ -1683,8 +1802,34 @@ switch ($action) {
                                     <h6 class="fw-bold">Protótipos Associados</h6>
                                     <?php if (!empty($associated['prototypes'])): ?>
                                         <ul class="list-group">
-                                            <?php foreach ($associated['prototypes'] as $prototype): ?>
-                                                <li class="list-group-item"><?= htmlspecialchars($prototype) ?></li>
+                                            <?php foreach ($associated['prototypes'] as $prototype): 
+                                                // Obter nome e ID do protótipo (formatos novo e legado)
+                                                if (is_array($prototype) && isset($prototype['name'])) {
+                                                    $prototypeName = $prototype['name'];
+                                                    $prototypeId = isset($prototype['id']) ? $prototype['id'] : 'N/A';
+                                                } else {
+                                                    $prototypeName = $prototype;
+                                                    $prototypeId = 'N/A';
+                                                }
+                                                
+                                                // Procurar o objeto protótipo completo para obter o identificador
+                                                $prototypeIdentifier = null;
+                                                foreach ($prototypes as $p) {
+                                                    if (
+                                                        ($prototypeId !== 'N/A' && $p['id'] == $prototypeId) || 
+                                                        $p['name'] == $prototypeName
+                                                    ) {
+                                                        $prototypeIdentifier = $p['identifier'] ?? null;
+                                                        break;
+                                                    }
+                                                }
+                                            ?>
+                                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                                    <?= htmlspecialchars($prototypeName) ?>
+                                                    <span class="badge bg-secondary">
+                                                        ID: <?= $prototypeId ?>
+                                                    </span>
+                                                </li>
                                             <?php endforeach; ?>
                                         </ul>
                                     <?php else: ?>
@@ -1696,8 +1841,34 @@ switch ($action) {
                                     <h6 class="fw-bold">Projetos Associados</h6>
                                     <?php if (!empty($associated['projects'])): ?>
                                         <ul class="list-group">
-                                            <?php foreach ($associated['projects'] as $project): ?>
-                                                <li class="list-group-item"><?= htmlspecialchars($project) ?></li>
+                                            <?php foreach ($associated['projects'] as $project): 
+                                                // Obter nome e ID do projeto (formatos novo e legado)
+                                                if (is_array($project) && isset($project['name'])) {
+                                                    $projectName = $project['name'];
+                                                    $projectId = isset($project['id']) ? $project['id'] : 'N/A';
+                                                } else {
+                                                    $projectName = $project;
+                                                    $projectId = 'N/A';
+                                                }
+                                                
+                                                // Procurar o objeto projeto completo para obter o identificador
+                                                $projectIdentifier = null;
+                                                foreach ($projects as $p) {
+                                                    if (
+                                                        ($projectId !== 'N/A' && $p['id'] == $projectId) || 
+                                                        $p['name'] == $projectName
+                                                    ) {
+                                                        $projectIdentifier = $p['identifier'] ?? null;
+                                                        break;
+                                                    }
+                                                }
+                                            ?>
+                                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                                    <?= htmlspecialchars($projectName) ?>
+                                                    <span class="badge bg-secondary">
+                                                        ID: <?= $projectId ?>
+                                                    </span>
+                                                </li>
                                             <?php endforeach; ?>
                                         </ul>
                                     <?php else: ?>
@@ -2010,12 +2181,39 @@ switch ($action) {
                                     <?php if (!empty($associated['prototypes'])): ?>
                                         <h6 class="mt-3">Protótipos:</h6>
                                         <div class="list-group">
-                                            <?php foreach ($prototypes as $prototype): ?>
-                                                <?php if (in_array($prototype['name'], $associated['prototypes'])): ?>
-                                                    <a href="<?= $BASE_URL ?>/redmine/projects/<?= $prototype['identifier'] ?>" target="_blank" class="list-group-item list-group-item-action">
-                                                        <?= htmlspecialchars($prototype['name']) ?>
-                                                    </a>
-                                                <?php endif; ?>
+                                            <?php foreach ($associated['prototypes'] as $prototype): 
+                                                // Obter nome e ID do protótipo (formatos novo e legado)
+                                                if (is_array($prototype) && isset($prototype['name'])) {
+                                                    $prototypeName = $prototype['name'];
+                                                    $prototypeId = isset($prototype['id']) ? $prototype['id'] : null;
+                                                } else {
+                                                    $prototypeName = $prototype;
+                                                    $prototypeId = null;
+                                                }
+                                                
+                                                // Procurar o objeto protótipo completo para obter o identificador
+                                                $foundPrototype = null;
+                                                foreach ($prototypes as $p) {
+                                                    if (
+                                                        ($prototypeId !== null && $p['id'] == $prototypeId) || 
+                                                        $p['name'] == $prototypeName
+                                                    ) {
+                                                        $foundPrototype = $p;
+                                                        break;
+                                                    }
+                                                }
+                                                
+                                                if ($foundPrototype):
+                                            ?>
+                                                <a href="<?= $BASE_URL ?>/redmine/projects/<?= $foundPrototype['identifier'] ?>" 
+                                                   target="_blank" 
+                                                   class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                                    <?= htmlspecialchars($prototypeName) ?>
+                                                    <span class="badge bg-secondary rounded-pill">
+                                                        ID: <?= $foundPrototype['id'] ?>
+                                                    </span>
+                                                </a>
+                                            <?php endif; ?>
                                             <?php endforeach; ?>
                                         </div>
                                     <?php endif; ?>
@@ -2023,12 +2221,39 @@ switch ($action) {
                                     <?php if (!empty($associated['projects'])): ?>
                                         <h6 class="mt-3">Projetos:</h6>
                                         <div class="list-group">
-                                            <?php foreach ($projects as $project): ?>
-                                                <?php if (in_array($project['name'], $associated['projects'])): ?>
-                                                    <a href="<?= $BASE_URL ?>/redmine/projects/<?= $project['identifier'] ?>" target="_blank" class="list-group-item list-group-item-action">
-                                                        <?= htmlspecialchars($project['name']) ?>
-                                                    </a>
-                                                <?php endif; ?>
+                                            <?php foreach ($associated['projects'] as $project): 
+                                                // Obter nome e ID do projeto (formatos novo e legado)
+                                                if (is_array($project) && isset($project['name'])) {
+                                                    $projectName = $project['name'];
+                                                    $projectId = isset($project['id']) ? $project['id'] : null;
+                                                } else {
+                                                    $projectName = $project;
+                                                    $projectId = null;
+                                                }
+                                                
+                                                // Procurar o objeto projeto completo para obter o identificador
+                                                $foundProject = null;
+                                                foreach ($projects as $p) {
+                                                    if (
+                                                        ($projectId !== null && $p['id'] == $projectId) || 
+                                                        $p['name'] == $projectName
+                                                    ) {
+                                                        $foundProject = $p;
+                                                        break;
+                                                    }
+                                                }
+                                                
+                                                if ($foundProject):
+                                            ?>
+                                                <a href="<?= $BASE_URL ?>/redmine/projects/<?= $foundProject['identifier'] ?>" 
+                                                   target="_blank" 
+                                                   class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                                    <?= htmlspecialchars($projectName) ?>
+                                                    <span class="badge bg-secondary rounded-pill">
+                                                        ID: <?= $foundProject['id'] ?>
+                                                    </span>
+                                                </a>
+                                            <?php endif; ?>
                                             <?php endforeach; ?>
                                         </div>
                                     <?php endif; ?>

@@ -131,17 +131,47 @@ function getMainProjectIds() {
         'projects_id' => null
     ];
     
+    // Log para diagnóstico
     if (isset($projects['projects'])) {
-        foreach ($projects['projects'] as $project) {
-            if ($project['identifier'] === 'tribemilestone') {
-                $mainProjects['milestone_id'] = $project['id'];
-            } elseif ($project['identifier'] === 'tribeprototypes') {
-                $mainProjects['prototypes_id'] = $project['id'];
-            } elseif ($project['identifier'] === 'tribeprojects') {
-                $mainProjects['projects_id'] = $project['id'];
-            }
+        error_log("Obtidos " . count($projects['projects']) . " projetos no total");
+    } else {
+        error_log("ERRO: Nenhum projeto retornado ou formato de resposta inválido");
+        // Log da resposta para ajudar no diagnóstico
+        error_log("Resposta da API: " . json_encode($projects));
+        return $mainProjects;
+    }
+    
+    // Encontrar o projeto tribemilestone
+    $found = false;
+    foreach ($projects['projects'] as $project) {
+        if ($project['identifier'] === 'tribemilestone') {
+            $mainProjects['milestone_id'] = $project['id'];
+            $found = true;
+            error_log("Projeto tribemilestone encontrado com ID: " . $project['id']);
+            break;
         }
     }
+    
+    if (!$found) {
+        error_log("ALERTA: Projeto tribemilestone não encontrado. Projetos disponíveis:");
+        foreach ($projects['projects'] as $project) {
+            error_log("  - " . $project['identifier'] . " (ID: " . $project['id'] . ")");
+        }
+    }
+    
+    // Encontrar os outros projetos principais
+    foreach ($projects['projects'] as $project) {
+        if ($project['identifier'] === 'tribeprototypes') {
+            $mainProjects['prototypes_id'] = $project['id'];
+            error_log("Projeto tribeprototypes encontrado com ID: " . $project['id']);
+        } elseif ($project['identifier'] === 'tribeprojects') {
+            $mainProjects['projects_id'] = $project['id'];
+            error_log("Projeto tribeprojects encontrado com ID: " . $project['id']);
+        }
+    }
+    
+    // Log dos projetos encontrados
+    error_log("IDs dos projetos principais: " . json_encode($mainProjects));
     
     return $mainProjects;
 }
@@ -151,8 +181,11 @@ function getMilestones($filters = []) {
     $mainProjects = getMainProjectIds();
     
     if (!$mainProjects['milestone_id']) {
+        error_log("ERRO: Projeto de milestones não encontrado");
         return ['error' => 'Projeto de milestones não encontrado'];
     }
+    
+    error_log("Obtendo milestones do projeto ID: " . $mainProjects['milestone_id']);
     
     // Construir parâmetros adicionais com base nos filtros
     $additionalParams = '';
@@ -160,21 +193,37 @@ function getMilestones($filters = []) {
     // Filtro por responsável
     if (isset($filters['assigned_to_id']) && !empty($filters['assigned_to_id'])) {
         $additionalParams .= '&assigned_to_id=' . urlencode($filters['assigned_to_id']);
+        error_log("Filtro aplicado: assigned_to_id=" . $filters['assigned_to_id']);
     }
     
-    $issues = callRedmineAPI('/issues.json?project_id=' . $mainProjects['milestone_id'] . '&status_id=*&limit=100' . $additionalParams);
+    // Log da URL completa para diagnóstico
+    $apiUrl = '/issues.json?project_id=' . $mainProjects['milestone_id'] . '&status_id=*&limit=100' . $additionalParams;
+    error_log("Chamando API: " . $apiUrl);
+    
+    $issues = callRedmineAPI($apiUrl);
     
     if (isset($issues['error'])) {
+        error_log("ERRO na API: " . json_encode($issues['error']));
         return $issues;
     }
     
     $milestones = isset($issues['issues']) ? $issues['issues'] : [];
+    error_log("Milestones retornadas pela API: " . count($milestones));
+    
+    // Verificar se há milestones
+    if (empty($milestones)) {
+        error_log("Nenhuma milestone encontrada na resposta da API");
+        return [];
+    }
     
     // Calcular dias até deadline e estatísticas de tarefas para cada milestone
     $today = new DateTime();
     $today->setTime(0, 0, 0); // Remover horas, minutos, segundos para comparar apenas as datas
     
     foreach ($milestones as $key => &$milestone) {
+        // Log para debug
+        error_log("Processando milestone #" . $milestone['id'] . ": " . $milestone['subject']);
+        
         // Calcular dias até deadline
         if (isset($milestone['due_date']) && !empty($milestone['due_date'])) {
             $due_date = new DateTime($milestone['due_date']);
@@ -232,6 +281,8 @@ function getMilestones($filters = []) {
                 'total' => $total_count,
                 'completion' => $total_count > 0 ? round(($closed_count / $total_count) * 100) : 0
             ];
+            
+            error_log("Milestone #" . $milestone['id'] . " - Total tarefas: " . $total_count . ", Concluídas: " . $closed_count . ", Taxa: " . $milestone['task_stats']['completion'] . "%");
         } else {
             $milestone['task_stats'] = [
                 'backlog' => ['count' => 0, 'percent' => 0],
@@ -241,10 +292,13 @@ function getMilestones($filters = []) {
                 'total' => 0,
                 'completion' => 0
             ];
+            
+            error_log("Milestone #" . $milestone['id'] . " - Sem descrição ou tarefas");
         }
         
-        // Flag para indicar se está concluída
+        // Flag para indicar se está concluída (100% ou sem tarefas)
         $milestone['is_completed'] = ($milestone['task_stats']['total'] > 0 && $milestone['task_stats']['completion'] == 100);
+        error_log("Milestone #" . $milestone['id'] . " - Está concluída? " . ($milestone['is_completed'] ? "SIM" : "NÃO"));
     }
     
     // Ordenar por dias restantes (milestones com menos dias restantes primeiro)
@@ -262,6 +316,8 @@ function getMilestones($filters = []) {
         // Se os dias são iguais, ordenar por ID (mais recente primeiro)
         return $b['id'] <=> $a['id'];
     });
+    
+    error_log("Total de milestones após processamento: " . count($milestones));
     
     return $milestones;
 }
@@ -1358,16 +1414,33 @@ switch ($action) {
         // Obter todas as milestones com os filtros aplicados
         $allMilestones = getMilestones($filters);
         
-        // Separar milestones em andamento e concluídas
-        $incompleteMilestones = [];
-        $completedMilestones = [];
+        // Log para diagnóstico
+        error_log("Obtidas " . (is_array($allMilestones) ? count($allMilestones) : "ERROR") . " milestones no total");
         
-        foreach ($allMilestones as $milestone) {
-            if ($milestone['is_completed']) {
-                $completedMilestones[] = $milestone;
-            } else {
-                $incompleteMilestones[] = $milestone;
+        // Verificar se o resultado é um array ou se há um erro
+        if (isset($allMilestones['error'])) {
+            error_log("ERRO ao obter milestones: " . $allMilestones['error']);
+            $error_message = $allMilestones['error'];
+            $incompleteMilestones = [];
+            $completedMilestones = [];
+        } elseif (empty($allMilestones)) {
+            error_log("Nenhuma milestone encontrada - array vazio retornado");
+            $incompleteMilestones = [];
+            $completedMilestones = [];
+        } else {
+            // Separar milestones em andamento e concluídas
+            $incompleteMilestones = [];
+            $completedMilestones = [];
+            
+            foreach ($allMilestones as $milestone) {
+                if (isset($milestone['is_completed']) && $milestone['is_completed']) {
+                    $completedMilestones[] = $milestone;
+                } else {
+                    $incompleteMilestones[] = $milestone;
+                }
             }
+            
+            error_log("Milestones separadas: " . count($incompleteMilestones) . " em andamento, " . count($completedMilestones) . " concluídas");
         }
         
         // Obter todos os usuários para o filtro
@@ -1476,7 +1549,31 @@ switch ($action) {
     <?php endif; ?>
 
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><?= $action === 'list' ? 'Milestones' : ($action === 'new' ? 'Nova Milestone' : ($action === 'edit' ? 'Editar Milestone' : 'Detalhes da Milestone')) ?></h1>
+        <div>
+            <h1 class="mb-0"><?= $action === 'list' ? 'Milestones' : ($action === 'new' ? 'Nova Milestone' : ($action === 'edit' ? 'Editar Milestone' : 'Detalhes da Milestone')) ?></h1>
+            <?php if ($action === 'list' && !empty($filter_assigned_to)): ?>
+                <div class="text-muted small">
+                    <?php if ($filter_assigned_to === $_SESSION['user_id']): ?>
+                        <i class="bi bi-funnel-fill"></i> Mostrando apenas suas milestones
+                    <?php else:
+                        // Encontrar o nome do usuário selecionado
+                        $filterUserName = 'Usuário #' . $filter_assigned_to;
+                        foreach ($allUsers as $user) {
+                            if ($user['id'] == $filter_assigned_to) {
+                                if (isset($user['firstname']) && isset($user['lastname'])) {
+                                    $filterUserName = $user['firstname'] . ' ' . $user['lastname'];
+                                } elseif (isset($user['name'])) {
+                                    $filterUserName = $user['name'];
+                                }
+                                break;
+                            }
+                        }
+                    ?>
+                        <i class="bi bi-funnel-fill"></i> Filtrado por: <?= htmlspecialchars($filterUserName) ?>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
+        </div>
         <?php if ($action === 'list'): ?>
             <a href="?tab=milestone&action=new" class="btn btn-primary">
                 <i class="bi bi-plus-lg"></i> Nova Milestone

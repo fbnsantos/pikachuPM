@@ -147,14 +147,22 @@ function getMainProjectIds() {
 }
 
 // Obter todas as milestones (issues do projeto tribemilestone)
-function getMilestones() {
+function getMilestones($filters = []) {
     $mainProjects = getMainProjectIds();
     
     if (!$mainProjects['milestone_id']) {
         return ['error' => 'Projeto de milestones não encontrado'];
     }
     
-    $issues = callRedmineAPI('/issues.json?project_id=' . $mainProjects['milestone_id'] . '&status_id=*&limit=100');
+    // Construir parâmetros adicionais com base nos filtros
+    $additionalParams = '';
+    
+    // Filtro por responsável
+    if (isset($filters['assigned_to_id']) && !empty($filters['assigned_to_id'])) {
+        $additionalParams .= '&assigned_to_id=' . urlencode($filters['assigned_to_id']);
+    }
+    
+    $issues = callRedmineAPI('/issues.json?project_id=' . $mainProjects['milestone_id'] . '&status_id=*&limit=100' . $additionalParams);
     
     if (isset($issues['error'])) {
         return $issues;
@@ -234,11 +242,19 @@ function getMilestones() {
                 'completion' => 0
             ];
         }
+        
+        // Flag para indicar se está concluída
+        $milestone['is_completed'] = ($milestone['task_stats']['total'] > 0 && $milestone['task_stats']['completion'] == 100);
     }
     
     // Ordenar por dias restantes (milestones com menos dias restantes primeiro)
     usort($milestones, function($a, $b) {
-        // Primeiro ordenar por dias restantes
+        // Primeiro ordenar por status de conclusão
+        if ($a['is_completed'] !== $b['is_completed']) {
+            return $a['is_completed'] ? 1 : -1; // Não concluídas primeiro
+        }
+        
+        // Depois ordenar por dias restantes
         if ($a['days_remaining'] !== $b['days_remaining']) {
             return $a['days_remaining'] <=> $b['days_remaining'];
         }
@@ -1325,7 +1341,37 @@ if (isset($_GET['message']) && isset($_GET['messageType'])) {
 // Carregar dados necessários com base na ação
 switch ($action) {
     case 'list':
-        $milestones = getMilestones();
+        // Obter filtros da URL
+        $filter_assigned_to = isset($_GET['assigned_to']) ? $_GET['assigned_to'] : '';
+        
+        // Se for "me", substituir pelo ID do usuário atual
+        if ($filter_assigned_to === 'me') {
+            $filter_assigned_to = $_SESSION['user_id'];
+        }
+        
+        // Construir filtros
+        $filters = [];
+        if (!empty($filter_assigned_to)) {
+            $filters['assigned_to_id'] = $filter_assigned_to;
+        }
+        
+        // Obter todas as milestones com os filtros aplicados
+        $allMilestones = getMilestones($filters);
+        
+        // Separar milestones em andamento e concluídas
+        $incompleteMilestones = [];
+        $completedMilestones = [];
+        
+        foreach ($allMilestones as $milestone) {
+            if ($milestone['is_completed']) {
+                $completedMilestones[] = $milestone;
+            } else {
+                $incompleteMilestones[] = $milestone;
+            }
+        }
+        
+        // Obter todos os usuários para o filtro
+        $allUsers = getUsers();
         break;
         
     case 'new':

@@ -214,6 +214,7 @@ function getUsers() {
     $mainProjects = getMainProjectIds();
     
     if (!$mainProjects['milestone_id']) {
+        error_log("Projeto de milestones não encontrado");
         return ['error' => 'Projeto de milestones não encontrado'];
     }
     
@@ -221,8 +222,14 @@ function getUsers() {
     $members = callRedmineAPI('/projects/' . $mainProjects['milestone_id'] . '/memberships.json');
     
     if (isset($members['error'])) {
+        error_log("Erro ao obter membros do projeto: " . $members['error']);
         // Se não conseguir obter os membros, usar lista geral de usuários
         $users = callRedmineAPI('/users.json?limit=100&status=1'); // Status=1 para usuários ativos apenas
+        
+        if (isset($users['error'])) {
+            error_log("Erro ao obter usuários gerais: " . $users['error']);
+            return [];
+        }
     } else {
         // Extrair usuários dos membros do projeto
         $users = ['users' => []];
@@ -235,11 +242,14 @@ function getUsers() {
         }
     }
     
+    error_log("Usuários obtidos: " . json_encode(isset($users['users']) ? $users['users'] : []));
+    
     if (isset($users['error'])) {
-        return $users;
+        return [];
     }
     
-    return isset($users['users']) ? $users['users'] : [];
+    // Se não houver usuários, retornar array vazio em vez de erro
+    return isset($users['users']) && !empty($users['users']) ? $users['users'] : [];
 }
 
 // Obter tarefas de um projeto
@@ -309,6 +319,9 @@ function extractTasksFromDescription($description) {
         return $tasks;
     }
     
+    // Log para debug
+    error_log("Extraindo tarefas da descrição: " . substr($description, 0, 500) . (strlen($description) > 500 ? "..." : ""));
+    
     // Para cada seção, extrair tarefas
     $sections = [
         'Backlog:' => 'backlog',
@@ -320,16 +333,21 @@ function extractTasksFromDescription($description) {
     foreach ($sections as $sectionHeader => $taskType) {
         if (preg_match('/' . preg_quote($sectionHeader, '/') . '(.*?)(?:' . implode('|', array_map(function($s) { return preg_quote($s, '/'); }, array_keys($sections))) . '|$)/s', $description, $matches)) {
             $sectionContent = trim($matches[1]);
-            preg_match_all('/\*\s*\#(\d+)\s*-\s*(.*?)\s*\n/m', $sectionContent, $taskMatches);
             
-            if (!empty($taskMatches[1])) {
-                for ($i = 0; $i < count($taskMatches[1]); $i++) {
+            // Padrão atualizado para capturar tanto "* #12345 - Título" quanto "* #12345 Título" formatos
+            preg_match_all('/\*\s*\#(\d+)(?:\s*-\s*|\s+)(.*?)(?:\n|$)/m', $sectionContent, $taskMatches, PREG_SET_ORDER);
+            
+            if (!empty($taskMatches)) {
+                foreach ($taskMatches as $match) {
                     $tasks[$taskType][] = [
-                        'id' => (int)$taskMatches[1][$i],
-                        'title' => trim($taskMatches[2][$i])
+                        'id' => (int)$match[1],
+                        'title' => trim($match[2])
                     ];
                 }
             }
+            
+            // Log das tarefas encontradas
+            error_log("Tarefas encontradas na seção '$sectionHeader': " . json_encode($tasks[$taskType]));
         }
     }
     
@@ -401,13 +419,21 @@ function updateTaskStatus($taskId, $statusId) {
 // Formatar a descrição da milestone com projetos, protótipos e tarefas
 function formatMilestoneDescription($prototypes, $projects, $tasks) {
     $description = "Protótipos:\n";
-    foreach ($prototypes as $prototype) {
-        $description .= "* $prototype\n";
+    if (!empty($prototypes)) {
+        foreach ($prototypes as $prototype) {
+            $description .= "* $prototype\n";
+        }
+    } else {
+        $description .= "\n";
     }
     
     $description .= "\nProjetos:\n";
-    foreach ($projects as $project) {
-        $description .= "* $project\n";
+    if (!empty($projects)) {
+        foreach ($projects as $project) {
+            $description .= "* $project\n";
+        }
+    } else {
+        $description .= "\n";
     }
     
     // Adicionar tarefas organizadas por status
@@ -426,6 +452,9 @@ function formatMilestoneDescription($prototypes, $projects, $tasks) {
             }
         }
     }
+    
+    // Log da descrição formatada para debug
+    error_log("Descrição formatada: " . substr($description, 0, 500) . (strlen($description) > 500 ? "..." : ""));
     
     return $description;
 }
@@ -1251,11 +1280,37 @@ switch ($action) {
                                         <label for="assigned_to" class="form-label">Responsável</label>
                                         <select class="form-select" id="assigned_to" name="assigned_to">
                                             <option value="">Selecione um responsável</option>
-                                            <?php foreach ($users as $user): ?>
-                                                <option value="<?= $user['id'] ?>" <?= isset($milestone['assigned_to']) && $milestone['assigned_to']['id'] == $user['id'] ? 'selected' : '' ?>>
-                                                    <?= htmlspecialchars($user['firstname'] . ' ' . $user['lastname']) ?>
+                                            <?php 
+                                            // Debug para ver os usuários disponíveis
+                                            error_log("Usuários disponíveis para seleção: " . json_encode($users));
+                                            if (!empty($users)): 
+                                                foreach ($users as $user): 
+                                                    $fullName = isset($user['firstname']) && isset($user['lastname']) 
+                                                        ? $user['firstname'] . ' ' . $user['lastname'] 
+                                                        : ($user['name'] ?? 'Usuário #' . $user['id']);
+                                                    
+                                                    $isSelected = isset($milestone['assigned_to']) && 
+                                                                 isset($milestone['assigned_to']['id']) && 
+                                                                 isset($user['id']) && 
+                                                                 $milestone['assigned_to']['id'] == $user['id'];
+                                                    
+                                                    // Debug para verificar a seleção
+                                                    if (isset($milestone['assigned_to'])) {
+                                                        error_log("Comparando: milestone[assigned_to][id]=" . 
+                                                                 ($milestone['assigned_to']['id'] ?? 'null') . 
+                                                                 " com user[id]=" . ($user['id'] ?? 'null') . 
+                                                                 " => " . ($isSelected ? 'SELECTED' : 'not selected'));
+                                                    }
+                                            ?>
+                                                <option value="<?= $user['id'] ?>" <?= $isSelected ? 'selected' : '' ?>>
+                                                    <?= htmlspecialchars($fullName) ?>
                                                 </option>
-                                            <?php endforeach; ?>
+                                            <?php 
+                                                endforeach; 
+                                            else: 
+                                            ?>
+                                                <option value="" disabled>Nenhum usuário disponível</option>
+                                            <?php endif; ?>
                                         </select>
                                     </div>
                                     
@@ -1421,25 +1476,35 @@ switch ($action) {
                                             </div>
                                             <div class="card-body p-2">
                                                 <div class="task-list" id="backlog-tasks">
-                                                    <?php if (!empty($tasks['backlog'])): ?>
-                                                        <?php foreach ($tasks['backlog'] as $task): ?>
-                                                            <div class="card mb-2 task-card" data-task-id="<?= $task['id'] ?>">
-                                                                <div class="card-body p-2">
-                                                                    <p class="mb-1">
-                                                                        <small class="text-muted">#<?= $task['id'] ?></small>
-                                                                    </p>
-                                                                    <h6 class="card-title mb-0 task-title"><?= htmlspecialchars($task['title']) ?></h6>
-                                                                    <div class="mt-2 text-end">
-                                                                        <button class="btn btn-sm btn-outline-danger remove-task-btn" title="Remover da milestone">
-                                                                            <i class="bi bi-trash"></i>
-                                                                        </button>
-                                                                        <a href="<?= $BASE_URL ?>/redmine/issues/<?= $task['id'] ?>" target="_blank" class="btn btn-sm btn-outline-secondary ms-1" title="Ver no Redmine">
-                                                                            <i class="bi bi-box-arrow-up-right"></i>
-                                                                        </a>
-                                                                    </div>
+                                                    <?php 
+                                                    error_log("Tarefas no backlog: " . json_encode($tasks['backlog']));
+                                                    if (!empty($tasks['backlog'])): 
+                                                        foreach ($tasks['backlog'] as $task): 
+                                                    ?>
+                                                        <div class="card mb-2 task-card" data-task-id="<?= $task['id'] ?>">
+                                                            <div class="card-body p-2">
+                                                                <p class="mb-1">
+                                                                    <small class="text-muted">#<?= $task['id'] ?></small>
+                                                                </p>
+                                                                <h6 class="card-title mb-0 task-title"><?= htmlspecialchars($task['title']) ?></h6>
+                                                                <div class="mt-2 text-end">
+                                                                    <button class="btn btn-sm btn-outline-danger remove-task-btn" title="Remover da milestone">
+                                                                        <i class="bi bi-trash"></i>
+                                                                    </button>
+                                                                    <a href="<?= $BASE_URL ?>/redmine/issues/<?= $task['id'] ?>" target="_blank" class="btn btn-sm btn-outline-secondary ms-1" title="Ver no Redmine">
+                                                                        <i class="bi bi-box-arrow-up-right"></i>
+                                                                    </a>
                                                                 </div>
                                                             </div>
-                                                        <?php endforeach; ?>
+                                                        </div>
+                                                    <?php 
+                                                        endforeach; 
+                                                    else:
+                                                    ?>
+                                                        <div class="text-muted text-center p-3">
+                                                            <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                                                            Nenhuma tarefa no backlog
+                                                        </div>
                                                     <?php endif; ?>
                                                 </div>
                                             </div>

@@ -302,41 +302,71 @@ function getUsers() {
     
     if (!$mainProjects['milestone_id']) {
         error_log("Projeto de milestones não encontrado");
-        return ['error' => 'Projeto de milestones não encontrado'];
+        return [];
     }
     
-    // Obter membros do projeto de milestone
+    // Método 1: Tenta obter diretamente de todos os usuários do sistema
+    $users = callRedmineAPI('/users.json?limit=100&status=1'); // Status=1 para usuários ativos apenas
+    
+    if (!isset($users['error']) && isset($users['users']) && !empty($users['users'])) {
+        error_log("Obtidos " . count($users['users']) . " usuários via método direto");
+        return $users['users'];
+    }
+    
+    error_log("Tentativa direta falhou, tentando via membros do projeto");
+    
+    // Método 2: Se não conseguir diretamente, tenta obter via memberships
     $members = callRedmineAPI('/projects/' . $mainProjects['milestone_id'] . '/memberships.json');
     
-    if (isset($members['error'])) {
-        error_log("Erro ao obter membros do projeto: " . $members['error']);
-        // Se não conseguir obter os membros, usar lista geral de usuários
-        $users = callRedmineAPI('/users.json?limit=100&status=1'); // Status=1 para usuários ativos apenas
+    if (isset($members['error']) || !isset($members['memberships']) || empty($members['memberships'])) {
+        error_log("Erro ao obter membros do projeto: " . (isset($members['error']) ? $members['error'] : 'Estrutura inesperada'));
         
-        if (isset($users['error'])) {
-            error_log("Erro ao obter usuários gerais: " . $users['error']);
-            return [];
+        // Tenta com outro endpoint como último recurso
+        $membersAlt = callRedmineAPI('/memberships.json?project_id=' . $mainProjects['milestone_id']);
+        
+        if (isset($membersAlt['error']) || !isset($membersAlt['memberships']) || empty($membersAlt['memberships'])) {
+            error_log("Todas as tentativas falharam. Retornando array vazio.");
+            return []; // Retorna array vazio como último recurso
         }
-    } else {
-        // Extrair usuários dos membros do projeto
-        $users = ['users' => []];
-        if (isset($members['memberships'])) {
-            foreach ($members['memberships'] as $membership) {
-                if (isset($membership['user'])) {
-                    $users['users'][] = $membership['user'];
+        
+        $members = $membersAlt; // Use os resultados alternativos
+    }
+    
+    // Processa os membros para extrair usuários
+    $userList = [];
+    foreach ($members['memberships'] as $membership) {
+        if (isset($membership['user'])) {
+            // Verificar se temos os campos necessários
+            $user = $membership['user'];
+            if (isset($user['id'])) {
+                // Se temos apenas id sem nome, tenta adicionar informações mínimas
+                if (!isset($user['name']) && !isset($user['firstname'])) {
+                    $user['name'] = 'Usuário #' . $user['id'];
+                }
+                
+                // Evita duplicatas
+                $exists = false;
+                foreach ($userList as $existingUser) {
+                    if ($existingUser['id'] == $user['id']) {
+                        $exists = true;
+                        break;
+                    }
+                }
+                
+                if (!$exists) {
+                    $userList[] = $user;
                 }
             }
         }
     }
     
-    error_log("Usuários obtidos: " . json_encode(isset($users['users']) ? $users['users'] : []));
-    
-    if (isset($users['error'])) {
-        return [];
+    // Log dos usuários encontrados
+    error_log("Obtidos " . count($userList) . " usuários via membros do projeto");
+    if (count($userList) > 0) {
+        error_log("Exemplo do primeiro usuário: " . json_encode($userList[0]));
     }
     
-    // Se não houver usuários, retornar array vazio em vez de erro
-    return isset($users['users']) && !empty($users['users']) ? $users['users'] : [];
+    return $userList;
 }
 
 // Obter tarefas de um projeto
@@ -1387,7 +1417,28 @@ switch ($action) {
                                 <td>#<?= $milestone['id'] ?></td>
                                 <td><?= htmlspecialchars($milestone['subject']) ?></td>
                                 <td>
-                                    <?= isset($milestone['assigned_to']) ? htmlspecialchars($milestone['assigned_to']['name']) : '<span class="text-muted">Não atribuído</span>' ?>
+                                    <?php if (isset($milestone['assigned_to'])): 
+                                        // Determinar o nome a exibir - considerando vários formatos possíveis
+                                        $assignedUser = $milestone['assigned_to'];
+                                        
+                                        if (isset($assignedUser['firstname']) && isset($assignedUser['lastname'])) {
+                                            $displayName = $assignedUser['firstname'] . ' ' . $assignedUser['lastname'];
+                                        } elseif (isset($assignedUser['name'])) {
+                                            $displayName = $assignedUser['name'];
+                                        } else {
+                                            $displayName = 'Usuário #' . $assignedUser['id'];
+                                        }
+                                    ?>
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-person-fill text-primary me-2"></i>
+                                            <?= htmlspecialchars($displayName) ?>
+                                        </div>
+                                    <?php else: ?>
+                                        <span class="text-muted">
+                                            <i class="bi bi-person-x me-1"></i>
+                                            Não atribuído
+                                        </span>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php if (isset($milestone['due_date'])): ?>
@@ -1481,12 +1532,27 @@ switch ($action) {
                             <label for="assigned_to" class="form-label">Responsável</label>
                             <select class="form-select" id="assigned_to" name="assigned_to">
                                 <option value="">Selecione um responsável</option>
-                                <?php foreach ($users as $user): ?>
+                                <?php foreach ($users as $user): 
+                                    // Determinar o nome a exibir - considerando vários formatos possíveis
+                                    if (isset($user['firstname']) && isset($user['lastname'])) {
+                                        $displayName = $user['firstname'] . ' ' . $user['lastname'];
+                                    } elseif (isset($user['name'])) {
+                                        $displayName = $user['name'];
+                                    } else {
+                                        $displayName = 'Usuário #' . $user['id'];
+                                    }
+                                ?>
                                     <option value="<?= $user['id'] ?>">
-                                        <?= htmlspecialchars($user['firstname'] . ' ' . $user['lastname']) ?>
+                                        <?= htmlspecialchars($displayName) ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+                            <?php if (empty($users)): ?>
+                                <div class="text-danger small mt-1">
+                                    <i class="bi bi-exclamation-triangle-fill"></i>
+                                    Não foi possível carregar a lista de usuários. Verifique a conexão com o Redmine.
+                                </div>
+                            <?php endif; ?>
                         </div>
                         
                         <div class="mb-3">
@@ -1544,27 +1610,34 @@ switch ($action) {
                                             <?php 
                                             // Debug para ver os usuários disponíveis
                                             error_log("Usuários disponíveis para seleção: " . json_encode($users));
+                                            
+                                            $selectedUserId = isset($milestone['assigned_to']) && isset($milestone['assigned_to']['id']) 
+                                                            ? $milestone['assigned_to']['id'] 
+                                                            : null;
+                                                            
+                                            error_log("Usuário selecionado: " . ($selectedUserId ? $selectedUserId : 'nenhum'));
+                                            
                                             if (!empty($users)): 
                                                 foreach ($users as $user): 
-                                                    $fullName = isset($user['firstname']) && isset($user['lastname']) 
-                                                        ? $user['firstname'] . ' ' . $user['lastname'] 
-                                                        : ($user['name'] ?? 'Usuário #' . $user['id']);
+                                                    // Determinar o nome a exibir - considerando vários formatos possíveis
+                                                    if (isset($user['firstname']) && isset($user['lastname'])) {
+                                                        $displayName = $user['firstname'] . ' ' . $user['lastname'];
+                                                    } elseif (isset($user['name'])) {
+                                                        $displayName = $user['name'];
+                                                    } else {
+                                                        $displayName = 'Usuário #' . $user['id'];
+                                                    }
                                                     
-                                                    $isSelected = isset($milestone['assigned_to']) && 
-                                                                 isset($milestone['assigned_to']['id']) && 
-                                                                 isset($user['id']) && 
-                                                                 $milestone['assigned_to']['id'] == $user['id'];
+                                                    $isSelected = $selectedUserId && isset($user['id']) && $selectedUserId == $user['id'];
                                                     
                                                     // Debug para verificar a seleção
-                                                    if (isset($milestone['assigned_to'])) {
-                                                        error_log("Comparando: milestone[assigned_to][id]=" . 
-                                                                 ($milestone['assigned_to']['id'] ?? 'null') . 
-                                                                 " com user[id]=" . ($user['id'] ?? 'null') . 
-                                                                 " => " . ($isSelected ? 'SELECTED' : 'not selected'));
+                                                    if ($selectedUserId && isset($user['id'])) {
+                                                        error_log("Comparando usuário: ID={$user['id']}, Nome={$displayName} => " . 
+                                                                ($isSelected ? 'SELECIONADO' : 'não selecionado'));
                                                     }
                                             ?>
                                                 <option value="<?= $user['id'] ?>" <?= $isSelected ? 'selected' : '' ?>>
-                                                    <?= htmlspecialchars($fullName) ?>
+                                                    <?= htmlspecialchars($displayName) ?>
                                                 </option>
                                             <?php 
                                                 endforeach; 
@@ -1573,6 +1646,12 @@ switch ($action) {
                                                 <option value="" disabled>Nenhum usuário disponível</option>
                                             <?php endif; ?>
                                         </select>
+                                        <?php if (empty($users)): ?>
+                                            <div class="text-danger small mt-1">
+                                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                                Não foi possível carregar a lista de usuários. Verifique a conexão com o Redmine.
+                                            </div>
+                                        <?php endif; ?>
                                     </div>
                                     
                                     <div class="mb-3">
@@ -1665,7 +1744,29 @@ switch ($action) {
                                 <div class="mb-3">
                                     <h6 class="fw-bold">Responsável</h6>
                                     <p>
-                                        <?= isset($milestone['assigned_to']) ? htmlspecialchars($milestone['assigned_to']['name']) : '<span class="text-muted">Não atribuído</span>' ?>
+                                        <?php if (isset($milestone['assigned_to'])): 
+                                            // Determinar o nome a exibir - considerando vários formatos possíveis
+                                            $assignedUser = $milestone['assigned_to'];
+                                            
+                                            if (isset($assignedUser['firstname']) && isset($assignedUser['lastname'])) {
+                                                $displayName = $assignedUser['firstname'] . ' ' . $assignedUser['lastname'];
+                                            } elseif (isset($assignedUser['name'])) {
+                                                $displayName = $assignedUser['name'];
+                                            } else {
+                                                $displayName = 'Usuário #' . $assignedUser['id'];
+                                            }
+                                        ?>
+                                            <span class="d-flex align-items-center">
+                                                <i class="bi bi-person-fill text-primary me-2"></i>
+                                                <?= htmlspecialchars($displayName) ?>
+                                                <span class="badge bg-secondary ms-2">ID: <?= $assignedUser['id'] ?></span>
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="text-muted">
+                                                <i class="bi bi-person-x text-muted me-2"></i>
+                                                Não atribuído
+                                            </span>
+                                        <?php endif; ?>
                                     </p>
                                 </div>
                                 

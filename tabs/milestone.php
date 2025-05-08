@@ -385,7 +385,269 @@ $action = $_GET['action'] ?? 'list';
 $message = '';
 $messageType = '';
 
-// Processar formulários
+// Processar formulários AJAX
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && (
+    isset($_SERVER['HTTP_X_REQUESTED_WITH']) && 
+    strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest'
+)) {
+    // Set content type to JSON
+    header('Content-Type: application/json');
+    
+    switch ($_POST['action']) {
+        case 'move_task':
+            $taskId = $_POST['task_id'] ?? null;
+            $newStatus = $_POST['new_status'] ?? null;
+            $milestoneId = $_POST['milestone_id'] ?? null;
+            
+            if ($taskId && $newStatus && $milestoneId) {
+                try {
+                    // Mapear o status "lógico" para o ID do status do Redmine
+                    $statusMapping = [
+                        'backlog' => 1,      // Novo/Backlog
+                        'in_progress' => 2,  // Em progresso
+                        'paused' => 3,       // Resolvido/Pausa (exemplo)
+                        'closed' => 5        // Fechado
+                    ];
+                    
+                    $statusId = $statusMapping[$newStatus] ?? 1;
+                    
+                    // Atualizar o status da tarefa no Redmine
+                    $result = updateTaskStatus($taskId, $statusId);
+                    
+                    if (isset($result['error'])) {
+                        $errorMessage = 'Erro ao atualizar status da tarefa: ' . $result['error'];
+                        error_log($errorMessage);
+                        echo json_encode(['success' => false, 'message' => $errorMessage]);
+                        exit;
+                    }
+                    
+                    // Obter milestone atual
+                    $milestone = getMilestoneDetails($milestoneId);
+                    
+                    if (isset($milestone['error'])) {
+                        $errorMessage = 'Erro ao obter detalhes da milestone: ' . $milestone['error'];
+                        error_log($errorMessage);
+                        echo json_encode(['success' => false, 'message' => $errorMessage]);
+                        exit;
+                    }
+                    
+                    // Extrair informações atuais
+                    $associated = extractAssociatedProjectsFromDescription($milestone['description']);
+                    $tasks = extractTasksFromDescription($milestone['description']);
+                    
+                    // Encontrar a tarefa para mover
+                    $taskToMove = null;
+                    $currentStatus = null;
+                    
+                    foreach ($tasks as $status => $statusTasks) {
+                        foreach ($statusTasks as $index => $task) {
+                            if ($task['id'] == $taskId) {
+                                $taskToMove = $task;
+                                $currentStatus = $status;
+                                // Remover da lista atual
+                                unset($tasks[$status][$index]);
+                                $tasks[$status] = array_values($tasks[$status]); // Reordenar índices
+                                break 2;
+                            }
+                        }
+                    }
+                    
+                    // Se encontrou a tarefa, adicionar ao novo status
+                    if ($taskToMove) {
+                        $tasks[$newStatus][] = $taskToMove;
+                        
+                        // Atualizar a descrição da milestone
+                        $newDescription = formatMilestoneDescription($associated['prototypes'], $associated['projects'], $tasks);
+                        
+                        $updates = [
+                            'description' => $newDescription
+                        ];
+                        
+                        $updateResult = updateMilestone($milestoneId, $updates);
+                        
+                        if (isset($updateResult['error'])) {
+                            $errorMessage = 'Erro ao atualizar descrição da milestone: ' . $updateResult['error'];
+                            error_log($errorMessage);
+                            echo json_encode(['success' => false, 'message' => $errorMessage]);
+                        } else {
+                            echo json_encode(['success' => true]);
+                        }
+                    } else {
+                        echo json_encode(['success' => false, 'message' => 'Tarefa não encontrada na milestone']);
+                    }
+                } catch (Exception $e) {
+                    error_log('Exceção ao mover tarefa: ' . $e->getMessage());
+                    echo json_encode(['success' => false, 'message' => 'Erro interno: ' . $e->getMessage()]);
+                }
+                
+                exit;
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Parâmetros inválidos']);
+                exit;
+            }
+            break;
+            
+        case 'add_task':
+            $milestoneId = $_POST['milestone_id'] ?? null;
+            $taskId = $_POST['task_id'] ?? null;
+            
+            if ($milestoneId && $taskId) {
+                try {
+                    // Obter detalhes da tarefa
+                    $task = callRedmineAPI('/issues/' . $taskId . '.json');
+                    
+                    if (isset($task['error']) || !isset($task['issue'])) {
+                        $errorMessage = isset($task['error']) ? $task['error'] : 'Erro ao obter detalhes da tarefa';
+                        error_log('Erro ao obter tarefa #' . $taskId . ': ' . $errorMessage);
+                        echo json_encode(['success' => false, 'message' => $errorMessage]);
+                        exit;
+                    }
+                    
+                    $taskDetails = $task['issue'];
+                    
+                    // Obter milestone atual
+                    $milestone = getMilestoneDetails($milestoneId);
+                    
+                    if (isset($milestone['error'])) {
+                        $errorMessage = 'Erro ao obter detalhes da milestone: ' . $milestone['error'];
+                        error_log($errorMessage);
+                        echo json_encode(['success' => false, 'message' => $errorMessage]);
+                        exit;
+                    }
+                    
+                    // Extrair informações atuais
+                    $associated = extractAssociatedProjectsFromDescription($milestone['description']);
+                    $tasks = extractTasksFromDescription($milestone['description']);
+                    
+                    // Verificar se a tarefa já existe em algum status
+                    $taskExists = false;
+                    foreach ($tasks as $status => $statusTasks) {
+                        foreach ($statusTasks as $task) {
+                            if ($task['id'] == $taskId) {
+                                $taskExists = true;
+                                break 2;
+                            }
+                        }
+                    }
+                    
+                    if (!$taskExists) {
+                        // Adicionar tarefa ao backlog
+                        $tasks['backlog'][] = [
+                            'id' => (int)$taskId,
+                            'title' => $taskDetails['subject']
+                        ];
+                        
+                        // Atualizar a descrição da milestone
+                        $newDescription = formatMilestoneDescription($associated['prototypes'], $associated['projects'], $tasks);
+                        
+                        $updates = [
+                            'description' => $newDescription
+                        ];
+                        
+                        $updateResult = updateMilestone($milestoneId, $updates);
+                        
+                        if (isset($updateResult['error'])) {
+                            $errorMessage = 'Erro ao atualizar descrição da milestone: ' . $updateResult['error'];
+                            error_log($errorMessage);
+                            echo json_encode(['success' => false, 'message' => $errorMessage]);
+                        } else {
+                            echo json_encode([
+                                'success' => true, 
+                                'task' => [
+                                    'id' => (int)$taskId,
+                                    'title' => $taskDetails['subject']
+                                ]
+                            ]);
+                        }
+                    } else {
+                        echo json_encode(['success' => false, 'message' => 'Tarefa já existe na milestone']);
+                    }
+                } catch (Exception $e) {
+                    error_log('Exceção ao adicionar tarefa: ' . $e->getMessage());
+                    echo json_encode(['success' => false, 'message' => 'Erro interno: ' . $e->getMessage()]);
+                }
+                
+                exit;
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Parâmetros inválidos']);
+                exit;
+            }
+            break;
+            
+        case 'remove_task':
+            $milestoneId = $_POST['milestone_id'] ?? null;
+            $taskId = $_POST['task_id'] ?? null;
+            
+            if ($milestoneId && $taskId) {
+                try {
+                    // Obter milestone atual
+                    $milestone = getMilestoneDetails($milestoneId);
+                    
+                    if (isset($milestone['error'])) {
+                        $errorMessage = 'Erro ao obter detalhes da milestone: ' . $milestone['error'];
+                        error_log($errorMessage);
+                        echo json_encode(['success' => false, 'message' => $errorMessage]);
+                        exit;
+                    }
+                    
+                    // Extrair informações atuais
+                    $associated = extractAssociatedProjectsFromDescription($milestone['description']);
+                    $tasks = extractTasksFromDescription($milestone['description']);
+                    
+                    // Remover a tarefa de todos os status
+                    $taskRemoved = false;
+                    foreach ($tasks as $status => $statusTasks) {
+                        foreach ($statusTasks as $index => $task) {
+                            if ($task['id'] == $taskId) {
+                                unset($tasks[$status][$index]);
+                                $tasks[$status] = array_values($tasks[$status]); // Reordenar índices
+                                $taskRemoved = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if ($taskRemoved) {
+                        // Atualizar a descrição da milestone
+                        $newDescription = formatMilestoneDescription($associated['prototypes'], $associated['projects'], $tasks);
+                        
+                        $updates = [
+                            'description' => $newDescription
+                        ];
+                        
+                        $updateResult = updateMilestone($milestoneId, $updates);
+                        
+                        if (isset($updateResult['error'])) {
+                            $errorMessage = 'Erro ao atualizar descrição da milestone: ' . $updateResult['error'];
+                            error_log($errorMessage);
+                            echo json_encode(['success' => false, 'message' => $errorMessage]);
+                        } else {
+                            echo json_encode(['success' => true]);
+                        }
+                    } else {
+                        echo json_encode(['success' => false, 'message' => 'Tarefa não encontrada na milestone']);
+                    }
+                } catch (Exception $e) {
+                    error_log('Exceção ao remover tarefa: ' . $e->getMessage());
+                    echo json_encode(['success' => false, 'message' => 'Erro interno: ' . $e->getMessage()]);
+                }
+                
+                exit;
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Parâmetros inválidos']);
+                exit;
+            }
+            break;
+            
+        default:
+            echo json_encode(['success' => false, 'message' => 'Ação desconhecida']);
+            exit;
+    }
+    
+    exit; // Garante que nenhum HTML seja enviado após a resposta JSON
+}
+
+// Processar formulários normais (não-AJAX)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action'])) {
         switch ($_POST['action']) {
@@ -1366,7 +1628,7 @@ switch ($action) {
                         addTaskBtn.disabled = true;
                         
                         // Adicionar tarefa à milestone via AJAX
-                        fetch(window.location.pathname + '?tab=milestone&action=view&id=' + milestoneId, {
+                        fetch(window.location.href, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -1382,6 +1644,13 @@ switch ($action) {
                             if (!response.ok) {
                                 throw new Error('Erro na resposta do servidor: ' + response.status);
                             }
+                            
+                            // Check if content type is JSON
+                            const contentType = response.headers.get('content-type');
+                            if (!contentType || !contentType.includes('application/json')) {
+                                throw new Error('Resposta do servidor não é JSON válido. Tipo de conteúdo: ' + (contentType || 'desconhecido'));
+                            }
+                            
                             return response.json();
                         })
                         .then(data => {
@@ -1428,7 +1697,7 @@ switch ($action) {
                                 btn.disabled = true;
                                 
                                 // Remover tarefa da milestone via AJAX
-                                fetch(window.location.pathname + '?tab=milestone&action=view&id=' + milestoneId, {
+                                fetch(window.location.href, {
                                     method: 'POST',
                                     headers: {
                                         'Content-Type': 'application/x-www-form-urlencoded',
@@ -1444,6 +1713,13 @@ switch ($action) {
                                     if (!response.ok) {
                                         throw new Error('Erro na resposta do servidor: ' + response.status);
                                     }
+                                    
+                                    // Check if content type is JSON
+                                    const contentType = response.headers.get('content-type');
+                                    if (!contentType || !contentType.includes('application/json')) {
+                                        throw new Error('Resposta do servidor não é JSON válido. Tipo de conteúdo: ' + (contentType || 'desconhecido'));
+                                    }
+                                    
                                     return response.json();
                                 })
                                 .then(data => {
@@ -1546,7 +1822,7 @@ switch ($action) {
                         }
                         
                         // Atualizar o status da tarefa via AJAX
-                        return fetch(window.location.pathname + '?tab=milestone&action=view&id=' + milestoneId, {
+                        return fetch(window.location.href, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -1563,6 +1839,13 @@ switch ($action) {
                             if (!response.ok) {
                                 throw new Error('Erro na resposta do servidor: ' + response.status);
                             }
+                            
+                            // Check if content type is JSON
+                            const contentType = response.headers.get('content-type');
+                            if (!contentType || !contentType.includes('application/json')) {
+                                throw new Error('Resposta do servidor não é JSON válido. Tipo de conteúdo: ' + (contentType || 'desconhecido'));
+                            }
+                            
                             return response.json();
                         })
                         .then(data => {

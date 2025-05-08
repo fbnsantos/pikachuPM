@@ -160,7 +160,94 @@ function getMilestones() {
         return $issues;
     }
     
-    return isset($issues['issues']) ? $issues['issues'] : [];
+    $milestones = isset($issues['issues']) ? $issues['issues'] : [];
+    
+    // Calcular dias até deadline e estatísticas de tarefas para cada milestone
+    $today = new DateTime();
+    $today->setTime(0, 0, 0); // Remover horas, minutos, segundos para comparar apenas as datas
+    
+    foreach ($milestones as $key => &$milestone) {
+        // Calcular dias até deadline
+        if (isset($milestone['due_date']) && !empty($milestone['due_date'])) {
+            $due_date = new DateTime($milestone['due_date']);
+            $due_date->setTime(0, 0, 0); // Remover horas, minutos, segundos
+            
+            $interval = $today->diff($due_date);
+            $days_diff = $interval->days;
+            $is_past = $interval->invert; // 1 se due_date já passou, 0 se é no futuro
+            
+            $milestone['days_remaining'] = $is_past ? -$days_diff : $days_diff;
+            
+            if ($days_diff == 0 && $is_past == 0) {
+                $milestone['deadline_text'] = 'Hoje';
+                $milestone['deadline_color'] = 'warning';
+            } elseif ($is_past) {
+                $milestone['deadline_text'] = 'Atrasado ' . $days_diff . ' dia' . ($days_diff > 1 ? 's' : '');
+                $milestone['deadline_color'] = 'danger';
+            } else {
+                $milestone['deadline_text'] = $days_diff . ' dia' . ($days_diff > 1 ? 's' : '') . ' restantes';
+                $milestone['deadline_color'] = 'success';
+            }
+        } else {
+            $milestone['days_remaining'] = PHP_INT_MAX; // Sem data, coloca por último
+            $milestone['deadline_text'] = 'Sem data definida';
+            $milestone['deadline_color'] = 'secondary';
+        }
+        
+        // Calcular estatísticas de tarefas
+        if (isset($milestone['description'])) {
+            $tasks = extractTasksFromDescription($milestone['description']);
+            
+            $backlog_count = count($tasks['backlog']);
+            $in_progress_count = count($tasks['in_progress']);
+            $paused_count = count($tasks['paused']);
+            $closed_count = count($tasks['closed']);
+            $total_count = $backlog_count + $in_progress_count + $paused_count + $closed_count;
+            
+            $milestone['task_stats'] = [
+                'backlog' => [
+                    'count' => $backlog_count,
+                    'percent' => $total_count > 0 ? round(($backlog_count / $total_count) * 100) : 0
+                ],
+                'in_progress' => [
+                    'count' => $in_progress_count,
+                    'percent' => $total_count > 0 ? round(($in_progress_count / $total_count) * 100) : 0
+                ],
+                'paused' => [
+                    'count' => $paused_count,
+                    'percent' => $total_count > 0 ? round(($paused_count / $total_count) * 100) : 0
+                ],
+                'closed' => [
+                    'count' => $closed_count,
+                    'percent' => $total_count > 0 ? round(($closed_count / $total_count) * 100) : 0
+                ],
+                'total' => $total_count,
+                'completion' => $total_count > 0 ? round(($closed_count / $total_count) * 100) : 0
+            ];
+        } else {
+            $milestone['task_stats'] = [
+                'backlog' => ['count' => 0, 'percent' => 0],
+                'in_progress' => ['count' => 0, 'percent' => 0],
+                'paused' => ['count' => 0, 'percent' => 0],
+                'closed' => ['count' => 0, 'percent' => 0],
+                'total' => 0,
+                'completion' => 0
+            ];
+        }
+    }
+    
+    // Ordenar por dias restantes (milestones com menos dias restantes primeiro)
+    usort($milestones, function($a, $b) {
+        // Primeiro ordenar por dias restantes
+        if ($a['days_remaining'] !== $b['days_remaining']) {
+            return $a['days_remaining'] <=> $b['days_remaining'];
+        }
+        
+        // Se os dias são iguais, ordenar por ID (mais recente primeiro)
+        return $b['id'] <=> $a['id'];
+    });
+    
+    return $milestones;
 }
 
 // Obter detalhes de uma milestone específica
@@ -1213,6 +1300,7 @@ switch ($action) {
                             <th>Responsável</th>
                             <th>Data Limite</th>
                             <th>Status</th>
+                            <th>Progresso</th>
                             <th>Ações</th>
                         </tr>
                     </thead>
@@ -1225,12 +1313,47 @@ switch ($action) {
                                     <?= isset($milestone['assigned_to']) ? htmlspecialchars($milestone['assigned_to']['name']) : '<span class="text-muted">Não atribuído</span>' ?>
                                 </td>
                                 <td>
-                                    <?= isset($milestone['due_date']) ? htmlspecialchars($milestone['due_date']) : '<span class="text-muted">Não definida</span>' ?>
+                                    <?php if (isset($milestone['due_date'])): ?>
+                                        <div><?= htmlspecialchars($milestone['due_date']) ?></div>
+                                        <small class="badge bg-<?= $milestone['deadline_color'] ?>">
+                                            <?= htmlspecialchars($milestone['deadline_text']) ?>
+                                        </small>
+                                    <?php else: ?>
+                                        <span class="text-muted">Não definida</span>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <span class="badge bg-<?= $milestone['status']['id'] == 1 ? 'primary' : ($milestone['status']['id'] == 2 ? 'warning' : ($milestone['status']['id'] == 5 ? 'success' : 'secondary')) ?>">
                                         <?= htmlspecialchars($milestone['status']['name']) ?>
                                     </span>
+                                </td>
+                                <td style="width: 250px;">
+                                    <?php if ($milestone['task_stats']['total'] > 0): ?>
+                                        <div class="progress mb-2" style="height: 10px;" title="Total de Tarefas: <?= $milestone['task_stats']['total'] ?>">
+                                            <div class="progress-bar bg-primary" role="progressbar" 
+                                                style="width: <?= $milestone['task_stats']['backlog']['percent'] ?>%;" 
+                                                title="Backlog: <?= $milestone['task_stats']['backlog']['count'] ?> (<?= $milestone['task_stats']['backlog']['percent'] ?>%)">
+                                            </div>
+                                            <div class="progress-bar bg-warning" role="progressbar" 
+                                                style="width: <?= $milestone['task_stats']['in_progress']['percent'] ?>%;" 
+                                                title="Em Execução: <?= $milestone['task_stats']['in_progress']['count'] ?> (<?= $milestone['task_stats']['in_progress']['percent'] ?>%)">
+                                            </div>
+                                            <div class="progress-bar bg-secondary" role="progressbar" 
+                                                style="width: <?= $milestone['task_stats']['paused']['percent'] ?>%;" 
+                                                title="Pausa: <?= $milestone['task_stats']['paused']['count'] ?> (<?= $milestone['task_stats']['paused']['percent'] ?>%)">
+                                            </div>
+                                            <div class="progress-bar bg-success" role="progressbar" 
+                                                style="width: <?= $milestone['task_stats']['closed']['percent'] ?>%;" 
+                                                title="Fechado: <?= $milestone['task_stats']['closed']['count'] ?> (<?= $milestone['task_stats']['closed']['percent'] ?>%)">
+                                            </div>
+                                        </div>
+                                        <div class="d-flex justify-content-between small">
+                                            <span>Concluído: <?= $milestone['task_stats']['completion'] ?>%</span>
+                                            <span class="text-muted"><?= $milestone['task_stats']['closed']['count'] ?>/<?= $milestone['task_stats']['total'] ?> tarefas</span>
+                                        </div>
+                                    <?php else: ?>
+                                        <span class="text-muted">Sem tarefas</span>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <div class="btn-group" role="group">
@@ -1429,9 +1552,30 @@ switch ($action) {
                                 
                                 <div class="mb-3">
                                     <h6 class="fw-bold">Data Limite</h6>
-                                    <p>
-                                        <?= isset($milestone['due_date']) ? htmlspecialchars($milestone['due_date']) : '<span class="text-muted">Não definida</span>' ?>
-                                    </p>
+                                    <?php if (isset($milestone['due_date'])): 
+                                        // Calcular dias restantes
+                                        $due_date = new DateTime($milestone['due_date']);
+                                        $today = new DateTime();
+                                        $interval = $today->diff($due_date);
+                                        $days_diff = $interval->days;
+                                        $is_past = $interval->invert; // 1 se já passou, 0 se é no futuro
+                                        
+                                        if ($days_diff == 0 && $is_past == 0) {
+                                            $deadline_text = 'Hoje';
+                                            $deadline_color = 'warning';
+                                        } elseif ($is_past) {
+                                            $deadline_text = 'Atrasado ' . $days_diff . ' dia' . ($days_diff > 1 ? 's' : '');
+                                            $deadline_color = 'danger';
+                                        } else {
+                                            $deadline_text = $days_diff . ' dia' . ($days_diff > 1 ? 's' : '') . ' restantes';
+                                            $deadline_color = 'success';
+                                        }
+                                    ?>
+                                        <p><?= htmlspecialchars($milestone['due_date']) ?></p>
+                                        <div class="badge bg-<?= $deadline_color ?> mb-2"><?= $deadline_text ?></div>
+                                    <?php else: ?>
+                                        <p><span class="text-muted">Não definida</span></p>
+                                    <?php endif; ?>
                                 </div>
                                 
                                 <div class="mb-3">
@@ -1441,6 +1585,98 @@ switch ($action) {
                                             <?= htmlspecialchars($milestone['status']['name']) ?>
                                         </span>
                                     </p>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <h6 class="fw-bold">Progresso</h6>
+                                    <?php 
+                                    // Calcular contagens de tarefas
+                                    $tasks = extractTasksFromDescription($milestone['description'] ?? '');
+                                    $backlog_count = count($tasks['backlog']);
+                                    $in_progress_count = count($tasks['in_progress']);
+                                    $paused_count = count($tasks['paused']);
+                                    $closed_count = count($tasks['closed']);
+                                    $total_count = $backlog_count + $in_progress_count + $paused_count + $closed_count;
+                                    
+                                    // Calcular percentuais
+                                    $backlog_percent = $total_count > 0 ? round(($backlog_count / $total_count) * 100) : 0;
+                                    $in_progress_percent = $total_count > 0 ? round(($in_progress_count / $total_count) * 100) : 0;
+                                    $paused_percent = $total_count > 0 ? round(($paused_count / $total_count) * 100) : 0;
+                                    $closed_percent = $total_count > 0 ? round(($closed_count / $total_count) * 100) : 0;
+                                    $completion = $total_count > 0 ? round(($closed_count / $total_count) * 100) : 0;
+                                    
+                                    if ($total_count > 0):
+                                    ?>
+                                    <div class="progress mb-2" style="height: 15px;">
+                                        <div class="progress-bar bg-primary" role="progressbar" 
+                                            style="width: <?= $backlog_percent ?>%;" 
+                                            title="Backlog: <?= $backlog_count ?> (<?= $backlog_percent ?>%)">
+                                            <?= $backlog_percent > 10 ? $backlog_percent . '%' : '' ?>
+                                        </div>
+                                        <div class="progress-bar bg-warning" role="progressbar" 
+                                            style="width: <?= $in_progress_percent ?>%;" 
+                                            title="Em Execução: <?= $in_progress_count ?> (<?= $in_progress_percent ?>%)">
+                                            <?= $in_progress_percent > 10 ? $in_progress_percent . '%' : '' ?>
+                                        </div>
+                                        <div class="progress-bar bg-secondary" role="progressbar" 
+                                            style="width: <?= $paused_percent ?>%;" 
+                                            title="Pausa: <?= $paused_count ?> (<?= $paused_percent ?>%)">
+                                            <?= $paused_percent > 10 ? $paused_percent . '%' : '' ?>
+                                        </div>
+                                        <div class="progress-bar bg-success" role="progressbar" 
+                                            style="width: <?= $closed_percent ?>%;" 
+                                            title="Fechado: <?= $closed_count ?> (<?= $closed_percent ?>%)">
+                                            <?= $closed_percent > 10 ? $closed_percent . '%' : '' ?>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="d-flex justify-content-between mb-3">
+                                        <div class="small" title="Taxa de conclusão">
+                                            <i class="bi bi-check-circle-fill text-success"></i> 
+                                            <span class="fw-bold"><?= $completion ?>% concluído</span>
+                                        </div>
+                                        <div class="small text-muted">
+                                            <?= $closed_count ?> de <?= $total_count ?> tarefas completadas
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="row small text-center">
+                                        <div class="col">
+                                            <div class="card border-0 bg-light">
+                                                <div class="card-body py-2">
+                                                    <div class="h4 mb-0"><?= $backlog_count ?></div>
+                                                    <div class="text-primary">Backlog</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col">
+                                            <div class="card border-0 bg-light">
+                                                <div class="card-body py-2">
+                                                    <div class="h4 mb-0"><?= $in_progress_count ?></div>
+                                                    <div class="text-warning">Em Execução</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col">
+                                            <div class="card border-0 bg-light">
+                                                <div class="card-body py-2">
+                                                    <div class="h4 mb-0"><?= $paused_count ?></div>
+                                                    <div class="text-secondary">Pausa</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col">
+                                            <div class="card border-0 bg-light">
+                                                <div class="card-body py-2">
+                                                    <div class="h4 mb-0"><?= $closed_count ?></div>
+                                                    <div class="text-success">Fechado</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <?php else: ?>
+                                        <p class="text-muted">Esta milestone não possui tarefas.</p>
+                                    <?php endif; ?>
                                 </div>
                                 
                                 <div class="mb-3">

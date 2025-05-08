@@ -1411,11 +1411,38 @@ switch ($action) {
             $filters['assigned_to_id'] = $filter_assigned_to;
         }
         
-        // Obter todas as milestones com os filtros aplicados
-        $allMilestones = getMilestones($filters);
+        // Flag para mostrar diagnóstico detalhado
+        $show_debug = isset($_GET['debug']) && $_GET['debug'] === 'true';
+        
+        // Realizar teste de conectividade com o Redmine
+        $connection_test = null;
+        if ($show_debug) {
+            $connection_test = testRedmineConnection();
+        }
+        
+        // Variável para armazenar mensagem de erro se houver
+        $error_message = null;
+        
+        // Flag para usar método alternativo
+        $use_alternative = isset($_GET['alternative']) && $_GET['alternative'] === 'true';
+        
+        // Obter milestones
+        if ($use_alternative) {
+            // Usar método alternativo
+            $allMilestones = getMilestonesAlternative();
+            error_log("Usando método alternativo para buscar milestones");
+        } else {
+            // Usar método padrão
+            $allMilestones = getMilestones($filters);
+            error_log("Usando método padrão para buscar milestones");
+        }
         
         // Log para diagnóstico
-        error_log("Obtidas " . (is_array($allMilestones) ? count($allMilestones) : "ERROR") . " milestones no total");
+        if (is_array($allMilestones) && !isset($allMilestones['error'])) {
+            error_log("Obtidas " . count($allMilestones) . " milestones no total");
+        } else {
+            error_log("ERRO ao obter milestones: " . (isset($allMilestones['error']) ? $allMilestones['error'] : "Formato inesperado"));
+        }
         
         // Verificar se o resultado é um array ou se há um erro
         if (isset($allMilestones['error'])) {
@@ -1428,6 +1455,62 @@ switch ($action) {
             $incompleteMilestones = [];
             $completedMilestones = [];
         } else {
+            // Processar milestones para calcular estatísticas
+            foreach ($allMilestones as &$milestone) {
+                if (!isset($milestone['task_stats'])) {
+                    // Calcular estatísticas de tarefas se ainda não foram calculadas
+                    if (isset($milestone['description'])) {
+                        $tasks = extractTasksFromDescription($milestone['description']);
+                        
+                        $backlog_count = count($tasks['backlog']);
+                        $in_progress_count = count($tasks['in_progress']);
+                        $paused_count = count($tasks['paused']);
+                        $closed_count = count($tasks['closed']);
+                        $total_count = $backlog_count + $in_progress_count + $paused_count + $closed_count;
+                        
+                        $milestone['task_stats'] = [
+                            'backlog' => [
+                                'count' => $backlog_count,
+                                'percent' => $total_count > 0 ? round(($backlog_count / $total_count) * 100) : 0
+                            ],
+                            'in_progress' => [
+                                'count' => $in_progress_count,
+                                'percent' => $total_count > 0 ? round(($in_progress_count / $total_count) * 100) : 0
+                            ],
+                            'paused' => [
+                                'count' => $paused_count,
+                                'percent' => $total_count > 0 ? round(($paused_count / $total_count) * 100) : 0
+                            ],
+                            'closed' => [
+                                'count' => $closed_count,
+                                'percent' => $total_count > 0 ? round(($closed_count / $total_count) * 100) : 0
+                            ],
+                            'total' => $total_count,
+                            'completion' => $total_count > 0 ? round(($closed_count / $total_count) * 100) : 0
+                        ];
+                        
+                        // Flag para indicar se está concluída
+                        $milestone['is_completed'] = ($total_count > 0 && $milestone['task_stats']['completion'] == 100);
+                    } else {
+                        $milestone['task_stats'] = [
+                            'backlog' => ['count' => 0, 'percent' => 0],
+                            'in_progress' => ['count' => 0, 'percent' => 0],
+                            'paused' => ['count' => 0, 'percent' => 0],
+                            'closed' => ['count' => 0, 'percent' => 0],
+                            'total' => 0,
+                            'completion' => 0
+                        ];
+                        $milestone['is_completed'] = false;
+                    }
+                    
+                    // Adicionar outras propriedades necessárias se não existirem
+                    if (!isset($milestone['deadline_text'])) {
+                        $milestone['deadline_text'] = isset($milestone['due_date']) ? $milestone['due_date'] : 'Não definida';
+                        $milestone['deadline_color'] = 'secondary';
+                    }
+                }
+            }
+            
             // Separar milestones em andamento e concluídas
             $incompleteMilestones = [];
             $completedMilestones = [];

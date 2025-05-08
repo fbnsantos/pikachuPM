@@ -1349,23 +1349,69 @@ switch ($action) {
             $selectedProjects = [];
             $selectedPrototypes = [];
             
-            foreach ($prototypes as $prototype) {
-                if (in_array($prototype['name'], $associated['prototypes'])) {
-                    $selectedPrototypes[] = $prototype['id'];
+            // Identificar projetos e protótipos associados
+            foreach ($associated['prototypes'] as $assocPrototype) {
+                $prototypeId = null;
+                
+                // Formato novo - objeto com ID e nome
+                if (is_array($assocPrototype) && isset($assocPrototype['id'])) {
+                    $prototypeId = $assocPrototype['id'];
+                } 
+                // Formato legado - apenas o nome
+                else if (is_string($assocPrototype)) {
+                    // Procurar o protótipo pelo nome para obter o ID
+                    foreach ($prototypes as $p) {
+                        if ($p['name'] == $assocPrototype) {
+                            $prototypeId = $p['id'];
+                            break;
+                        }
+                    }
+                }
+                
+                if ($prototypeId) {
+                    $selectedPrototypes[] = $prototypeId;
+                    error_log("Adicionado protótipo associado ID: $prototypeId");
                 }
             }
             
-            foreach ($projects as $project) {
-                if (in_array($project['name'], $associated['projects'])) {
-                    $selectedProjects[] = $project['id'];
+            foreach ($associated['projects'] as $assocProject) {
+                $projectId = null;
+                
+                // Formato novo - objeto com ID e nome
+                if (is_array($assocProject) && isset($assocProject['id'])) {
+                    $projectId = $assocProject['id'];
+                } 
+                // Formato legado - apenas o nome
+                else if (is_string($assocProject)) {
+                    // Procurar o projeto pelo nome para obter o ID
+                    foreach ($projects as $p) {
+                        if ($p['name'] == $assocProject) {
+                            $projectId = $p['id'];
+                            break;
+                        }
+                    }
+                }
+                
+                if ($projectId) {
+                    $selectedProjects[] = $projectId;
+                    error_log("Adicionado projeto associado ID: $projectId");
                 }
             }
+            
+            error_log("Projetos selecionados: " . implode(", ", $selectedProjects));
+            error_log("Protótipos selecionados: " . implode(", ", $selectedPrototypes));
             
             $projectIssues = [];
             
             // Obter tarefas de todos os projetos e protótipos associados
             foreach (array_merge($selectedProjects, $selectedPrototypes) as $projectId) {
-                $projectIssues[$projectId] = getProjectIssues($projectId);
+                $issues = getProjectIssues($projectId);
+                if (!empty($issues)) {
+                    $projectIssues[$projectId] = $issues;
+                    error_log("Obtidas " . count($issues) . " tarefas para o projeto/protótipo ID: $projectId");
+                } else {
+                    error_log("Nenhuma tarefa encontrada para o projeto/protótipo ID: $projectId");
+                }
             }
             
             // Obter statuses disponíveis
@@ -2004,22 +2050,79 @@ switch ($action) {
                                     <select class="form-select" id="project-selector">
                                         <option value="">Selecione...</option>
                                         <?php 
+                                        // Depuração para verificar os dados disponíveis
+                                        error_log("Projetos disponíveis: " . json_encode(array_column($projects, 'name')));
+                                        error_log("Protótipos disponíveis: " . json_encode(array_column($prototypes, 'name')));
+                                        error_log("Projetos associados: " . json_encode($associated['projects']));
+                                        error_log("Protótipos associados: " . json_encode($associated['prototypes']));
+                                        
+                                        // Inicializar array para projetos associados
                                         $allProjects = [];
+                                        
+                                        // 1. Adicionar protótipos associados ao dropdown
                                         foreach ($prototypes as $prototype) {
-                                            if (in_array($prototype['name'], $associated['prototypes'])) {
+                                            $isAssociated = false;
+                                            
+                                            // Verificar se este protótipo está associado
+                                            foreach ($associated['prototypes'] as $assocPrototype) {
+                                                // Verificar por ID (formato novo) ou nome (formato legado)
+                                                if (
+                                                    (is_array($assocPrototype) && isset($assocPrototype['id']) && $assocPrototype['id'] == $prototype['id']) ||
+                                                    (is_array($assocPrototype) && isset($assocPrototype['name']) && $assocPrototype['name'] == $prototype['name']) ||
+                                                    (is_string($assocPrototype) && $assocPrototype == $prototype['name'])
+                                                ) {
+                                                    $isAssociated = true;
+                                                    break;
+                                                }
+                                            }
+                                            
+                                            if ($isAssociated) {
                                                 $allProjects[$prototype['id']] = $prototype['name'] . ' (Protótipo)';
+                                                error_log("Adicionando protótipo: " . $prototype['name'] . " (ID: " . $prototype['id'] . ")");
                                             }
                                         }
+                                        
+                                        // 2. Adicionar projetos associados ao dropdown
                                         foreach ($projects as $project) {
-                                            if (in_array($project['name'], $associated['projects'])) {
+                                            $isAssociated = false;
+                                            
+                                            // Verificar se este projeto está associado
+                                            foreach ($associated['projects'] as $assocProject) {
+                                                // Verificar por ID (formato novo) ou nome (formato legado)
+                                                if (
+                                                    (is_array($assocProject) && isset($assocProject['id']) && $assocProject['id'] == $project['id']) ||
+                                                    (is_array($assocProject) && isset($assocProject['name']) && $assocProject['name'] == $project['name']) ||
+                                                    (is_string($assocProject) && $assocProject == $project['name'])
+                                                ) {
+                                                    $isAssociated = true;
+                                                    break;
+                                                }
+                                            }
+                                            
+                                            if ($isAssociated) {
                                                 $allProjects[$project['id']] = $project['name'] . ' (Projeto)';
+                                                error_log("Adicionando projeto: " . $project['name'] . " (ID: " . $project['id'] . ")");
                                             }
                                         }
+                                        
+                                        // Exibir o número de projetos/protótipos encontrados
+                                        error_log("Total de projetos/protótipos associados encontrados: " . count($allProjects));
+                                        
+                                        // 3. Renderizar as opções
                                         foreach ($allProjects as $projectId => $projectName):
                                         ?>
-                                            <option value="<?= $projectId ?>"><?= htmlspecialchars($projectName) ?></option>
+                                            <option value="<?= $projectId ?>">
+                                                <?= htmlspecialchars($projectName) ?>
+                                            </option>
                                         <?php endforeach; ?>
                                     </select>
+                                    
+                                    <?php if (empty($allProjects)): ?>
+                                    <div class="alert alert-warning mt-2 small">
+                                        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                        Nenhum projeto ou protótipo associado encontrado. Adicione projetos/protótipos à milestone na seção de edição.
+                                    </div>
+                                    <?php endif; ?>
                                 </div>
                                 
                                 <div class="col-md-6 mb-3">
@@ -2035,6 +2138,12 @@ switch ($action) {
                                     <i class="bi bi-plus-circle"></i> Adicionar Tarefa
                                 </button>
                             </div>
+                            
+                            <script>
+                                // Configurar objeto global para armazenar as tarefas por projeto
+                                window.projectTasks = <?= json_encode($projectIssues) ?>;
+                                console.log("Tarefas carregadas por projeto:", window.projectTasks);
+                            </script>
                             
                             <div class="row">
                                 <div class="col-md-3 mb-3">
@@ -2385,6 +2494,12 @@ switch ($action) {
                     // Armazenar as tarefas de todos os projetos/protótipos
                     const allProjectIssues = <?= !empty($projectIssues) ? json_encode($projectIssues) : '{}' ?>;
                     
+                    // Logar informações para diagnóstico
+                    console.log("Projetos/protótipos disponíveis:", Object.keys(allProjectIssues).length);
+                    Object.keys(allProjectIssues).forEach(projectId => {
+                        console.log(`Projeto ID ${projectId}: ${allProjectIssues[projectId].length} tarefas`);
+                    });
+                    
                     // Configurar drag and drop para cada coluna
                     const taskColumns = document.querySelectorAll('.task-list');
                     taskColumns.forEach(column => {
@@ -2407,11 +2522,14 @@ switch ($action) {
                         taskSelector.innerHTML = '';
                         
                         if (projectId) {
+                            console.log(`Projeto selecionado: ${projectId}`);
+                            
                             // Habilitar o seletor de tarefas
                             taskSelector.disabled = false;
                             
                             // Preencher com as tarefas do projeto/protótipo selecionado
                             if (allProjectIssues[projectId] && allProjectIssues[projectId].length > 0) {
+                                console.log(`Carregando ${allProjectIssues[projectId].length} tarefas para o projeto ${projectId}`);
                                 taskSelector.appendChild(new Option('Selecione uma tarefa...', ''));
                                 
                                 allProjectIssues[projectId].forEach(issue => {
@@ -2428,6 +2546,7 @@ switch ($action) {
                                     taskSelector.innerHTML = '<option value="">Todas as tarefas já estão adicionadas</option>';
                                 }
                             } else {
+                                console.log(`Nenhuma tarefa disponível para o projeto ${projectId}`);
                                 taskSelector.innerHTML = '<option value="">Nenhuma tarefa disponível</option>';
                             }
                         } else {

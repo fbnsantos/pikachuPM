@@ -23,6 +23,7 @@ $tabs = [
     'links' => 'Links',
     'search' => 'SearchRedmine',
     'todos' => 'ToDo',
+    '18minutes' => 'ToDo',
 ];
 
 $tabSelecionada = $_GET['tab'] ?? 'dashboard';

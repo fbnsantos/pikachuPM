@@ -35,6 +35,15 @@ try {
             motivo TEXT,
             FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
         )");
+        
+        // Tabela para notas em markdown
+        $db->exec("CREATE TABLE IF NOT EXISTS notas_markdown (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            titulo TEXT,
+            conteudo TEXT,
+            data_criacao TEXT DEFAULT CURRENT_TIMESTAMP,
+            data_atualizacao TEXT DEFAULT CURRENT_TIMESTAMP
+        )");
     }
 } catch (Exception $e) {
     die("Erro ao inicializar a base de dados: " . $e->getMessage());
@@ -258,6 +267,52 @@ function getNumeroFaltas($db, $redmine_id) {
     return $stmt->fetchColumn();
 }
 
+// Funções para gerenciar as notas markdown
+function salvarNota($db, $titulo, $conteudo, $id = null) {
+    if ($id) {
+        // Atualizar nota existente
+        $stmt = $db->prepare("UPDATE notas_markdown SET titulo = :titulo, conteudo = :conteudo, 
+                            data_atualizacao = CURRENT_TIMESTAMP WHERE id = :id");
+        $stmt->execute([
+            ':id' => $id,
+            ':titulo' => $titulo,
+            ':conteudo' => $conteudo
+        ]);
+    } else {
+        // Criar nova nota
+        $stmt = $db->prepare("INSERT INTO notas_markdown (titulo, conteudo) VALUES (:titulo, :conteudo)");
+        $stmt->execute([
+            ':titulo' => $titulo,
+            ':conteudo' => $conteudo
+        ]);
+        return $db->lastInsertId();
+    }
+    return $id;
+}
+
+function getNota($db, $id = null) {
+    if ($id) {
+        $stmt = $db->prepare("SELECT * FROM notas_markdown WHERE id = :id");
+        $stmt->execute([':id' => $id]);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    } else {
+        // Retornar a última nota criada/atualizada
+        $stmt = $db->query("SELECT * FROM notas_markdown ORDER BY data_atualizacao DESC LIMIT 1");
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+}
+
+function getTodasNotas($db) {
+    $stmt = $db->query("SELECT * FROM notas_markdown ORDER BY data_atualizacao DESC");
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function excluirNota($db, $id) {
+    $stmt = $db->prepare("DELETE FROM notas_markdown WHERE id = :id");
+    $stmt->execute([':id' => $id]);
+    return $stmt->rowCount() > 0;
+}
+
 // Obter dados
 $utilizadores = getUtilizadoresRedmine();
 $equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
@@ -279,6 +334,32 @@ $gestor = $_SESSION['gestor'];
 $em_reuniao = $_SESSION['em_reuniao'];
 $oradores = $_SESSION['oradores'];
 $orador_atual = $_SESSION['orador_atual'];
+
+// Processar ações para as notas Markdown
+if (isset($_POST['acao_nota'])) {
+    switch ($_POST['acao_nota']) {
+        case 'salvar':
+            $titulo = $_POST['titulo_nota'] ?? 'Nota sem título';
+            $conteudo = $_POST['conteudo_nota'] ?? '';
+            $id = !empty($_POST['id_nota']) ? (int)$_POST['id_nota'] : null;
+            salvarNota($db, $titulo, $conteudo, $id);
+            break;
+            
+        case 'excluir':
+            if (!empty($_POST['id_nota'])) {
+                excluirNota($db, (int)$_POST['id_nota']);
+            }
+            break;
+    }
+    
+    // Redirecionar para evitar resubmissão do form ao atualizar a página
+    header("Location: ?tab=equipa#secao-notas");
+    exit;
+}
+
+// Obter a nota atual para exibir (última atualizada)
+$nota_atual = getNota($db);
+$todas_notas = getTodasNotas($db);
 
 // Apenas responda com JSON para requisições AJAX
 if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
@@ -480,6 +561,8 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.1.0/github-markdown.min.css">
     <style>
         .reuniao-card {
             border-left: 5px solid #0d6efd;
@@ -507,6 +590,31 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
         .debug-area {
             font-size: 0.8rem;
             color: #6c757d;
+        }
+        
+        /* Estilos para a seção de notas Markdown */
+        .markdown-preview {
+            padding: 1rem;
+            border: 1px solid #dee2e6;
+            border-radius: .25rem;
+            background-color: #f8f9fa;
+            min-height: 200px;
+            overflow-y: auto;
+        }
+        .markdown-editor {
+            min-height: 200px;
+            font-family: monospace;
+        }
+        .nota-lista-item {
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .nota-lista-item:hover {
+            background-color: #f0f0f0;
+        }
+        .nota-lista-item.active {
+            background-color: #e9ecef;
+            border-left: 3px solid #0d6efd;
         }
     </style>
 </head>
@@ -841,6 +949,122 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                     </div>
                 </div>
             </div>
+            
+            <!-- Nova Seção de Notas Markdown -->
+            <div class="card mb-4" id="secao-notas">
+                <div class="card-header bg-info text-white">
+                    <h4 class="mb-0"><i class="bi bi-markdown"></i> Notas da Reunião</h4>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <!-- Editor Markdown e Visualização -->
+                        <div class="col-md-8">
+                            <div class="border-bottom mb-3 pb-2 d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0" id="nota-titulo-display">
+                                    <?= htmlspecialchars($nota_atual['titulo'] ?? 'Nova Nota') ?>
+                                </h5>
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-outline-primary" id="btn-editar">
+                                        <i class="bi bi-pencil"></i> Editar
+                                    </button>
+                                    <button type="button" class="btn btn-outline-success" id="btn-visualizar" style="display: none;">
+                                        <i class="bi bi-eye"></i> Visualizar
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Área de Visualização (Padrão) -->
+                            <div id="markdown-preview" class="markdown-preview markdown-body">
+                                <?php if (isset($nota_atual['conteudo']) && !empty($nota_atual['conteudo'])): ?>
+                                    <!-- O conteúdo será renderizado via JavaScript -->
+                                <?php else: ?>
+                                    <div class="text-muted text-center py-5">
+                                        <i class="bi bi-file-earmark-text fs-2"></i>
+                                        <p>Não há conteúdo para mostrar.</p>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                            
+                            <!-- Formulário de Edição (Inicialmente Oculto) -->
+                            <form method="post" id="form-markdown" style="display: none;">
+                                <input type="hidden" name="acao_nota" value="salvar">
+                                <input type="hidden" name="id_nota" id="id_nota" value="<?= htmlspecialchars($nota_atual['id'] ?? '') ?>">
+                                
+                                <div class="mb-3">
+                                    <label for="titulo_nota" class="form-label">Título da Nota:</label>
+                                    <input type="text" class="form-control" id="titulo_nota" name="titulo_nota" 
+                                           value="<?= htmlspecialchars($nota_atual['titulo'] ?? 'Nova Nota') ?>" required>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="conteudo_nota" class="form-label">Conteúdo (Markdown):</label>
+                                    <textarea class="form-control markdown-editor" id="conteudo_nota" name="conteudo_nota" 
+                                              rows="10" placeholder="Escreva aqui utilizando Markdown..."><?= htmlspecialchars($nota_atual['conteudo'] ?? '') ?></textarea>
+                                    
+                                    <div class="form-text">
+                                        <i class="bi bi-info-circle"></i> Use Markdown para formatar seu texto. 
+                                        <a href="#" data-bs-toggle="modal" data-bs-target="#markdownHelpModal">Ver guia de sintaxe</a>
+                                    </div>
+                                </div>
+                                
+                                <div class="d-flex justify-content-between">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="bi bi-save"></i> Salvar
+                                    </button>
+                                    
+                                    <button type="button" class="btn btn-outline-secondary" id="btn-cancelar">
+                                        <i class="bi bi-x"></i> Cancelar
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <!-- Lista de Notas Existentes -->
+                        <div class="col-md-4">
+                            <div class="border-bottom mb-3 pb-2">
+                                <h5 class="mb-0"><i class="bi bi-journal-text"></i> Notas Salvas</h5>
+                            </div>
+                            
+                            <div class="list-group">
+                                <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-center nova-nota">
+                                    <div>
+                                        <i class="bi bi-plus-circle text-success"></i> Criar Nova Nota
+                                    </div>
+                                </button>
+                                
+                                <?php if (empty($todas_notas)): ?>
+                                    <div class="list-group-item text-muted">
+                                        <i class="bi bi-info-circle"></i> Nenhuma nota salva.
+                                    </div>
+                                <?php else: ?>
+                                    <?php foreach ($todas_notas as $nota): ?>
+                                        <div class="list-group-item nota-lista-item d-flex justify-content-between align-items-center <?= ($nota_atual && $nota['id'] == $nota_atual['id']) ? 'active' : '' ?>" 
+                                             data-id="<?= $nota['id'] ?>" 
+                                             data-titulo="<?= htmlspecialchars($nota['titulo']) ?>" 
+                                             data-conteudo="<?= htmlspecialchars($nota['conteudo']) ?>">
+                                            <div>
+                                                <div class="fw-bold"><?= htmlspecialchars($nota['titulo']) ?></div>
+                                                <small class="text-muted">
+                                                    <i class="bi bi-clock"></i> 
+                                                    <?= date('d/m/Y H:i', strtotime($nota['data_atualizacao'])) ?>
+                                                </small>
+                                            </div>
+                                            
+                                            <form method="post" class="nota-excluir-form" onsubmit="return confirm('Tem certeza que deseja excluir esta nota?');">
+                                                <input type="hidden" name="acao_nota" value="excluir">
+                                                <input type="hidden" name="id_nota" value="<?= $nota['id'] ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
         
         <!-- Coluna Lateral - Faltas Recentes -->
@@ -874,9 +1098,12 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                             <td><?= htmlspecialchars(getNomeUtilizador($falta['redmine_id'], $utilizadores)) ?></td>
                                             <td>
                                                 <?php 
-                                                echo "a";
-                                                //$motivo = $falta['motivo'] ?: 'Não especificado';
-                                                //echo mb_strlen($motivo) > 50 ? mb_substr(htmlspecialchars($motivo), 0, 50) . '...' : htmlspecialchars($motivo);
+                                                if (!empty($falta['motivo'])) {
+                                                    $motivo = $falta['motivo'];
+                                                    echo mb_strlen($motivo) > 50 ? mb_substr(htmlspecialchars($motivo), 0, 50) . '...' : htmlspecialchars($motivo);
+                                                } else {
+                                                    echo '<span class="text-muted">Não especificado</span>';
+                                                }
                                                 ?>
                                             </td>
                                         </tr>
@@ -886,6 +1113,62 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                         </div>
                     <?php endif; ?>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Ajuda do Markdown -->
+<div class="modal fade" id="markdownHelpModal" tabindex="-1" aria-labelledby="markdownHelpModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="markdownHelpModalLabel">Guia Rápido de Markdown</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Formatação Básica</h6>
+                        <ul class="list-unstyled">
+                            <li><code># Título</code> - Título principal</li>
+                            <li><code>## Subtítulo</code> - Subtítulo</li>
+                            <li><code>**texto**</code> - <strong>Negrito</strong></li>
+                            <li><code>*texto*</code> - <em>Itálico</em></li>
+                            <li><code>~~texto~~</code> - <del>Riscado</del></li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Elementos</h6>
+                        <ul class="list-unstyled">
+                            <li><code>- Item</code> - Lista não ordenada</li>
+                            <li><code>1. Item</code> - Lista ordenada</li>
+                            <li><code>[link](URL)</code> - Link</li>
+                            <li><code>![alt](URL)</code> - Imagem</li>
+                            <li><code>```código```</code> - Bloco de código</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <h6>Exemplo:</h6>
+                    <pre class="bg-light p-2">
+# Reunião do dia 12/05/2025
+
+## Pontos Discutidos:
+- Ponto 1: **Urgente**
+- Ponto 2: *Em andamento*
+
+## Próximos Passos:
+1. Verificar status do projeto
+2. Agendar nova reunião
+
+[Link para documentação](https://example.com)
+                    </pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
             </div>
         </div>
     </div>
@@ -1099,6 +1382,130 @@ document.addEventListener('DOMContentLoaded', function() {
     
     atualizarTempoTotal();
     <?php endif; ?>
+    
+    // Funcionalidades da Seção de Notas Markdown
+    
+    // Elementos DOM
+    const btnEditar = document.getElementById('btn-editar');
+    const btnVisualizar = document.getElementById('btn-visualizar');
+    const btnCancelar = document.getElementById('btn-cancelar');
+    const markdownPreview = document.getElementById('markdown-preview');
+    const formMarkdown = document.getElementById('form-markdown');
+    const notaItems = document.querySelectorAll('.nota-lista-item');
+    const btnNovaNota = document.querySelector('.nova-nota');
+    const tituloDisplay = document.getElementById('nota-titulo-display');
+    const inputConteudo = document.getElementById('conteudo_nota');
+    const inputTitulo = document.getElementById('titulo_nota');
+    const inputId = document.getElementById('id_nota');
+    
+    // Configuração do Marked.js para renderizar Markdown
+    marked.setOptions({
+        breaks: true,  // Quebras de linha são respeitadas
+        gfm: true,     // GitHub Flavored Markdown
+        headerIds: true, // Adiciona IDs aos cabeçalhos para navegação
+        sanitize: false // Não sanitizar HTML (cuidado com conteúdo não confiável)
+    });
+    
+    // Função para renderizar o markdown atual
+    function renderizarMarkdown() {
+        if (inputConteudo && markdownPreview) {
+            const conteudoAtual = inputConteudo.value || '';
+            markdownPreview.innerHTML = marked.parse(conteudoAtual);
+        }
+    }
+    
+    // Função para alternar entre edição e visualização
+    function alternarModo(modoEdicao) {
+        if (modoEdicao) {
+            formMarkdown.style.display = 'block';
+            markdownPreview.style.display = 'none';
+            btnEditar.style.display = 'none';
+            btnVisualizar.style.display = 'inline-block';
+        } else {
+            renderizarMarkdown();
+            formMarkdown.style.display = 'none';
+            markdownPreview.style.display = 'block';
+            btnEditar.style.display = 'inline-block';
+            btnVisualizar.style.display = 'none';
+        }
+    }
+    
+    // Função para carregar uma nota
+    function carregarNota(id, titulo, conteudo) {
+        // Atualizar o ID da nota atual
+        inputId.value = id || '';
+        
+        // Atualizar título e conteúdo
+        inputTitulo.value = titulo || 'Nova Nota';
+        inputConteudo.value = conteudo || '';
+        tituloDisplay.textContent = titulo || 'Nova Nota';
+        
+        // Renderizar o markdown
+        renderizarMarkdown();
+        
+        // Atualizar a classe 'active' na lista de notas
+        notaItems.forEach(item => {
+            if (id && item.dataset.id === id) {
+                item.classList.add('active');
+            } else {
+                item.classList.remove('active');
+            }
+        });
+    }
+    
+    // Função para criar uma nova nota
+    function novaNota() {
+        carregarNota('', 'Nova Nota', '');
+        alternarModo(true); // Entrar em modo de edição
+    }
+    
+    // Configurar eventos para os botões da interface
+    
+    // Botão Editar
+    if (btnEditar) {
+        btnEditar.addEventListener('click', function() {
+            alternarModo(true);
+        });
+    }
+    
+    // Botão Visualizar
+    if (btnVisualizar) {
+        btnVisualizar.addEventListener('click', function() {
+            alternarModo(false);
+        });
+    }
+    
+    // Botão Cancelar (voltar para modo de visualização sem salvar)
+    if (btnCancelar) {
+        btnCancelar.addEventListener('click', function() {
+            alternarModo(false);
+        });
+    }
+    
+    // Botão Nova Nota
+    if (btnNovaNota) {
+        btnNovaNota.addEventListener('click', novaNota);
+    }
+    
+    // Evento de clique nos itens da lista de notas
+    notaItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+            // Ignorar cliques no botão de excluir
+            if (e.target.closest('.nota-excluir-form')) {
+                return;
+            }
+            
+            const id = this.dataset.id;
+            const titulo = this.dataset.titulo;
+            const conteudo = this.dataset.conteudo;
+            
+            carregarNota(id, titulo, conteudo);
+            alternarModo(false); // Modo de visualização
+        });
+    });
+    
+    // Renderizar o markdown na carga inicial da página
+    renderizarMarkdown();
 });
 </script>
 

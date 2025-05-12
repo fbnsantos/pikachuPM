@@ -11,32 +11,32 @@ try {
     $db = new PDO('sqlite:' . $db_path);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-    if ($nova_base_dados) {
-        // Tabela principal da equipe
-        $db->exec("CREATE TABLE IF NOT EXISTS equipa (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            redmine_id INTEGER UNIQUE
-        )");
-        
-        // Tabela para próximos gestores
-        $db->exec("CREATE TABLE IF NOT EXISTS proximos_gestores (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            redmine_id INTEGER,
-            data_prevista TEXT,
-            concluido INTEGER DEFAULT 0,
-            FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
-        )");
-        
-        // Tabela para registrar faltas
-        $db->exec("CREATE TABLE IF NOT EXISTS faltas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            redmine_id INTEGER,
-            data TEXT DEFAULT CURRENT_TIMESTAMP,
-            motivo TEXT,
-            FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
-        )");
-        
-        // Tabela para notas em markdown
+    // Criar tabelas se necessário
+    $db->exec("CREATE TABLE IF NOT EXISTS equipa (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        redmine_id INTEGER UNIQUE
+    )");
+    
+    $db->exec("CREATE TABLE IF NOT EXISTS proximos_gestores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        redmine_id INTEGER,
+        data_prevista TEXT,
+        concluido INTEGER DEFAULT 0,
+        FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
+    )");
+    
+    $db->exec("CREATE TABLE IF NOT EXISTS faltas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        redmine_id INTEGER,
+        data TEXT DEFAULT CURRENT_TIMESTAMP,
+        motivo TEXT,
+        FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
+    )");
+    
+    // Verificar se a tabela notas_markdown existe
+    $verificar_tabela = $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name='notas_markdown'");
+    if ($verificar_tabela->fetchColumn() === false) {
+        // Criar tabela para notas em markdown se não existir
         $db->exec("CREATE TABLE IF NOT EXISTS notas_markdown (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             titulo TEXT,
@@ -291,26 +291,54 @@ function salvarNota($db, $titulo, $conteudo, $id = null) {
 }
 
 function getNota($db, $id = null) {
-    if ($id) {
-        $stmt = $db->prepare("SELECT * FROM notas_markdown WHERE id = :id");
-        $stmt->execute([':id' => $id]);
-        return $stmt->fetch(PDO::FETCH_ASSOC);
-    } else {
-        // Retornar a última nota criada/atualizada
-        $stmt = $db->query("SELECT * FROM notas_markdown ORDER BY data_atualizacao DESC LIMIT 1");
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+    // Verificar se a tabela existe
+    try {
+        $verificar_tabela = $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name='notas_markdown'");
+        if ($verificar_tabela->fetchColumn() === false) {
+            // A tabela não existe, retornar array vazio
+            return [];
+        }
+        
+        if ($id) {
+            $stmt = $db->prepare("SELECT * FROM notas_markdown WHERE id = :id");
+            $stmt->execute([':id' => $id]);
+            return $stmt->fetch(PDO::FETCH_ASSOC);
+        } else {
+            // Retornar a última nota criada/atualizada
+            $stmt = $db->query("SELECT * FROM notas_markdown ORDER BY data_atualizacao DESC LIMIT 1");
+            return $stmt->fetch(PDO::FETCH_ASSOC);
+        }
+    } catch (PDOException $e) {
+        // Em caso de erro, retornar array vazio
+        return [];
     }
 }
 
 function getTodasNotas($db) {
-    $stmt = $db->query("SELECT * FROM notas_markdown ORDER BY data_atualizacao DESC");
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Verificar se a tabela existe
+    try {
+        $verificar_tabela = $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name='notas_markdown'");
+        if ($verificar_tabela->fetchColumn() === false) {
+            // A tabela não existe, retornar array vazio
+            return [];
+        }
+        
+        $stmt = $db->query("SELECT * FROM notas_markdown ORDER BY data_atualizacao DESC");
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        // Em caso de erro, retornar array vazio
+        return [];
+    }
 }
 
 function excluirNota($db, $id) {
-    $stmt = $db->prepare("DELETE FROM notas_markdown WHERE id = :id");
-    $stmt->execute([':id' => $id]);
-    return $stmt->rowCount() > 0;
+    try {
+        $stmt = $db->prepare("DELETE FROM notas_markdown WHERE id = :id");
+        $stmt->execute([':id' => $id]);
+        return $stmt->rowCount() > 0;
+    } catch (PDOException $e) {
+        return false;
+    }
 }
 
 // Obter dados

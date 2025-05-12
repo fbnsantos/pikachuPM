@@ -1,21 +1,4 @@
-<!-- Próximos Gestores -->
-            <div class="card mb-4">
-                <div class="card-header bg-success text-white">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <h4 class="mb-0"><i class="bi bi-calendar-week"></i> Próximos Gestores de Reunião (10 dias)</h4>
-                        <button type="button" id="btn-regenerar-lista" class="btn btn-sm btn-light">
-                            <i class="bi bi-arrow-repeat"></i> Atualizar Lista
-                        </button>
-                    </div>
-                </div>
-                <div class="card-body" id="lista-gestores-container">antml:parameter>
-<parameter name="old_str">            <!-- Próximos Gestores -->
-            <div class="card mb-4">
-                <div class="card-header bg-success text-white">
-                    <h4 class="mb-0"><i class="bi bi-calendar-week"></i> Próximos Gestores de Reunião</h4>
-                </div>
-                <div class="card-body"><?antml:parameter>
-</invoke><?php
+<?php
 // tabs/equipa.php
 session_start();
 include_once __DIR__ . '/../config.php';
@@ -356,55 +339,6 @@ function excluirNota($db, $id) {
     }
 }
 
-// Obter dados
-$utilizadores = getUtilizadoresRedmine();
-$equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
-
-// Gerar lista de próximos gestores se necessário
-gerarListaProximosGestores($db, $equipa);
-// Obter apenas para verificação inicial, carregamento real será feito via AJAX
-$proximos_gestores = getProximosGestores($db);
-
-// Inicializar ou recuperar variáveis de sessão
-if (!isset($_SESSION['gestor'])) {
-    $_SESSION['gestor'] = null;
-    $_SESSION['em_reuniao'] = false;
-    $_SESSION['oradores'] = [];
-    $_SESSION['orador_atual'] = 0;
-    $_SESSION['inicio_reuniao'] = null;
-}
-
-$gestor = $_SESSION['gestor'];
-$em_reuniao = $_SESSION['em_reuniao'];
-$oradores = $_SESSION['oradores'];
-$orador_atual = $_SESSION['orador_atual'];
-
-// Processar ações para as notas Markdown
-if (isset($_POST['acao_nota'])) {
-    switch ($_POST['acao_nota']) {
-        case 'salvar':
-            $titulo = $_POST['titulo_nota'] ?? 'Nota sem título';
-            $conteudo = $_POST['conteudo_nota'] ?? '';
-            $id = !empty($_POST['id_nota']) ? (int)$_POST['id_nota'] : null;
-            salvarNota($db, $titulo, $conteudo, $id);
-            break;
-            
-        case 'excluir':
-            if (!empty($_POST['id_nota'])) {
-                excluirNota($db, (int)$_POST['id_nota']);
-            }
-            break;
-    }
-    
-    // Redirecionar para evitar resubmissão do form ao atualizar a página
-    header("Location: ?tab=equipa#secao-notas");
-    exit;
-}
-
-// Obter a nota atual para exibir (última atualizada)
-$nota_atual = getNota($db);
-$todas_notas = getTodasNotas($db);
-
 // Processar ações para requisições AJAX
 if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
     $resposta = ['sucesso' => true];
@@ -535,6 +469,55 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
     echo json_encode($resposta);
     exit;
 }
+
+// Obter dados
+$utilizadores = getUtilizadoresRedmine();
+$equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
+
+// Gerar lista de próximos gestores se necessário
+gerarListaProximosGestores($db, $equipa);
+// Obter apenas para verificação inicial, carregamento real será feito via AJAX
+$proximos_gestores = getProximosGestores($db);
+
+// Inicializar ou recuperar variáveis de sessão
+if (!isset($_SESSION['gestor'])) {
+    $_SESSION['gestor'] = null;
+    $_SESSION['em_reuniao'] = false;
+    $_SESSION['oradores'] = [];
+    $_SESSION['orador_atual'] = 0;
+    $_SESSION['inicio_reuniao'] = null;
+}
+
+$gestor = $_SESSION['gestor'];
+$em_reuniao = $_SESSION['em_reuniao'];
+$oradores = $_SESSION['oradores'];
+$orador_atual = $_SESSION['orador_atual'];
+
+// Processar ações para as notas Markdown
+if (isset($_POST['acao_nota'])) {
+    switch ($_POST['acao_nota']) {
+        case 'salvar':
+            $titulo = $_POST['titulo_nota'] ?? 'Nota sem título';
+            $conteudo = $_POST['conteudo_nota'] ?? '';
+            $id = !empty($_POST['id_nota']) ? (int)$_POST['id_nota'] : null;
+            salvarNota($db, $titulo, $conteudo, $id);
+            break;
+            
+        case 'excluir':
+            if (!empty($_POST['id_nota'])) {
+                excluirNota($db, (int)$_POST['id_nota']);
+            }
+            break;
+    }
+    
+    // Redirecionar para evitar resubmissão do form ao atualizar a página
+    header("Location: ?tab=equipa#secao-notas");
+    exit;
+}
+
+// Obter a nota atual para exibir (última atualizada)
+$nota_atual = getNota($db);
+$todas_notas = getTodasNotas($db);
 
 // Processar ações POST
 if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -966,60 +949,24 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                 </div>
             <?php endif; ?>
 
-            <!-- Próximos Gestores -->
+            <!-- Próximos Gestores - Nova implementação com AJAX -->
             <div class="card mb-4">
                 <div class="card-header bg-success text-white">
-                    <h4 class="mb-0"><i class="bi bi-calendar-week"></i> Próximos Gestores de Reunião</h4>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h4 class="mb-0"><i class="bi bi-calendar-week"></i> Próximos Gestores de Reunião (10 dias)</h4>
+                        <button type="button" id="btn-regenerar-lista" class="btn btn-sm btn-light">
+                            <i class="bi bi-arrow-repeat"></i> Atualizar Lista
+                        </button>
+                    </div>
                 </div>
-                <div class="card-body">
-                    <?php if (empty($proximos_gestores)): ?>
-                        <p class="text-muted">Nenhum gestor agendado para os próximos dias.</p>
-                    <?php else: ?>
-                        <div class="table-responsive">
-                            <table class="table table-hover">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Data Prevista</th>
-                                        <th>Gestor</th>
-                                        <th>Ações</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($proximos_gestores as $prox): ?>
-                                        <tr>
-                                            <td>
-                                                <?php 
-                                                    $data = new DateTime($prox['data_prevista']);
-                                                    $hoje = new DateTime('today');
-                                                    $eh_hoje = $data->format('Y-m-d') === $hoje->format('Y-m-d');
-                                                    
-                                                    if ($eh_hoje) {
-                                                        echo '<span class="badge bg-primary">Hoje</span> ';
-                                                    }
-                                                    
-                                                    // Dia da semana em português
-                                                    $dias_semana = [
-                                                        1 => 'Segunda', 2 => 'Terça', 3 => 'Quarta', 
-                                                        4 => 'Quinta', 5 => 'Sexta', 6 => 'Sábado', 7 => 'Domingo'
-                                                    ];
-                                                    
-                                                    echo $data->format('d/m/Y') . ' (' . $dias_semana[(int)$data->format('N')] . ')';
-                                                ?>
-                                            </td>
-                                            <td><?= htmlspecialchars(getNomeUtilizador($prox['redmine_id'], $utilizadores)) ?></td>
-                                            <td>
-                                                <button type="button" class="btn btn-sm btn-outline-danger btn-recusar"
-                                                        data-id="<?= $prox['redmine_id'] ?>" 
-                                                        data-data="<?= $prox['data_prevista'] ?>">
-                                                    <i class="bi bi-x-lg"></i> Recusar
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
+                <div class="card-body" id="lista-gestores-container">
+                    <!-- Conteúdo será carregado via AJAX -->
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Carregando...</span>
                         </div>
-                    <?php endif; ?>
+                        <p class="mt-2">Carregando lista de gestores...</p>
+                    </div>
                 </div>
             </div>
 
@@ -1330,8 +1277,63 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
 <script>
 // Executar quando o documento estiver carregado
 document.addEventListener('DOMContentLoaded', function() {
-    // Verificar se a reunião está ativa e não concluída
-    <?php if ($em_reuniao && !$reuniao_concluida && isset($oradorId)): ?>
+    // Função para carregar a lista de gestores via AJAX
+    function carregarListaGestores() {
+        fetch('?tab=equipa', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: 'acao=regenerar_lista'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.sucesso) {
+                document.getElementById('lista-gestores-container').innerHTML = data.html;
+                configurarBotoesRecusar();
+            }
+        })
+        .catch(error => console.error('Erro ao carregar lista de gestores:', error));
+    }
+    
+    // Carregar a lista de gestores quando a página é carregada
+    carregarListaGestores();
+    
+    // Configurar evento para o botão de regenerar lista
+    const btnRegenerarLista = document.getElementById('btn-regenerar-lista');
+    if (btnRegenerarLista) {
+        btnRegenerarLista.addEventListener('click', carregarListaGestores);
+    }
+    
+    // Função para configurar os botões de recusar
+    function configurarBotoesRecusar() {
+        const botoesRecusar = document.querySelectorAll('.btn-recusar');
+        botoesRecusar.forEach(botao => {
+            botao.addEventListener('click', function() {
+                const id = this.dataset.id;
+                const data = this.dataset.data;
+                
+                // Enviar solicitação AJAX para recusar
+                fetch('?tab=equipa', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: `acao=recusar&recusar=${id}&data_recusada=${data}`
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.sucesso) {
+                        // Recarregar a lista após a recusa
+                        carregarListaGestores();
+                    }
+                })
+                .catch(error => console.error('Erro ao recusar gestor:', error));
+            });
+        });
+    }
     
     // Elementos DOM
     const cronometroEl = document.getElementById('cronometro');
@@ -1361,109 +1363,6 @@ document.addEventListener('DOMContentLoaded', function() {
     let cronometroAtivo = true;
     let intervalId = null;
     let estaPausado = false;
-    
-    // Função para registrar eventos (para depuração)
-    function registrarEvento(mensagem) {
-        console.log(mensagem);
-        if (eventLogEl) {
-            const agora = new Date();
-            const timestamp = agora.getHours().toString().padStart(2, '0') + ':' + 
-                            agora.getMinutes().toString().padStart(2, '0') + ':' + 
-                            agora.getSeconds().toString().padStart(2, '0');
-            eventLogEl.textContent = mensagem + ' [' + timestamp + ']';
-        }
-    }
-    
-    // Função para atualizar o visual do cronômetro
-    function atualizarCronometro() {
-        // Atualizar o texto do cronômetro
-        cronometroEl.textContent = tempoRestante;
-        
-        // Calcular a largura da barra de progresso
-        const porcentagem = (tempoRestante / TEMPO_TOTAL) * 100;
-        progressBarEl.style.width = porcentagem + '%';
-        
-        // Atualizar a cor da barra de progresso conforme o tempo restante
-        if (tempoRestante <= 5) {
-            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-danger';
-        } else if (tempoRestante <= 15) {
-            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-warning';
-        } else {
-            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
-        }
-        
-        // Tocar som de alerta quando chegar a 5 segundos
-        if (tempoRestante === 5 && beepEl) {
-            beepEl.play().catch(err => {
-                registrarEvento('Erro ao tocar som: ' + err.message);
-            });
-        }
-        
-        // Quando o tempo acabar
-        if (tempoRestante <= 0) {
-            finalizarCronometro();
-        }
-    }
-    
-    // Função para iniciar ou reiniciar o cronômetro
-    function iniciarCronometro() {
-        // Limpar qualquer intervalo existente
-        if (intervalId !== null) {
-            clearInterval(intervalId);
-            intervalId = null;
-        }
-        
-        registrarEvento('Cronômetro iniciado');
-        
-        // Configurar um novo intervalo que execute a cada 1 segundo
-        intervalId = setInterval(function() {
-            if (!estaPausado && cronometroAtivo) {
-                tempoRestante--;
-                atualizarCronometro();
-            }
-        }, 1000);
-    }
-    
-    // Função para finalizar o cronômetro quando o tempo acabar
-    function finalizarCronometro() {
-        clearInterval(intervalId);
-        intervalId = null;
-        cronometroAtivo = false;
-        
-        // Atualizar interface
-        cronometroEl.textContent = 'Tempo Esgotado!';
-        progressBarEl.style.width = '0%';
-        progressBarEl.className = 'progress-bar bg-danger';
-        
-        registrarEvento('Tempo esgotado');
-        
-        // Desativar botão de pausa
-        if (btnPausarEl) {
-            btnPausarEl.disabled = true;
-            btnPausarEl.classList.remove('btn-warning', 'btn-success');
-            btnPausarEl.classList.add('btn-secondary');
-        }
-    }
-    
-    // Função para alternar o estado de pausa
-    function alternarPausa() {
-        estaPausado = !estaPausado;
-        
-        // Atualizar interface
-        if (estaPausado) {
-            btnPausarEl.classList.remove('btn-warning');
-            btnPausarEl.classList.add('btn-success');
-            btnPausarEl.innerHTML = '<i class="bi bi-play-fill"></i> Continuar';
-            if (statusEl) statusEl.textContent = 'Pausado';
-        } else {
-            btnPausarEl.classList.remove('btn-success');
-            btnPausarEl.classList.add('btn-warning');
-            btnPausarEl.innerHTML = '<i class="bi bi-pause-fill"></i> Pausar';
-            if (statusEl) statusEl.textContent = 'Ativo';
-        }
-        
-        registrarEvento(estaPausado ? 'Cronômetro pausado' : 'Cronômetro retomado');
-    }
     
     // Função para reiniciar o cronômetro
     function reiniciarCronometro() {
@@ -1511,28 +1410,6 @@ document.addEventListener('DOMContentLoaded', function() {
     iniciarCronometro();
     registrarEvento('Cronômetro configurado com sucesso');
     
-    <?php endif; ?>
-    
-    // Atualizar o tempo total da reunião a cada segundo
-    <?php if ($em_reuniao): ?>
-    function atualizarTempoTotal() {
-        const tempoTotalEl = document.getElementById('tempo-total');
-        if (tempoTotalEl) {
-            let segundos = <?= $tempo_total ?>;
-            setInterval(function() {
-                segundos++;
-                
-                // Formatar o tempo (HH:MM:SS)
-                const horas = Math.floor(segundos / 3600).toString().padStart(2, '0');
-                const minutos = Math.floor((segundos % 3600) / 60).toString().padStart(2, '0');
-                const segs = (segundos % 60).toString().padStart(2, '0');
-                
-                tempoTotalEl.textContent = horas + ':' + minutos + ':' + segs;
-            }, 1000);
-        }
-    }
-    
-    atualizarTempoTotal();
     <?php endif; ?>
     
     // Funcionalidades da Seção de Notas Markdown
@@ -1663,3 +1540,94 @@ document.addEventListener('DOMContentLoaded', function() {
 
 </body>
 </html>
+    
+    // Função para atualizar o visual do cronômetro
+    function atualizarCronometro() {
+        // Atualizar o texto do cronômetro
+        cronometroEl.textContent = tempoRestante;
+        
+        // Calcular a largura da barra de progresso
+        const porcentagem = (tempoRestante / TEMPO_TOTAL) * 100;
+        progressBarEl.style.width = porcentagem + '%';
+        
+        // Atualizar a cor da barra de progresso conforme o tempo restante
+        if (tempoRestante <= 5) {
+            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-danger';
+        } else if (tempoRestante <= 15) {
+            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-warning';
+        } else {
+            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
+        }
+        
+        // Tocar som de alerta quando chegar a 5 segundos
+        if (tempoRestante === 5 && beepEl) {
+            beepEl.play().catch(err => {
+                registrarEvento('Erro ao tocar som: ' + err.message);
+            });
+        }
+        
+        // Quando o tempo acabar
+        if (tempoRestante <= 0) {
+            finalizarCronometro();
+        }
+    }
+    
+    // Função para iniciar ou reiniciar o cronômetro
+    function iniciarCronometro() {
+        // Limpar qualquer intervalo existente
+        if (intervalId !== null) {
+            clearInterval(intervalId);
+            intervalId = null;
+        }
+        
+        registrarEvento('Cronômetro iniciado');
+        
+        // Configurar um novo intervalo que execute a cada 1 segundo
+        intervalId = setInterval(function() {
+            if (!estaPausado && cronometroAtivo) {
+                tempoRestante--;
+                atualizarCronometro();
+            }
+        }, 1000);
+    }
+    
+    // Função para finalizar o cronômetro quando o tempo acabar
+    function finalizarCronometro() {
+        clearInterval(intervalId);
+        intervalId = null;
+        cronometroAtivo = false;
+        
+        // Atualizar interface
+        cronometroEl.textContent = 'Tempo Esgotado!';
+        progressBarEl.style.width = '0%';
+        progressBarEl.className = 'progress-bar bg-danger';
+        
+        registrarEvento('Tempo esgotado');
+        
+        // Desativar botão de pausa
+        if (btnPausarEl) {
+            btnPausarEl.disabled = true;
+            btnPausarEl.classList.remove('btn-warning', 'btn-success');
+            btnPausarEl.classList.add('btn-secondary');
+        }
+    }
+    
+    // Função para alternar o estado de pausa
+    function alternarPausa() {
+        estaPausado = !estaPausado;
+        
+        // Atualizar interface
+        if (estaPausado) {
+            btnPausarEl.classList.remove('btn-warning');
+            btnPausarEl.classList.add('btn-success');
+            btnPausarEl.innerHTML = '<i class="bi bi-play-fill"></i> Continuar';
+            if (statusEl) statusEl.textContent = 'Pausado';
+        } else {
+            btnPausarEl.classList.remove('btn-success');
+            btnPausarEl.classList.add('btn-warning');
+            btnPausarEl.innerHTML = '<i class="bi bi-pause-fill"></i> Pausar';
+            if (statusEl) statusEl.textContent = 'Ativo';
+        }
+        
+        registrarEvento(estaPausado ? 'Cronômetro pausado' : 'Cronômetro retomado');
+    }

@@ -11,40 +11,39 @@ try {
     $db = new PDO('sqlite:' . $db_path);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-    if ($nova_base_dados) {
-        // Tabela principal da equipe
-        $db->exec("CREATE TABLE IF NOT EXISTS equipa (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            redmine_id INTEGER UNIQUE
-        )");
-        
-        // Tabela para próximos gestores
-        $db->exec("CREATE TABLE IF NOT EXISTS proximos_gestores (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            redmine_id INTEGER,
-            data_prevista TEXT,
-            concluido INTEGER DEFAULT 0,
-            FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
-        )");
-        
-        // Tabela para registrar faltas
-        $db->exec("CREATE TABLE IF NOT EXISTS faltas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            redmine_id INTEGER,
-            data TEXT DEFAULT CURRENT_TIMESTAMP,
-            motivo TEXT,
-            FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
-        )");
-        
-        // Tabela para notas de reunião
-        $db->exec("CREATE TABLE IF NOT EXISTS notas_reuniao (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            data TEXT DEFAULT CURRENT_TIMESTAMP,
-            conteudo TEXT,
-            redmine_id INTEGER,
-            FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
-        )");
-    }
+    // Sempre verificar e criar as tabelas necessárias, independentemente de a base ser nova
+    // Tabela principal da equipe
+    $db->exec("CREATE TABLE IF NOT EXISTS equipa (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        redmine_id INTEGER UNIQUE
+    )");
+    
+    // Tabela para próximos gestores
+    $db->exec("CREATE TABLE IF NOT EXISTS proximos_gestores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        redmine_id INTEGER,
+        data_prevista TEXT,
+        concluido INTEGER DEFAULT 0,
+        FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
+    )");
+    
+    // Tabela para registrar faltas
+    $db->exec("CREATE TABLE IF NOT EXISTS faltas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        redmine_id INTEGER,
+        data TEXT DEFAULT CURRENT_TIMESTAMP,
+        motivo TEXT,
+        FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
+    )");
+    
+    // Tabela para notas de reunião - adicionada independentemente da base ser nova
+    $db->exec("CREATE TABLE IF NOT EXISTS notas_reuniao (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        data TEXT DEFAULT CURRENT_TIMESTAMP,
+        conteudo TEXT,
+        redmine_id INTEGER,
+        FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
+    )");
 } catch (Exception $e) {
     die("Erro ao inicializar a base de dados: " . $e->getMessage());
 }
@@ -269,68 +268,102 @@ function getNumeroFaltas($db, $redmine_id) {
 
 // Funções para gerenciamento de notas de reunião
 function salvarNotasReuniao($db, $conteudo, $redmine_id = null) {
-    $hoje = date('Y-m-d');
-    
-    // Verificar se já existe nota para hoje
-    $stmt = $db->prepare("SELECT id FROM notas_reuniao WHERE DATE(data) = :hoje");
-    $stmt->execute([':hoje' => $hoje]);
-    $nota_existente = $stmt->fetchColumn();
-    
-    if ($nota_existente) {
-        // Atualizar nota existente
-        $stmt = $db->prepare("UPDATE notas_reuniao SET conteudo = :conteudo, redmine_id = :redmine_id WHERE id = :id");
-        $stmt->execute([
-            ':conteudo' => $conteudo,
-            ':redmine_id' => $redmine_id,
-            ':id' => $nota_existente
-        ]);
-    } else {
-        // Criar nova nota
-        $stmt = $db->prepare("INSERT INTO notas_reuniao (conteudo, redmine_id, data) VALUES (:conteudo, :redmine_id, :data)");
-        $stmt->execute([
-            ':conteudo' => $conteudo,
-            ':redmine_id' => $redmine_id,
-            ':data' => $hoje
-        ]);
+    try {
+        $hoje = date('Y-m-d');
+        
+        // Verificar se já existe nota para hoje
+        $stmt = $db->prepare("SELECT id FROM notas_reuniao WHERE DATE(data) = :hoje");
+        $stmt->execute([':hoje' => $hoje]);
+        $nota_existente = $stmt->fetchColumn();
+        
+        if ($nota_existente) {
+            // Atualizar nota existente
+            $stmt = $db->prepare("UPDATE notas_reuniao SET conteudo = :conteudo, redmine_id = :redmine_id WHERE id = :id");
+            $stmt->execute([
+                ':conteudo' => $conteudo,
+                ':redmine_id' => $redmine_id,
+                ':id' => $nota_existente
+            ]);
+        } else {
+            // Criar nova nota
+            $stmt = $db->prepare("INSERT INTO notas_reuniao (conteudo, redmine_id, data) VALUES (:conteudo, :redmine_id, :data)");
+            $stmt->execute([
+                ':conteudo' => $conteudo,
+                ':redmine_id' => $redmine_id,
+                ':data' => $hoje
+            ]);
+        }
+        
+        return $nota_existente ? 'atualizado' : 'criado';
+    } catch (PDOException $e) {
+        // Tentar criar a tabela se ela não existir
+        try {
+            $db->exec("CREATE TABLE IF NOT EXISTS notas_reuniao (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                data TEXT DEFAULT CURRENT_TIMESTAMP,
+                conteudo TEXT,
+                redmine_id INTEGER,
+                FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
+            )");
+            
+            // Tentar novamente após criar a tabela
+            $stmt = $db->prepare("INSERT INTO notas_reuniao (conteudo, redmine_id, data) VALUES (:conteudo, :redmine_id, :data)");
+            $stmt->execute([
+                ':conteudo' => $conteudo,
+                ':redmine_id' => $redmine_id,
+                ':data' => $hoje
+            ]);
+            
+            return 'criado';
+        } catch (Exception $e2) {
+            return 'erro: ' . $e2->getMessage();
+        }
     }
-    
-    return $nota_existente ? 'atualizado' : 'criado';
 }
 
 function getNotasReuniao($db, $data = null) {
-    if ($data) {
-        $stmt = $db->prepare("SELECT * FROM notas_reuniao WHERE DATE(data) = :data LIMIT 1");
-        $stmt->execute([':data' => $data]);
-    } else {
-        // Buscar nota da reunião de hoje
-        $hoje = date('Y-m-d');
-        $stmt = $db->prepare("SELECT * FROM notas_reuniao WHERE DATE(data) = :hoje LIMIT 1");
-        $stmt->execute([':hoje' => $hoje]);
+    try {
+        if ($data) {
+            $stmt = $db->prepare("SELECT * FROM notas_reuniao WHERE DATE(data) = :data LIMIT 1");
+            $stmt->execute([':data' => $data]);
+        } else {
+            // Buscar nota da reunião de hoje
+            $hoje = date('Y-m-d');
+            $stmt = $db->prepare("SELECT * FROM notas_reuniao WHERE DATE(data) = :hoje LIMIT 1");
+            $stmt->execute([':hoje' => $hoje]);
+        }
+        
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        // Se houver erro (provavelmente tabela não existe), retornar null
+        return null;
     }
-    
-    return $stmt->fetch(PDO::FETCH_ASSOC);
 }
 
 function exportarNotasMarkdown($db, $data = null) {
-    $nota = getNotasReuniao($db, $data);
-    
-    if (!$nota) {
+    try {
+        $nota = getNotasReuniao($db, $data);
+        
+        if (!$nota) {
+            return false;
+        }
+        
+        $data_formatada = date('Y-m-d', strtotime($nota['data']));
+        $nome_arquivo = "notas_reuniao_{$data_formatada}.md";
+        $caminho_arquivo = __DIR__ . "/../notas/" . $nome_arquivo;
+        
+        // Criar diretório de notas se não existir
+        if (!file_exists(__DIR__ . "/../notas")) {
+            mkdir(__DIR__ . "/../notas", 0755, true);
+        }
+        
+        // Escrever conteúdo para o arquivo
+        file_put_contents($caminho_arquivo, $nota['conteudo']);
+        
+        return $nome_arquivo;
+    } catch (Exception $e) {
         return false;
     }
-    
-    $data_formatada = date('Y-m-d', strtotime($nota['data']));
-    $nome_arquivo = "notas_reuniao_{$data_formatada}.md";
-    $caminho_arquivo = __DIR__ . "/../notas/" . $nome_arquivo;
-    
-    // Criar diretório de notas se não existir
-    if (!file_exists(__DIR__ . "/../notas")) {
-        mkdir(__DIR__ . "/../notas", 0755, true);
-    }
-    
-    // Escrever conteúdo para o arquivo
-    file_put_contents($caminho_arquivo, $nota['conteudo']);
-    
-    return $nome_arquivo;
 }
 
 // Obter dados
@@ -356,7 +389,13 @@ $oradores = $_SESSION['oradores'];
 $orador_atual = $_SESSION['orador_atual'];
 
 // Carregar notas da reunião atual
-$notas_reuniao = getNotasReuniao($db);
+$notas_reuniao = null;
+try {
+    $notas_reuniao = getNotasReuniao($db);
+} catch (Exception $e) {
+    // Silenciosamente falha se a tabela não existir ainda
+    // A tabela será criada na próxima execução
+}
 $conteudo_notas = $notas_reuniao ? $notas_reuniao['conteudo'] : "# Notas da Reunião - " . date('d/m/Y') . "\n\n## Participantes\n\n## Tópicos Discutidos\n\n## Ações e Responsáveis\n\n";
 
 // Apenas responda com JSON para requisições AJAX

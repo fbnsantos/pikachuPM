@@ -1,4 +1,16 @@
-<?php
+<!-- Próximos Gestores -->
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0"><i class="bi bi-calendar-week"></i> Próximos Gestores de Reunião (10 dias)</h4>
+                </div>
+                <div class="card-body">antml:parameter>
+<parameter name="old_str">            <!-- Próximos Gestores -->
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0"><i class="bi bi-calendar-week"></i> Próximos Gestores de Reunião</h4>
+                </div>
+                <div class="card-body"><?antml:parameter>
+</invoke><?php
 // tabs/equipa.php
 session_start();
 include_once __DIR__ . '/../config.php';
@@ -145,7 +157,7 @@ function calcularDataProximaReuniao($inicio, $diasAdicionais) {
     return $data;
 }
 
-// Função para gerar lista de próximos gestores para os próximos 20 dias úteis
+// Função para gerar lista de próximos gestores para os próximos 10 dias úteis
 function gerarListaProximosGestores($db, $equipa) {
     if (empty($equipa)) {
         return; // Não faz nada se a equipe estiver vazia
@@ -173,8 +185,9 @@ function gerarListaProximosGestores($db, $equipa) {
     $stmt = $db->query("SELECT COUNT(*) FROM proximos_gestores WHERE data_prevista >= date('now') AND concluido = 0");
     $count = $stmt->fetchColumn();
     
-    // Se tiver menos de 20 dias planejados para o futuro, gera novos
-    if ($count < 20) {
+    // Se tiver menos de 10 dias planejados para o futuro, gera novos
+    $dias_necessarios = 10; // Alterado de 20 para 10
+    if ($count < $dias_necessarios) {
         // Obter o último dia agendado
         $stmt = $db->query("SELECT MAX(data_prevista) FROM proximos_gestores WHERE data_prevista >= date('now')");
         $ultima_data = $stmt->fetchColumn();
@@ -187,7 +200,7 @@ function gerarListaProximosGestores($db, $equipa) {
         shuffle($equipe_copia);
         
         // Calcular quantos dias precisamos adicionar
-        $dias_necessarios = 20 - $count;
+        $dias_necessarios = $dias_necessarios - $count;
         $dias_adicionados = 0;
         $indice_equipe = 0;
         
@@ -229,7 +242,7 @@ function gerarListaProximosGestores($db, $equipa) {
 }
 
 // Obter lista de próximos gestores
-function getProximosGestores($db, $limite = 20) {
+function getProximosGestores($db, $limite = 10) {
     $stmt = $db->prepare("SELECT redmine_id, data_prevista 
                          FROM proximos_gestores 
                          WHERE data_prevista >= date('now') AND concluido = 0

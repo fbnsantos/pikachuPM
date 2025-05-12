@@ -1,9 +1,14 @@
 <!-- Próximos Gestores -->
             <div class="card mb-4">
                 <div class="card-header bg-success text-white">
-                    <h4 class="mb-0"><i class="bi bi-calendar-week"></i> Próximos Gestores de Reunião (10 dias)</h4>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h4 class="mb-0"><i class="bi bi-calendar-week"></i> Próximos Gestores de Reunião (10 dias)</h4>
+                        <button type="button" id="btn-regenerar-lista" class="btn btn-sm btn-light">
+                            <i class="bi bi-arrow-repeat"></i> Atualizar Lista
+                        </button>
+                    </div>
                 </div>
-                <div class="card-body">antml:parameter>
+                <div class="card-body" id="lista-gestores-container">antml:parameter>
 <parameter name="old_str">            <!-- Próximos Gestores -->
             <div class="card mb-4">
                 <div class="card-header bg-success text-white">
@@ -163,9 +168,8 @@ function gerarListaProximosGestores($db, $equipa) {
         return; // Não faz nada se a equipe estiver vazia
     }
 
-    // Limpar registros antigos não concluídos
-    $stmt = $db->prepare("DELETE FROM proximos_gestores 
-                          WHERE data_prevista < date('now') AND concluido = 0");
+    // Limpar TODOS os registros futuros para uma regeneração completa
+    $stmt = $db->prepare("DELETE FROM proximos_gestores WHERE data_prevista >= date('now') AND concluido = 0");
     $stmt->execute();
 
     // Verificar se já existe uma entrada para o dia atual
@@ -181,88 +185,60 @@ function gerarListaProximosGestores($db, $equipa) {
         $stmt->execute([':id' => $membro_hoje, ':data' => $hoje]);
     }
     
-    // Verificar quantos dias futuros estão planejados
-    $stmt = $db->query("SELECT COUNT(*) FROM proximos_gestores WHERE data_prevista >= date('now') AND concluido = 0");
-    $count = $stmt->fetchColumn();
+    // Obter o último dia agendado
+    $stmt = $db->query("SELECT MAX(data_prevista) FROM proximos_gestores WHERE data_prevista >= date('now')");
+    $ultima_data = $stmt->fetchColumn();
     
-    // Se tiver menos de 10 dias planejados para o futuro, gera novos
-    $dias_necessarios = 10; // Alterado de 20 para 10
-    if ($count < $dias_necessarios) {
-        // Limpar planejamento anterior para evitar datas muito distantes
-        $stmt = $db->prepare("DELETE FROM proximos_gestores 
-                             WHERE data_prevista > date('now', '+10 days') AND concluido = 0");
-        $stmt->execute();
+    // Se não houver data futura, usar hoje como ponto de partida
+    $inicio = new DateTime($ultima_data ?: $hoje);
+    
+    // Criar uma cópia embaralhada da equipe para distribuir aleatoriamente
+    $equipe_copia = $equipa;
+    shuffle($equipe_copia);
+    
+    // Calcular quantos dias precisamos adicionar (queremos exatamente 10 dias úteis)
+    $dias_necessarios = 10;
+    $dias_adicionados = 0;
+    $indice_equipe = 0;
+    
+    // Limite de tentativas para evitar loop infinito
+    $max_tentativas = 30;
+    $tentativas = 0;
+    
+    while ($dias_adicionados < $dias_necessarios && $tentativas < $max_tentativas) {
+        $tentativas++;
         
-        // Obter o último dia agendado
-        $stmt = $db->query("SELECT MAX(data_prevista) FROM proximos_gestores WHERE data_prevista >= date('now')");
-        $ultima_data = $stmt->fetchColumn();
-        
-        // Se não houver data futura, usar hoje como ponto de partida
-        $inicio = new DateTime($ultima_data ?: $hoje);
-        
-        // Criar uma cópia embaralhada da equipe para distribuir aleatoriamente
-        $equipe_copia = $equipa;
-        shuffle($equipe_copia);
-        
-        // Calcular quantos dias precisamos adicionar (máximo 10 dias desde hoje)
-        $dias_necessarios = $dias_necessarios - $count;
-        $dias_adicionados = 0;
-        $indice_equipe = 0;
-        
-        // Limite de tentativas para evitar loop infinito
-        $max_tentativas = 30;
-        $tentativas = 0;
-        
-        // Data máxima (10 dias úteis a partir de hoje)
-        $data_maxima = new DateTime($hoje);
-        $dias_uteis_adicionados = 0;
-        while ($dias_uteis_adicionados < $dias_necessarios) {
-            $data_maxima->modify('+1 day');
-            if (!in_array($data_maxima->format('N'), ['6', '7'])) { // Não é fim de semana
-                $dias_uteis_adicionados++;
-            }
+        // Pegar próximo membro da equipe, voltando ao início se necessário
+        if ($indice_equipe >= count($equipe_copia)) {
+            shuffle($equipe_copia); // Embaralhar novamente para variar a ordem
+            $indice_equipe = 0;
         }
         
-        while ($dias_adicionados < $dias_necessarios && $tentativas < $max_tentativas) {
-            $tentativas++;
-            
-            // Pegar próximo membro da equipe, voltando ao início se necessário
-            if ($indice_equipe >= count($equipe_copia)) {
-                shuffle($equipe_copia); // Embaralhar novamente para variar a ordem
-                $indice_equipe = 0;
-            }
-            
-            $membro_id = $equipe_copia[$indice_equipe];
-            $indice_equipe++;
-            
-            // Calcular próxima data útil
+        $membro_id = $equipe_copia[$indice_equipe];
+        $indice_equipe++;
+        
+        // Calcular próxima data útil
+        $inicio->modify('+1 day');
+        // Pular finais de semana
+        while (in_array($inicio->format('N'), ['6', '7'])) {
             $inicio->modify('+1 day');
-            // Pular finais de semana
-            while (in_array($inicio->format('N'), ['6', '7'])) {
-                $inicio->modify('+1 day');
-            }
+        }
+        
+        // Verificar se este membro já está agendado para esta data
+        $data_formatada = $inicio->format('Y-m-d');
+        $stmt = $db->prepare("SELECT COUNT(*) FROM proximos_gestores WHERE data_prevista = :data");
+        $stmt->execute([':data' => $data_formatada]);
+        
+        if ($stmt->fetchColumn() == 0) {
+            // Inserir novo agendamento
+            $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) 
+                                VALUES (:id, :data)");
+            $stmt->execute([
+                ':id' => $membro_id,
+                ':data' => $data_formatada
+            ]);
             
-            // Verificar se a data não ultrapassa o limite de 10 dias úteis
-            if ($inicio > $data_maxima) {
-                break;
-            }
-            
-            // Verificar se este membro já está agendado para esta data
-            $stmt = $db->prepare("SELECT COUNT(*) FROM proximos_gestores 
-                                 WHERE data_prevista = :data");
-            $stmt->execute([':data' => $inicio->format('Y-m-d')]);
-            
-            if ($stmt->fetchColumn() == 0) {
-                // Inserir novo agendamento
-                $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) 
-                                     VALUES (:id, :data)");
-                $stmt->execute([
-                    ':id' => $membro_id,
-                    ':data' => $inicio->format('Y-m-d')
-                ]);
-                
-                $dias_adicionados++;
-            }
+            $dias_adicionados++;
         }
     }
 }
@@ -428,11 +404,11 @@ if (isset($_POST['acao_nota'])) {
 $nota_atual = getNota($db);
 $todas_notas = getTodasNotas($db);
 
-// Apenas responda com JSON para requisições AJAX
+// Processar ações para requisições AJAX
 if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+    $resposta = ['sucesso' => true];
+    
     if (isset($_POST['acao'])) {
-        $resposta = ['sucesso' => true];
-        
         switch ($_POST['acao']) {
             case 'proximo_orador':
                 // Avançar para o próximo orador
@@ -451,15 +427,112 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
                 $resposta['mensagem'] = 'Reunião finalizada';
                 break;
                 
+            case 'regenerar_lista':
+                // Regenerar a lista de próximos gestores
+                $equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
+                gerarListaProximosGestores($db, $equipa);
+                $proximos_gestores = getProximosGestores($db);
+                
+                // Construir HTML para a tabela de próximos gestores
+                $html = '';
+                if (empty($proximos_gestores)) {
+                    $html = '<p class="text-muted">Nenhum gestor agendado para os próximos dias.</p>';
+                } else {
+                    $html = '<div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Data Prevista</th>
+                                    <th>Gestor</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>';
+                    
+                    foreach ($proximos_gestores as $prox) {
+                        $data = new DateTime($prox['data_prevista']);
+                        $hoje = new DateTime('today');
+                        $eh_hoje = $data->format('Y-m-d') === $hoje->format('Y-m-d');
+                        
+                        $html .= '<tr>
+                            <td>';
+                        
+                        if ($eh_hoje) {
+                            $html .= '<span class="badge bg-primary">Hoje</span> ';
+                        }
+                        
+                        // Dia da semana em português
+                        $dias_semana = [
+                            1 => 'Segunda', 2 => 'Terça', 3 => 'Quarta', 
+                            4 => 'Quinta', 5 => 'Sexta', 6 => 'Sábado', 7 => 'Domingo'
+                        ];
+                        
+                        $html .= $data->format('d/m/Y') . ' (' . $dias_semana[(int)$data->format('N')] . ')</td>
+                            <td>' . htmlspecialchars(getNomeUtilizador($prox['redmine_id'], $utilizadores)) . '</td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-outline-danger btn-recusar"
+                                        data-id="' . $prox['redmine_id'] . '" 
+                                        data-data="' . $prox['data_prevista'] . '">
+                                    <i class="bi bi-x-lg"></i> Recusar
+                                </button>
+                            </td>
+                        </tr>';
+                    }
+                    
+                    $html .= '</tbody></table></div>';
+                }
+                
+                $resposta['html'] = $html;
+                break;
+
+            case 'recusar':
+                $idRecusado = (int)$_POST['recusar'];
+                $dataRecusada = $_POST['data_recusada'] ?? '';
+                
+                if (!empty($dataRecusada)) {
+                    // Remover este gestor da data específica
+                    $stmt = $db->prepare("DELETE FROM proximos_gestores 
+                                         WHERE redmine_id = :id AND data_prevista = :data AND concluido = 0");
+                    $stmt->execute([':id' => $idRecusado, ':data' => $dataRecusada]);
+                    
+                    // Adicionar outro gestor nesta data se possível
+                    if (count($equipa) > 1) {
+                        $equipe_copia = array_filter($equipa, function($e) use ($idRecusado) {
+                            return $e != $idRecusado;
+                        });
+                        $novo_gestor = $equipe_copia[array_rand($equipe_copia)];
+                        
+                        $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) 
+                                             VALUES (:id, :data)");
+                        $stmt->execute([':id' => $novo_gestor, ':data' => $dataRecusada]);
+                    }
+                } else {
+                    // Remover este gestor de todas as datas futuras
+                    $stmt = $db->prepare("DELETE FROM proximos_gestores 
+                                         WHERE redmine_id = :id AND data_prevista >= date('now') AND concluido = 0");
+                    $stmt->execute([':id' => $idRecusado]);
+                }
+                
+                // Regenerar completamente a lista para ter exatamente 10 dias úteis
+                gerarListaProximosGestores($db, $equipa);
+                
+                // Retornar os gestores atualizados
+                $proximos_gestores = getProximosGestores($db);
+                $resposta['mensagem'] = 'Gestor recusado com sucesso';
+                break;
+                
             default:
                 $resposta['sucesso'] = false;
                 $resposta['mensagem'] = 'Ação desconhecida';
         }
-        
-        header('Content-Type: application/json');
-        echo json_encode($resposta);
-        exit;
+    } else {
+        $resposta['sucesso'] = false;
+        $resposta['mensagem'] = 'Nenhuma ação especificada';
     }
+    
+    header('Content-Type: application/json');
+    echo json_encode($resposta);
+    exit;
 }
 
 // Processar ações POST
@@ -577,12 +650,11 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             $stmt->execute([':id' => $idRecusado]);
         }
         
-        // Limpar planejamento existente antes de regenerar
-        $stmt = $db->prepare("DELETE FROM proximos_gestores WHERE data_prevista > date('now', '+10 days') AND concluido = 0");
-        $stmt->execute();
-        
-        // Regenerar a lista
+        // Regenerar completamente a lista para ter exatamente 10 dias úteis
         gerarListaProximosGestores($db, $equipa);
+        
+        header("Location: ?tab=equipa");
+        exit;
     }
     
     // Marcar falta
@@ -935,13 +1007,11 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                             </td>
                                             <td><?= htmlspecialchars(getNomeUtilizador($prox['redmine_id'], $utilizadores)) ?></td>
                                             <td>
-                                                <form method="post" class="d-inline">
-                                                    <input type="hidden" name="recusar" value="<?= $prox['redmine_id'] ?>">
-                                                    <input type="hidden" name="data_recusada" value="<?= $prox['data_prevista'] ?>">
-                                                    <button type="submit" class="btn btn-sm btn-outline-danger">
-                                                        <i class="bi bi-x-lg"></i> Recusar
-                                                    </button>
-                                                </form>
+                                                <button type="button" class="btn btn-sm btn-outline-danger btn-recusar"
+                                                        data-id="<?= $prox['redmine_id'] ?>" 
+                                                        data-data="<?= $prox['data_prevista'] ?>">
+                                                    <i class="bi bi-x-lg"></i> Recusar
+                                                </button>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>

@@ -35,6 +35,15 @@ try {
             motivo TEXT,
             FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
         )");
+        
+        // Tabela para notas de reunião
+        $db->exec("CREATE TABLE IF NOT EXISTS notas_reuniao (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data TEXT DEFAULT CURRENT_TIMESTAMP,
+            conteudo TEXT,
+            redmine_id INTEGER,
+            FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
+        )");
     }
 } catch (Exception $e) {
     die("Erro ao inicializar a base de dados: " . $e->getMessage());
@@ -258,6 +267,72 @@ function getNumeroFaltas($db, $redmine_id) {
     return $stmt->fetchColumn();
 }
 
+// Funções para gerenciamento de notas de reunião
+function salvarNotasReuniao($db, $conteudo, $redmine_id = null) {
+    $hoje = date('Y-m-d');
+    
+    // Verificar se já existe nota para hoje
+    $stmt = $db->prepare("SELECT id FROM notas_reuniao WHERE DATE(data) = :hoje");
+    $stmt->execute([':hoje' => $hoje]);
+    $nota_existente = $stmt->fetchColumn();
+    
+    if ($nota_existente) {
+        // Atualizar nota existente
+        $stmt = $db->prepare("UPDATE notas_reuniao SET conteudo = :conteudo, redmine_id = :redmine_id WHERE id = :id");
+        $stmt->execute([
+            ':conteudo' => $conteudo,
+            ':redmine_id' => $redmine_id,
+            ':id' => $nota_existente
+        ]);
+    } else {
+        // Criar nova nota
+        $stmt = $db->prepare("INSERT INTO notas_reuniao (conteudo, redmine_id, data) VALUES (:conteudo, :redmine_id, :data)");
+        $stmt->execute([
+            ':conteudo' => $conteudo,
+            ':redmine_id' => $redmine_id,
+            ':data' => $hoje
+        ]);
+    }
+    
+    return $nota_existente ? 'atualizado' : 'criado';
+}
+
+function getNotasReuniao($db, $data = null) {
+    if ($data) {
+        $stmt = $db->prepare("SELECT * FROM notas_reuniao WHERE DATE(data) = :data LIMIT 1");
+        $stmt->execute([':data' => $data]);
+    } else {
+        // Buscar nota da reunião de hoje
+        $hoje = date('Y-m-d');
+        $stmt = $db->prepare("SELECT * FROM notas_reuniao WHERE DATE(data) = :hoje LIMIT 1");
+        $stmt->execute([':hoje' => $hoje]);
+    }
+    
+    return $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+function exportarNotasMarkdown($db, $data = null) {
+    $nota = getNotasReuniao($db, $data);
+    
+    if (!$nota) {
+        return false;
+    }
+    
+    $data_formatada = date('Y-m-d', strtotime($nota['data']));
+    $nome_arquivo = "notas_reuniao_{$data_formatada}.md";
+    $caminho_arquivo = __DIR__ . "/../notas/" . $nome_arquivo;
+    
+    // Criar diretório de notas se não existir
+    if (!file_exists(__DIR__ . "/../notas")) {
+        mkdir(__DIR__ . "/../notas", 0755, true);
+    }
+    
+    // Escrever conteúdo para o arquivo
+    file_put_contents($caminho_arquivo, $nota['conteudo']);
+    
+    return $nome_arquivo;
+}
+
 // Obter dados
 $utilizadores = getUtilizadoresRedmine();
 $equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
@@ -280,11 +355,16 @@ $em_reuniao = $_SESSION['em_reuniao'];
 $oradores = $_SESSION['oradores'];
 $orador_atual = $_SESSION['orador_atual'];
 
+// Carregar notas da reunião atual
+$notas_reuniao = getNotasReuniao($db);
+$conteudo_notas = $notas_reuniao ? $notas_reuniao['conteudo'] : "# Notas da Reunião - " . date('d/m/Y') . "\n\n## Participantes\n\n## Tópicos Discutidos\n\n## Ações e Responsáveis\n\n";
+
 // Apenas responda com JSON para requisições AJAX
 if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+    $resposta = ['sucesso' => true];
+    
+    // Processar ações POST
     if (isset($_POST['acao'])) {
-        $resposta = ['sucesso' => true];
-        
         switch ($_POST['acao']) {
             case 'proximo_orador':
                 // Avançar para o próximo orador
@@ -303,19 +383,66 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
                 $resposta['mensagem'] = 'Reunião finalizada';
                 break;
                 
+            case 'salvar_notas':
+                // Salvar notas de reunião
+                if (isset($_POST['conteudo_notas'])) {
+                    $resultado = salvarNotasReuniao($db, $_POST['conteudo_notas'], $gestor);
+                    $resposta['mensagem'] = 'Notas de reunião ' . $resultado . ' com sucesso';
+                    $resposta['status'] = $resultado;
+                } else {
+                    $resposta['sucesso'] = false;
+                    $resposta['mensagem'] = 'Conteúdo das notas não fornecido';
+                }
+                break;
+                
+            case 'exportar_notas':
+                // Exportar notas para arquivo Markdown
+                $arquivo = exportarNotasMarkdown($db);
+                if ($arquivo) {
+                    $resposta['mensagem'] = 'Notas exportadas para ' . $arquivo;
+                    $resposta['arquivo'] = $arquivo;
+                } else {
+                    $resposta['sucesso'] = false;
+                    $resposta['mensagem'] = 'Não há notas para exportar';
+                }
+                break;
+                
             default:
                 $resposta['sucesso'] = false;
                 $resposta['mensagem'] = 'Ação desconhecida';
         }
-        
-        header('Content-Type: application/json');
-        echo json_encode($resposta);
-        exit;
     }
+    // Processar ações GET
+    else if (isset($_GET['data'])) {
+        // Carregar nota de reunião de uma data específica
+        $nota = getNotasReuniao($db, $_GET['data']);
+        if ($nota) {
+            $resposta['nota'] = $nota;
+            $resposta['mensagem'] = 'Nota carregada com sucesso';
+        } else {
+            $resposta['sucesso'] = false;
+            $resposta['mensagem'] = 'Nota não encontrada para a data especificada';
+        }
+    }
+    
+    header('Content-Type: application/json');
+    echo json_encode($resposta);
+    exit;
 }
 
 // Processar ações POST
 if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Salvar notas de reunião
+    if (isset($_POST['salvar_notas'])) {
+        $conteudo = $_POST['conteudo_notas'] ?? '';
+        salvarNotasReuniao($db, $conteudo, $gestor);
+    }
+    
+    // Exportar notas para arquivo Markdown
+    if (isset($_POST['exportar_notas'])) {
+        exportarNotasMarkdown($db);
+    }
+    
     // Adicionar membro à equipe
     if (isset($_POST['adicionar'])) {
         $id = (int)$_POST['adicionar'];
@@ -480,6 +607,9 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Adicionar SimpleMDE - um editor Markdown -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/simplemde/latest/simplemde.min.css">
+    <script src="https://cdn.jsdelivr.net/simplemde/latest/simplemde.min.js"></script>
     <style>
         .reuniao-card {
             border-left: 5px solid #0d6efd;
@@ -507,6 +637,23 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
         .debug-area {
             font-size: 0.8rem;
             color: #6c757d;
+        }
+        /* Estilos para o editor de notas */
+        .CodeMirror, .CodeMirror-scroll {
+            min-height: 200px;
+        }
+        .note-actions {
+            margin-top: 10px;
+        }
+        .note-status {
+            display: none;
+            margin-top: 10px;
+        }
+        /* Ajuste para o layout responsivo */
+        @media (max-width: 991px) {
+            .editor-container {
+                margin-top: 20px;
+            }
         }
     </style>
 </head>
@@ -689,6 +836,36 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                 </div>
                             <?php endif; ?>
                         <?php endif; ?>
+                        
+                        <!-- INÍCIO DO EDITOR DE NOTAS -->
+                        <div class="row mt-4">
+                            <div class="col-12">
+                                <div class="card editor-container">
+                                    <div class="card-header bg-info text-white">
+                                        <h5 class="mb-0"><i class="bi bi-journal-text"></i> Notas da Reunião</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <form id="form-notas" method="post">
+                                            <div class="form-group">
+                                                <textarea id="editor-notas" name="conteudo_notas"><?= htmlspecialchars($conteudo_notas) ?></textarea>
+                                            </div>
+                                            <div class="note-actions d-flex flex-wrap gap-2 mt-3">
+                                                <button type="button" id="btn-salvar-notas" class="btn btn-primary">
+                                                    <i class="bi bi-save"></i> Salvar Notas
+                                                </button>
+                                                <button type="button" id="btn-exportar-notas" class="btn btn-success">
+                                                    <i class="bi bi-file-earmark-arrow-down"></i> Exportar para Markdown
+                                                </button>
+                                            </div>
+                                            <div id="note-status" class="note-status alert alert-success">
+                                                <i class="bi bi-check-circle"></i> <span id="note-status-message"></span>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- FIM DO EDITOR DE NOTAS -->
                     </div>
                 </div>
             <?php elseif (count($equipa) >= 2): ?>
@@ -843,9 +1020,10 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
             </div>
         </div>
         
-        <!-- Coluna Lateral - Faltas Recentes -->
+        <!-- Coluna Lateral - Faltas Recentes e Histórico de Notas -->
         <div class="col-lg-4">
-            <div class="card">
+            <!-- Faltas Recentes -->
+            <div class="card mb-4">
                 <div class="card-header bg-warning">
                     <h4 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Faltas Recentes</h4>
                 </div>
@@ -874,15 +1052,64 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                             <td><?= htmlspecialchars(getNomeUtilizador($falta['redmine_id'], $utilizadores)) ?></td>
                                             <td>
                                                 <?php 
-                                                echo "a";
-                                                //$motivo = $falta['motivo'] ?: 'Não especificado';
-                                                //echo mb_strlen($motivo) > 50 ? mb_substr(htmlspecialchars($motivo), 0, 50) . '...' : htmlspecialchars($motivo);
+                                                $motivo = $falta['motivo'] ?: 'Não especificado';
+                                                echo mb_strlen($motivo) > 50 ? mb_substr(htmlspecialchars($motivo), 0, 50) . '...' : htmlspecialchars($motivo);
                                                 ?>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>
                             </table>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <!-- Histórico de Notas de Reunião -->
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h4 class="mb-0"><i class="bi bi-journals"></i> Histórico de Notas</h4>
+                </div>
+                <div class="card-body">
+                    <?php 
+                    // Buscar histórico de notas (últimas 10)
+                    $stmt = $db->query("SELECT n.*, u.redmine_id FROM notas_reuniao n 
+                                        LEFT JOIN equipa u ON n.redmine_id = u.redmine_id 
+                                        ORDER BY n.data DESC LIMIT 10");
+                    $historico_notas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    
+                    if (empty($historico_notas)):
+                    ?>
+                        <p class="text-muted text-center">
+                            <i class="bi bi-info-circle"></i> Nenhuma nota de reunião registrada.
+                        </p>
+                    <?php else: ?>
+                        <div class="list-group">
+                            <?php foreach ($historico_notas as $nota): ?>
+                                <a href="#" class="list-group-item list-group-item-action load-note" 
+                                   data-data="<?= date('Y-m-d', strtotime($nota['data'])) ?>">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h6 class="mb-1"><i class="bi bi-calendar-date"></i> 
+                                            <?= date('d/m/Y', strtotime($nota['data'])) ?>
+                                        </h6>
+                                        <small>
+                                            <?php if ($nota['redmine_id']): ?>
+                                                <i class="bi bi-person"></i> 
+                                                <?= htmlspecialchars(getNomeUtilizador($nota['redmine_id'], $utilizadores)) ?>
+                                            <?php endif; ?>
+                                        </small>
+                                    </div>
+                                    <small class="text-muted">
+                                        <?php 
+                                        // Exibir primeiros 100 caracteres do conteúdo
+                                        $preview = mb_strlen($nota['conteudo']) > 100 
+                                            ? mb_substr(strip_tags($nota['conteudo']), 0, 100) . '...' 
+                                            : strip_tags($nota['conteudo']);
+                                        echo htmlspecialchars($preview);
+                                        ?>
+                                    </small>
+                                </a>
+                            <?php endforeach; ?>
                         </div>
                     <?php endif; ?>
                 </div>
@@ -895,6 +1122,150 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
 <script>
 // Executar quando o documento estiver carregado
 document.addEventListener('DOMContentLoaded', function() {
+    // Inicializar o editor Markdown
+    var simplemde = new SimpleMDE({ 
+        element: document.getElementById("editor-notas"),
+        spellChecker: false,
+        autosave: {
+            enabled: true,
+            uniqueId: "notas-reuniao-<?= date('Y-m-d') ?>",
+            delay: 1000,
+        },
+        toolbar: ["bold", "italic", "heading", "|", "quote", "unordered-list", "ordered-list", "|", "link", "image", "|", "preview", "side-by-side", "fullscreen", "|", "guide"],
+        placeholder: "Escreva as notas da reunião aqui...",
+        status: ["autosave", "lines", "words", "cursor"]
+    });
+    
+    // Manipulador para salvar notas
+    document.getElementById('btn-salvar-notas').addEventListener('click', function() {
+        // Obter o conteúdo do editor
+        var conteudo = simplemde.value();
+        
+        // Enviar requisição AJAX para salvar notas
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', window.location.href, true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    var resposta = JSON.parse(xhr.responseText);
+                    var statusEl = document.getElementById('note-status');
+                    var mensagemEl = document.getElementById('note-status-message');
+                    
+                    if (resposta.sucesso) {
+                        statusEl.className = 'note-status alert alert-success';
+                        mensagemEl.textContent = resposta.mensagem;
+                    } else {
+                        statusEl.className = 'note-status alert alert-danger';
+                        mensagemEl.textContent = 'Erro: ' + resposta.mensagem;
+                    }
+                    
+                    statusEl.style.display = 'block';
+                    
+                    // Esconder a mensagem após 3 segundos
+                    setTimeout(function() {
+                        statusEl.style.display = 'none';
+                    }, 3000);
+                } catch (e) {
+                    console.error('Erro ao processar resposta:', e);
+                }
+            }
+        };
+        
+        xhr.send('acao=salvar_notas&conteudo_notas=' + encodeURIComponent(conteudo));
+    });
+    
+    // Manipulador para exportar notas
+    document.getElementById('btn-exportar-notas').addEventListener('click', function() {
+        // Enviar requisição AJAX para exportar notas
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', window.location.href, true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    var resposta = JSON.parse(xhr.responseText);
+                    var statusEl = document.getElementById('note-status');
+                    var mensagemEl = document.getElementById('note-status-message');
+                    
+                    if (resposta.sucesso) {
+                        statusEl.className = 'note-status alert alert-success';
+                        mensagemEl.textContent = resposta.mensagem;
+                        
+                        // Se a exportação foi bem-sucedida, criar um link para download
+                        if (resposta.arquivo) {
+                            // Criar um link temporário para download
+                            var link = document.createElement('a');
+                            link.href = '../notas/' + resposta.arquivo;
+                            link.download = resposta.arquivo;
+                            
+                            // Simular um clique para iniciar o download
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                        }
+                    } else {
+                        statusEl.className = 'note-status alert alert-danger';
+                        mensagemEl.textContent = 'Erro: ' + resposta.mensagem;
+                    }
+                    
+                    statusEl.style.display = 'block';
+                    
+                    // Esconder a mensagem após 5 segundos
+                    setTimeout(function() {
+                        statusEl.style.display = 'none';
+                    }, 5000);
+                } catch (e) {
+                    console.error('Erro ao processar resposta:', e);
+                }
+            }
+        };
+        
+        xhr.send('acao=exportar_notas');
+    });
+    
+    // Carregar nota histórica
+    document.querySelectorAll('.load-note').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            var data = this.getAttribute('data-data');
+            
+            // Enviar requisição AJAX para carregar a nota desta data
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', window.location.href + '&data=' + data, true);
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    try {
+                        var resposta = JSON.parse(xhr.responseText);
+                        if (resposta.sucesso && resposta.nota) {
+                            simplemde.value(resposta.nota.conteudo);
+                            
+                            var statusEl = document.getElementById('note-status');
+                            var mensagemEl = document.getElementById('note-status-message');
+                            statusEl.className = 'note-status alert alert-info';
+                            mensagemEl.textContent = 'Nota carregada: ' + resposta.nota.data;
+                            statusEl.style.display = 'block';
+                            
+                            setTimeout(function() {
+                                statusEl.style.display = 'none';
+                            }, 3000);
+                        }
+                    } catch (e) {
+                        console.error('Erro ao processar resposta:', e);
+                    }
+                }
+            };
+            
+            xhr.send();
+        });
+    });
+    
     // Verificar se a reunião está ativa e não concluída
     <?php if ($em_reuniao && !$reuniao_concluida && isset($oradorId)): ?>
     

@@ -231,16 +231,33 @@ function gerarListaProximosGestores($db, $equipa) {
 
 // Obter lista de próximos gestores
 function getProximosGestores($db, $limite = 10) {
+    // Primeiro, buscar o gestor para o dia atual
+    $hoje = date('Y-m-d');
     $stmt = $db->prepare("SELECT redmine_id, data_prevista 
                          FROM proximos_gestores 
-                         WHERE data_prevista >= date('now') AND concluido = 0
+                         WHERE data_prevista = :hoje
+                         LIMIT 1");
+    $stmt->execute([':hoje' => $hoje]);
+    $gestor_hoje = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    // Depois, buscar os próximos gestores (excluindo o de hoje)
+    $stmt = $db->prepare("SELECT redmine_id, data_prevista 
+                         FROM proximos_gestores 
+                         WHERE data_prevista > :hoje AND concluido = 0
                          ORDER BY data_prevista ASC
                          LIMIT :limite");
-    $stmt->bindValue(':limite', $limite, PDO::PARAM_INT);
+    $stmt->bindValue(':hoje', $hoje, PDO::PARAM_STR);
+    $stmt->bindValue(':limite', $limite - 1, PDO::PARAM_INT); // -1 para reservar espaço para o gestor de hoje
     $stmt->execute();
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $proximos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Combinar o gestor de hoje com os próximos
+    $resultado = [];
+    if ($gestor_hoje) {
+        $resultado[] = $gestor_hoje;
+    }
+    return array_merge($resultado, $proximos);
 }
-
 // Funções para gerenciamento de faltas
 function registrarFalta($db, $redmine_id, $motivo = '') {
     $stmt = $db->prepare("INSERT INTO faltas (redmine_id, motivo) VALUES (:id, :motivo)");
@@ -459,24 +476,25 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
     // Iniciar reunião
     if (isset($_POST['iniciar'])) {
         // Verificar se existe um gestor agendado para hoje
-        $hoje = date('Y-m-d');
-        $stmt = $db->prepare("SELECT redmine_id FROM proximos_gestores 
-                             WHERE data_prevista = :hoje AND concluido = 0 
-                             LIMIT 1");
-        $stmt->execute([':hoje' => $hoje]);
-        $gestor_hoje = $stmt->fetchColumn();
+    // Verificar se existe um gestor agendado para hoje
+    $hoje = date('Y-m-d');
+    $stmt = $db->prepare("SELECT redmine_id FROM proximos_gestores 
+                         WHERE data_prevista = :hoje 
+                         LIMIT 1");
+    $stmt->execute([':hoje' => $hoje]);
+    $gestor_hoje = $stmt->fetchColumn();
+    
+    if ($gestor_hoje && in_array($gestor_hoje, $equipa)) {
+        $_SESSION['gestor'] = $gestor_hoje;
         
-        if ($gestor_hoje && in_array($gestor_hoje, $equipa)) {
-            $_SESSION['gestor'] = $gestor_hoje;
-            
-            // Marcar como concluído
-            $stmt = $db->prepare("UPDATE proximos_gestores SET concluido = 1 
-                                 WHERE redmine_id = :id AND data_prevista = :hoje");
-            $stmt->execute([':id' => $gestor_hoje, ':hoje' => $hoje]);
-        } else {
-            // Se não houver gestor agendado para hoje, selecionar aleatoriamente
-            $_SESSION['gestor'] = $equipa[array_rand($equipa)];
-        }
+        // Remover ou comentar esta parte:
+        // $stmt = $db->prepare("UPDATE proximos_gestores SET concluido = 1 
+        //                      WHERE redmine_id = :id AND data_prevista = :hoje");
+        // $stmt->execute([':id' => $gestor_hoje, ':hoje' => $hoje]);
+    } else {
+        // Se não houver gestor agendado para hoje, selecionar aleatoriamente
+        $_SESSION['gestor'] = $equipa[array_rand($equipa)];
+    }
         
         $_SESSION['oradores'] = $equipa;
         shuffle($_SESSION['oradores']);

@@ -362,6 +362,7 @@ $equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUM
 
 // Gerar lista de próximos gestores se necessário
 gerarListaProximosGestores($db, $equipa);
+// Obter apenas para verificação inicial, carregamento real será feito via AJAX
 $proximos_gestores = getProximosGestores($db);
 
 // Inicializar ou recuperar variáveis de sessão

@@ -188,6 +188,11 @@ function gerarListaProximosGestores($db, $equipa) {
     // Se tiver menos de 10 dias planejados para o futuro, gera novos
     $dias_necessarios = 10; // Alterado de 20 para 10
     if ($count < $dias_necessarios) {
+        // Limpar planejamento anterior para evitar datas muito distantes
+        $stmt = $db->prepare("DELETE FROM proximos_gestores 
+                             WHERE data_prevista > date('now', '+10 days') AND concluido = 0");
+        $stmt->execute();
+        
         // Obter o último dia agendado
         $stmt = $db->query("SELECT MAX(data_prevista) FROM proximos_gestores WHERE data_prevista >= date('now')");
         $ultima_data = $stmt->fetchColumn();
@@ -199,12 +204,28 @@ function gerarListaProximosGestores($db, $equipa) {
         $equipe_copia = $equipa;
         shuffle($equipe_copia);
         
-        // Calcular quantos dias precisamos adicionar
+        // Calcular quantos dias precisamos adicionar (máximo 10 dias desde hoje)
         $dias_necessarios = $dias_necessarios - $count;
         $dias_adicionados = 0;
         $indice_equipe = 0;
         
-        while ($dias_adicionados < $dias_necessarios) {
+        // Limite de tentativas para evitar loop infinito
+        $max_tentativas = 30;
+        $tentativas = 0;
+        
+        // Data máxima (10 dias úteis a partir de hoje)
+        $data_maxima = new DateTime($hoje);
+        $dias_uteis_adicionados = 0;
+        while ($dias_uteis_adicionados < $dias_necessarios) {
+            $data_maxima->modify('+1 day');
+            if (!in_array($data_maxima->format('N'), ['6', '7'])) { // Não é fim de semana
+                $dias_uteis_adicionados++;
+            }
+        }
+        
+        while ($dias_adicionados < $dias_necessarios && $tentativas < $max_tentativas) {
+            $tentativas++;
+            
             // Pegar próximo membro da equipe, voltando ao início se necessário
             if ($indice_equipe >= count($equipe_copia)) {
                 shuffle($equipe_copia); // Embaralhar novamente para variar a ordem
@@ -219,6 +240,11 @@ function gerarListaProximosGestores($db, $equipa) {
             // Pular finais de semana
             while (in_array($inicio->format('N'), ['6', '7'])) {
                 $inicio->modify('+1 day');
+            }
+            
+            // Verificar se a data não ultrapassa o limite de 10 dias úteis
+            if ($inicio > $data_maxima) {
+                break;
             }
             
             // Verificar se este membro já está agendado para esta data
@@ -446,6 +472,11 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         
         // Regenerar a lista de próximos gestores
         $equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
+        
+        // Limpar planejamento existente antes de regenerar
+        $stmt = $db->prepare("DELETE FROM proximos_gestores WHERE concluido = 0");
+        $stmt->execute();
+        
         gerarListaProximosGestores($db, $equipa);
     }
     
@@ -465,6 +496,11 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         
         // Regenerar a lista de próximos gestores
         $equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
+        
+        // Limpar planejamento existente antes de regenerar
+        $stmt = $db->prepare("DELETE FROM proximos_gestores WHERE concluido = 0");
+        $stmt->execute();
+        
         gerarListaProximosGestores($db, $equipa);
     }
     
@@ -540,6 +576,10 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
                                  WHERE redmine_id = :id AND data_prevista >= date('now') AND concluido = 0");
             $stmt->execute([':id' => $idRecusado]);
         }
+        
+        // Limpar planejamento existente antes de regenerar
+        $stmt = $db->prepare("DELETE FROM proximos_gestores WHERE data_prevista > date('now', '+10 days') AND concluido = 0");
+        $stmt->execute();
         
         // Regenerar a lista
         gerarListaProximosGestores($db, $equipa);

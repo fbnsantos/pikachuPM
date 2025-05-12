@@ -36,13 +36,15 @@ try {
         FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
     )");
     
-    // Tabela para notas de reunião - adicionada independentemente da base ser nova
-    $db->exec("CREATE TABLE IF NOT EXISTS notas_reuniao (
+    // Tabela para notas gerais - adicionada independentemente da base ser nova
+    $db->exec("CREATE TABLE IF NOT EXISTS notas_gerais (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        data TEXT DEFAULT CURRENT_TIMESTAMP,
+        data_criacao TEXT DEFAULT CURRENT_TIMESTAMP,
+        data_atualizacao TEXT DEFAULT CURRENT_TIMESTAMP,
+        titulo TEXT,
         conteudo TEXT,
-        redmine_id INTEGER,
-        FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
+        criado_por INTEGER,
+        FOREIGN KEY (criado_por) REFERENCES equipa(redmine_id)
     )");
 } catch (Exception $e) {
     die("Erro ao inicializar a base de dados: " . $e->getMessage());
@@ -266,31 +268,41 @@ function getNumeroFaltas($db, $redmine_id) {
     return $stmt->fetchColumn();
 }
 
-// Funções para gerenciamento de notas de reunião
-function salvarNotasReuniao($db, $conteudo, $redmine_id = null) {
+// Funções para gerenciamento de notas gerais
+function salvarNotaGeral($db, $conteudo, $titulo = 'Nota sem título', $redmine_id = null) {
     try {
-        $hoje = date('Y-m-d');
-        
-        // Verificar se já existe nota para hoje
-        $stmt = $db->prepare("SELECT id FROM notas_reuniao WHERE DATE(data) = :hoje");
-        $stmt->execute([':hoje' => $hoje]);
+        // Verificar se o título já existe para este usuário
+        $stmt = $db->prepare("SELECT id FROM notas_gerais WHERE titulo = :titulo AND criado_por = :redmine_id");
+        $stmt->execute([
+            ':titulo' => $titulo,
+            ':redmine_id' => $redmine_id
+        ]);
         $nota_existente = $stmt->fetchColumn();
+        
+        $agora = date('Y-m-d H:i:s');
         
         if ($nota_existente) {
             // Atualizar nota existente
-            $stmt = $db->prepare("UPDATE notas_reuniao SET conteudo = :conteudo, redmine_id = :redmine_id WHERE id = :id");
+            $stmt = $db->prepare("UPDATE notas_gerais SET 
+                conteudo = :conteudo, 
+                data_atualizacao = :data_atualizacao 
+                WHERE id = :id");
             $stmt->execute([
                 ':conteudo' => $conteudo,
-                ':redmine_id' => $redmine_id,
+                ':data_atualizacao' => $agora,
                 ':id' => $nota_existente
             ]);
         } else {
             // Criar nova nota
-            $stmt = $db->prepare("INSERT INTO notas_reuniao (conteudo, redmine_id, data) VALUES (:conteudo, :redmine_id, :data)");
+            $stmt = $db->prepare("INSERT INTO notas_gerais 
+                (titulo, conteudo, data_criacao, data_atualizacao, criado_por) 
+                VALUES (:titulo, :conteudo, :data_criacao, :data_atualizacao, :criado_por)");
             $stmt->execute([
+                ':titulo' => $titulo,
                 ':conteudo' => $conteudo,
-                ':redmine_id' => $redmine_id,
-                ':data' => $hoje
+                ':data_criacao' => $agora,
+                ':data_atualizacao' => $agora,
+                ':criado_por' => $redmine_id
             ]);
         }
         
@@ -298,20 +310,27 @@ function salvarNotasReuniao($db, $conteudo, $redmine_id = null) {
     } catch (PDOException $e) {
         // Tentar criar a tabela se ela não existir
         try {
-            $db->exec("CREATE TABLE IF NOT EXISTS notas_reuniao (
+            $db->exec("CREATE TABLE IF NOT EXISTS notas_gerais (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                data TEXT DEFAULT CURRENT_TIMESTAMP,
+                data_criacao TEXT DEFAULT CURRENT_TIMESTAMP,
+                data_atualizacao TEXT DEFAULT CURRENT_TIMESTAMP,
+                titulo TEXT,
                 conteudo TEXT,
-                redmine_id INTEGER,
-                FOREIGN KEY (redmine_id) REFERENCES equipa(redmine_id)
+                criado_por INTEGER,
+                FOREIGN KEY (criado_por) REFERENCES equipa(redmine_id)
             )");
             
             // Tentar novamente após criar a tabela
-            $stmt = $db->prepare("INSERT INTO notas_reuniao (conteudo, redmine_id, data) VALUES (:conteudo, :redmine_id, :data)");
+            $agora = date('Y-m-d H:i:s');
+            $stmt = $db->prepare("INSERT INTO notas_gerais 
+                (titulo, conteudo, data_criacao, data_atualizacao, criado_por) 
+                VALUES (:titulo, :conteudo, :data_criacao, :data_atualizacao, :criado_por)");
             $stmt->execute([
+                ':titulo' => $titulo,
                 ':conteudo' => $conteudo,
-                ':redmine_id' => $redmine_id,
-                ':data' => $hoje
+                ':data_criacao' => $agora,
+                ':data_atualizacao' => $agora,
+                ':criado_por' => $redmine_id
             ]);
             
             return 'criado';
@@ -321,16 +340,17 @@ function salvarNotasReuniao($db, $conteudo, $redmine_id = null) {
     }
 }
 
-function getNotasReuniao($db, $data = null) {
+function getNotaGeral($db, $id = null, $titulo = null) {
     try {
-        if ($data) {
-            $stmt = $db->prepare("SELECT * FROM notas_reuniao WHERE DATE(data) = :data LIMIT 1");
-            $stmt->execute([':data' => $data]);
+        if ($id) {
+            $stmt = $db->prepare("SELECT * FROM notas_gerais WHERE id = :id LIMIT 1");
+            $stmt->execute([':id' => $id]);
+        } else if ($titulo) {
+            $stmt = $db->prepare("SELECT * FROM notas_gerais WHERE titulo = :titulo LIMIT 1");
+            $stmt->execute([':titulo' => $titulo]);
         } else {
-            // Buscar nota da reunião de hoje
-            $hoje = date('Y-m-d');
-            $stmt = $db->prepare("SELECT * FROM notas_reuniao WHERE DATE(data) = :hoje LIMIT 1");
-            $stmt->execute([':hoje' => $hoje]);
+            // Buscar a nota mais recente
+            $stmt = $db->query("SELECT * FROM notas_gerais ORDER BY data_atualizacao DESC LIMIT 1");
         }
         
         return $stmt->fetch(PDO::FETCH_ASSOC);
@@ -340,16 +360,27 @@ function getNotasReuniao($db, $data = null) {
     }
 }
 
-function exportarNotasMarkdown($db, $data = null) {
+function getTodasNotasGerais($db, $limite = 20) {
     try {
-        $nota = getNotasReuniao($db, $data);
+        $stmt = $db->prepare("SELECT * FROM notas_gerais ORDER BY data_atualizacao DESC LIMIT :limite");
+        $stmt->bindValue(':limite', $limite, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        return [];
+    }
+}
+
+function exportarNotaMarkdown($db, $id = null, $titulo = null) {
+    try {
+        $nota = getNotaGeral($db, $id, $titulo);
         
         if (!$nota) {
             return false;
         }
         
-        $data_formatada = date('Y-m-d', strtotime($nota['data']));
-        $nome_arquivo = "notas_reuniao_{$data_formatada}.md";
+        $titulo_seguro = preg_replace('/[^a-z0-9]+/', '_', strtolower($nota['titulo']));
+        $nome_arquivo = "nota_{$titulo_seguro}.md";
         $caminho_arquivo = __DIR__ . "/../notas/" . $nome_arquivo;
         
         // Criar diretório de notas se não existir
@@ -362,6 +393,16 @@ function exportarNotasMarkdown($db, $data = null) {
         
         return $nome_arquivo;
     } catch (Exception $e) {
+        return false;
+    }
+}
+
+function excluirNotaGeral($db, $id) {
+    try {
+        $stmt = $db->prepare("DELETE FROM notas_gerais WHERE id = :id");
+        $stmt->execute([':id' => $id]);
+        return $stmt->rowCount() > 0;
+    } catch (PDOException $e) {
         return false;
     }
 }
@@ -388,15 +429,17 @@ $em_reuniao = $_SESSION['em_reuniao'];
 $oradores = $_SESSION['oradores'];
 $orador_atual = $_SESSION['orador_atual'];
 
-// Carregar notas da reunião atual
-$notas_reuniao = null;
+// Carregar a nota mais recente ou criar uma nova
+$nota_atual = null;
 try {
-    $notas_reuniao = getNotasReuniao($db);
+    $nota_atual = getNotaGeral($db);
 } catch (Exception $e) {
     // Silenciosamente falha se a tabela não existir ainda
     // A tabela será criada na próxima execução
 }
-$conteudo_notas = $notas_reuniao ? $notas_reuniao['conteudo'] : "# Notas da Reunião - " . date('d/m/Y') . "\n\n## Participantes\n\n## Tópicos Discutidos\n\n## Ações e Responsáveis\n\n";
+$titulo_nota = $nota_atual ? $nota_atual['titulo'] : "Notas Gerais";
+$conteudo_nota = $nota_atual ? $nota_atual['conteudo'] : "# Notas Gerais\n\n*Use este espaço para fazer anotações importantes para a equipe.*\n\n## Lembretes\n\n- Item 1\n- Item 2\n\n## Informações Úteis\n\n";
+$id_nota_atual = $nota_atual ? $nota_atual['id'] : null;
 
 // Apenas responda com JSON para requisições AJAX
 if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
@@ -422,27 +465,64 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
                 $resposta['mensagem'] = 'Reunião finalizada';
                 break;
                 
-            case 'salvar_notas':
-                // Salvar notas de reunião
-                if (isset($_POST['conteudo_notas'])) {
-                    $resultado = salvarNotasReuniao($db, $_POST['conteudo_notas'], $gestor);
-                    $resposta['mensagem'] = 'Notas de reunião ' . $resultado . ' com sucesso';
+            case 'salvar_nota':
+                // Salvar nota geral
+                if (isset($_POST['conteudo_nota'])) {
+                    $titulo = isset($_POST['titulo_nota']) ? $_POST['titulo_nota'] : 'Nota sem título';
+                    $resultado = salvarNotaGeral($db, $_POST['conteudo_nota'], $titulo, $gestor);
+                    $resposta['mensagem'] = 'Nota ' . $resultado . ' com sucesso';
                     $resposta['status'] = $resultado;
                 } else {
                     $resposta['sucesso'] = false;
-                    $resposta['mensagem'] = 'Conteúdo das notas não fornecido';
+                    $resposta['mensagem'] = 'Conteúdo da nota não fornecido';
                 }
                 break;
                 
-            case 'exportar_notas':
-                // Exportar notas para arquivo Markdown
-                $arquivo = exportarNotasMarkdown($db);
+            case 'exportar_nota':
+                // Exportar nota para arquivo Markdown
+                $id = isset($_POST['id_nota']) ? (int)$_POST['id_nota'] : null;
+                $titulo = isset($_POST['titulo_nota']) ? $_POST['titulo_nota'] : null;
+                
+                $arquivo = exportarNotaMarkdown($db, $id, $titulo);
                 if ($arquivo) {
-                    $resposta['mensagem'] = 'Notas exportadas para ' . $arquivo;
+                    $resposta['mensagem'] = 'Nota exportada para ' . $arquivo;
                     $resposta['arquivo'] = $arquivo;
                 } else {
                     $resposta['sucesso'] = false;
-                    $resposta['mensagem'] = 'Não há notas para exportar';
+                    $resposta['mensagem'] = 'Não foi possível exportar a nota';
+                }
+                break;
+                
+            case 'carregar_nota':
+                // Carregar uma nota específica
+                if (isset($_POST['id_nota'])) {
+                    $nota = getNotaGeral($db, $_POST['id_nota']);
+                    if ($nota) {
+                        $resposta['nota'] = $nota;
+                        $resposta['mensagem'] = 'Nota carregada com sucesso';
+                    } else {
+                        $resposta['sucesso'] = false;
+                        $resposta['mensagem'] = 'Nota não encontrada';
+                    }
+                } else {
+                    $resposta['sucesso'] = false;
+                    $resposta['mensagem'] = 'ID da nota não fornecido';
+                }
+                break;
+                
+            case 'excluir_nota':
+                // Excluir uma nota
+                if (isset($_POST['id_nota'])) {
+                    $resultado = excluirNotaGeral($db, $_POST['id_nota']);
+                    if ($resultado) {
+                        $resposta['mensagem'] = 'Nota excluída com sucesso';
+                    } else {
+                        $resposta['sucesso'] = false;
+                        $resposta['mensagem'] = 'Não foi possível excluir a nota';
+                    }
+                } else {
+                    $resposta['sucesso'] = false;
+                    $resposta['mensagem'] = 'ID da nota não fornecido';
                 }
                 break;
                 
@@ -452,16 +532,23 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
         }
     }
     // Processar ações GET
-    else if (isset($_GET['data'])) {
-        // Carregar nota de reunião de uma data específica
-        $nota = getNotasReuniao($db, $_GET['data']);
+    else if (isset($_GET['carregar_nota'])) {
+        // Carregar nota pelo ID
+        $id = (int)$_GET['carregar_nota'];
+        $nota = getNotaGeral($db, $id);
         if ($nota) {
             $resposta['nota'] = $nota;
             $resposta['mensagem'] = 'Nota carregada com sucesso';
         } else {
             $resposta['sucesso'] = false;
-            $resposta['mensagem'] = 'Nota não encontrada para a data especificada';
+            $resposta['mensagem'] = 'Nota não encontrada';
         }
+    }
+    else if (isset($_GET['listar_notas'])) {
+        // Listar todas as notas
+        $notas = getTodasNotasGerais($db);
+        $resposta['notas'] = $notas;
+        $resposta['mensagem'] = count($notas) . ' notas encontradas';
     }
     
     header('Content-Type: application/json');
@@ -471,15 +558,17 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
 
 // Processar ações POST
 if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Salvar notas de reunião
-    if (isset($_POST['salvar_notas'])) {
-        $conteudo = $_POST['conteudo_notas'] ?? '';
-        salvarNotasReuniao($db, $conteudo, $gestor);
+    // Salvar nota geral
+    if (isset($_POST['salvar_nota'])) {
+        $conteudo = $_POST['conteudo_nota'] ?? '';
+        $titulo = $_POST['titulo_nota'] ?? 'Nota sem título';
+        salvarNotaGeral($db, $conteudo, $titulo, $gestor);
     }
     
-    // Exportar notas para arquivo Markdown
-    if (isset($_POST['exportar_notas'])) {
-        exportarNotasMarkdown($db);
+    // Exportar nota para arquivo Markdown
+    if (isset($_POST['exportar_nota'])) {
+        $id = isset($_POST['id_nota']) ? (int)$_POST['id_nota'] : null;
+        exportarNotaMarkdown($db, $id);
     }
     
     // Adicionar membro à equipe
@@ -527,6 +616,1191 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
             
             // Marcar como concluído
             $stmt = $db->prepare("UPDATE proximos_gestores SET concluido = 1 
+                                 WHERE redmine_id = :id AND data_prevista = :hoje");
+            $stmt->execute([':id' => $gestor_hoje, ':hoje' => $hoje]);
+        } else {
+            // Se não houver gestor agendado para hoje, selecionar aleatoriamente
+            $_SESSION['gestor'] = $equipa[array_rand($equipa)];
+        }
+        
+        $_SESSION['oradores'] = $equipa;
+        shuffle($_SESSION['oradores']);
+        $_SESSION['em_reuniao'] = true;
+        $_SESSION['orador_atual'] = 0;
+        $_SESSION['inicio_reuniao'] = time();
+    }
+    
+    // Terminar reunião
+    if (isset($_POST['terminar'])) {
+        // Limpar a sessão
+        $_SESSION['gestor'] = null;
+        $_SESSION['em_reuniao'] = false;
+        $_SESSION['oradores'] = [];
+        $_SESSION['orador_atual'] = 0;
+        $_SESSION['inicio_reuniao'] = null;
+    }
+    
+    // Próximo orador
+    if (isset($_POST['proximo'])) {
+        $_SESSION['orador_atual']++;
+    }
+    
+    // Recusar ser gestor
+    if (isset($_POST['recusar'])) {
+        $idRecusado = (int)$_POST['recusar'];
+        $dataRecusada = $_POST['data_recusada'] ?? '';
+        
+        if (!empty($dataRecusada)) {
+            // Remover este gestor da data específica
+            $stmt = $db->prepare("DELETE FROM proximos_gestores 
+                                 WHERE redmine_id = :id AND data_prevista = :data AND concluido = 0");
+            $stmt->execute([':id' => $idRecusado, ':data' => $dataRecusada]);
+            
+            // Adicionar outro gestor nesta data
+            if (count($equipa) > 1) {
+                $equipe_copia = array_filter($equipa, function($e) use ($idRecusado) {
+                    return $e != $idRecusado;
+                });
+                $novo_gestor = $equipe_copia[array_rand($equipe_copia)];
+                
+                $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) 
+                                     VALUES (:id, :data)");
+                $stmt->execute([':id' => $novo_gestor, ':data' => $dataRecusada]);
+            }
+        } else {
+            // Remover este gestor de todas as datas futuras
+            $stmt = $db->prepare("DELETE FROM proximos_gestores 
+                                 WHERE redmine_id = :id AND data_prevista >= date('now') AND concluido = 0");
+            $stmt->execute([':id' => $idRecusado]);
+        }
+        
+        // Regenerar a lista
+        gerarListaProximosGestores($db, $equipa);
+    }
+    
+    // Marcar falta
+    if (isset($_POST['marcar_falta'])) {
+        $id = (int)$_POST['marcar_falta'];
+        $motivo = $_POST['motivo_falta'] ?? '';
+        
+        $resultado = registrarFalta($db, $id, $motivo);
+        
+        // Se for o orador atual, passar para o próximo
+        if ($resultado && $em_reuniao && isset($oradores[$orador_atual]) && $oradores[$orador_atual] == $id) {
+            $_SESSION['orador_atual']++;
+        }
+    }
+    
+    // Mover para o final da fila
+    if (isset($_POST['mover_final'])) {
+        $id = (int)$_POST['mover_final'];
+        
+        // Se for o orador atual
+        if ($em_reuniao && isset($oradores[$orador_atual]) && $oradores[$orador_atual] == $id) {
+            // Remover da posição atual e adicionar ao final
+            $orador = $oradores[$orador_atual];
+            array_splice($_SESSION['oradores'], $orador_atual, 1);
+            $_SESSION['oradores'][] = $orador;
+            
+            // Passar para o próximo orador
+            if (count($_SESSION['oradores']) > $_SESSION['orador_atual']) {
+                // Não precisamos incrementar o índice porque já removemos o elemento
+            } else {
+                // Se removemos o último elemento, voltamos para o início
+                $_SESSION['orador_atual'] = 0;
+            }
+        }
+    }
+    
+    header("Location: ?tab=equipa");
+    exit;
+}
+
+// Calcular tempo total de reunião
+$tempo_total = 0;
+if ($em_reuniao && isset($_SESSION['inicio_reuniao'])) {
+    $tempo_total = time() - $_SESSION['inicio_reuniao'];
+}
+
+// Verificar se a reunião terminou (todos os oradores falaram)
+$reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
+
+?>
+
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Adicionar SimpleMDE - um editor Markdown -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/simplemde/latest/simplemde.min.css">
+    <script src="https://cdn.jsdelivr.net/simplemde/latest/simplemde.min.js"></script>
+    <style>
+        .reuniao-card {
+            border-left: 5px solid #0d6efd;
+        }
+        .progress {
+            height: 15px;
+        }
+        .badge {
+            font-size: 0.9em;
+        }
+        .table-responsive {
+            overflow-x: auto;
+        }
+        .card {
+            margin-bottom: 20px;
+        }
+        .timer-display {
+            font-size: 2.5rem;
+            font-weight: bold;
+            font-family: monospace;
+        }
+        .btn-action {
+            min-width: 120px;
+        }
+        .debug-area {
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
+        /* Estilos para o editor de notas */
+        .CodeMirror, .CodeMirror-scroll {
+            min-height: 200px;
+        }
+        .note-actions {
+            margin-top: 10px;
+        }
+        .note-status {
+            display: none;
+            margin-top: 10px;
+        }
+        /* Ajuste para o layout responsivo */
+        @media (max-width: 991px) {
+            .editor-container {
+                margin-top: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container-fluid py-3">
+    <!-- Área do Bloco de Notas Geral -->
+    <div class="row mb-4">
+        <div class="col-lg-8">
+            <div class="card editor-container">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="bi bi-journal-text"></i> Bloco de Notas Geral</h5>
+                </div>
+                <div class="card-body">
+                    <form id="form-notas" method="post">
+                        <div class="form-group mb-3">
+                            <label for="titulo-nota" class="form-label">Título da Nota:</label>
+                            <input type="text" id="titulo-nota" name="titulo_nota" class="form-control" 
+                                   value="<?= htmlspecialchars($titulo_nota) ?>" placeholder="Digite um título para a nota">
+                            <input type="hidden" id="id-nota-atual" value="<?= $id_nota_atual ?>">
+                        </div>
+                        <div class="form-group">
+                            <textarea id="editor-notas" name="conteudo_nota"><?= htmlspecialchars($conteudo_nota) ?></textarea>
+                        </div>
+                        <div class="note-actions d-flex flex-wrap gap-2 mt-3">
+                            <button type="button" id="btn-salvar-nota" class="btn btn-primary">
+                                <i class="bi bi-save"></i> Salvar Nota
+                            </button>
+                            <button type="button" id="btn-nova-nota" class="btn btn-success">
+                                <i class="bi bi-file-earmark-plus"></i> Nova Nota
+                            </button>
+                            <button type="button" id="btn-exportar-nota" class="btn btn-info">
+                                <i class="bi bi-file-earmark-arrow-down"></i> Exportar para Markdown
+                            </button>
+                        </div>
+                        <div id="note-status" class="note-status alert alert-success mt-3" style="display: none;">
+                            <i class="bi bi-check-circle"></i> <span id="note-status-message"></span>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-4">
+            <!-- Notas Salvas -->
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h4 class="mb-0"><i class="bi bi-journals"></i> Notas Salvas</h4>
+                </div>
+                <div class="card-body">
+                    <?php 
+                    // Buscar histórico de notas (últimas 10)
+                    $notas_salvas = [];
+                    try {
+                        $notas_salvas = getTodasNotasGerais($db, 10);
+                    } catch (PDOException $e) {
+                        // Silenciosamente falha se a tabela não existir ainda
+                    }
+                    
+                    if (empty($notas_salvas)):
+                    ?>
+                        <p class="text-muted text-center">
+                            <i class="bi bi-info-circle"></i> Nenhuma nota registrada.
+                        </p>
+                    <?php else: ?>
+                        <div class="list-group">
+                            <?php foreach ($notas_salvas as $nota): ?>
+                                <a href="#" class="list-group-item list-group-item-action carregar-nota" 
+                                   data-id="<?= $nota['id'] ?>">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h6 class="mb-1"><i class="bi bi-file-text"></i> 
+                                            <?= htmlspecialchars($nota['titulo'] ?: 'Nota sem título') ?>
+                                        </h6>
+                                        <small>
+                                            <?= date('d/m/Y H:i', strtotime($nota['data_atualizacao'])) ?>
+                                        </small>
+                                    </div>
+                                    <small class="text-muted">
+                                        <?php 
+                                        // Exibir primeiros 100 caracteres do conteúdo
+                                        $preview = mb_strlen($nota['conteudo']) > 100 
+                                            ? mb_substr(strip_tags($nota['conteudo']), 0, 100) . '...' 
+                                            : strip_tags($nota['conteudo']);
+                                        echo htmlspecialchars($preview);
+                                        ?>
+                                    </small>
+                                    <div class="mt-2">
+                                        <button class="btn btn-sm btn-outline-danger excluir-nota" 
+                                                data-id="<?= $nota['id'] ?>" 
+                                                data-bs-toggle="tooltip" 
+                                                title="Excluir nota">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </a>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Seção de Reunião Diária -->
+    <div class="row">
+        <div class="col-lg-8">
+            <h2 class="mt-3 mb-4">
+                <i class="bi bi-people-fill"></i> Reunião Diária
+                <?php if ($em_reuniao): ?>
+                    <span class="badge bg-success">Em Progresso</span>
+                <?php endif; ?>
+            </h2>
+
+            <?php if (empty($equipa)): ?>
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle-fill"></i> A equipa ainda não foi configurada. Por favor adicione membros abaixo para iniciar.
+                </div>
+            <?php endif; ?>
+
+            <!-- Área de Reunião -->
+            <?php if ($em_reuniao): ?>
+                <div class="card reuniao-card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h4 class="mb-0"><i class="bi bi-calendar-check"></i> Reunião em Progresso</h4>
+                            <form method="post" class="d-inline">
+                                <button type="submit" name="terminar" class="btn btn-sm btn-danger">
+                                    <i class="bi bi-stop-circle"></i> Encerrar Reunião
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <strong><i class="bi bi-person-circle"></i> Gestor da reunião:</strong> 
+                                <?= htmlspecialchars(getNomeUtilizador($gestor, $utilizadores)) ?>
+                            </div>
+                            <div class="col-md-6 text-md-end">
+                                <strong><i class="bi bi-clock"></i> Tempo total:</strong> 
+                                <span id="tempo-total" class="badge bg-secondary"><?= gmdate('H:i:s', $tempo_total) ?></span>
+                            </div>
+                        </div>
+                        
+                        <?php if ($reuniao_concluida): ?>
+                            <div class="alert alert-success">
+                                <i class="bi bi-check-circle-fill"></i> Reunião concluída! Todos os membros se pronunciaram.
+                                <div class="mt-3">
+                                    <form method="post">
+                                        <button type="submit" name="terminar" class="btn btn-primary">
+                                            Finalizar e voltar ao início
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        <?php else: ?>
+                            <?php $oradorId = $oradores[$orador_atual] ?? null; ?>
+                            <?php if ($oradorId): ?>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <!-- INÍCIO DO CRONÔMETRO -->
+                                        <div class="card mb-3">
+                                            <div class="card-header bg-info text-white">
+                                                <h5 class="mb-0"><i class="bi bi-mic-fill"></i> Orador atual: <?= htmlspecialchars(getNomeUtilizador($oradorId, $utilizadores)) ?></h5>
+                                            </div>
+                                            <div class="card-body text-center">
+                                                <!-- Mostrador do cronômetro -->
+                                                <div id="cronometro" class="timer-display my-2">30</div>
+                                                
+                                                <!-- Barra de progresso -->
+                                                <div class="progress mb-3">
+                                                    <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 100%"></div>
+                                                </div>
+                                                
+                                                <!-- Audio para o alerta -->
+                                                <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
+                                                
+                                                <!-- Área de debug (opcional) -->
+                                                <div id="debug-area" class="text-start mt-3 border-top pt-2 debug-area d-none">
+                                                    <small>Status: <span id="status-display">Ativo</span></small><br>
+                                                    <small>Último evento: <span id="event-log">Iniciando cronômetro</span></small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="d-flex flex-wrap gap-2 mb-3">
+                                            <button id="btn-pausar" class="btn btn-warning btn-action">
+                                                <i class="bi bi-pause-fill"></i> Pausar
+                                            </button>
+                                            
+                                            <button id="btn-reiniciar" class="btn btn-secondary btn-action">
+                                                <i class="bi bi-arrow-repeat"></i> Reiniciar
+                                            </button>
+                                            
+                                            <form method="post" class="d-inline">
+                                                <button type="submit" name="proximo" class="btn btn-primary btn-action">
+                                                    <i class="bi bi-skip-forward-fill"></i> Próximo
+                                                </button>
+                                            </form>
+                                            
+                                            <button type="button" class="btn btn-danger btn-action" data-bs-toggle="modal" data-bs-target="#faltaModal">
+                                                <i class="bi bi-x-circle"></i> Marcar Falta
+                                            </button>
+                                            
+                                            <form method="post" class="d-inline mt-2">
+                                                <input type="hidden" name="mover_final" value="<?= $oradorId ?>">
+                                                <button type="submit" class="btn btn-secondary btn-action">
+                                                    <i class="bi bi-arrow-return-right"></i> Mover para Final
+                                                </button>
+                                            </form>
+                                        </div>
+                                        <!-- FIM DO CRONÔMETRO -->
+                                    </div>
+                                    
+                                    <div class="col-md-6">
+                                        <div class="card">
+                                            <div class="card-header bg-secondary text-white">
+                                                <h5 class="mb-0"><i class="bi bi-activity"></i> Atividades recentes:</h5>
+                                            </div>
+                                            <div class="card-body p-0">
+                                                <ul class="list-group list-group-flush">
+                                                    <?php 
+                                                    $atividades = getAtividadesUtilizador($oradorId);
+                                                    if (empty($atividades)):
+                                                    ?>
+                                                        <li class="list-group-item text-muted">
+                                                            <i class="bi bi-info-circle"></i> Nenhuma atividade recente encontrada.
+                                                        </li>
+                                                    <?php else: ?>
+                                                        <?php foreach ($atividades as $act): ?>
+                                                            <li class="list-group-item">
+                                                                <a href="<?= htmlspecialchars($act['url']) ?>" target="_blank" class="text-decoration-none">
+                                                                    <strong class="text-primary">#<?= $act['issue_id'] ?></strong> 
+                                                                    <?= htmlspecialchars($act['subject']) ?>
+                                                                </a>
+                                                                <br>
+                                                                <small class="text-muted">
+                                                                    <i class="bi bi-clock-history"></i> 
+                                                                    <?= date('d/m/Y H:i', strtotime($act['updated_on'])) ?>
+                                                                </small>
+                                                            </li>
+                                                        <?php endforeach; ?>
+                                                    <?php endif; ?>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Modal para Marcar Falta -->
+                                <div class="modal fade" id="faltaModal" tabindex="-1" aria-labelledby="faltaModalLabel" aria-hidden="true">
+                                    <div class="modal-dialog">
+                                        <div class="modal-content">
+                                            <div class="modal-header bg-danger text-white">
+                                                <h5 class="modal-title" id="faltaModalLabel">
+                                                    <i class="bi bi-exclamation-triangle"></i> 
+                                                    Marcar Falta para <?= htmlspecialchars(getNomeUtilizador($oradorId, $utilizadores)) ?>
+                                                </h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                            </div>
+                                            <form method="post">
+                                                <div class="modal-body">
+                                                    <input type="hidden" name="marcar_falta" value="<?= $oradorId ?>">
+                                                    <div class="mb-3">
+                                                        <label for="motivo_falta" class="form-label">Motivo da falta:</label>
+                                                        <textarea class="form-control" id="motivo_falta" name="motivo_falta" rows="3" placeholder="Descreva o motivo da falta..."></textarea>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                    <button type="submit" class="btn btn-danger">
+                                                        <i class="bi bi-check-lg"></i> Confirmar Falta
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php elseif (count($equipa) >= 2): ?>
+                <div class="card mb-4">
+                    <div class="card-body text-center">
+                        <p class="lead mb-3">A reunião ainda não foi iniciada.</p>
+                        <form method="post">
+                            <button type="submit" name="iniciar" class="btn btn-success btn-lg">
+                                <i class="bi bi-play-fill"></i> Iniciar Reunião
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            <?php endif; ?>
+
+            <!-- Próximos Gestores -->
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0"><i class="bi bi-calendar-week"></i> Próximos Gestores de Reunião</h4>
+                </div>
+                <div class="card-body">
+                    <?php if (empty($proximos_gestores)): ?>
+                        <p class="text-muted">Nenhum gestor agendado para os próximos dias.</p>
+                    <?php else: ?>
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Data Prevista</th>
+                                        <th>Gestor</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($proximos_gestores as $prox): ?>
+                                        <tr>
+                                            <td>
+                                                <?php 
+                                                    $data = new DateTime($prox['data_prevista']);
+                                                    $hoje = new DateTime('today');
+                                                    $eh_hoje = $data->format('Y-m-d') === $hoje->format('Y-m-d');
+                                                    
+                                                    if ($eh_hoje) {
+                                                        echo '<span class="badge bg-primary">Hoje</span> ';
+                                                    }
+                                                    
+                                                    // Dia da semana em português
+                                                    $dias_semana = [
+                                                        1 => 'Segunda', 2 => 'Terça', 3 => 'Quarta', 
+                                                        4 => 'Quinta', 5 => 'Sexta', 6 => 'Sábado', 7 => 'Domingo'
+                                                    ];
+                                                    
+                                                    echo $data->format('d/m/Y') . ' (' . $dias_semana[(int)$data->format('N')] . ')';
+                                                ?>
+                                            </td>
+                                            <td><?= htmlspecialchars(getNomeUtilizador($prox['redmine_id'], $utilizadores)) ?></td>
+                                            <td>
+                                                <form method="post" class="d-inline">
+                                                    <input type="hidden" name="recusar" value="<?= $prox['redmine_id'] ?>">
+                                                    <input type="hidden" name="data_recusada" value="<?= $prox['data_prevista'] ?>">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                        <i class="bi bi-x-lg"></i> Recusar
+                                                    </button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- Gestão da Equipe -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="bi bi-people"></i> Gestão da Equipa</h4>
+                </div>
+                <div class="card-body">
+                    <form method="post" class="row g-3 mb-4">
+                        <div class="col-md-8">
+                            <label for="adicionar" class="form-label">Adicionar elemento à equipa:</label>
+                            <select name="adicionar" id="adicionar" class="form-select">
+                                <?php foreach ($utilizadores as $u): ?>
+                                    <?php if (!in_array($u['id'], $equipa)): ?>
+                                        <option value="<?= $u['id'] ?>"> 
+                                            <?= htmlspecialchars($u['firstname'] . ' ' . $u['lastname']) ?> 
+                                        </option>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-4 align-self-end">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-plus-lg"></i> Adicionar
+                            </button>
+                        </div>
+                    </form>
+
+                    <h5><i class="bi bi-person-lines-fill"></i> Membros da Equipa:</h5>
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Nome</th>
+                                    <th class="text-center">Faltas</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php 
+                                if (empty($equipa)): 
+                                ?>
+                                    <tr>
+                                        <td colspan="3" class="text-center text-muted">
+                                            Nenhum membro na equipe.
+                                        </td>
+                                    </tr>
+                                <?php 
+                                else:
+                                    foreach ($equipa as $id): 
+                                        // Contar faltas deste membro
+                                        $total_faltas = getNumeroFaltas($db, $id);
+                                ?>
+                                    <tr>
+                                        <td><?= htmlspecialchars(getNomeUtilizador($id, $utilizadores)) ?></td>
+                                        <td class="text-center">
+                                            <?php if ($total_faltas > 0): ?>
+                                                <span class="badge bg-danger"><?= $total_faltas ?></span>
+                                            <?php else: ?>
+                                                <span class="badge bg-success">0</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <form method="post" class="d-inline">
+                                                <input type="hidden" name="remover" value="<?= $id ?>">
+                                                <button type="submit" class="btn btn-sm btn-danger">
+                                                    <i class="bi bi-trash"></i> Remover
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <?php 
+                                    endforeach;
+                                endif;
+                                ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Coluna Lateral - Faltas Recentes -->
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header bg-warning">
+                    <h4 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Faltas Recentes</h4>
+                </div>
+                <div class="card-body">
+                    <?php 
+                    $faltas = getFaltas($db);
+                    if (empty($faltas)):
+                    ?>
+                        <p class="text-muted text-center">
+                            <i class="bi bi-emoji-smile"></i> Nenhuma falta registrada.
+                        </p>
+                    <?php else: ?>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Data</th>
+                                        <th>Membro</th>
+                                        <th>Motivo</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($faltas as $falta): ?>
+                                        <tr>
+                                            <td><?= date('d/m/Y', strtotime($falta['data'])) ?></td>
+                                            <td><?= htmlspecialchars(getNomeUtilizador($falta['redmine_id'], $utilizadores)) ?></td>
+                                            <td>
+                                                <?php 
+                                                $motivo = $falta['motivo'] ?: 'Não especificado';
+                                                echo mb_strlen($motivo) > 50 ? mb_substr(htmlspecialchars($motivo), 0, 50) . '...' : htmlspecialchars($motivo);
+                                                ?>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Executar quando o documento estiver carregado
+document.addEventListener('DOMContentLoaded', function() {
+    // Inicializar o editor Markdown
+    var simplemde = new SimpleMDE({ 
+        element: document.getElementById("editor-notas"),
+        spellChecker: false,
+        autosave: {
+            enabled: true,
+            uniqueId: "nota-geral-" + (document.getElementById("id-nota-atual")?.value || 'nova'),
+            delay: 1000,
+        },
+        toolbar: ["bold", "italic", "heading", "|", "quote", "unordered-list", "ordered-list", "|", "link", "image", "|", "preview", "side-by-side", "fullscreen", "|", "guide"],
+        placeholder: "Escreva sua nota aqui...",
+        status: ["autosave", "lines", "words", "cursor"]
+    });
+    
+    // Manipulador para salvar nota
+    document.getElementById('btn-salvar-nota')?.addEventListener('click', function() {
+        // Obter o conteúdo do editor e o título
+        var conteudo = simplemde.value();
+        var titulo = document.getElementById('titulo-nota').value || 'Nota sem título';
+        var idNota = document.getElementById('id-nota-atual').value || '';
+        
+        // Enviar requisição AJAX para salvar nota
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', window.location.href, true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    var resposta = JSON.parse(xhr.responseText);
+                    var statusEl = document.getElementById('note-status');
+                    var mensagemEl = document.getElementById('note-status-message');
+                    
+                    if (resposta.sucesso) {
+                        statusEl.className = 'note-status alert alert-success mt-3';
+                        mensagemEl.textContent = resposta.mensagem;
+                        
+                        // Atualizar lista de notas (recarregar a página)
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 1500);
+                    } else {
+                        statusEl.className = 'note-status alert alert-danger mt-3';
+                        mensagemEl.textContent = 'Erro: ' + resposta.mensagem;
+                    }
+                    
+                    statusEl.style.display = 'block';
+                    
+                    // Esconder a mensagem após 3 segundos
+                    setTimeout(function() {
+                        statusEl.style.display = 'none';
+                    }, 3000);
+                } catch (e) {
+                    console.error('Erro ao processar resposta:', e);
+                }
+            }
+        };
+        
+        xhr.send('acao=salvar_nota&conteudo_nota=' + encodeURIComponent(conteudo) + 
+                '&titulo_nota=' + encodeURIComponent(titulo) + 
+                '&id_nota=' + encodeURIComponent(idNota));
+    });
+    
+    // Manipulador para nova nota
+    document.getElementById('btn-nova-nota')?.addEventListener('click', function() {
+        // Limpar o editor e o título
+        simplemde.value('# Nova Nota\n\n');
+        document.getElementById('titulo-nota').value = 'Nova Nota';
+        document.getElementById('id-nota-atual').value = '';
+        
+        // Atualizar o ID único para autosave
+        simplemde.options.autosave.uniqueId = "nota-geral-nova-" + Date.now();
+        
+        // Mostrar mensagem
+        var statusEl = document.getElementById('note-status');
+        var mensagemEl = document.getElementById('note-status-message');
+        statusEl.className = 'note-status alert alert-info mt-3';
+        mensagemEl.textContent = 'Nova nota criada. Não se esqueça de salvar!';
+        statusEl.style.display = 'block';
+        
+        // Esconder a mensagem após 3 segundos
+        setTimeout(function() {
+            statusEl.style.display = 'none';
+        }, 3000);
+    });
+    
+    // Manipulador para exportar nota
+    document.getElementById('btn-exportar-nota')?.addEventListener('click', function() {
+        // Obter o ID da nota atual
+        var idNota = document.getElementById('id-nota-atual').value || '';
+        var titulo = document.getElementById('titulo-nota').value || '';
+        
+        // Enviar requisição AJAX para exportar nota
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', window.location.href, true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    var resposta = JSON.parse(xhr.responseText);
+                    var statusEl = document.getElementById('note-status');
+                    var mensagemEl = document.getElementById('note-status-message');
+                    
+                    if (resposta.sucesso) {
+                        statusEl.className = 'note-status alert alert-success mt-3';
+                        mensagemEl.textContent = resposta.mensagem;
+                        
+                        // Se a exportação foi bem-sucedida, criar um link para download
+                        if (resposta.arquivo) {
+                            // Criar um link temporário para download
+                            var link = document.createElement('a');
+                            link.href = '../notas/' + resposta.arquivo;
+                            link.download = resposta.arquivo;
+                            
+                            // Simular um clique para iniciar o download
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                        }
+                    } else {
+                        statusEl.className = 'note-status alert alert-danger mt-3';
+                        mensagemEl.textContent = 'Erro: ' + resposta.mensagem;
+                    }
+                    
+                    statusEl.style.display = 'block';
+                    
+                    // Esconder a mensagem após 5 segundos
+                    setTimeout(function() {
+                        statusEl.style.display = 'none';
+                    }, 5000);
+                } catch (e) {
+                    console.error('Erro ao processar resposta:', e);
+                }
+            }
+        };
+        
+        xhr.send('acao=exportar_nota&id_nota=' + encodeURIComponent(idNota) + '&titulo_nota=' + encodeURIComponent(titulo));
+    });
+    
+    // Carregar nota ao clicar em item da lista
+    document.querySelectorAll('.carregar-nota').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            var id = this.getAttribute('data-id');
+            
+            // Enviar requisição AJAX para carregar a nota
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', window.location.href, true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    try {
+                        var resposta = JSON.parse(xhr.responseText);
+                        if (resposta.sucesso && resposta.nota) {
+                            // Atualizar o editor com o conteúdo da nota
+                            simplemde.value(resposta.nota.conteudo);
+                            document.getElementById('titulo-nota').value = resposta.nota.titulo || 'Nota sem título';
+                            document.getElementById('id-nota-atual').value = resposta.nota.id;
+                            
+                            // Atualizar o ID único para autosave
+                            simplemde.options.autosave.uniqueId = "nota-geral-" + resposta.nota.id;
+                            
+                            // Mostrar mensagem
+                            var statusEl = document.getElementById('note-status');
+                            var mensagemEl = document.getElementById('note-status-message');
+                            statusEl.className = 'note-status alert alert-info mt-3';
+                            mensagemEl.textContent = 'Nota carregada: ' + resposta.nota.titulo;
+                            statusEl.style.display = 'block';
+                            
+                            // Esconder a mensagem após 3 segundos
+                            setTimeout(function() {
+                                statusEl.style.display = 'none';
+                            }, 3000);
+                            
+                            // Rolar até o editor
+                            document.querySelector('.editor-container').scrollIntoView({ behavior: 'smooth' });
+                        }
+                    } catch (e) {
+                        console.error('Erro ao processar resposta:', e);
+                    }
+                }
+            };
+            
+            xhr.send('acao=carregar_nota&id_nota=' + encodeURIComponent(id));
+        });
+    });
+    
+    // Excluir nota
+    document.querySelectorAll('.excluir-nota').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation(); // Evitar que o evento seja capturado pelo link pai
+            
+            if (confirm('Tem certeza que deseja excluir esta nota?')) {
+                var id = this.getAttribute('data-id');
+                
+                // Enviar requisição AJAX para excluir a nota
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', window.location.href, true);
+                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        try {
+                            var resposta = JSON.parse(xhr.responseText);
+                            if (resposta.sucesso) {
+                                // Recarregar a página para atualizar a lista
+                                window.location.reload();
+                            } else {
+                                alert('Erro: ' + resposta.mensagem);
+                            }
+                        } catch (e) {
+                            console.error('Erro ao processar resposta:', e);
+                        }
+                    }
+                };
+                
+                xhr.send('acao=excluir_nota&id_nota=' + encodeURIComponent(id));
+            }
+        });
+    });
+    
+    // Verificar se a reunião está ativa e não concluída
+    <?php if ($em_reuniao && !$reuniao_concluida && isset($oradorId)): ?>
+    
+    // Elementos DOM
+    const cronometroEl = document.getElementById('cronometro');
+    const progressBarEl = document.getElementById('progress-bar');
+    const btnPausarEl = document.getElementById('btn-pausar');
+    const btnReiniciarEl = document.getElementById('btn-reiniciar');
+    const beepEl = document.getElementById('beep');
+    const statusEl = document.getElementById('status-display');
+    const eventLogEl = document.getElementById('event-log');
+    const debugArea = document.getElementById('debug-area');
+    
+    // Verificar se os elementos necessários existem
+    if (!cronometroEl || !progressBarEl || !btnPausarEl) {
+        console.error('Elementos essenciais do cronômetro não encontrados!');
+        return;
+    }
+    
+    // Mostrar área de debug para diagnóstico se necessário
+    if (debugArea) {
+        // Descomentar para mostrar a área de debug
+        // debugArea.classList.remove('d-none');
+    }
+    
+    // Configuração inicial
+    const TEMPO_TOTAL = 30; // segundos
+    let tempoRestante = TEMPO_TOTAL;
+    let cronometroAtivo = true;
+    let intervalId = null;
+    let estaPausado = false;
+    
+    // Função para registrar eventos (para depuração)
+    function registrarEvento(mensagem) {
+        console.log(mensagem);
+        if (eventLogEl) {
+            const agora = new Date();
+            const timestamp = agora.getHours().toString().padStart(2, '0') + ':' + 
+                            agora.getMinutes().toString().padStart(2, '0') + ':' + 
+                            agora.getSeconds().toString().padStart(2, '0');
+            eventLogEl.textContent = mensagem + ' [' + timestamp + ']';
+        }
+    }
+    
+    // Função para atualizar o visual do cronômetro
+    function atualizarCronometro() {
+        // Atualizar o texto do cronômetro
+        cronometroEl.textContent = tempoRestante;
+        
+        // Calcular a largura da barra de progresso
+        const porcentagem = (tempoRestante / TEMPO_TOTAL) * 100;
+        progressBarEl.style.width = porcentagem + '%';
+        
+        // Atualizar a cor da barra de progresso conforme o tempo restante
+        if (tempoRestante <= 5) {
+            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-danger';
+        } else if (tempoRestante <= 15) {
+            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-warning';
+        } else {
+            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
+        }
+        
+        // Tocar som de alerta quando chegar a 5 segundos
+        if (tempoRestante === 5 && beepEl) {
+            beepEl.play().catch(err => {
+                registrarEvento('Erro ao tocar som: ' + err.message);
+            });
+        }
+        
+        // Quando o tempo acabar
+        if (tempoRestante <= 0) {
+            finalizarCronometro();
+        }
+    }
+    
+    // Função para iniciar ou reiniciar o cronômetro
+    function iniciarCronometro() {
+        // Limpar qualquer intervalo existente
+        if (intervalId !== null) {
+            clearInterval(intervalId);
+            intervalId = null;
+        }
+        
+        registrarEvento('Cronômetro iniciado');
+        
+        // Configurar um novo intervalo que execute a cada 1 segundo
+        intervalId = setInterval(function() {
+            if (!estaPausado && cronometroAtivo) {
+                tempoRestante--;
+                atualizarCronometro();
+            }
+        }, 1000);
+    }
+    
+    // Função para finalizar o cronômetro quando o tempo acabar
+    function finalizarCronometro() {
+        clearInterval(intervalId);
+        intervalId = null;
+        cronometroAtivo = false;
+        
+        // Atualizar interface
+        cronometroEl.textContent = 'Tempo Esgotado!';
+        progressBarEl.style.width = '0%';
+        progressBarEl.className = 'progress-bar bg-danger';
+        
+        registrarEvento('Tempo esgotado');
+        
+        // Desativar botão de pausa
+        if (btnPausarEl) {
+            btnPausarEl.disabled = true;
+            btnPausarEl.classList.remove('btn-warning', 'btn-success');
+            btnPausarEl.classList.add('btn-secondary');
+        }
+    }
+    
+    // Função para alternar o estado de pausa
+    function alternarPausa() {
+        estaPausado = !estaPausado;
+        
+        // Atualizar interface
+        if (estaPausado) {
+            btnPausarEl.classList.remove('btn-warning');
+            btnPausarEl.classList.add('btn-success');
+            btnPausarEl.innerHTML = '<i class="bi bi-play-fill"></i> Continuar';
+            if (statusEl) statusEl.textContent = 'Pausado';
+        } else {
+            btnPausarEl.classList.remove('btn-success');
+            btnPausarEl.classList.add('btn-warning');
+            btnPausarEl.innerHTML = '<i class="bi bi-pause-fill"></i> Pausar';
+            if (statusEl) statusEl.textContent = 'Ativo';
+        }
+        
+        registrarEvento(estaPausado ? 'Cronômetro pausado' : 'Cronômetro retomado');
+    }
+    
+    // Função para reiniciar o cronômetro
+    function reiniciarCronometro() {
+        tempoRestante = TEMPO_TOTAL;
+        cronometroAtivo = true;
+        estaPausado = false;
+        
+        // Atualizar interface
+        if (btnPausarEl) {
+            btnPausarEl.disabled = false;
+            btnPausarEl.classList.remove('btn-success', 'btn-secondary');
+            btnPausarEl.classList.add('btn-warning');
+            btnPausarEl.innerHTML = '<i class="bi bi-pause-fill"></i> Pausar';
+        }
+        
+        if (statusEl) statusEl.textContent = 'Ativo';
+        
+        // Atualizar cronômetro e iniciar contagem
+        atualizarCronometro();
+        iniciarCronometro();
+        
+        registrarEvento('Cronômetro reiniciado');
+    }
+    
+    // Configurar eventos dos botões
+    
+    // Botão Pausar/Continuar
+    if (btnPausarEl) {
+        btnPausarEl.addEventListener('click', function(e) {
+            e.preventDefault();
+            alternarPausa();
+        });
+    }
+    
+    // Botão Reiniciar
+    if (btnReiniciarEl) {
+        btnReiniciarEl.addEventListener('click', function(e) {
+            e.preventDefault();
+            reiniciarCronometro();
+        });
+    }
+    
+    // Inicializar o cronômetro
+    atualizarCronometro();
+    iniciarCronometro();
+    registrarEvento('Cronômetro configurado com sucesso');
+    
+    <?php endif; ?>
+    
+    // Atualizar o tempo total da reunião a cada segundo
+    <?php if ($em_reuniao): ?>
+    function atualizarTempoTotal() {
+        const tempoTotalEl = document.getElementById('tempo-total');
+        if (tempoTotalEl) {
+            let segundos = <?= $tempo_total ?>;
+            setInterval(function() {
+                segundos++;
+                
+                // Formatar o tempo (HH:MM:SS)
+                const horas = Math.floor(segundos / 3600).toString().padStart(2, '0');
+                const minutos = Math.floor((segundos % 3600) / 60).toString().padStart(2, '0');
+                const segs = (segundos % 60).toString().padStart(2, '0');
+                
+                tempoTotalEl.textContent = horas + ':' + minutos + ':' + segs;
+            }, 1000);
+        }
+    }
+    
+    atualizarTempoTotal();
+    <?php endif; ?>
+});
+</script>
+
+</body>
+</html>
+            $stmt->execute([':id' => $gestor_hoje, ':hoje' => $hoje]);
+        } else {
+            // Se não houver gestor agendado para hoje, selecionar aleatoriamente
+            $_SESSION['gestor'] = $equipa[array_rand($equipa)];
+        }
+        
+        $_SESSION['oradores'] = $equipa;
+        shuffle($_SESSION['oradores']);
+        $_SESSION['em_reuniao'] = true;
+        $_SESSION['orador_atual'] = 0;
+        $_SESSION['inicio_reuniao'] = time();
+    }
+    
+    // Terminar reunião
+    if (isset($_POST['terminar'])) {
+        // Limpar a sessão
+        $_SESSION['gestor'] = null;
+        $_SESSION['em_reuniao'] = false;
+        $_SESSION['oradores'] = [];
+        $_SESSION['orador_atual'] = 0;
+        $_SESSION['inicio_reuniao'] = null;
+    }
+    
+    // Próximo orador
+    if (isset($_POST['proximo'])) {
+        $_SESSION['orador_atual']++;
+    }
+    
+    // Recusar ser gestor
+    if (isset($_POST['recusar'])) {
+        $idRecusado = (int)$_POST['recusar'];
+        $dataRecusada = $_POST['data_recusada'] ?? '';
+        
+        if (!empty($dataRecusada)) {
+            // Remover este gestor da data específica
+            $stmt = $db->prepare("DELETE FROM proximos_gestores 
+                                 WHERE redmine_id = :id AND data_prevista = :data AND concluido = 0");
+            $stmt->execute([':id' => $idRecusado, ':data' => $dataRecusada]);
+            
+            // Adicionar outro gestor nesta data
+            if (count($equipa) > 1) {
+                $equipe_copia = array_filter($equipa, function($e) use ($idRecusado) {
+                    return $e != $idRecusado;
+                });
+                $novo_gestor = $equipe_copia[array_rand($equipe_copia)];
+                
+                $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) 
+                                     VALUES (:id, :data)");
+                $stmt->execute([':id' => $novo_gestor, ':data' => $dataRecusada]);
+            }
+        } else {
+            // Remover este gestor de todas as datas futuras
+            $stmt = $db->prepare("DELETE FROM proximos_gestores 
+                                 WHERE redmine_id = :id AND data_prevista >= date('now') AND concluido = 0");
+            $stmt->execute([':id' => $idRecusado]);
+        }
+        
+        // Regenerar a lista
+        gerarListaProximosGestores($db, $equipa);
+    }
+    
+    // Marcar falta
+    if (isset($_POST['marcar_falta'])) {
+        $id = (int)$_POST['marcar_falta'];
+        $motivo = $_POST['motivo_falta'] ?? '';
+        
+        $resultado = registrarFalta($db, $id, $motivo);
+        
+        // Se for o orador atual, passar para o próximo
+        if ($resultado && $em_reuniao && isset($oradores[$orador_atual]) && $oradores[$orador_atual] == $id) {
+            $_SESSION['orador_atual']++;
+        }
+    }
+    
+    // Mover para o final da fila
+    if (isset($_POST['mover_final'])) {
+        $id = (int)$_POST['mover_final'];
+        
+        // Se for o orador atual
+        if ($em_reuniao && isset($oradores[$orador_atual]) && $oradores[$orador_atual] == $id) {
+            // Remover da posição atual e adicionar ao final
+            $orador = $oradores[$orador_atual];
+            array_splice($_SESSION['oradores'], $orador_atual, 1);
+            $_SESSION['oradores'][] = $orador;
+            
+            // Passar para o próximo orador
+            if (count($_SESSION['oradores']) > $_SESSION['orador_atual']) {
+                // Não precisamos incrementar o índice porque já removemos o elemento
+            } else {
+                // Se removemos o último elemento, voltamos para o início
+                $_SESSION['orador_atual'] = 0;
+            }
+        }
+    }
+    
+    header("Location: ?tab=equipa");
+    exit;
+}
                                  WHERE redmine_id = :id AND data_prevista = :hoje");
             $stmt->execute([':id' => $gestor_hoje, ':hoje' => $hoje]);
         } else {
@@ -876,27 +2150,36 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                             <?php endif; ?>
                         <?php endif; ?>
                         
-                        <!-- INÍCIO DO EDITOR DE NOTAS -->
+                        <!-- INÍCIO DO EDITOR DE NOTAS GERAIS -->
                         <div class="row mt-4">
                             <div class="col-12">
                                 <div class="card editor-container">
                                     <div class="card-header bg-info text-white">
-                                        <h5 class="mb-0"><i class="bi bi-journal-text"></i> Notas da Reunião</h5>
+                                        <h5 class="mb-0"><i class="bi bi-journal-text"></i> Bloco de Notas Geral</h5>
                                     </div>
                                     <div class="card-body">
                                         <form id="form-notas" method="post">
+                                            <div class="form-group mb-3">
+                                                <label for="titulo-nota" class="form-label">Título da Nota:</label>
+                                                <input type="text" id="titulo-nota" name="titulo_nota" class="form-control" 
+                                                       value="<?= htmlspecialchars($titulo_nota) ?>" placeholder="Digite um título para a nota">
+                                                <input type="hidden" id="id-nota-atual" value="<?= $id_nota_atual ?>">
+                                            </div>
                                             <div class="form-group">
-                                                <textarea id="editor-notas" name="conteudo_notas"><?= htmlspecialchars($conteudo_notas) ?></textarea>
+                                                <textarea id="editor-notas" name="conteudo_nota"><?= htmlspecialchars($conteudo_nota) ?></textarea>
                                             </div>
                                             <div class="note-actions d-flex flex-wrap gap-2 mt-3">
-                                                <button type="button" id="btn-salvar-notas" class="btn btn-primary">
-                                                    <i class="bi bi-save"></i> Salvar Notas
+                                                <button type="button" id="btn-salvar-nota" class="btn btn-primary">
+                                                    <i class="bi bi-save"></i> Salvar Nota
                                                 </button>
-                                                <button type="button" id="btn-exportar-notas" class="btn btn-success">
+                                                <button type="button" id="btn-nova-nota" class="btn btn-success">
+                                                    <i class="bi bi-file-earmark-plus"></i> Nova Nota
+                                                </button>
+                                                <button type="button" id="btn-exportar-nota" class="btn btn-info">
                                                     <i class="bi bi-file-earmark-arrow-down"></i> Exportar para Markdown
                                                 </button>
                                             </div>
-                                            <div id="note-status" class="note-status alert alert-success">
+                                            <div id="note-status" class="note-status alert alert-success mt-3" style="display: none;">
                                                 <i class="bi bi-check-circle"></i> <span id="note-status-message"></span>
                                             </div>
                                         </form>
@@ -1122,34 +2405,6 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                         <p class="text-muted text-center">
                             <i class="bi bi-info-circle"></i> Nenhuma nota de reunião registrada.
                         </p>
-                    <?php else: ?>
-                        <div class="list-group">
-                            <?php foreach ($historico_notas as $nota): ?>
-                                <a href="#" class="list-group-item list-group-item-action load-note" 
-                                   data-data="<?= date('Y-m-d', strtotime($nota['data'])) ?>">
-                                    <div class="d-flex w-100 justify-content-between">
-                                        <h6 class="mb-1"><i class="bi bi-calendar-date"></i> 
-                                            <?= date('d/m/Y', strtotime($nota['data'])) ?>
-                                        </h6>
-                                        <small>
-                                            <?php if ($nota['redmine_id']): ?>
-                                                <i class="bi bi-person"></i> 
-                                                <?= htmlspecialchars(getNomeUtilizador($nota['redmine_id'], $utilizadores)) ?>
-                                            <?php endif; ?>
-                                        </small>
-                                    </div>
-                                    <small class="text-muted">
-                                        <?php 
-                                        // Exibir primeiros 100 caracteres do conteúdo
-                                        $preview = mb_strlen($nota['conteudo']) > 100 
-                                            ? mb_substr(strip_tags($nota['conteudo']), 0, 100) . '...' 
-                                            : strip_tags($nota['conteudo']);
-                                        echo htmlspecialchars($preview);
-                                        ?>
-                                    </small>
-                                </a>
-                            <?php endforeach; ?>
-                        </div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -1167,20 +2422,22 @@ document.addEventListener('DOMContentLoaded', function() {
         spellChecker: false,
         autosave: {
             enabled: true,
-            uniqueId: "notas-reuniao-<?= date('Y-m-d') ?>",
+            uniqueId: "nota-geral-" + (document.getElementById("id-nota-atual")?.value || 'nova'),
             delay: 1000,
         },
         toolbar: ["bold", "italic", "heading", "|", "quote", "unordered-list", "ordered-list", "|", "link", "image", "|", "preview", "side-by-side", "fullscreen", "|", "guide"],
-        placeholder: "Escreva as notas da reunião aqui...",
+        placeholder: "Escreva sua nota aqui...",
         status: ["autosave", "lines", "words", "cursor"]
     });
     
-    // Manipulador para salvar notas
-    document.getElementById('btn-salvar-notas').addEventListener('click', function() {
-        // Obter o conteúdo do editor
+    // Manipulador para salvar nota
+    document.getElementById('btn-salvar-nota')?.addEventListener('click', function() {
+        // Obter o conteúdo do editor e o título
         var conteudo = simplemde.value();
+        var titulo = document.getElementById('titulo-nota').value || 'Nota sem título';
+        var idNota = document.getElementById('id-nota-atual').value || '';
         
-        // Enviar requisição AJAX para salvar notas
+        // Enviar requisição AJAX para salvar nota
         var xhr = new XMLHttpRequest();
         xhr.open('POST', window.location.href, true);
         xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
@@ -1194,10 +2451,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     var mensagemEl = document.getElementById('note-status-message');
                     
                     if (resposta.sucesso) {
-                        statusEl.className = 'note-status alert alert-success';
+                        statusEl.className = 'note-status alert alert-success mt-3';
                         mensagemEl.textContent = resposta.mensagem;
+                        
+                        // Atualizar lista de notas (recarregar a página)
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 1500);
                     } else {
-                        statusEl.className = 'note-status alert alert-danger';
+                        statusEl.className = 'note-status alert alert-danger mt-3';
                         mensagemEl.textContent = 'Erro: ' + resposta.mensagem;
                     }
                     
@@ -1213,12 +2475,41 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         };
         
-        xhr.send('acao=salvar_notas&conteudo_notas=' + encodeURIComponent(conteudo));
+        xhr.send('acao=salvar_nota&conteudo_nota=' + encodeURIComponent(conteudo) + 
+                '&titulo_nota=' + encodeURIComponent(titulo) + 
+                '&id_nota=' + encodeURIComponent(idNota));
     });
     
-    // Manipulador para exportar notas
-    document.getElementById('btn-exportar-notas').addEventListener('click', function() {
-        // Enviar requisição AJAX para exportar notas
+    // Manipulador para nova nota
+    document.getElementById('btn-nova-nota')?.addEventListener('click', function() {
+        // Limpar o editor e o título
+        simplemde.value('# Nova Nota\n\n');
+        document.getElementById('titulo-nota').value = 'Nova Nota';
+        document.getElementById('id-nota-atual').value = '';
+        
+        // Atualizar o ID único para autosave
+        simplemde.options.autosave.uniqueId = "nota-geral-nova-" + Date.now();
+        
+        // Mostrar mensagem
+        var statusEl = document.getElementById('note-status');
+        var mensagemEl = document.getElementById('note-status-message');
+        statusEl.className = 'note-status alert alert-info mt-3';
+        mensagemEl.textContent = 'Nova nota criada. Não se esqueça de salvar!';
+        statusEl.style.display = 'block';
+        
+        // Esconder a mensagem após 3 segundos
+        setTimeout(function() {
+            statusEl.style.display = 'none';
+        }, 3000);
+    });
+    
+    // Manipulador para exportar nota
+    document.getElementById('btn-exportar-nota')?.addEventListener('click', function() {
+        // Obter o ID da nota atual
+        var idNota = document.getElementById('id-nota-atual').value || '';
+        var titulo = document.getElementById('titulo-nota').value || '';
+        
+        // Enviar requisição AJAX para exportar nota
         var xhr = new XMLHttpRequest();
         xhr.open('POST', window.location.href, true);
         xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
@@ -1232,7 +2523,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     var mensagemEl = document.getElementById('note-status-message');
                     
                     if (resposta.sucesso) {
-                        statusEl.className = 'note-status alert alert-success';
+                        statusEl.className = 'note-status alert alert-success mt-3';
                         mensagemEl.textContent = resposta.mensagem;
                         
                         // Se a exportação foi bem-sucedida, criar um link para download
@@ -1248,7 +2539,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             document.body.removeChild(link);
                         }
                     } else {
-                        statusEl.className = 'note-status alert alert-danger';
+                        statusEl.className = 'note-status alert alert-danger mt-3';
                         mensagemEl.textContent = 'Erro: ' + resposta.mensagem;
                     }
                     
@@ -1264,18 +2555,19 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         };
         
-        xhr.send('acao=exportar_notas');
+        xhr.send('acao=exportar_nota&id_nota=' + encodeURIComponent(idNota) + '&titulo_nota=' + encodeURIComponent(titulo));
     });
     
-    // Carregar nota histórica
-    document.querySelectorAll('.load-note').forEach(function(link) {
+    // Carregar nota ao clicar em item da lista
+    document.querySelectorAll('.carregar-nota').forEach(function(link) {
         link.addEventListener('click', function(e) {
             e.preventDefault();
-            var data = this.getAttribute('data-data');
+            var id = this.getAttribute('data-id');
             
-            // Enviar requisição AJAX para carregar a nota desta data
+            // Enviar requisição AJAX para carregar a nota
             var xhr = new XMLHttpRequest();
-            xhr.open('GET', window.location.href + '&data=' + data, true);
+            xhr.open('POST', window.location.href, true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
             
             xhr.onload = function() {
@@ -1283,17 +2575,28 @@ document.addEventListener('DOMContentLoaded', function() {
                     try {
                         var resposta = JSON.parse(xhr.responseText);
                         if (resposta.sucesso && resposta.nota) {
+                            // Atualizar o editor com o conteúdo da nota
                             simplemde.value(resposta.nota.conteudo);
+                            document.getElementById('titulo-nota').value = resposta.nota.titulo || 'Nota sem título';
+                            document.getElementById('id-nota-atual').value = resposta.nota.id;
                             
+                            // Atualizar o ID único para autosave
+                            simplemde.options.autosave.uniqueId = "nota-geral-" + resposta.nota.id;
+                            
+                            // Mostrar mensagem
                             var statusEl = document.getElementById('note-status');
                             var mensagemEl = document.getElementById('note-status-message');
-                            statusEl.className = 'note-status alert alert-info';
-                            mensagemEl.textContent = 'Nota carregada: ' + resposta.nota.data;
+                            statusEl.className = 'note-status alert alert-info mt-3';
+                            mensagemEl.textContent = 'Nota carregada: ' + resposta.nota.titulo;
                             statusEl.style.display = 'block';
                             
+                            // Esconder a mensagem após 3 segundos
                             setTimeout(function() {
                                 statusEl.style.display = 'none';
                             }, 3000);
+                            
+                            // Rolar até o editor
+                            document.querySelector('.editor-container').scrollIntoView({ behavior: 'smooth' });
                         }
                     } catch (e) {
                         console.error('Erro ao processar resposta:', e);
@@ -1301,7 +2604,43 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             };
             
-            xhr.send();
+            xhr.send('acao=carregar_nota&id_nota=' + encodeURIComponent(id));
+        });
+    });
+    
+    // Excluir nota
+    document.querySelectorAll('.excluir-nota').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation(); // Evitar que o evento seja capturado pelo link pai
+            
+            if (confirm('Tem certeza que deseja excluir esta nota?')) {
+                var id = this.getAttribute('data-id');
+                
+                // Enviar requisição AJAX para excluir a nota
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', window.location.href, true);
+                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        try {
+                            var resposta = JSON.parse(xhr.responseText);
+                            if (resposta.sucesso) {
+                                // Recarregar a página para atualizar a lista
+                                window.location.reload();
+                            } else {
+                                alert('Erro: ' + resposta.mensagem);
+                            }
+                        } catch (e) {
+                            console.error('Erro ao processar resposta:', e);
+                        }
+                    }
+                };
+                
+                xhr.send('acao=excluir_nota&id_nota=' + encodeURIComponent(id));
+            }
         });
     });
     

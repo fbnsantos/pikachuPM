@@ -831,10 +831,8 @@ ordenar_oportunidades($oportunidades_nao_submetidas, $ordenar);
         </div>
     </div>
 </div>
-
-<?php
-// Função para renderizar a tabela de oportunidades
 function renderizar_tabela_oportunidades($issues) {
+    global $BASE_URL;
     if (empty($issues)) {
         echo '<div class="text-center py-4 text-muted">Nenhuma oportunidade encontrada nesta categoria.</div>';
         return;
@@ -848,7 +846,7 @@ function renderizar_tabela_oportunidades($issues) {
             <th class="text-center" style="width: 150px;">Deadline</th>
             <th class="text-center" style="width: 150px;">Progresso</th>
             <th class="text-center" style="width: 80px;">Status</th>
-            <th class="text-center" style="width: 80px;">Ações</th>
+            <th class="text-center" style="width: 120px;">Ações</th>
         </tr>
     </thead>
     <tbody>
@@ -941,10 +939,16 @@ function renderizar_tabela_oportunidades($issues) {
                 <span class="badge <?= $status_class ?>"><?= $status_texto ?></span>
             </td>
             <td class="text-center align-middle">
-                <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" 
-                        data-bs-target="#collapse<?= $i['id'] ?>">
-                    <i class="bi bi-pencil"></i>
-                </button>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" 
+                            data-bs-target="#collapse<?= $i['id'] ?>" title="Editar localmente">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <a href="<?= $BASE_URL ?>/issues/<?= $i['id'] ?>/edit" class="btn btn-sm btn-outline-secondary" 
+                       target="_blank" title="Editar no Redmine">
+                        <i class="bi bi-box-arrow-up-right"></i>
+                    </a>
+                </div>
             </td>
         </tr>
         <!-- Detalhes expandidos -->

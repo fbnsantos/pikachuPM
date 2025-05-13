@@ -831,6 +831,7 @@ ordenar_oportunidades($oportunidades_nao_submetidas, $ordenar);
         </div>
     </div>
 </div>
+<?php
 function renderizar_tabela_oportunidades($issues) {
     global $BASE_URL;
     if (empty($issues)) {

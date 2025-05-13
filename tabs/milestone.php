@@ -2819,7 +2819,7 @@ switch ($action) {
                     function updateAddTaskButton() {
                         addTaskBtn.disabled = !taskSelector.value;
                     }
-                    
+                                        
                     // Função para adicionar uma tarefa visualmente a uma coluna
                     function addTaskToColumn(task, columnId) {
                         const column = document.getElementById(columnId);
@@ -2829,12 +2829,30 @@ switch ($action) {
                         taskCard.className = 'card mb-2 task-card';
                         taskCard.dataset.taskId = task.id;
                         
+                        // Preparar o HTML para projeto e assignee
+                        let projectHtml = '';
+                        if (task.project && task.project.name) {
+                            projectHtml = `<span class="badge bg-info">${task.project.name}</span>`;
+                        }
+                        
+                        let assigneeHtml = '';
+                        if (task.assignee && task.assignee.name) {
+                            assigneeHtml = `
+                                <div class="mt-1 small">
+                                    <i class="bi bi-person-fill"></i> 
+                                    ${task.assignee.name}
+                                </div>
+                            `;
+                        }
+                        
                         taskCard.innerHTML = `
                             <div class="card-body p-2">
                                 <p class="mb-1">
                                     <small class="text-muted">#${task.id}</small>
+                                    ${projectHtml}
                                 </p>
                                 <h6 class="card-title mb-0 task-title">${task.title}</h6>
+                                ${assigneeHtml}
                                 <div class="mt-2 text-end">
                                     <button class="btn btn-sm btn-outline-danger remove-task-btn" title="Remover da milestone">
                                         <i class="bi bi-trash"></i>

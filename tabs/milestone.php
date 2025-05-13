@@ -250,6 +250,7 @@ function getMilestones() {
     return $milestones;
 }
 
+
 // Obter detalhes de uma milestone específica
 function getMilestoneDetails($milestoneId) {
     $issue = callRedmineAPI('/issues/' . $milestoneId . '.json?include=journals');
@@ -258,7 +259,40 @@ function getMilestoneDetails($milestoneId) {
         return $issue;
     }
     
-    return isset($issue['issue']) ? $issue['issue'] : null;
+    $milestone = isset($issue['issue']) ? $issue['issue'] : null;
+    
+    if ($milestone) {
+        // Extrair tarefas da descrição
+        $tasks = extractTasksFromDescription($milestone['description'] ?? '');
+        
+        // Coletar todos os IDs de tarefas
+        $taskIds = [];
+        foreach (['backlog', 'in_progress', 'paused', 'closed'] as $status) {
+            foreach ($tasks[$status] as $task) {
+                $taskIds[] = $task['id'];
+            }
+        }
+        
+        // Obter detalhes adicionais das tarefas
+        if (!empty($taskIds)) {
+            $taskDetails = getTaskDetails($taskIds);
+            
+            // Atualizar as informações das tarefas
+            foreach (['backlog', 'in_progress', 'paused', 'closed'] as $status) {
+                foreach ($tasks[$status] as $key => $task) {
+                    if (isset($taskDetails[$task['id']])) {
+                        $tasks[$status][$key]['project'] = $taskDetails[$task['id']]['project'];
+                        $tasks[$status][$key]['assignee'] = $taskDetails[$task['id']]['assignee'];
+                    }
+                }
+            }
+            
+            // Adicionar as tarefas atualizadas à milestone
+            $milestone['task_details'] = $tasks;
+        }
+    }
+    
+    return $milestone;
 }
 
 // Obter todos os protótipos (subprojetos de tribeprototypes)
@@ -568,6 +602,49 @@ function extractTasksFromDescription($description) {
     }
     
     return $tasks;
+}
+
+// Obter detalhes adicionais das tarefas (projeto e assignee)
+function getTaskDetails($taskIds) {
+    if (empty($taskIds)) {
+        return [];
+    }
+    
+    $taskDetails = [];
+    
+    // Agrupar as tarefas em lotes para evitar consultas muito grandes
+    $batches = array_chunk($taskIds, 50);
+    
+    foreach ($batches as $batch) {
+        // Converter array de IDs para string separada por vírgula
+        $idsString = implode(',', $batch);
+        
+        // Consultar detalhes das tarefas
+        $issues = callRedmineAPI('/issues.json?issue_id=' . $idsString . '&include=project,assigned_to&limit=100');
+        
+        if (isset($issues['issues'])) {
+            foreach ($issues['issues'] as $issue) {
+                $taskDetail = [
+                    'id' => $issue['id'],
+                    'project' => isset($issue['project']) ? [
+                        'id' => $issue['project']['id'],
+                        'name' => $issue['project']['name']
+                    ] : null,
+                    'assignee' => isset($issue['assigned_to']) ? [
+                        'id' => $issue['assigned_to']['id'],
+                        'name' => isset($issue['assigned_to']['name']) ? $issue['assigned_to']['name'] : 
+                               (isset($issue['assigned_to']['firstname']) && isset($issue['assigned_to']['lastname']) ? 
+                                $issue['assigned_to']['firstname'] . ' ' . $issue['assigned_to']['lastname'] : 
+                                'Usuário #' . $issue['assigned_to']['id'])
+                    ] : null
+                ];
+                
+                $taskDetails[$issue['id']] = $taskDetail;
+            }
+        }
+    }
+    
+    return $taskDetails;
 }
 
 // Criar nova milestone
@@ -2182,8 +2259,17 @@ switch ($action) {
                                                             <div class="card-body p-2">
                                                                 <p class="mb-1">
                                                                     <small class="text-muted">#<?= $task['id'] ?></small>
+                                                                    <?php if (isset($task['project']) && $task['project']): ?>
+                                                                        <span class="badge bg-info"><?= htmlspecialchars($task['project']['name']) ?></span>
+                                                                    <?php endif; ?>
                                                                 </p>
                                                                 <h6 class="card-title mb-0 task-title"><?= htmlspecialchars($task['title']) ?></h6>
+                                                                <?php if (isset($task['assignee']) && $task['assignee']): ?>
+                                                                    <div class="mt-1 small">
+                                                                        <i class="bi bi-person-fill"></i> 
+                                                                        <?= htmlspecialchars($task['assignee']['name']) ?>
+                                                                    </div>
+                                                                <?php endif; ?>
                                                                 <div class="mt-2 text-end">
                                                                     <button class="btn btn-sm btn-outline-danger remove-task-btn" title="Remover da milestone">
                                                                         <i class="bi bi-trash"></i>

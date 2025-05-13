@@ -1315,4 +1315,6 @@ function renderizar_tabela_oportunidades($issues) {
                         
                         // Mostrar notificação de erro em vez de alerta modal
                         const notification = document.createElement('div');
-                        notification.className = 'alert alert-danger alert-dismissible fade
+                        notification.className = 'alert alert-danger alert-dismissible fade'
+                    }
+                }

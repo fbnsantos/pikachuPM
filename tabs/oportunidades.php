@@ -108,6 +108,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                             if (!empty($todo['responsavel'])) {
                                 $todo_text .= " @" . $todo['responsavel'];
                             }
+                    
+                    // Mostrar notificação de erro em vez de alerta modal
+                    const notification = document.createElement('div');
+                    notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
+                    notification.innerHTML = `
+                        <strong>Erro de conexão!</strong> Verifique sua internet e tente novamente.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    document.body.appendChild(notification);
+                    
+                    // Remover notificação após 5 segundos
+                    setTimeout(() => {
+                        notification.remove();
+                    }, 5000);
+                });
                             $todos_texto[] = $todo_text;
                         }
                         if (!empty($todos_texto)) {
@@ -622,6 +637,7 @@ ordenar_oportunidades($oportunidades_nao_submetidas, $ordenar);
             margin-bottom: 8px;
             display: flex;
             align-items: center;
+            width: 100%;
         }
         .todo-input {
             flex: 1;
@@ -833,7 +849,7 @@ ordenar_oportunidades($oportunidades_nao_submetidas, $ordenar);
 </div>
 
 <?php
-// Função para renderizar a tabela de oportunidades
+    // Função para renderizar a tabela de oportunidades
 function renderizar_tabela_oportunidades($issues) {
     if (empty($issues)) {
         echo '<div class="text-center py-4 text-muted">Nenhuma oportunidade encontrada nesta categoria.</div>';
@@ -1216,7 +1232,6 @@ function renderizar_tabela_oportunidades($issues) {
 <?php
 }
 ?>
-
 <!-- JavaScript para manipulação dos TODOs e expandir/colapsar detalhes -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
@@ -1315,4 +1330,24 @@ function renderizar_tabela_oportunidades($issues) {
                         
                         // Mostrar notificação de erro em vez de alerta modal
                         const notification = document.createElement('div');
-                        notification.className = 'alert alert-danger alert-dismissible fade
+                        notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
+                        notification.innerHTML = `
+                            <strong>Erro!</strong> Não foi possível atualizar a tarefa.
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        `;
+                        document.body.appendChild(notification);
+                        
+                        // Remover notificação após 5 segundos
+                        setTimeout(() => {
+                            notification.remove();
+                        }, 5000);
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro na requisição:', error);
+                    this.disabled = false;
+                });
+            });
+        });
+    });
+</script>

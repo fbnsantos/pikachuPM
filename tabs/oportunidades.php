@@ -104,7 +104,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                     if (!empty($tags['todos'])) {
                         $todos_texto = [];
                         foreach ($tags['todos'] as $todo) {
-                            $todos_texto[] = "- [" . ($todo['checked'] ? 'x' : ' ') . "] " . $todo['text'];
+                            $todo_text = "- [" . ($todo['checked'] ? 'x' : ' ') . "] " . $todo['text'];
+                            if (!empty($todo['responsavel'])) {
+                                $todo_text .= " @" . $todo['responsavel'];
+                            }
+                            $todos_texto[] = $todo_text;
                         }
                         if (!empty($todos_texto)) {
                             $nova_descricao .= "\n\n### TODOs:\n" . implode("\n", $todos_texto);
@@ -195,7 +199,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 if (!empty($tags['todos'])) {
                     $todos_texto = [];
                     foreach ($tags['todos'] as $todo) {
-                        $todos_texto[] = "- [" . ($todo['checked'] ? 'x' : ' ') . "] " . $todo['text'];
+                        $todo_text = "- [" . ($todo['checked'] ? 'x' : ' ') . "] " . $todo['text'];
+                        if (!empty($todo['responsavel'])) {
+                            $todo_text .= " @" . $todo['responsavel'];
+                        }
+                        $todos_texto[] = $todo_text;
                     }
                     $nova_descricao .= "\n\n### TODOs:\n" . implode("\n", $todos_texto);
                 }
@@ -266,7 +274,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['atualizar_issue'])) {
             if (strpos($key, 'todo_text_') === 0) {
                 $id = str_replace('todo_text_', '', $key);
                 $checked = isset($_POST['todo_check_' . $id]) ? '1' : '0';
-                $todos[] = "- [" . ($checked === '1' ? 'x' : ' ') . "] " . $value;
+                $responsavel = $_POST['todo_resp_' . $id] ?? '';
+                $todo_text = "- [" . ($checked === '1' ? 'x' : ' ') . "] " . $value;
+                if (!empty($responsavel)) {
+                    $todo_text .= " @" . $responsavel;
+                }
+                $todos[] = $todo_text;
             }
         }
         
@@ -415,12 +428,13 @@ function extrair_tags($texto) {
     
     // Extrair TODOs - versão melhorada para depuração
     $todos = [];
-    if (preg_match('/### TODOs:\s*\n((?:- \[[ x]\] .+\n?)*)/', $texto, $matches)) {
-        preg_match_all('/- \[([ x])\] (.+)/', $matches[1], $todoMatches, PREG_SET_ORDER);
+    if (preg_match('/### TODOs:\s*\n((?:- \[[ x]\] .+(?:\s+@[a-zA-Z0-9_-]+)?\n?)*)/', $texto, $matches)) {
+        preg_match_all('/- \[([ x])\] (.+?)(?:\s+@([a-zA-Z0-9_-]+))?\s*$/', $matches[1], $todoMatches, PREG_SET_ORDER);
         foreach ($todoMatches as $todoMatch) {
             $todos[] = [
                 'checked' => $todoMatch[1] === 'x',
-                'text' => $todoMatch[2]
+                'text' => $todoMatch[2],
+                'responsavel' => isset($todoMatch[3]) ? $todoMatch[3] : ''
             ];
         }
     }
@@ -721,15 +735,15 @@ ordenar_oportunidades($oportunidades_nao_submetidas, $ordenar);
     <!-- Abas de categorias -->
     <ul class="nav nav-tabs" id="categoriasTabs" role="tablist">
         <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="todas-tab" data-bs-toggle="tab" data-bs-target="#todas" 
-                    type="button" role="tab" aria-controls="todas" aria-selected="true">
+            <button class="nav-link" id="todas-tab" data-bs-toggle="tab" data-bs-target="#todas" 
+                    type="button" role="tab" aria-controls="todas" aria-selected="false">
                 Todas
                 <span class="badge bg-secondary categoria-badge"><?= count($issues) ?></span>
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="em-curso-tab" data-bs-toggle="tab" data-bs-target="#em-curso" 
-                    type="button" role="tab" aria-controls="em-curso" aria-selected="false">
+            <button class="nav-link active" id="em-curso-tab" data-bs-toggle="tab" data-bs-target="#em-curso" 
+                    type="button" role="tab" aria-controls="em-curso" aria-selected="true">
                 Em Curso
                 <span class="badge bg-primary categoria-badge"><?= count($oportunidades_em_curso) ?></span>
             </button>
@@ -759,7 +773,7 @@ ordenar_oportunidades($oportunidades_nao_submetidas, $ordenar);
     
     <div class="tab-content" id="categoriaTabsContent">
         <!-- Aba Todas -->
-        <div class="tab-pane fade show active" id="todas" role="tabpanel" aria-labelledby="todas-tab">
+        <div class="tab-pane fade" id="todas" role="tabpanel" aria-labelledby="todas-tab">
             <!-- Lista de todas as oportunidades -->
             <div class="card mt-3">
                 <div class="card-body p-0">
@@ -769,7 +783,7 @@ ordenar_oportunidades($oportunidades_nao_submetidas, $ordenar);
         </div>
         
         <!-- Aba Em Curso -->
-        <div class="tab-pane fade" id="em-curso" role="tabpanel" aria-labelledby="em-curso-tab">
+        <div class="tab-pane fade show active" id="em-curso" role="tabpanel" aria-labelledby="em-curso-tab">
             <div class="categoria-header categoria-em-curso mt-3">
                 <h5 class="mb-0"><i class="bi bi-play-circle"></i> Oportunidades Em Curso</h5>
             </div>
@@ -1130,8 +1144,12 @@ function renderizar_tabela_oportunidades($issues) {
                                 <div class="todo-item">
                                     <input class="form-check-input" type="checkbox" name="todo_check_<?= $todo_id ?>" 
                                            <?= $todo['checked'] ? 'checked' : '' ?>>
-                                    <input type="text" name="todo_text_<?= $todo_id ?>" class="form-control todo-input" 
-                                           value="<?= htmlspecialchars($todo['text']) ?>">
+                                    <div class="flex-grow-1 d-flex">
+                                        <input type="text" name="todo_text_<?= $todo_id ?>" class="form-control todo-input me-1" 
+                                               value="<?= htmlspecialchars($todo['text']) ?>">
+                                        <input type="text" name="todo_resp_<?= $todo_id ?>" class="form-control" style="max-width: 150px;"
+                                               placeholder="Responsável" value="<?= htmlspecialchars($todo['responsavel'] ?? '') ?>">
+                                    </div>
                                     <button type="button" class="btn btn-sm btn-outline-danger ms-2" 
                                             onclick="this.parentNode.remove()">
                                         <i class="bi bi-trash"></i>
@@ -1147,8 +1165,12 @@ function renderizar_tabela_oportunidades($issues) {
                                 ?>
                                 <div class="todo-item">
                                     <input class="form-check-input" type="checkbox" name="todo_check_<?= $todo_id ?>">
-                                    <input type="text" name="todo_text_<?= $todo_id ?>" class="form-control todo-input" 
-                                           placeholder="Adicione um item TODO">
+                                    <div class="flex-grow-1 d-flex">
+                                        <input type="text" name="todo_text_<?= $todo_id ?>" class="form-control todo-input me-1" 
+                                               placeholder="Adicione um item TODO">
+                                        <input type="text" name="todo_resp_<?= $todo_id ?>" class="form-control" style="max-width: 150px;"
+                                               placeholder="Responsável">
+                                    </div>
                                     <button type="button" class="btn btn-sm btn-outline-danger ms-2" 
                                             onclick="this.parentNode.remove()">
                                         <i class="bi bi-trash"></i>

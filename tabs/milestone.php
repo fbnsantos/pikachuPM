@@ -3042,6 +3042,28 @@ switch ($action) {
                     background-color: #e9ecef;
                     border-radius: 5px;
                 }
+                .task-card .badge {
+                    display: inline-block;
+                    margin-left: 5px;
+                    font-size: 0.7em;
+                    vertical-align: middle;
+                }
+
+                .task-card .card-body {
+                    padding: 0.75rem;
+                }
+
+                .task-card .assignee {
+                    font-size: 0.8em;
+                    color: #6c757d;
+                    margin-top: 5px;
+                    display: flex;
+                    align-items: center;
+                }
+
+                .task-card .assignee i {
+                    margin-right: 3px;
+                }
             </style>
         <?php endif; ?>
     <?php endif; ?>

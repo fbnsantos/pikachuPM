@@ -108,21 +108,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                             if (!empty($todo['responsavel'])) {
                                 $todo_text .= " @" . $todo['responsavel'];
                             }
-                    
-                    // Mostrar notificação de erro em vez de alerta modal
-                    const notification = document.createElement('div');
-                    notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                    notification.innerHTML = `
-                        <strong>Erro de conexão!</strong> Verifique sua internet e tente novamente.
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    `;
-                    document.body.appendChild(notification);
-                    
-                    // Remover notificação após 5 segundos
-                    setTimeout(() => {
-                        notification.remove();
-                    }, 5000);
-                });
                             $todos_texto[] = $todo_text;
                         }
                         if (!empty($todos_texto)) {
@@ -637,7 +622,6 @@ ordenar_oportunidades($oportunidades_nao_submetidas, $ordenar);
             margin-bottom: 8px;
             display: flex;
             align-items: center;
-            width: 100%;
         }
         .todo-input {
             flex: 1;
@@ -849,7 +833,7 @@ ordenar_oportunidades($oportunidades_nao_submetidas, $ordenar);
 </div>
 
 <?php
-    // Função para renderizar a tabela de oportunidades
+// Função para renderizar a tabela de oportunidades
 function renderizar_tabela_oportunidades($issues) {
     if (empty($issues)) {
         echo '<div class="text-center py-4 text-muted">Nenhuma oportunidade encontrada nesta categoria.</div>';
@@ -1264,86 +1248,6 @@ function renderizar_tabela_oportunidades($issues) {
         });
         
         // Adicionar evento para checkbox de TODOs
-        document.querySelectorAll('.todo-checkbox').forEach(checkbox => {
-            checkbox.addEventListener('change', function() {
-                const listItem = this.closest('.todo-item-clickable');
-                const issueId = listItem.getAttribute('data-issue-id');
-                const todoIndex = listItem.getAttribute('data-todo-index');
-                const label = this.nextElementSibling;
-                
-                // Atualizar visualmente
-                if (this.checked) {
-                    label.classList.add('text-decoration-line-through', 'text-muted');
-                } else {
-                    label.classList.remove('text-decoration-line-through', 'text-muted');
-                }
-                
-                // Mostrar indicador de carregamento
-                const loadingId = 'loading-' + issueId + '-' + todoIndex;
-                if (!document.getElementById(loadingId)) {
-                    const spinner = document.createElement('span');
-                    spinner.id = loadingId;
-                    spinner.className = 'spinner-border spinner-border-sm ms-2';
-                    spinner.setAttribute('role', 'status');
-                    spinner.style.width = '1rem';
-                    spinner.style.height = '1rem';
-                    listItem.appendChild(spinner);
-                }
-                
-                // Desabilitar checkbox durante o salvamento
-                this.disabled = true;
-                
-                // Enviar atualização via AJAX
-                const formData = new FormData();
-                formData.append('ajax_action', 'update_todo');
-                formData.append('issue_id', issueId);
-                formData.append('todo_index', todoIndex);
-                formData.append('checked', this.checked);
-                
-                fetch('index.php?tab=oportunidades', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    // Remover spinner
-                    const spinner = document.getElementById(loadingId);
-                    if (spinner) spinner.remove();
-                    
-                    // Reabilitar checkbox
-                    this.disabled = false;
-                    
-                    if (data.success) {
-                        // Atualizar progresso na tabela
-                        if (data.progresso !== undefined) {
-                            atualizarProgresso(issueId, data.progresso);
-                        }
-                        console.log('TODO atualizado com sucesso!');
-                    } else {
-                        console.error('Erro ao atualizar TODO:', data.error);
-                        // Reverter o checkbox se houver erro
-                        this.checked = !this.checked;
-                        if (this.checked) {
-                            label.classList.add('text-decoration-line-through', 'text-muted');
-                        } else {
-                            label.classList.remove('text-decoration-line-through', 'text-muted');
-                        }
-                        
-                        // Mostrar notificação de erro em vez de alerta modal
-                        const notification = document.createElement('div');
-                        notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                        notification.innerHTML = `
-                            <strong>Erro!</strong> Não foi possível atualizar a tarefa.
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        `;
-                        document.body.appendChild(notification);
-                        
-                        // Remover notificação após 5 segundos
-                        setTimeout(() => {
-                            notification.remove();
-                        }, 5000);
-                    }
-                })
         document.querySelectorAll('.todo-checkbox').forEach(checkbox => {
             checkbox.addEventListener('change', function() {
                 const listItem = this.closest('.todo-item-clickable');

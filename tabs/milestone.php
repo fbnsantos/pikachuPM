@@ -473,6 +473,7 @@ function extractAssociatedProjectsFromDescription($description) {
 }
 
 // Extrair features e tarefas associadas a uma milestone da descrição
+// Extrair features e tarefas associadas a uma milestone da descrição
 function extractTasksFromDescription($description) {
     $tasks = [
         'backlog' => [],
@@ -506,7 +507,9 @@ function extractTasksFromDescription($description) {
                 // Vamos verificar mais tarde se está em alguma seção específica
                 $tasks['_temp'][] = [
                     'id' => $taskId,
-                    'title' => $taskTitle
+                    'title' => $taskTitle,
+                    'project' => null,  // Será preenchido depois
+                    'assignee' => null  // Será preenchido depois
                 ];
             }
         }
@@ -537,7 +540,9 @@ function extractTasksFromDescription($description) {
                     
                     $tasks[$taskType][] = [
                         'id' => $taskId,
-                        'title' => trim($match[2])
+                        'title' => trim($match[2]),
+                        'project' => null,  // Será preenchido depois
+                        'assignee' => null  // Será preenchido depois
                     ];
                 }
             }

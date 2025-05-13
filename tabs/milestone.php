@@ -2692,8 +2692,36 @@ switch ($action) {
                         })
                         .then(data => {
                             if (data.success) {
+                                // Encontrar os detalhes completos da tarefa (incluindo projeto e assignee)
+                                const selectedProjectId = projectSelector.value;
+                                let taskDetails = {
+                                    id: data.task.id,
+                                    title: data.task.title,
+                                    project: null,
+                                    assignee: null
+                                };
+                                
+                                if (allProjectIssues[selectedProjectId]) {
+                                    const fullTaskInfo = allProjectIssues[selectedProjectId].find(t => t.id == data.task.id);
+                                    if (fullTaskInfo) {
+                                        // Adicionar informações do projeto
+                                        taskDetails.project = {
+                                            id: fullTaskInfo.project ? fullTaskInfo.project.id : null,
+                                            name: fullTaskInfo.project ? fullTaskInfo.project.name : null
+                                        };
+                                        
+                                        // Adicionar informações do responsável
+                                        if (fullTaskInfo.assigned_to) {
+                                            taskDetails.assignee = {
+                                                id: fullTaskInfo.assigned_to.id,
+                                                name: fullTaskInfo.assigned_to.name || `Usuário #${fullTaskInfo.assigned_to.id}`
+                                            };
+                                        }
+                                    }
+                                }
+                                
                                 // Adicionar visualmente a tarefa ao backlog
-                                addTaskToColumn(data.task, 'backlog-tasks');
+                                addTaskToColumn(taskDetails, 'backlog-tasks');
                                 
                                 // Remover a opção do combobox
                                 const selectedOption = taskSelector.options[taskSelector.selectedIndex];

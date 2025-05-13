@@ -108,6 +108,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                             if (!empty($todo['responsavel'])) {
                                 $todo_text .= " @" . $todo['responsavel'];
                             }
+                    
+                    // Mostrar notificação de erro em vez de alerta modal
+                    const notification = document.createElement('div');
+                    notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
+                    notification.innerHTML = `
+                        <strong>Erro de conexão!</strong> Verifique sua internet e tente novamente.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    document.body.appendChild(notification);
+                    
+                    // Remover notificação após 5 segundos
+                    setTimeout(() => {
+                        notification.remove();
+                    }, 5000);
+                });
                             $todos_texto[] = $todo_text;
                         }
                         if (!empty($todos_texto)) {
@@ -268,503 +283,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['atualizar_issue'])) {
     $issue_id = $_POST['issue_id'] ?? 0;
     if ($issue_id) {
-        // Extrair todos os TODOs do formData.append('ajax_action', 'update_todo');
-                formData.append('issue_id', issueId);
-                formData.append('todo_index', todoIndex);
-                formData.append('checked', this.checked);
-                
-                fetch('index.php?tab=oportunidades', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(data => {
-                    // Remover spinner
-                    const spinner = document.getElementById(loadingId);
-                    if (spinner) spinner.remove();
-                    
-                    // Reabilitar checkbox
-                    this.disabled = false;
-                    
-                    if (data.success) {
-                        // Atualizar progresso na tabela
-                        if (data.progresso !== undefined) {
-                            atualizarProgresso(issueId, data.progresso);
-                        }
-                        console.log('TODO atualizado com sucesso!');
-                    } else {
-                        console.error('Erro ao atualizar TODO:', data.error);
-                        // Reverter o checkbox se houver erro
-                        this.checked = !this.checked;
-                        if (this.checked) {
-                            label.classList.add('text-decoration-line-through', 'text-muted');
-                        } else {
-                            label.classList.remove('text-decoration-line-through', 'text-muted');
-                        }
-                        
-                        // Mostrar notificação de erro em vez de alerta modal
-                        const notification = document.createElement('div');
-                        notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                        notification.innerHTML = `
-                            <strong>Erro!</strong> Não foi possível atualizar a tarefa.
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        `;
-                        document.body.appendChild(notification);
-                        
-                        // Remover notificação após 5 segundos
-                        setTimeout(() => {
-                            notification.remove();
-                        }, 5000);
-                    }
-                })
-                .catch(error => {
-                    console.error('Erro na requisição:', error);
-                    this.disabled = false;
-                    
-                    // Remover spinner
-                    const spinner = document.getElementById(loadingId);
-                    if (spinner) spinner.remove();
-                    
-                    // Reverter o checkbox se houver erro
-                    this.checked = !this.checked;
-                    if (this.checked) {
-                        label.classList.add('text-decoration-line-through', 'text-muted');
-                    } else {
-                        label.classList.remove('text-decoration-line-through', 'text-muted');
-                    }
-                    
-                    // Mostrar notificação de erro
-                    const notification = document.createElement('div');
-                    notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                    notification.innerHTML = `
-                        <strong>Erro de conexão!</strong> Verifique sua internet e tente novamente.
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    `;
-                    document.body.appendChild(notification);
-                    
-                    // Remover notificação após 5 segundos
-                    setTimeout(() => {
-                        notification.remove();
-                    }, 5000);
-                });
-            });
-        });
-        
-        // Atualizar progresso via slider
-        document.querySelectorAll('.progresso-slider').forEach(slider => {
-            slider.addEventListener('input', function() {
-                const valor = this.value;
-                const issueId = this.getAttribute('data-issue-id');
-                
-                // Atualizar valor exibido
-                document.getElementById('progressValue' + issueId).textContent = valor + '%';
-                
-                // Atualizar barra de progresso
-                document.getElementById('progressBar' + issueId).style.width = valor + '%';
-            });
-            
-            slider.addEventListener('change', function() {
-                const valor = this.value;
-                const issueId = this.getAttribute('data-issue-id');
-                
-                // Enviar atualização via AJAX
-                const formData = new FormData();
-                formData.append('ajax_action', 'update_progresso');
-                formData.append('issue_id', issueId);
-                formData.append('progresso', valor);
-                
-                fetch('index.php?tab=oportunidades', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        console.log('Progresso atualizado com sucesso!');
-                    } else {
-                        console.error('Erro ao atualizar progresso:', data.error);
-                        
-                        // Mostrar notificação de erro
-                        const notification = document.createElement('div');
-                        notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                        notification.innerHTML = `
-                            <strong>Erro!</strong> Não foi possível atualizar o progresso.
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        `;
-                        document.body.appendChild(notification);
-                        
-                        // Remover notificação após 5 segundos
-                        setTimeout(() => {
-                            notification.remove();
-                        }, 5000);
-                    }
-                })
-                .catch(error => {
-                    console.error('Erro na requisição:', error);
-                    
-                    // Mostrar notificação de erro
-                    const notification = document.createElement('div');
-                    notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                    notification.innerHTML = `
-                        <strong>Erro de conexão!</strong> Verifique sua internet e tente novamente.
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    `;
-                    document.body.appendChild(notification);
-                    
-                    // Remover notificação após 5 segundos
-                    setTimeout(() => {
-                        notification.remove();
-                    }, 5000);
-                });
-            });
-        });
-        
-        // Atualizar status via botões
-        document.querySelectorAll('.status-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const issueId = this.getAttribute('data-issue-id');
-                const status = this.getAttribute('data-status');
-                
-                // Atualizar interface visualmente
-                document.querySelectorAll(`.status-btn[data-issue-id="${issueId}"]`).forEach(b => {
-                    b.classList.remove('active');
-                });
-                this.classList.add('active');
-                
-                // Enviar atualização via AJAX
-                const formData = new FormData();
-                formData.append('ajax_action', 'update_status');
-                formData.append('issue_id', issueId);
-                formData.append('status', status);
-                
-                fetch('index.php?tab=oportunidades', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        console.log('Status atualizado com sucesso!');
-                    } else {
-                        console.error('Erro ao atualizar status:', data.error);
-                        
-                        // Mostrar notificação de erro
-                        const notification = document.createElement('div');
-                        notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                        notification.innerHTML = `
-                            <strong>Erro!</strong> Não foi possível atualizar o status.
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        `;
-                        document.body.appendChild(notification);
-                        
-                        // Remover notificação após 5 segundos
-                        setTimeout(() => {
-                            notification.remove();
-                        }, 5000);
-                    }
-                })
-                .catch(error => {
-                    console.error('Erro na requisição:', error);
-                    
-                    // Mostrar notificação de erro
-                    const notification = document.createElement('div');
-                    notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                    notification.innerHTML = `
-                        <strong>Erro de conexão!</strong> Verifique sua internet e tente novamente.
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    `;
-                    document.body.appendChild(notification);
-                    
-                    // Remover notificação após 5 segundos
-                    setTimeout(() => {
-                        notification.remove();
-                    }, 5000);
-                });
-            });
-        });
-    });
-    
-    // Função para atualizar a barra de progresso
-    function atualizarProgresso(issueId, percentual) {
-        const progressBar = document.getElementById('progressBar' + issueId);
-        const progressValue = document.getElementById('progressValue' + issueId);
-        const slider = document.querySelector(`.progresso-slider[data-issue-id="${issueId}"]`);
-        
-        if (progressBar) progressBar.style.width = percentual + '%';
-        if (progressValue) progressValue.textContent = percentual + '%';
-        if (slider) slider.value = percentual;
-    }
-    
-    // Função para adicionar novo TODO
-    function adicionarTodo(issueId) {
-        const container = document.getElementById('todoContainer' + issueId);
-        const todoCount = container.querySelectorAll('.todo-item').length;
-        const todoId = `todo_${issueId}_${new Date().getTime()}`;
-        
-        const todoHtml = `
-            <div class="todo-item">
-                <input class="form-check-input" type="checkbox" name="todo_check_${todoId}">
-                <div class="flex-grow-1 d-flex">
-                    <input type="text" name="todo_text_${todoId}" class="form-control todo-input me-1" 
-                           placeholder="Adicione um item TODO">
-                    <input type="text" name="todo_resp_${todoId}" class="form-control" style="max-width: 150px;"
-                           placeholder="Responsável">
-                </div>
-                <button type="button" class="btn btn-sm btn-outline-danger ms-2" 
-                        onclick="this.parentNode.remove()">
-                    <i class="bi bi-trash"></i>
-                </button>
-            </div>
-        `;
-        
-        container.insertAdjacentHTML('beforeend', todoHtml);
-    }
-</script>
-</body>
-</html>response => response.json())
-                .then(data => {
-                    // Remover spinner
-                    const spinner = document.getElementById(loadingId);
-                    if (spinner) spinner.remove();
-                    
-                    // Reabilitar checkbox
-                    this.disabled = false;
-                    
-                    if (data.success) {
-                        // Atualizar progresso na tabela
-                        if (data.progresso !== undefined) {
-                            atualizarProgresso(issueId, data.progresso);
-                        }
-                        console.log('TODO atualizado com sucesso!');
-                    } else {
-                        console.error('Erro ao atualizar TODO:', data.error);
-                        // Reverter o checkbox se houver erro
-                        this.checked = !this.checked;
-                        if (this.checked) {
-                            label.classList.add('text-decoration-line-through', 'text-muted');
-                        } else {
-                            label.classList.remove('text-decoration-line-through', 'text-muted');
-                        }
-                        
-                        // Mostrar notificação de erro em vez de alerta modal
-                        const notification = document.createElement('div');
-                        notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                        notification.innerHTML = `
-                            <strong>Erro!</strong> Não foi possível atualizar a tarefa.
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        `;
-                        document.body.appendChild(notification);
-                        
-                        // Remover notificação após 5 segundos
-                        setTimeout(() => {
-                            notification.remove();
-                        }, 5000);
-                    }
-                })
-                .catch(error => {
-                    console.error('Erro na requisição:', error);
-                    this.disabled = false;
-                    
-                    // Remover spinner
-                    const spinner = document.getElementById(loadingId);
-                    if (spinner) spinner.remove();
-                    
-                    // Reverter o checkbox se houver erro
-                    this.checked = !this.checked;
-                    if (this.checked) {
-                        label.classList.add('text-decoration-line-through', 'text-muted');
-                    } else {
-                        label.classList.remove('text-decoration-line-through', 'text-muted');
-                    }
-                    
-                    // Mostrar notificação de erro
-                    const notification = document.createElement('div');
-                    notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                    notification.innerHTML = `
-                        <strong>Erro de conexão!</strong> Verifique sua internet e tente novamente.
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    `;
-                    document.body.appendChild(notification);
-                    
-                    // Remover notificação após 5 segundos
-                    setTimeout(() => {
-                        notification.remove();
-                    }, 5000);
-                });
-            });
-        });
-        
-        // Atualizar progresso via slider
-        document.querySelectorAll('.progresso-slider').forEach(slider => {
-            slider.addEventListener('input', function() {
-                const valor = this.value;
-                const issueId = this.getAttribute('data-issue-id');
-                
-                // Atualizar valor exibido
-                document.getElementById('progressValue' + issueId).textContent = valor + '%';
-                
-                // Atualizar barra de progresso
-                document.getElementById('progressBar' + issueId).style.width = valor + '%';
-            });
-            
-            slider.addEventListener('change', function() {
-                const valor = this.value;
-                const issueId = this.getAttribute('data-issue-id');
-                
-                // Enviar atualização via AJAX
-                const formData = new FormData();
-                formData.append('ajax_action', 'update_progresso');
-                formData.append('issue_id', issueId);
-                formData.append('progresso', valor);
-                
-                fetch('index.php?tab=oportunidades', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        console.log('Progresso atualizado com sucesso!');
-                    } else {
-                        console.error('Erro ao atualizar progresso:', data.error);
-                        
-                        // Mostrar notificação de erro
-                        const notification = document.createElement('div');
-                        notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                        notification.innerHTML = `
-                            <strong>Erro!</strong> Não foi possível atualizar o progresso.
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        `;
-                        document.body.appendChild(notification);
-                        
-                        // Remover notificação após 5 segundos
-                        setTimeout(() => {
-                            notification.remove();
-                        }, 5000);
-                    }
-                })
-                .catch(error => {
-                    console.error('Erro na requisição:', error);
-                    
-                    // Mostrar notificação de erro
-                    const notification = document.createElement('div');
-                    notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                    notification.innerHTML = `
-                        <strong>Erro de conexão!</strong> Verifique sua internet e tente novamente.
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    `;
-                    document.body.appendChild(notification);
-                    
-                    // Remover notificação após 5 segundos
-                    setTimeout(() => {
-                        notification.remove();
-                    }, 5000);
-                });
-            });
-        });
-        
-        // Atualizar status via botões
-        document.querySelectorAll('.status-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const issueId = this.getAttribute('data-issue-id');
-                const status = this.getAttribute('data-status');
-                
-                // Atualizar interface visualmente
-                document.querySelectorAll(`.status-btn[data-issue-id="${issueId}"]`).forEach(b => {
-                    b.classList.remove('active');
-                });
-                this.classList.add('active');
-                
-                // Enviar atualização via AJAX
-                const formData = new FormData();
-                formData.append('ajax_action', 'update_status');
-                formData.append('issue_id', issueId);
-                formData.append('status', status);
-                
-                fetch('index.php?tab=oportunidades', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        console.log('Status atualizado com sucesso!');
-                    } else {
-                        console.error('Erro ao atualizar status:', data.error);
-                        
-                        // Mostrar notificação de erro
-                        const notification = document.createElement('div');
-                        notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                        notification.innerHTML = `
-                            <strong>Erro!</strong> Não foi possível atualizar o status.
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        `;
-                        document.body.appendChild(notification);
-                        
-                        // Remover notificação após 5 segundos
-                        setTimeout(() => {
-                            notification.remove();
-                        }, 5000);
-                    }
-                })
-                .catch(error => {
-                    console.error('Erro na requisição:', error);
-                    
-                    // Mostrar notificação de erro
-                    const notification = document.createElement('div');
-                    notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                    notification.innerHTML = `
-                        <strong>Erro de conexão!</strong> Verifique sua internet e tente novamente.
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    `;
-                    document.body.appendChild(notification);
-                    
-                    // Remover notificação após 5 segundos
-                    setTimeout(() => {
-                        notification.remove();
-                    }, 5000);
-                });
-            });
-        });
-    });
-    
-    // Função para atualizar a barra de progresso
-    function atualizarProgresso(issueId, percentual) {
-        const progressBar = document.getElementById('progressBar' + issueId);
-        const progressValue = document.getElementById('progressValue' + issueId);
-        const slider = document.querySelector(`.progresso-slider[data-issue-id="${issueId}"]`);
-        
-        if (progressBar) progressBar.style.width = percentual + '%';
-        if (progressValue) progressValue.textContent = percentual + '%';
-        if (slider) slider.value = percentual;
-    }
-    
-    // Função para adicionar novo TODO
-    function adicionarTodo(issueId) {
-        const container = document.getElementById('todoContainer' + issueId);
-        const todoCount = container.querySelectorAll('.todo-item').length;
-        const todoId = `todo_${issueId}_${new Date().getTime()}`;
-        
-        const todoHtml = `
-            <div class="todo-item">
-                <input class="form-check-input" type="checkbox" name="todo_check_${todoId}">
-                <div class="flex-grow-1 d-flex">
-                    <input type="text" name="todo_text_${todoId}" class="form-control todo-input me-1" 
-                           placeholder="Adicione um item TODO">
-                    <input type="text" name="todo_resp_${todoId}" class="form-control" style="max-width: 150px;"
-                           placeholder="Responsável">
-                </div>
-                <button type="button" class="btn btn-sm btn-outline-danger ms-2" 
-                        onclick="this.parentNode.remove()">
-                    <i class="bi bi-trash"></i>
-                </button>
-            </div>
-        `;
-        
-        container.insertAdjacentHTML('beforeend', todoHtml);
-    }
-</script>
-</body>
-</html>ulário
+        // Extrair todos os TODOs do formulário
         $todos = [];
         foreach ($_POST as $key => $value) {
             if (strpos($key, 'todo_text_') === 0) {
@@ -1776,4 +1295,120 @@ function renderizar_tabela_oportunidades($issues) {
                 
                 // Enviar atualização via AJAX
                 const formData = new FormData();
-                form
+                formData.append('ajax_action', 'update_todo');
+                formData.append('issue_id', issueId);
+                formData.append('todo_index', todoIndex);
+                formData.append('checked', this.checked);
+                
+                fetch('index.php?tab=oportunidades', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // Remover spinner
+                    const spinner = document.getElementById(loadingId);
+                    if (spinner) spinner.remove();
+                    
+                    // Reabilitar checkbox
+                    this.disabled = false;
+                    
+                    if (data.success) {
+                        // Atualizar progresso na tabela
+                        if (data.progresso !== undefined) {
+                            atualizarProgresso(issueId, data.progresso);
+                        }
+                        console.log('TODO atualizado com sucesso!');
+                    } else {
+                        console.error('Erro ao atualizar TODO:', data.error);
+                        // Reverter o checkbox se houver erro
+                        this.checked = !this.checked;
+                        if (this.checked) {
+                            label.classList.add('text-decoration-line-through', 'text-muted');
+                        } else {
+                            label.classList.remove('text-decoration-line-through', 'text-muted');
+                        }
+                        
+                        // Mostrar notificação de erro em vez de alerta modal
+                        const notification = document.createElement('div');
+                        notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
+                        notification.innerHTML = `
+                            <strong>Erro!</strong> Não foi possível atualizar a tarefa.
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        `;
+                        document.body.appendChild(notification);
+                        
+                        // Remover notificação após 5 segundos
+                        setTimeout(() => {
+                            notification.remove();
+                        }, 5000);
+                    }
+                })
+        document.querySelectorAll('.todo-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', function() {
+                const listItem = this.closest('.todo-item-clickable');
+                const issueId = listItem.getAttribute('data-issue-id');
+                const todoIndex = listItem.getAttribute('data-todo-index');
+                const label = this.nextElementSibling;
+                
+                // Atualizar visualmente
+                if (this.checked) {
+                    label.classList.add('text-decoration-line-through', 'text-muted');
+                } else {
+                    label.classList.remove('text-decoration-line-through', 'text-muted');
+                }
+                
+                // Mostrar indicador de carregamento
+                const loadingId = 'loading-' + issueId + '-' + todoIndex;
+                if (!document.getElementById(loadingId)) {
+                    const spinner = document.createElement('span');
+                    spinner.id = loadingId;
+                    spinner.className = 'spinner-border spinner-border-sm ms-2';
+                    spinner.setAttribute('role', 'status');
+                    spinner.style.width = '1rem';
+                    spinner.style.height = '1rem';
+                    listItem.appendChild(spinner);
+                }
+                
+                // Desabilitar checkbox durante o salvamento
+                this.disabled = true;
+                
+                // Enviar atualização via AJAX
+                const formData = new FormData();
+                formData.append('ajax_action', 'update_todo');
+                formData.append('issue_id', issueId);
+                formData.append('todo_index', todoIndex);
+                formData.append('checked', this.checked);
+                
+                fetch('index.php?tab=oportunidades', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // Remover spinner
+                    const spinner = document.getElementById(loadingId);
+                    if (spinner) spinner.remove();
+                    
+                    // Reabilitar checkbox
+                    this.disabled = false;
+                    
+                    if (data.success) {
+                        // Atualizar progresso na tabela
+                        if (data.progresso !== undefined) {
+                            atualizarProgresso(issueId, data.progresso);
+                        }
+                        console.log('TODO atualizado com sucesso!');
+                    } else {
+                        console.error('Erro ao atualizar TODO:', data.error);
+                        // Reverter o checkbox se houver erro
+                        this.checked = !this.checked;
+                        if (this.checked) {
+                            label.classList.add('text-decoration-line-through', 'text-muted');
+                        } else {
+                            label.classList.remove('text-decoration-line-through', 'text-muted');
+                        }
+                        
+                        // Mostrar notificação de erro em vez de alerta modal
+                        const notification = document.createElement('div');
+                        notification.className = 'alert alert-danger alert-dismissible fade

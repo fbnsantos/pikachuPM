@@ -886,8 +886,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && (
             
             if ($milestoneId && $taskId) {
                 try {
-                    // Obter detalhes da tarefa
-                    $task = callRedmineAPI('/issues/' . $taskId . '.json');
+                    // Obter detalhes da tarefa com informações adicionais
+                    $task = callRedmineAPI('/issues/' . $taskId . '.json?include=project,assigned_to');
                     
                     if (isset($task['error']) || !isset($task['issue'])) {
                         $errorMessage = isset($task['error']) ? $task['error'] : 'Erro ao obter detalhes da tarefa';
@@ -925,10 +925,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && (
                     
                     if (!$taskExists) {
                         // Adicionar tarefa ao backlog
-                        $tasks['backlog'][] = [
+                        $taskData = [
                             'id' => (int)$taskId,
                             'title' => $taskDetails['subject']
                         ];
+                        
+                        // Adicionar informações do projeto se disponíveis
+                        if (isset($taskDetails['project'])) {
+                            $taskData['project'] = [
+                                'id' => $taskDetails['project']['id'],
+                                'name' => $taskDetails['project']['name']
+                            ];
+                        }
+                        
+                        // Adicionar informações do responsável se disponíveis
+                        if (isset($taskDetails['assigned_to'])) {
+                            $displayName = isset($taskDetails['assigned_to']['name']) ? 
+                                $taskDetails['assigned_to']['name'] : 
+                                (isset($taskDetails['assigned_to']['firstname']) && isset($taskDetails['assigned_to']['lastname']) ? 
+                                    $taskDetails['assigned_to']['firstname'] . ' ' . $taskDetails['assigned_to']['lastname'] : 
+                                    'Usuário #' . $taskDetails['assigned_to']['id']);
+                            
+                            $taskData['assignee'] = [
+                                'id' => $taskDetails['assigned_to']['id'],
+                                'name' => $displayName
+                            ];
+                        }
+                        
+                        $tasks['backlog'][] = $taskData;
                         
                         // Atualizar a descrição da milestone
                         $newDescription = formatMilestoneDescription($associated['prototypes'], $associated['projects'], $tasks);
@@ -946,10 +970,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && (
                         } else {
                             echo json_encode([
                                 'success' => true, 
-                                'task' => [
-                                    'id' => (int)$taskId,
-                                    'title' => $taskDetails['subject']
-                                ]
+                                'task' => $taskData
                             ]);
                         }
                     } else {
@@ -966,7 +987,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && (
                 exit;
             }
             break;
-            
         case 'remove_task':
             $milestoneId = $_POST['milestone_id'] ?? null;
             $taskId = $_POST['task_id'] ?? null;

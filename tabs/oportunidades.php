@@ -1305,6 +1305,7 @@ function renderizar_tabela_oportunidades($issues) {
                         console.log('TODO atualizado com sucesso!');
                     } else {
                         console.error('Erro ao atualizar TODO:', data.error);
+                        
                         // Reverter o checkbox se houver erro
                         this.checked = !this.checked;
                         if (this.checked) {
@@ -1314,7 +1315,52 @@ function renderizar_tabela_oportunidades($issues) {
                         }
                         
                         // Mostrar notificação de erro em vez de alerta modal
-                        const notification = document.createElement('div');
-                        notification.className = 'alert alert-danger alert-dismissible fade'
+                        mostrarNotificacaoErro('Erro ao atualizar a tarefa: ' + data.error);
                     }
-                }
+                })
+                .catch(error => {
+                    console.error('Erro na requisição:', error);
+                    
+                    // Reverter o checkbox se houver erro
+                    this.disabled = false;
+                    this.checked = !this.checked;
+                    if (this.checked) {
+                        label.classList.add('text-decoration-line-through', 'text-muted');
+                    } else {
+                        label.classList.remove('text-decoration-line-through', 'text-muted');
+                    }
+                    
+                    // Mostrar notificação de erro
+                    mostrarNotificacaoErro('Erro de conexão. Verifique sua internet e tente novamente.');
+                });
+            });
+        });
+        
+        // Função para exibir notificações de erro
+        function mostrarNotificacaoErro(mensagem) {
+            const notification = document.createElement('div');
+            notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
+            notification.innerHTML = `
+                <strong>Erro!</strong> ${mensagem}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            document.body.appendChild(notification);
+            
+            // Remover notificação após 5 segundos
+            setTimeout(() => {
+                notification.remove();
+            }, 5000);
+        }
+
+        // Função para atualizar a barra de progresso
+        function atualizarProgresso(issueId, percentual) {
+            const progressBar = document.getElementById('progressBar' + issueId);
+            const progressValue = document.getElementById('progressValue' + issueId);
+            const slider = document.querySelector(`.progresso-slider[data-issue-id="${issueId}"]`);
+            
+            if (progressBar) progressBar.style.width = percentual + '%';
+            if (progressValue) progressValue.textContent = percentual + '%';
+            if (slider) slider.value = percentual;
+        }
+    });
+</script>

@@ -135,6 +135,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                         $nova_descricao .= "\n#progresso:" . $tags['progresso_manual'];
                     }
                     
+                    // Adicionar status se existente
+                    if (!empty($tags['status'])) {
+                        $nova_descricao .= "\n#status:" . $tags['status'];
+                    }
+                    
                     // Calcular novo progresso baseado nos TODOs
                     $total_todos = count($tags['todos']);
                     $concluidos = 0;
@@ -178,6 +183,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 $tags['progresso_manual'] = $progresso;
                 $success = true;
             }
+            // Atualizar o status da oportunidade
+            elseif ($action === 'update_status' && isset($_POST['status'])) {
+                $status = $_POST['status'];
+                $tags['status'] = $status;
+                $success = true;
+            }
             
             if ($success) {
                 // Adicionar TODOs atualizados
@@ -212,6 +223,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                     $nova_descricao .= "\n#progresso:" . $progresso;
                 }
                 
+                // Adicionar status
+                if ($action === 'update_status' || !empty($tags['status'])) {
+                    $status = $action === 'update_status' ? $_POST['status'] : $tags['status'];
+                    $nova_descricao .= "\n#status:" . $status;
+                }
+                
                 // Atualizar a issue
                 $data = [
                     'issue' => [
@@ -225,7 +242,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 header('Content-Type: application/json');
                 echo json_encode([
                     'success' => true,
-                    'progresso' => $action === 'update_progresso' ? (int)$_POST['progresso'] : $tags['percent_concluido']
+                    'progresso' => $action === 'update_progresso' ? (int)$_POST['progresso'] : $tags['percent_concluido'],
+                    'status' => $action === 'update_status' ? $_POST['status'] : $tags['status']
                 ]);
                 exit;
             }
@@ -303,6 +321,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['atualizar_issue'])) {
             $description .= "\n#relevance:" . $_POST['relevance'];
         }
         
+        // Adicionar status se especificado
+        if (isset($_POST['status'])) {
+            $description .= "\n#status:" . $_POST['status'];
+        }
+        
         $data = [
             'issue' => [
                 'description' => $description
@@ -349,6 +372,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['novo_titulo'])) {
         $descricao .= "\n#relevance:" . ($_POST['novo_relevancia'] ?? 5);
     }
     
+    // Adicionar status padrão como "não submetida"
+    $descricao .= "\n#status:nao_submetida";
+    
     $data = [
         'issue' => [
             'project_id' => $project_id,
@@ -385,6 +411,7 @@ if (isset($_GET['debug_issue']) && !empty($_GET['debug_issue'])) {
 function extrair_tags($texto) {
     preg_match('/#deadline:(\d{4}-\d{2}-\d{2})/', $texto, $dl);
     preg_match('/#relevance:(\d+)/', $texto, $rl);
+    preg_match('/#status:([a-z_]+)/', $texto, $st);
     
     // Extrair TODOs - versão melhorada para depuração
     $todos = [];
@@ -438,6 +465,9 @@ function extrair_tags($texto) {
     // Se tiver progresso manual, usar ele; caso contrário, usar o cálculo dos TODOs
     $percent_concluido = $progresso_manual > 0 ? $progresso_manual : $percent_todos_concluido;
     
+    // Definir status padrão se não estiver definido
+    $status = !empty($st[1]) ? $st[1] : 'nao_submetida';
+    
     return [
         'deadline' => $dl[1] ?? '',
         'relevance' => (int)($rl[1] ?? 0),
@@ -445,7 +475,8 @@ function extrair_tags($texto) {
         'links' => $links,
         'dias_restantes' => $dias_restantes,
         'percent_concluido' => $percent_concluido,
-        'progresso_manual' => $progresso_manual
+        'progresso_manual' => $progresso_manual,
+        'status' => $status
     ];
 }
 
@@ -456,52 +487,84 @@ function extrair_descricao_simples($texto) {
     $texto = preg_replace('/#deadline:\d{4}-\d{2}-\d{2}/', '', $texto);
     $texto = preg_replace('/#relevance:\d+/', '', $texto);
     $texto = preg_replace('/#progresso:\d+/', '', $texto);
+    $texto = preg_replace('/#status:[a-z_]+/', '', $texto);
     
     // Remove linhas em branco extras
     $texto = preg_replace('/\n{3,}/', "\n\n", $texto);
     return trim($texto);
 }
 
-    // Verificar possíveis problemas com a extração de TODOs e links
-    function debug_extraction($texto) {
-        $matches = [];
-        $todo_matches = [];
-        $link_matches = [];
-        
-        // Verificar a extração de TODOs
-        $has_todos_section = preg_match('/### TODOs:\n((?:- \[[ x]\] .+\n?)*)/', $texto, $matches);
-        if ($has_todos_section) {
-            $todos_content = $matches[1];
-            $has_todo_items = preg_match_all('/- \[([ x])\] (.+)/', $todos_content, $todo_matches, PREG_SET_ORDER);
-        }
-        
-        // Verificar a extração de links
-        $has_links_section = preg_match('/### Links:\n((?:- .+\n?)*)/', $texto, $matches);
-        if ($has_links_section) {
-            $links_content = $matches[1];
-            $has_link_items = preg_match_all('/- (.+)/', $links_content, $link_matches, PREG_SET_ORDER);
-        }
-        
-        return [
-            'has_todos_section' => $has_todos_section ? true : false,
-            'todos_count' => count($todo_matches),
-            'has_links_section' => $has_links_section ? true : false, 
-            'links_count' => count($link_matches)
-        ];
+// Verificar possíveis problemas com a extração de TODOs e links
+function debug_extraction($texto) {
+    $matches = [];
+    $todo_matches = [];
+    $link_matches = [];
+    
+    // Verificar a extração de TODOs
+    $has_todos_section = preg_match('/### TODOs:\n((?:- \[[ x]\] .+\n?)*)/', $texto, $matches);
+    if ($has_todos_section) {
+        $todos_content = $matches[1];
+        $has_todo_items = preg_match_all('/- \[([ x])\] (.+)/', $todos_content, $todo_matches, PREG_SET_ORDER);
     }
+    
+    // Verificar a extração de links
+    $has_links_section = preg_match('/### Links:\n((?:- .+\n?)*)/', $texto, $matches);
+    if ($has_links_section) {
+        $links_content = $matches[1];
+        $has_link_items = preg_match_all('/- (.+)/', $links_content, $link_matches, PREG_SET_ORDER);
+    }
+    
+    return [
+        'has_todos_section' => $has_todos_section ? true : false,
+        'todos_count' => count($todo_matches),
+        'has_links_section' => $has_links_section ? true : false, 
+        'links_count' => count($link_matches)
+    ];
+}
+
+// Organizar oportunidades por categoria
+$oportunidades_passadas = [];
+$oportunidades_em_curso = [];
+$oportunidades_submetidas = [];
+$oportunidades_nao_submetidas = [];
+
+foreach ($issues as $issue) {
+    $tags = extrair_tags($issue['description']);
+    
+    // Classificar por status e deadline
+    if ($tags['status'] === 'submetida') {
+        $oportunidades_submetidas[] = $issue;
+    } elseif ($tags['status'] === 'nao_submetida') {
+        $oportunidades_nao_submetidas[] = $issue;
+    } elseif (!empty($tags['deadline']) && $tags['dias_restantes'] < 0) {
+        $oportunidades_passadas[] = $issue;
+    } else {
+        $oportunidades_em_curso[] = $issue;
+    }
+}
 
 $ordenar = $_GET['ordenar'] ?? 'relevance';
-usort($issues, function($a, $b) use ($ordenar) {
-    $ta = extrair_tags($a['description']);
-    $tb = extrair_tags($b['description']);
-    if ($ordenar === 'deadline') {
-        // Se uma das oportunidades não tem deadline, coloca no final
-        if (empty($ta['deadline'])) return 1;
-        if (empty($tb['deadline'])) return -1;
-        return strtotime($ta['deadline']) <=> strtotime($tb['deadline']);
-    }
-    return $tb['relevance'] <=> $ta['relevance'];
-});
+
+// Função para ordenar oportunidades
+function ordenar_oportunidades(&$array, $criterio) {
+    usort($array, function($a, $b) use ($criterio) {
+        $ta = extrair_tags($a['description']);
+        $tb = extrair_tags($b['description']);
+        if ($criterio === 'deadline') {
+            // Se uma das oportunidades não tem deadline, coloca no final
+            if (empty($ta['deadline'])) return 1;
+            if (empty($tb['deadline'])) return -1;
+            return strtotime($ta['deadline']) <=> strtotime($tb['deadline']);
+        }
+        return $tb['relevance'] <=> $ta['relevance'];
+    });
+}
+
+// Ordenar cada categoria
+ordenar_oportunidades($oportunidades_passadas, $ordenar);
+ordenar_oportunidades($oportunidades_em_curso, $ordenar);
+ordenar_oportunidades($oportunidades_submetidas, $ordenar);
+ordenar_oportunidades($oportunidades_nao_submetidas, $ordenar);
 ?>
 
 <!DOCTYPE html>
@@ -567,6 +630,37 @@ usort($issues, function($a, $b) use ($ordenar) {
         .links-list li {
             margin-bottom: 6px;
         }
+        .categoria-header {
+            background-color: #f8f9fa;
+            padding: 10px 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            border-left: 5px solid;
+        }
+        .categoria-passadas {
+            border-left-color: #dc3545;
+        }
+        .categoria-em-curso {
+            border-left-color: #0d6efd;
+        }
+        .categoria-submetidas {
+            border-left-color: #198754;
+        }
+        .categoria-nao-submetidas {
+            border-left-color: #6c757d;
+        }
+        .nav-tabs .nav-link.active {
+            font-weight: bold;
+        }
+        .categoria-badge {
+            margin-left: 5px;
+            font-size: 0.8rem;
+        }
+        .status-badge {
+            font-size: 0.7rem;
+            padding: 0.25em 0.6em;
+            margin-left: 5px;
+        }
     </style>
 </head>
 <body>
@@ -624,343 +718,484 @@ usort($issues, function($a, $b) use ($ordenar) {
         </div>
     </div>
 
-    <!-- Lista de oportunidades em formato de tabela -->
-    <div class="card">
-        <div class="card-body p-0">
-            <table class="table table-hover mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>Título</th>
-                        <th class="text-center" style="width: 120px;">Relevância</th>
-                        <th class="text-center" style="width: 150px;">Deadline</th>
-                        <th class="text-center" style="width: 150px;">Progresso</th>
-                        <th class="text-center" style="width: 80px;">Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php 
-                    if (empty($issues)) {
-                        echo '<tr><td colspan="5" class="text-center py-3">Nenhuma oportunidade cadastrada.</td></tr>';
-                    }
-                    
-                    foreach ($issues as $i): 
-                        $tags = extrair_tags($i['description']);
-                        $descricao_simples = extrair_descricao_simples($i['description']);
-                        
-                        // Determinar classe para deadline
-                        $deadline_class = '';
-                        $dias_texto = '';
-                        if ($tags['dias_restantes'] !== null) {
-                            if ($tags['dias_restantes'] < 0) {
-                                $deadline_class = 'deadline-expired';
-                                $dias_texto = 'Atrasado há ' . abs($tags['dias_restantes']) . ' dias';
-                            } elseif ($tags['dias_restantes'] <= 3) {
-                                $deadline_class = 'deadline-danger';
-                                $dias_texto = 'Faltam ' . $tags['dias_restantes'] . ' dias';
-                            } elseif ($tags['dias_restantes'] <= 7) {
-                                $deadline_class = 'deadline-warning';
-                                $dias_texto = 'Faltam ' . $tags['dias_restantes'] . ' dias';
-                            } else {
-                                $dias_texto = 'Faltam ' . $tags['dias_restantes'] . ' dias';
-                            }
-                        }
-                        
-                        // Determinar classe para barra de progresso
-                        $progress_class = 'bg-primary';
-                        if ($tags['percent_concluido'] >= 100) {
-                            $progress_class = 'bg-success';
-                        } elseif ($tags['percent_concluido'] >= 70) {
-                            $progress_class = 'bg-info';
-                        } elseif ($tags['percent_concluido'] >= 40) {
-                            $progress_class = 'bg-primary';
-                        } elseif ($tags['percent_concluido'] >= 20) {
-                            $progress_class = 'bg-warning';
-                        } else {
-                            $progress_class = 'bg-danger';
-                        }
-                    ?>
-                    <tr class="oportunidade-row" data-id="<?= $i['id'] ?>">
-                        <td class="align-middle">
-                            <span class="fw-bold"><?= htmlspecialchars($i['subject']) ?></span>
-                        </td>
-                        <td class="text-center align-middle">
-                            <?php if ($tags['relevance']): ?>
-                                <span class="badge bg-warning text-dark"><?= $tags['relevance'] ?>/10</span>
-                            <?php else: ?>
-                                <span class="badge bg-secondary">N/A</span>
-                            <?php endif; ?>
-                        </td>
-                        <td class="text-center align-middle">
-                            <?php if ($tags['deadline']): ?>
-                                <span class="<?= $deadline_class ?>">
-                                    <?= date('d/m/Y', strtotime($tags['deadline'])) ?>
-                                    <br>
-                                    <small><?= $dias_texto ?></small>
-                                </span>
-                            <?php else: ?>
-                                <span class="text-muted">--</span>
-                            <?php endif; ?>
-                        </td>
-                        <td class="text-center align-middle">
-                            <div class="d-flex align-items-center">
-                                <div class="progress w-100 me-2">
-                                    <div class="progress-bar <?= $progress_class ?>" role="progressbar" 
-                                         style="width: <?= $tags['percent_concluido'] ?>%;" 
-                                         aria-valuenow="<?= $tags['percent_concluido'] ?>" aria-valuemin="0" aria-valuemax="100"></div>
-                                </div>
-                                <span class="badge bg-secondary"><?= $tags['percent_concluido'] ?>%</span>
-                            </div>
-                        </td>
-                        <td class="text-center align-middle">
-                            <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" 
-                                    data-bs-target="#collapse<?= $i['id'] ?>">
-                                <i class="bi bi-pencil"></i>
-                            </button>
-                        </td>
-                    </tr>
-                    <!-- Detalhes expandidos -->
-                    <tr class="oportunidade-details" id="details<?= $i['id'] ?>">
-                        <td colspan="5" class="p-0">
-                            <div class="p-3 bg-light border-top">
-                                <div class="row g-3">
-                                    <!-- Seção TODOs -->
-                                    <div class="col-md-12">
-                                        <div class="card">
-                                            <div class="card-header bg-primary text-white py-2">
-                                                <i class="bi bi-check2-square"></i> TODOs
-                                            </div>
-                                            <div class="card-body">
-                                                <!-- DEBUG INFO 
-                                                <div class="card mt-2 mb-2">
-                                                    <div class="card-body bg-light">
-                                                        <small class="text-muted">Debug info:</small>
-                                                        <pre class="mb-0" style="font-size: 10px; overflow: auto; max-height: 100px;">
-                                                            <?= print_r(debug_extraction($i['description']), true) ?>
-                                                        </pre>
-                                                    </div>
-                                                </div>
-                                                -->
-                                                
-                                                <?php if (empty($tags['todos'])): ?>
-                                                <p class="text-muted">Nenhuma tarefa cadastrada para esta oportunidade.</p>
-                                                <?php else: ?>
-                                                <ul class="todo-list">
-                                                    <?php foreach ($tags['todos'] as $index => $todo): ?>
-                                                    <li class="todo-item-clickable mb-2" data-issue-id="<?= $i['id'] ?>" data-todo-index="<?= $index ?>">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input todo-checkbox" type="checkbox" 
-                                                                   <?= $todo['checked'] ? 'checked' : '' ?>>
-                                                            <label class="form-check-label <?= $todo['checked'] ? 'text-decoration-line-through text-muted' : '' ?>">
-                                                                <?= htmlspecialchars($todo['text']) ?>
-                                                            </label>
-                                                        </div>
-                                                    </li>
-                                                    <?php endforeach; ?>
-                                                </ul>
-                                                <?php endif; ?>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- Barra de Progresso Manual -->
-                                    <div class="col-md-12">
-                                        <div class="card">
-                                            <div class="card-header bg-success text-white py-2">
-                                                <i class="bi bi-bar-chart-line"></i> Progresso
-                                            </div>
-                                            <div class="card-body">
-                                                <div class="mb-1 d-flex justify-content-between">
-                                                    <span>0%</span>
-                                                    <span>Progresso: <span id="progressValue<?= $i['id'] ?>"><?= $tags['percent_concluido'] ?></span>%</span>
-                                                    <span>100%</span>
-                                                </div>
-                                                <input type="range" class="form-range progresso-slider" 
-                                                       min="0" max="100" step="5" 
-                                                       value="<?= $tags['percent_concluido'] ?>"
-                                                       data-issue-id="<?= $i['id'] ?>">
-                                                <div class="progress mt-2" style="height: 10px;">
-                                                    <div class="progress-bar bg-success" 
-                                                         id="progressBar<?= $i['id'] ?>"
-                                                         role="progressbar" 
-                                                         style="width: <?= $tags['percent_concluido'] ?>%;" 
-                                                         aria-valuenow="<?= $tags['percent_concluido'] ?>" 
-                                                         aria-valuemin="0" 
-                                                         aria-valuemax="100"></div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- Seção Links -->
-                                    <div class="col-md-6">
-                                        <div class="card h-100">
-                                            <div class="card-header bg-info text-white py-2">
-                                                <i class="bi bi-link-45deg"></i> Links
-                                            </div>
-                                            <div class="card-body">
-                                                <?php if (empty($tags['links'])): ?>
-                                                <p class="text-muted">Nenhum link cadastrado para esta oportunidade.</p>
-                                                <?php else: ?>
-                                                <ul class="links-list">
-                                                    <?php foreach ($tags['links'] as $link): 
-                                                        // Parsear markdown links [text](url)
-                                                        if (preg_match('/\[(.+?)\]\((.+?)\)/', $link, $matches)) {
-                                                            $link_text = $matches[1];
-                                                            $link_url = $matches[2];
-                                                        } else {
-                                                            $link_text = $link;
-                                                            $link_url = $link;
-                                                        }
-                                                    ?>
-                                                    <li class="mb-2">
-                                                        <a href="<?= htmlspecialchars($link_url) ?>" target="_blank" class="d-inline-flex align-items-center">
-                                                            <i class="bi bi-box-arrow-up-right me-2"></i> 
-                                                            <span><?= htmlspecialchars($link_text) ?></span>
-                                                        </a>
-                                                    </li>
-                                                    <?php endforeach; ?>
-                                                </ul>
-                                                <?php endif; ?>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- Seção Descrição -->
-                                    <div class="col-md-6">
-                                        <div class="card h-100">
-                                            <div class="card-header bg-secondary text-white py-2">
-                                                <i class="bi bi-file-text"></i> Descrição
-                                            </div>
-                                            <div class="card-body">
-                                                <?php if (empty($descricao_simples)): ?>
-                                                <p class="text-muted">Sem descrição detalhada.</p>
-                                                <?php else: ?>
-                                                <div style="white-space: pre-wrap;"><?= htmlspecialchars($descricao_simples) ?></div>
-                                                <?php endif; ?>
-                                                
-                                                <hr>
-                                                
-                                                <p class="small text-muted mb-0">
-                                                    <i class="bi bi-hash"></i> <?= $i['id'] ?> | 
-                                                    <i class="bi bi-person"></i> <?= htmlspecialchars($i['author']['name']) ?> | 
-                                                    <i class="bi bi-calendar"></i> <?= date('d/m/Y', strtotime($i['created_on'])) ?>
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </td>
-                    </tr>
-                    
-                    <!-- Formulário de edição colapsável -->
-                    <tr class="collapse" id="collapse<?= $i['id'] ?>">
-                        <td colspan="5" class="p-0">
-                            <div class="p-3 bg-white border-top">
-                                <form method="post" class="row g-3">
-                                    <input type="hidden" name="atualizar_issue" value="1">
-                                    <input type="hidden" name="issue_id" value="<?= $i['id'] ?>">
-                                    
-                                    <div class="col-md-12">
-                                        <label class="form-label">Título</label>
-                                        <input type="text" name="titulo" class="form-control" 
-                                               value="<?= htmlspecialchars($i['subject']) ?>">
-                                    </div>
-                                    
-                                    <div class="col-md-6">
-                                        <label class="form-label">Deadline</label>
-                                        <input type="date" name="deadline" class="form-control" 
-                                               value="<?= $tags['deadline'] ?>">
-                                    </div>
-                                    
-                                    <div class="col-md-6">
-                                        <label class="form-label">Relevância (1-10)</label>
-                                        <input type="number" name="relevance" class="form-control" 
-                                               min="1" max="10" value="<?= $tags['relevance'] ?>">
-                                    </div>
-                                    
-                                    <div class="col-md-12">
-                                        <label class="form-label">Descrição</label>
-                                        <textarea name="descricao" class="form-control" rows="3"><?= htmlspecialchars($descricao_simples) ?></textarea>
-                                    </div>
-                                    
-                                    <div class="col-md-6">
-                                        <label class="form-label">Lista de TODOs</label>
-                                        <div id="todoContainer<?= $i['id'] ?>">
-                                            <?php 
-                                            $todo_count = 0;
-                                            foreach ($tags['todos'] as $todo): 
-                                                $todo_id = "todo_{$i['id']}_{$todo_count}";
-                                            ?>
-                                            <div class="todo-item">
-                                                <input class="form-check-input" type="checkbox" name="todo_check_<?= $todo_id ?>" 
-                                                       <?= $todo['checked'] ? 'checked' : '' ?>>
-                                                <input type="text" name="todo_text_<?= $todo_id ?>" class="form-control todo-input" 
-                                                       value="<?= htmlspecialchars($todo['text']) ?>">
-                                                <button type="button" class="btn btn-sm btn-outline-danger ms-2" 
-                                                        onclick="this.parentNode.remove()">
-                                                    <i class="bi bi-trash"></i>
-                                                </button>
-                                            </div>
-                                            <?php 
-                                                $todo_count++; 
-                                            endforeach; 
-                                            
-                                            // Se não houver TODOs, adicionar um vazio
-                                            if ($todo_count == 0):
-                                                $todo_id = "todo_{$i['id']}_0";
-                                            ?>
-                                            <div class="todo-item">
-                                                <input class="form-check-input" type="checkbox" name="todo_check_<?= $todo_id ?>">
-                                                <input type="text" name="todo_text_<?= $todo_id ?>" class="form-control todo-input" 
-                                                       placeholder="Adicione um item TODO">
-                                                <button type="button" class="btn btn-sm btn-outline-danger ms-2" 
-                                                        onclick="this.parentNode.remove()">
-                                                    <i class="bi bi-trash"></i>
-                                                </button>
-                                            </div>
-                                            <?php endif; ?>
-                                        </div>
-                                        
-                                        <button type="button" class="btn btn-sm btn-outline-success add-todo-btn" 
-                                                onclick="adicionarTodo(<?= $i['id'] ?>)">
-                                            <i class="bi bi-plus-circle"></i> Adicionar TODO
-                                        </button>
-                                    </div>
-                                    
-                                    <div class="col-md-6">
-                                        <label class="form-label">Links (um por linha)</label>
-                                        <textarea name="links" class="form-control" rows="4" placeholder="Formato: texto url ou [texto](url)"><?php 
-                                            if (!empty($tags['links'])) {
-                                                echo htmlspecialchars(implode("\n", $tags['links']));
-                                            }
-                                        ?></textarea>
-                                        <small class="form-text text-muted">
-                                            Você pode adicionar links no formato "texto URL" ou "[texto](URL)"
-                                        </small>
-                                    </div>
-                                    
-                                    <div class="col-md-12 mt-3">
-                                        <button type="submit" class="btn btn-primary">
-                                            <i class="bi bi-save"></i> Salvar Alterações
-                                        </button>
-                                        <button type="button" class="btn btn-secondary" 
-                                                data-bs-toggle="collapse" data-bs-target="#collapse<?= $i['id'] ?>">
-                                            Cancelar
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+    <!-- Abas de categorias -->
+    <ul class="nav nav-tabs" id="categoriasTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="todas-tab" data-bs-toggle="tab" data-bs-target="#todas" 
+                    type="button" role="tab" aria-controls="todas" aria-selected="true">
+                Todas
+                <span class="badge bg-secondary categoria-badge"><?= count($issues) ?></span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="em-curso-tab" data-bs-toggle="tab" data-bs-target="#em-curso" 
+                    type="button" role="tab" aria-controls="em-curso" aria-selected="false">
+                Em Curso
+                <span class="badge bg-primary categoria-badge"><?= count($oportunidades_em_curso) ?></span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="nao-submetidas-tab" data-bs-toggle="tab" data-bs-target="#nao-submetidas" 
+                    type="button" role="tab" aria-controls="nao-submetidas" aria-selected="false">
+                Não Submetidas
+                <span class="badge bg-secondary categoria-badge"><?= count($oportunidades_nao_submetidas) ?></span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="submetidas-tab" data-bs-toggle="tab" data-bs-target="#submetidas" 
+                    type="button" role="tab" aria-controls="submetidas" aria-selected="false">
+                Submetidas
+                <span class="badge bg-success categoria-badge"><?= count($oportunidades_submetidas) ?></span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="passadas-tab" data-bs-toggle="tab" data-bs-target="#passadas" 
+                    type="button" role="tab" aria-controls="passadas" aria-selected="false">
+                Passadas
+                <span class="badge bg-danger categoria-badge"><?= count($oportunidades_passadas) ?></span>
+            </button>
+        </li>
+    </ul>
+    
+    <div class="tab-content" id="categoriaTabsContent">
+        <!-- Aba Todas -->
+        <div class="tab-pane fade show active" id="todas" role="tabpanel" aria-labelledby="todas-tab">
+            <!-- Lista de todas as oportunidades -->
+            <div class="card mt-3">
+                <div class="card-body p-0">
+                    <?php renderizar_tabela_oportunidades($issues); ?>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Aba Em Curso -->
+        <div class="tab-pane fade" id="em-curso" role="tabpanel" aria-labelledby="em-curso-tab">
+            <div class="categoria-header categoria-em-curso mt-3">
+                <h5 class="mb-0"><i class="bi bi-play-circle"></i> Oportunidades Em Curso</h5>
+            </div>
+            <div class="card">
+                <div class="card-body p-0">
+                    <?php renderizar_tabela_oportunidades($oportunidades_em_curso); ?>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Aba Não Submetidas -->
+        <div class="tab-pane fade" id="nao-submetidas" role="tabpanel" aria-labelledby="nao-submetidas-tab">
+            <div class="categoria-header categoria-nao-submetidas mt-3">
+                <h5 class="mb-0"><i class="bi bi-file-earmark"></i> Oportunidades Não Submetidas</h5>
+            </div>
+            <div class="card">
+                <div class="card-body p-0">
+                    <?php renderizar_tabela_oportunidades($oportunidades_nao_submetidas); ?>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Aba Submetidas -->
+        <div class="tab-pane fade" id="submetidas" role="tabpanel" aria-labelledby="submetidas-tab">
+            <div class="categoria-header categoria-submetidas mt-3">
+                <h5 class="mb-0"><i class="bi bi-check-circle"></i> Oportunidades Submetidas</h5>
+            </div>
+            <div class="card">
+                <div class="card-body p-0">
+                    <?php renderizar_tabela_oportunidades($oportunidades_submetidas); ?>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Aba Passadas -->
+        <div class="tab-pane fade" id="passadas" role="tabpanel" aria-labelledby="passadas-tab">
+            <div class="categoria-header categoria-passadas mt-3">
+                <h5 class="mb-0"><i class="bi bi-calendar-x"></i> Oportunidades Passadas da Deadline</h5>
+            </div>
+            <div class="card">
+                <div class="card-body p-0">
+                    <?php renderizar_tabela_oportunidades($oportunidades_passadas); ?>
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
-        <!-- JavaScript para manipulação dos TODOs e expandir/colapsar detalhes -->
+<?php
+// Função para renderizar a tabela de oportunidades
+function renderizar_tabela_oportunidades($issues) {
+    if (empty($issues)) {
+        echo '<div class="text-center py-4 text-muted">Nenhuma oportunidade encontrada nesta categoria.</div>';
+        return;
+    }
+?>
+<table class="table table-hover mb-0">
+    <thead class="table-light">
+        <tr>
+            <th>Título</th>
+            <th class="text-center" style="width: 120px;">Relevância</th>
+            <th class="text-center" style="width: 150px;">Deadline</th>
+            <th class="text-center" style="width: 150px;">Progresso</th>
+            <th class="text-center" style="width: 80px;">Status</th>
+            <th class="text-center" style="width: 80px;">Ações</th>
+        </tr>
+    </thead>
+    <tbody>
+        <?php foreach ($issues as $i): 
+            $tags = extrair_tags($i['description']);
+            $descricao_simples = extrair_descricao_simples($i['description']);
+            
+            // Determinar classe para deadline
+            $deadline_class = '';
+            $dias_texto = '';
+            if ($tags['dias_restantes'] !== null) {
+                if ($tags['dias_restantes'] < 0) {
+                    $deadline_class = 'deadline-expired';
+                    $dias_texto = 'Atrasado há ' . abs($tags['dias_restantes']) . ' dias';
+                } elseif ($tags['dias_restantes'] <= 3) {
+                    $deadline_class = 'deadline-danger';
+                    $dias_texto = 'Faltam ' . $tags['dias_restantes'] . ' dias';
+                } elseif ($tags['dias_restantes'] <= 7) {
+                    $deadline_class = 'deadline-warning';
+                    $dias_texto = 'Faltam ' . $tags['dias_restantes'] . ' dias';
+                } else {
+                    $dias_texto = 'Faltam ' . $tags['dias_restantes'] . ' dias';
+                }
+            }
+            
+            // Determinar classe para barra de progresso
+            $progress_class = 'bg-primary';
+            if ($tags['percent_concluido'] >= 100) {
+                $progress_class = 'bg-success';
+            } elseif ($tags['percent_concluido'] >= 70) {
+                $progress_class = 'bg-info';
+            } elseif ($tags['percent_concluido'] >= 40) {
+                $progress_class = 'bg-primary';
+            } elseif ($tags['percent_concluido'] >= 20) {
+                $progress_class = 'bg-warning';
+            } else {
+                $progress_class = 'bg-danger';
+            }
+            
+            // Determinar classe e texto para status
+            $status_class = '';
+            $status_texto = '';
+            switch ($tags['status']) {
+                case 'submetida':
+                    $status_class = 'bg-success';
+                    $status_texto = 'Submetida';
+                    break;
+                case 'nao_submetida':
+                    $status_class = 'bg-secondary';
+                    $status_texto = 'Não Submetida';
+                    break;
+                default:
+                    $status_class = 'bg-primary';
+                    $status_texto = 'Em Curso';
+            }
+        ?>
+        <tr class="oportunidade-row" data-id="<?= $i['id'] ?>">
+            <td class="align-middle">
+                <span class="fw-bold"><?= htmlspecialchars($i['subject']) ?></span>
+            </td>
+            <td class="text-center align-middle">
+                <?php if ($tags['relevance']): ?>
+                    <span class="badge bg-warning text-dark"><?= $tags['relevance'] ?>/10</span>
+                <?php else: ?>
+                    <span class="badge bg-secondary">N/A</span>
+                <?php endif; ?>
+            </td>
+            <td class="text-center align-middle">
+                <?php if ($tags['deadline']): ?>
+                    <span class="<?= $deadline_class ?>">
+                        <?= date('d/m/Y', strtotime($tags['deadline'])) ?>
+                        <br>
+                        <small><?= $dias_texto ?></small>
+                    </span>
+                <?php else: ?>
+                    <span class="text-muted">--</span>
+                <?php endif; ?>
+            </td>
+            <td class="text-center align-middle">
+                <div class="d-flex align-items-center">
+                    <div class="progress w-100 me-2">
+                        <div class="progress-bar <?= $progress_class ?>" role="progressbar" 
+                             style="width: <?= $tags['percent_concluido'] ?>%;" 
+                             aria-valuenow="<?= $tags['percent_concluido'] ?>" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <span class="badge bg-secondary"><?= $tags['percent_concluido'] ?>%</span>
+                </div>
+            </td>
+            <td class="text-center align-middle">
+                <span class="badge <?= $status_class ?>"><?= $status_texto ?></span>
+            </td>
+            <td class="text-center align-middle">
+                <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" 
+                        data-bs-target="#collapse<?= $i['id'] ?>">
+                    <i class="bi bi-pencil"></i>
+                </button>
+            </td>
+        </tr>
+        <!-- Detalhes expandidos -->
+        <tr class="oportunidade-details" id="details<?= $i['id'] ?>">
+            <td colspan="6" class="p-0">
+                <div class="p-3 bg-light border-top">
+                    <div class="row g-3">
+                        <!-- Seção TODOs -->
+                        <div class="col-md-12">
+                            <div class="card">
+                                <div class="card-header bg-primary text-white py-2">
+                                    <i class="bi bi-check2-square"></i> TODOs
+                                </div>
+                                <div class="card-body">
+                                    <?php if (empty($tags['todos'])): ?>
+                                    <p class="text-muted">Nenhuma tarefa cadastrada para esta oportunidade.</p>
+                                    <?php else: ?>
+                                    <ul class="todo-list">
+                                        <?php foreach ($tags['todos'] as $index => $todo): ?>
+                                        <li class="todo-item-clickable mb-2" data-issue-id="<?= $i['id'] ?>" data-todo-index="<?= $index ?>">
+                                            <div class="form-check">
+                                                <input class="form-check-input todo-checkbox" type="checkbox" 
+                                                       <?= $todo['checked'] ? 'checked' : '' ?>>
+                                                <label class="form-check-label <?= $todo['checked'] ? 'text-decoration-line-through text-muted' : '' ?>">
+                                                    <?= htmlspecialchars($todo['text']) ?>
+                                                </label>
+                                            </div>
+                                        </li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Barra de Progresso e Status -->
+                        <div class="col-md-12">
+                            <div class="card">
+                                <div class="card-header bg-success text-white py-2">
+                                    <i class="bi bi-bar-chart-line"></i> Progresso e Status
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <p class="mb-1">Progresso:</p>
+                                            <div class="mb-1 d-flex justify-content-between">
+                                                <span>0%</span>
+                                                <span id="progressValue<?= $i['id'] ?>"><?= $tags['percent_concluido'] ?>%</span>
+                                                <span>100%</span>
+                                            </div>
+                                            <input type="range" class="form-range progresso-slider" 
+                                                   min="0" max="100" step="5" 
+                                                   value="<?= $tags['percent_concluido'] ?>"
+                                                   data-issue-id="<?= $i['id'] ?>">
+                                            <div class="progress mt-2" style="height: 10px;">
+                                                <div class="progress-bar bg-success" 
+                                                     id="progressBar<?= $i['id'] ?>"
+                                                     role="progressbar" 
+                                                     style="width: <?= $tags['percent_concluido'] ?>%;" 
+                                                     aria-valuenow="<?= $tags['percent_concluido'] ?>" 
+                                                     aria-valuemin="0" 
+                                                     aria-valuemax="100"></div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <p class="mb-1">Status:</p>
+                                            <div class="btn-group w-100" role="group" aria-label="Status da oportunidade">
+                                                <button type="button" class="btn btn-outline-secondary status-btn <?= $tags['status'] === 'nao_submetida' ? 'active' : '' ?>" 
+                                                        data-issue-id="<?= $i['id'] ?>" data-status="nao_submetida">
+                                                    Não Submetida
+                                                </button>
+                                                <button type="button" class="btn btn-outline-primary status-btn <?= $tags['status'] !== 'nao_submetida' && $tags['status'] !== 'submetida' ? 'active' : '' ?>" 
+                                                        data-issue-id="<?= $i['id'] ?>" data-status="em_curso">
+                                                    Em Curso
+                                                </button>
+                                                <button type="button" class="btn btn-outline-success status-btn <?= $tags['status'] === 'submetida' ? 'active' : '' ?>" 
+                                                        data-issue-id="<?= $i['id'] ?>" data-status="submetida">
+                                                    Submetida
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Seção Links -->
+                        <div class="col-md-6">
+                            <div class="card h-100">
+                                <div class="card-header bg-info text-white py-2">
+                                    <i class="bi bi-link-45deg"></i> Links
+                                </div>
+                                <div class="card-body">
+                                    <?php if (empty($tags['links'])): ?>
+                                    <p class="text-muted">Nenhum link cadastrado para esta oportunidade.</p>
+                                    <?php else: ?>
+                                    <ul class="links-list">
+                                        <?php foreach ($tags['links'] as $link): 
+                                            // Parsear markdown links [text](url)
+                                            if (preg_match('/\[(.+?)\]\((.+?)\)/', $link, $matches)) {
+                                                $link_text = $matches[1];
+                                                $link_url = $matches[2];
+                                            } else {
+                                                $link_text = $link;
+                                                $link_url = $link;
+                                            }
+                                        ?>
+                                        <li class="mb-2">
+                                            <a href="<?= htmlspecialchars($link_url) ?>" target="_blank" class="d-inline-flex align-items-center">
+                                                <i class="bi bi-box-arrow-up-right me-2"></i> 
+                                                <span><?= htmlspecialchars($link_text) ?></span>
+                                            </a>
+                                        </li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Seção Descrição -->
+                        <div class="col-md-6">
+                            <div class="card h-100">
+                                <div class="card-header bg-secondary text-white py-2">
+                                    <i class="bi bi-file-text"></i> Descrição
+                                </div>
+                                <div class="card-body">
+                                    <?php if (empty($descricao_simples)): ?>
+                                    <p class="text-muted">Sem descrição detalhada.</p>
+                                    <?php else: ?>
+                                    <div style="white-space: pre-wrap;"><?= htmlspecialchars($descricao_simples) ?></div>
+                                    <?php endif; ?>
+                                    
+                                    <hr>
+                                    
+                                    <p class="small text-muted mb-0">
+                                        <i class="bi bi-hash"></i> <?= $i['id'] ?> | 
+                                        <i class="bi bi-person"></i> <?= htmlspecialchars($i['author']['name']) ?> | 
+                                        <i class="bi bi-calendar"></i> <?= date('d/m/Y', strtotime($i['created_on'])) ?>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </td>
+        </tr>
+        
+        <!-- Formulário de edição colapsável -->
+        <tr class="collapse" id="collapse<?= $i['id'] ?>">
+            <td colspan="6" class="p-0">
+                <div class="p-3 bg-white border-top">
+                    <form method="post" class="row g-3">
+                        <input type="hidden" name="atualizar_issue" value="1">
+                        <input type="hidden" name="issue_id" value="<?= $i['id'] ?>">
+                        
+                        <div class="col-md-12">
+                            <label class="form-label">Título</label>
+                            <input type="text" name="titulo" class="form-control" 
+                                   value="<?= htmlspecialchars($i['subject']) ?>">
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <label class="form-label">Deadline</label>
+                            <input type="date" name="deadline" class="form-control" 
+                                   value="<?= $tags['deadline'] ?>">
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <label class="form-label">Relevância (1-10)</label>
+                            <input type="number" name="relevance" class="form-control" 
+                                   min="1" max="10" value="<?= $tags['relevance'] ?>">
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <label class="form-label">Status</label>
+                            <select name="status" class="form-select">
+                                <option value="nao_submetida" <?= $tags['status'] === 'nao_submetida' ? 'selected' : '' ?>>Não Submetida</option>
+                                <option value="em_curso" <?= $tags['status'] !== 'nao_submetida' && $tags['status'] !== 'submetida' ? 'selected' : '' ?>>Em Curso</option>
+                                <option value="submetida" <?= $tags['status'] === 'submetida' ? 'selected' : '' ?>>Submetida</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-12">
+                            <label class="form-label">Descrição</label>
+                            <textarea name="descricao" class="form-control" rows="3"><?= htmlspecialchars($descricao_simples) ?></textarea>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <label class="form-label">Lista de TODOs</label>
+                            <div id="todoContainer<?= $i['id'] ?>">
+                                <?php 
+                                $todo_count = 0;
+                                foreach ($tags['todos'] as $todo): 
+                                    $todo_id = "todo_{$i['id']}_{$todo_count}";
+                                ?>
+                                <div class="todo-item">
+                                    <input class="form-check-input" type="checkbox" name="todo_check_<?= $todo_id ?>" 
+                                           <?= $todo['checked'] ? 'checked' : '' ?>>
+                                    <input type="text" name="todo_text_<?= $todo_id ?>" class="form-control todo-input" 
+                                           value="<?= htmlspecialchars($todo['text']) ?>">
+                                    <button type="button" class="btn btn-sm btn-outline-danger ms-2" 
+                                            onclick="this.parentNode.remove()">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                                <?php 
+                                    $todo_count++; 
+                                endforeach; 
+                                
+                                // Se não houver TODOs, adicionar um vazio
+                                if ($todo_count == 0):
+                                    $todo_id = "todo_{$i['id']}_0";
+                                ?>
+                                <div class="todo-item">
+                                    <input class="form-check-input" type="checkbox" name="todo_check_<?= $todo_id ?>">
+                                    <input type="text" name="todo_text_<?= $todo_id ?>" class="form-control todo-input" 
+                                           placeholder="Adicione um item TODO">
+                                    <button type="button" class="btn btn-sm btn-outline-danger ms-2" 
+                                            onclick="this.parentNode.remove()">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                                <?php endif; ?>
+                            </div>
+                            
+                            <button type="button" class="btn btn-sm btn-outline-success add-todo-btn" 
+                                    onclick="adicionarTodo(<?= $i['id'] ?>)">
+                                <i class="bi bi-plus-circle"></i> Adicionar TODO
+                            </button>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <label class="form-label">Links (um por linha)</label>
+                            <textarea name="links" class="form-control" rows="4" placeholder="Formato: texto url ou [texto](url)"><?php 
+                                if (!empty($tags['links'])) {
+                                    echo htmlspecialchars(implode("\n", $tags['links']));
+                                }
+                            ?></textarea>
+                            <small class="form-text text-muted">
+                                Você pode adicionar links no formato "texto URL" ou "[texto](URL)"
+                            </small>
+                        </div>
+                        
+                        <div class="col-md-12 mt-3">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-save"></i> Salvar Alterações
+                            </button>
+                            <button type="button" class="btn btn-secondary" 
+                                    data-bs-toggle="collapse" data-bs-target="#collapse<?= $i['id'] ?>">
+                                Cancelar
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </td>
+        </tr>
+        <?php endforeach; ?>
+    </tbody>
+</table>
+<?php
+}
+?>
+
+<!-- JavaScript para manipulação dos TODOs e expandir/colapsar detalhes -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
@@ -1058,145 +1293,4 @@ usort($issues, function($a, $b) use ($ordenar) {
                         
                         // Mostrar notificação de erro em vez de alerta modal
                         const notification = document.createElement('div');
-                        notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                        notification.innerHTML = `
-                            <strong>Erro!</strong> Não foi possível atualizar a tarefa.
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        `;
-                        document.body.appendChild(notification);
-                        
-                        // Remover notificação após 5 segundos
-                        setTimeout(() => {
-                            notification.remove();
-                        }, 5000);
-                    }
-                })
-                .catch(error => {
-                    // Remover spinner
-                    const spinner = document.getElementById(loadingId);
-                    if (spinner) spinner.remove();
-                    
-                    // Reabilitar checkbox
-                    this.disabled = false;
-                    
-                    console.error('Erro na requisição:', error);
-                    // Reverter o checkbox
-                    this.checked = !this.checked;
-                    if (this.checked) {
-                        label.classList.add('text-decoration-line-through', 'text-muted');
-                    } else {
-                        label.classList.remove('text-decoration-line-through', 'text-muted');
-                    }
-                    
-                    // Mostrar notificação de erro em vez de alerta modal
-                    const notification = document.createElement('div');
-                    notification.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 end-0 m-3';
-                    notification.innerHTML = `
-                        <strong>Erro de conexão!</strong> Verifique sua internet e tente novamente.
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    `;
-                    document.body.appendChild(notification);
-                    
-                    // Remover notificação após 5 segundos
-                    setTimeout(() => {
-                        notification.remove();
-                    }, 5000);
-                });
-            });
-        });
-        
-        // Adicionar evento para sliders de progresso
-        document.querySelectorAll('.progresso-slider').forEach(slider => {
-            const issueId = slider.getAttribute('data-issue-id');
-            const valueDisplay = document.getElementById(`progressValue${issueId}`);
-            const progressBar = document.getElementById(`progressBar${issueId}`);
-            
-            // Atualizar display ao mover o slider
-            slider.addEventListener('input', function() {
-                const value = this.value;
-                valueDisplay.textContent = value;
-                progressBar.style.width = value + '%';
-                progressBar.setAttribute('aria-valuenow', value);
-            });
-            
-            // Salvar quando o usuário soltar o slider
-            slider.addEventListener('change', function() {
-                const value = this.value;
-                
-                // Enviar atualização via AJAX
-                const formData = new FormData();
-                formData.append('ajax_action', 'update_progresso');
-                formData.append('issue_id', issueId);
-                formData.append('progresso', value);
-                
-                fetch('index.php?tab=oportunidades', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        // Atualizar progresso na tabela principal
-                        atualizarProgresso(issueId, value);
-                    } else {
-                        console.error('Erro ao atualizar progresso:', data.error);
-                    }
-                })
-                .catch(error => {
-                    console.error('Erro na requisição:', error);
-                });
-            });
-        });
-    });
-    
-    function atualizarProgresso(issueId, valor) {
-        // Atualizar a barra de progresso na tabela principal
-        const tableRow = document.querySelector(`.oportunidade-row[data-id="${issueId}"]`);
-        if (tableRow) {
-            const progressBar = tableRow.querySelector('.progress-bar');
-            const progressBadge = tableRow.querySelector('.progress .badge');
-            
-            if (progressBar && progressBadge) {
-                progressBar.style.width = valor + '%';
-                progressBar.setAttribute('aria-valuenow', valor);
-                progressBadge.textContent = valor + '%';
-                
-                // Atualizar classe da barra de progresso
-                progressBar.className = 'progress-bar';
-                if (valor >= 100) {
-                    progressBar.classList.add('bg-success');
-                } else if (valor >= 70) {
-                    progressBar.classList.add('bg-info');
-                } else if (valor >= 40) {
-                    progressBar.classList.add('bg-primary');
-                } else if (valor >= 20) {
-                    progressBar.classList.add('bg-warning');
-                } else {
-                    progressBar.classList.add('bg-danger');
-                }
-            }
-        }
-    }
-    
-    function adicionarTodo(issueId) {
-        const container = document.getElementById(`todoContainer${issueId}`);
-        const todoCount = container.children.length;
-        const todoId = `todo_${issueId}_${todoCount}`;
-        
-        const todoDiv = document.createElement('div');
-        todoDiv.className = 'todo-item';
-        todoDiv.innerHTML = `
-            <input class="form-check-input" type="checkbox" name="todo_check_${todoId}">
-            <input type="text" name="todo_text_${todoId}" class="form-control todo-input" 
-                   placeholder="Adicione um item TODO">
-            <button type="button" class="btn btn-sm btn-outline-danger ms-2" 
-                    onclick="this.parentNode.remove()">
-                <i class="bi bi-trash"></i>
-            </button>
-        `;
-        
-        container.appendChild(todoDiv);
-    }
-</script>
-</body>
-</html>
+                        notification.className = 'alert alert-danger alert-dismissible fade

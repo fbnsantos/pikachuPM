@@ -30,16 +30,18 @@ $points = $db->query('SELECT * FROM points')->fetchAll(PDO::FETCH_ASSOC);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tabuleiro com Pontos</title>
+    <title>Tabuleiro com Pontos e Splines</title>
     <style>
         body { font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; }
         #board { width: 800px; height: 600px; border: 1px solid #333; position: relative; margin-bottom: 20px; }
         .point { position: absolute; border-radius: 50%; background-color: #007bff; opacity: 0.8; }
+        canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
     </style>
 </head>
 <body>
-    <h2>Tabuleiro com Pontos</h2>
+    <h2>Tabuleiro com Pontos e Splines</h2>
     <div id="board" onclick="addPoint(event)">
+        <canvas id="splineCanvas" width="800" height="600"></canvas>
         <?php foreach ($points as $point) : ?>
             <div class="point" style="width: <?= $point['diameter'] ?>px; height: <?= $point['diameter'] ?>px; left: <?= $point['x'] ?>px; top: <?= $point['y'] ?>px;"></div>
         <?php endforeach; ?>
@@ -60,7 +62,31 @@ $points = $db->query('SELECT * FROM points')->fetchAll(PDO::FETCH_ASSOC);
             document.getElementById('pointY').value = y;
             document.getElementById('pointForm').submit();
         }
+
+        // Desenhar as splines
+        function drawSplines() {
+            const canvas = document.getElementById('splineCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const points = [
+                <?php foreach ($points as $point) : ?>
+                    { x: <?= $point['x'] ?>, y: <?= $point['y'] ?> },
+                <?php endforeach; ?>
+            ];
+            if (points.length < 2) return;
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {
+                const cp1x = (points[i - 1].x + points[i].x) / 2;
+                const cp1y = (points[i - 1].y + points[i].y) / 2;
+                ctx.quadraticCurveTo(points[i - 1].x, points[i - 1].y, cp1x, cp1y);
+            }
+            ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+            ctx.strokeStyle = '#ff5733';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+        window.onload = drawSplines;
     </script>
 </body>
 </html>
-

@@ -990,10 +990,10 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                             <?php endif; ?>
                                         </td>
                                         <td>
-                                            <form method="post" class="d-inline">
+                                            <form method="post" class="d-inline" onsubmit="return confirm('Tem a certeza que deseja remover este item? Esta ação não pode ser desfeita.');">
                                                 <input type="hidden" name="remover" value="<?= $id ?>">
                                                 <button type="submit" class="btn btn-sm btn-danger">
-                                                    <i class="bi bi-trash"></i> Remover8
+                                                    <i class="bi bi-trash"></i> Remover
                                                 </button>
                                             </form>
                                         </td>

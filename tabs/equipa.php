@@ -164,7 +164,7 @@ function gerarListaProximosGestores($db, $equipa) {
 
     // Limpar registros antigos não concluídos
     $stmt = $db->prepare("DELETE FROM proximos_gestores 
-                          WHERE data_prevista < date('now') AND concluido = 0");
+                          WHERE data_prevista < date('now') OR concluido = 0");
     $stmt->execute();
 
     // Verificar se já existe uma entrada para o dia atual
@@ -461,8 +461,8 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         $stmt->execute([':id' => $id]);
         
         // Regenerar a lista de próximos gestores
-        $equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
-        gerarListaProximosGestores($db, $equipa);
+        //$equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
+        //gerarListaProximosGestores($db, $equipa);
     }
     
     // Remover membro da equipe
@@ -480,8 +480,8 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         }
         
         // Regenerar a lista de próximos gestores
-        $equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
-        gerarListaProximosGestores($db, $equipa);
+        //$equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
+        //gerarListaProximosGestores($db, $equipa);
     }
     
     // Iniciar reunião

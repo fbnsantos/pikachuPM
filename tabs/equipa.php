@@ -241,7 +241,7 @@ function gerarListaProximosGestores($db, $equipa) {
 }
 
 // Obter lista de próximos gestores
-function getProximosGestores($db, $limite = 10) {
+function getProximosGestores($db, $limite = 15) {
     // Primeiro, buscar o gestor para o dia atual
     $hoje = date('Y-m-d');
     $stmt = $db->prepare("SELECT redmine_id, data_prevista 

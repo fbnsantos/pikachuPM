@@ -134,9 +134,10 @@ function getNomeUtilizador($id, $lista) {
     $index = 0;
 
     foreach ($lista as $u) {
+        $index++;
         if ($u['id'] == $id) return  $index . '/'. count($lista) . $u['firstname'] . ' ' . $u['lastname'];
     }
-    $index++;
+
     return "ID $id";
 }
 

@@ -130,7 +130,7 @@ function getAtividadesUtilizador($id) {
 
 function getNomeUtilizador($id, $lista) {
     foreach ($lista as $u) {
-        if ($u['id'] == $id) return $u['firstname'] . ' ' . $u['lastname'];
+        if ($u['id'] == $id) return '->'.$u['firstname'] . ' ' . $u['lastname'];
     }
     return "ID $id";
 }

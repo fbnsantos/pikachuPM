@@ -164,7 +164,7 @@ function gerarListaProximosGestores($db, $equipa) {
 
     // Limpar registros antigos não concluídos
     $stmt = $db->prepare("DELETE FROM proximos_gestores 
-                          WHERE data_prevista < date('now' , '+1 day' ) OR concluido = 0");
+                          WHERE data_prevista < date('now' ) ");
     $stmt->execute();
 
     // Verificar se já existe uma entrada para o dia atual

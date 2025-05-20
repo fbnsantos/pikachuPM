@@ -128,12 +128,19 @@ function getAtividadesUtilizador($id) {
     return array_slice($atividades, 0, 5);
 }
 
-
 function getNomeUtilizador($id, $lista) {
     $index = 0;
     foreach ($lista as $u) {
         $index++;
         if ($u['id'] == $id) return  $index . '/'. count($lista) . $u['firstname'] . ' ' . $u['lastname'];
+    }
+
+    return "ID $id";
+}
+
+function getNomeUtilizador_append($text, $id, $lista) {
+    foreach ($lista as $u) {
+        if ($u['id'] == $id) return  $text . $u['firstname'] . ' ' . $u['lastname'];
     }
 
     return "ID $id";
@@ -733,7 +740,7 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                         <!-- INÍCIO DO CRONÔMETRO -->
                                         <div class="card mb-3">
                                             <div class="card-header bg-info text-white">
-                                                <h5 class="mb-0"><i class="bi bi-mic-fill"></i> Orador atual: <?= htmlspecialchars(getNomeUtilizador($oradorId, $utilizadores)) ?></h5>
+                                                <h5 class="mb-0"><i class="bi bi-mic-fill"></i> Orador atual: <?= htmlspecialchars(getNomeUtilizador_append('0/20',$oradorId, $utilizadores)) ?></h5>
                                             </div>
                                             <div class="card-body text-center">
                                                 <!-- Mostrador do cronômetro -->

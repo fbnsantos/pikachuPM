@@ -21,9 +21,9 @@ $tabs = [
     'calendar' => 'Calendário',
     'equipa' => 'Reunião Diária',
     'links' => 'Links',
-    'search' => 'SearchRedmine',
+    'search' => 'Search',
     'todos' => 'ToDo',
-    'reflete' => '18Minutes',
+    'reflete' => '18 Minutes',
 ];
 
 $tabSelecionada = $_GET['tab'] ?? 'dashboard';

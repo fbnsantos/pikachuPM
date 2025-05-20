@@ -993,7 +993,7 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                             <form method="post" class="d-inline">
                                                 <input type="hidden" name="remover" value="<?= $id ?>">
                                                 <button type="submit" class="btn btn-sm btn-danger">
-                                                    <i class="bi bi-trash"></i> Remover
+                                                    <i class="bi bi-trash"></i> Remover8
                                                 </button>
                                             </form>
                                         </td>

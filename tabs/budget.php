@@ -14,6 +14,7 @@
 require_once 'config.php';
 session_start();
 
+
 // Verificar autenticação
 if (!isset($_SESSION['user_id']) || !isset($_SESSION['token'])) {
     header('Location: login.php');

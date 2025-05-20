@@ -740,7 +740,7 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                         <!-- INÍCIO DO CRONÔMETRO -->
                                         <div class="card mb-3">
                                             <div class="card-header bg-info text-white">
-                                                <h5 class="mb-0"><i class="bi bi-mic-fill"></i> Orador atual: <?= htmlspecialchars(getNomeUtilizador_append('0/'.count($oradores),$oradorId, $utilizadores)) ?></h5>
+                                                <h5 class="mb-0"><i class="bi bi-mic-fill"></i> Orador atual: <?= htmlspecialchars(getNomeUtilizador_append($orador_atual.'/'.count($oradores).' ',$oradorId, $utilizadores)) ?></h5>
                                             </div>
                                             <div class="card-body text-center">
                                                 <!-- Mostrador do cronômetro -->

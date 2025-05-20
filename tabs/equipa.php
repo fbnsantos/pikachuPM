@@ -77,6 +77,8 @@ function getUtilizadoresRedmine() {
 
 function getAtividadesUtilizador($id) {
     global $API_KEY, $BASE_URL;
+    
+    return null;
 
     $url = "$BASE_URL/issues.json?status_id=*&sort=updated_on:desc&limit=20";
     $ch = curl_init($url);

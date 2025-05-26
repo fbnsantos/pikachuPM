@@ -3,14 +3,15 @@
 // Sistema de Gestão de Bill of Materials (BOM)
 
 // Incluir configuração da base de dados
-include_once '../config.php';
+// Incluir arquivo de configuração
+include_once __DIR__ . '/../config.php';
 
 // Estabelecer conexão com a base de dados
 try {
-    $pdo = new PDO("mysql:host=127.0.0.1;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+    $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 } catch(PDOException $e) {
-    die("Erro de conexão: " . $e->getMessage());
+    die("Erro de conexão: " . $e->getMessage()) .$db_host;
 }
 
 // Criar tabelas se não existirem

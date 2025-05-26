@@ -24,6 +24,7 @@ $tabs = [
     'search' => 'Search',
     'todos' => 'ToDo',
     'reflete' => '18 Minutes',
+    'bomlist'  => 'BOM_LIST',
 ];
 
 $tabSelecionada = $_GET['tab'] ?? 'dashboard';

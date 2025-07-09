@@ -1,17 +1,17 @@
-**Pikachu - blkpd-dev branch**
+-- Pikachu - blkpd-dev branch -- 
 
-*Base de Dados:*
+**Base de Dados:**
 ![Database Schema](db.png)
 
 
-*TODO*
+**TODO**
 
 - Fazer constraints no SQL para alterar entre assemblies atómicas, compostas, ou mixed
 - Alterar atributos novos em todas as queries no php
 - Cada assembly devia ter um nome (ou ID) específico em vez de ficar com o nome do protótipo
 ---
 
-*DONE*
+**DONE**
 
 - tab=bomlist alterado para tab=bomlist/bomlist
 - Atributos separados/alterados para a montagem:

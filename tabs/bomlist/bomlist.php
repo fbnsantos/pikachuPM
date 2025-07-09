@@ -687,7 +687,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                     <?php foreach ($assemblies as $assembly): ?>
                                         <option value="<?= $assembly['Assembly_ID'] ?>">
                                             <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
-                                            - <?= $assembly['Father_Name'] ? htmlspecialchars($assembly['Father_Name']) : 'Nível raiz' ?>
+                                            - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
@@ -771,7 +771,8 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                             <table class="table table-striped table-hover">
                                 <thead class="table-dark">
                                     <tr>
-                                        <th>Protótipo</th>
+                                        <th>Designação</th>
+                                        <th>Protótipo Associado</th>
                                         <th>Componente Pai</th>
                                         <th>Componente Filho</th>
                                         <th>Qtd (Componente)</th>
@@ -787,6 +788,9 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                     <?php foreach ($filteredAssemblies as $assembly): ?>
                                         <tr>
                                             <td>
+                                                <?= $assembly['Assembly_Designation'] ?? '-' ?>
+                                            </td>
+                                            <td>
                                                 <strong><?= htmlspecialchars($assembly['Prototype_Name']) ?></strong>
                                                 <br><small class="text-muted">v<?= $assembly['Prototype_Version'] ?></small>
                                             </td>
@@ -800,10 +804,10 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                                 <span class="badge bg-secondary"><?= $assembly['Component_Quantity'] ?></span>
                                             </td>
                                             <td>
-                                                <?= $assembly['Assembly_Father_ID'] ?? '-' ?>
+                                                <?= $assembly['Assembly_Designation'] ?? '-' ?>
                                             </td>
                                             <td>
-                                                <?= $assembly['Assembly_Child_ID'] ?? '-' ?>
+                                                <?= $assembly['Assembly_Designation'] ?? '-' ?>
                                             </td>
                                             <td>
                                                 <span class="badge bg-secondary"><?= $assembly['Assembly_Quantity'] ?></span>

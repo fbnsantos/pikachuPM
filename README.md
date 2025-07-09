@@ -13,7 +13,7 @@
 - Level-Depth não está a funcionar -> clarificar o que significa
 - Clarificar o que significa Nível Raíz
 - Tirar a dúvida se se precisa de duas assemblies para fazer uma nova
-
+- Falta implementar a função com a query para ir buscar as designações das duas sub-montagens a ser usadas para fazer uma montagem nova
 ---
 
 **DONE**
@@ -25,3 +25,4 @@
     - Quantity -> Component_Quantity | Assembly_Quantity
     - Level_Depth -> Assembly_Level_Depth
 - Alterei a interface para ao selecionar uma Montagem, aparecer *"Protótipo Versão - Designação da Montagem"*
+- Acrescentei um Tab com a designação da montagem

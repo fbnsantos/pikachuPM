@@ -48,4 +48,7 @@ function getAssemblies($pdo) {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+// Função para ir buscar duas submontagens a duas tabelas diferentes
+// (uma para o pai e outra para o filho) com base no ID da montagem
+    
 ?>

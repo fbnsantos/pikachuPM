@@ -1,4 +1,4 @@
--- Pikachu - blkpd-dev branch -- 
+# Pikachu - blkpd-dev branch 
 
 **Base de Dados:**
 ![Database Schema](db.png)

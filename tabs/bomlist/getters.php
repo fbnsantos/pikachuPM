@@ -30,4 +30,22 @@ function getComponents($pdo) {
     ");
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
+
+// Função para buscar todas as montagens
+function getAssemblies($pdo) {
+    $stmt = $pdo->query("
+        SELECT a.*, 
+               p.Name AS Prototype_Name,
+               p.Version AS Prototype_Version,
+               cf.Denomination AS Father_Name,
+               cc.Denomination AS Child_Name
+        FROM T_Assembly a
+        JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
+        LEFT JOIN T_Component cf ON a.Component_Father_ID = cf.Component_ID
+        LEFT JOIN T_Component cc ON a.Component_Child_ID = cc.Component_ID
+        ORDER BY p.Name, p.Version
+    ");
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
 ?>

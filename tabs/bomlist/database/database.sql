@@ -50,14 +50,28 @@ CREATE TABLE IF NOT EXISTS T_Component (
 CREATE TABLE IF NOT EXISTS T_Assembly (
     Assembly_ID INT AUTO_INCREMENT PRIMARY KEY,
     Prototype_ID INT NOT NULL,
-    Father_ID INT,
-    Child_ID INT NOT NULL,
-    Quantity INT NOT NULL DEFAULT 1,
-    Level_Depth INT DEFAULT 0,
+
+    Component_Father_ID INT DEFAULT NULL,
+    Component_Child_ID INT DEFAULT NULL,
+    Component_Quantity INT NOT NULL DEFAULT 0,
+
+    Assembly_Father_ID INT DEFAULT NULL,
+    Assembly_Child_ID INT DEFAULT NULL,
+    Assembly_Quantity INT NOT NULL DEFAULT 0,
+    Assembly_Level_Depth INT DEFAULT 0,
+
     Notes TEXT,
     Created_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
     FOREIGN KEY (Prototype_ID) REFERENCES T_Prototype(Prototype_ID) ON DELETE CASCADE,
-    FOREIGN KEY (Father_ID) REFERENCES T_Component(Component_ID) ON DELETE CASCADE,
-    FOREIGN KEY (Child_ID) REFERENCES T_Component(Component_ID) ON DELETE CASCADE,
-    UNIQUE KEY unique_assembly (Prototype_ID, Father_ID, Child_ID)
+    FOREIGN KEY (Component_Father_ID) REFERENCES T_Component(Component_ID) ON DELETE CASCADE,
+    FOREIGN KEY (Component_Child_ID) REFERENCES T_Component(Component_ID) ON DELETE CASCADE,
+    FOREIGN KEY (Assembly_Father_ID) REFERENCES T_Assembly(Assembly_ID) ON DELETE CASCADE,
+    FOREIGN KEY (Assembly_Child_ID) REFERENCES T_Assembly(Assembly_ID) ON DELETE CASCADE
+
+    -- Ensure that a component or assembly can only be a child of one parent at a time
+    -- Tirei isto porque acho que deviamos poder acrescentar o mesmo componente ou montagem em diferentes montagens
+    -- (por exemplo, rodas estão em diferentes montagens de robôs)
+    -- UNIQUE KEY unique_component (Prototype_ID, Component_Father_ID, Component_Child_ID),
+    -- UNIQUE KEY unique_assembly (Prototype_ID, Assembly_Father_ID, Assembly_Child_ID)
 );

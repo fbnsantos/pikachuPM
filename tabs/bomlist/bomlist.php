@@ -8,6 +8,10 @@ include_once __DIR__ . '/../../PWA/RestAPI/config.php';
 
 require_once 'getters.php';
 
+// Configurar conexão com o banco de dados
+$pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
 // Estabelecer conexão com a base de dados
 $sqlFile = __DIR__ . '/database/database.sql';
 $sql = file_get_contents($sqlFile);
@@ -154,12 +158,15 @@ switch ($entity) {
         
     case 'assembly':
         if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Father_ID, Child_ID, Quantity, Notes) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE Quantity=VALUES(Quantity), Notes=VALUES(Notes)");
+            $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Component_Father_ID, Component_Child_ID, Component_Quantity, Assembly_Father_ID, Assembly_Child_ID, Assembly_Quantity, Notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE Component_Quantity=VALUES(Component_Quantity), Assembly_Quantity=VALUES(Assembly_Quantity), Notes=VALUES(Notes)");
             $stmt->execute([
                 $_POST['prototype_id'], 
-                $_POST['father_id'] ?: null, 
-                $_POST['child_id'], 
-                $_POST['quantity'], 
+                (empty($_POST['component_father_id']) ? null : $_POST['component_father_id']),
+                (empty($_POST['component_child_id']) ? null : $_POST['component_child_id']),
+                (empty($_POST['component_quantity']) ? 0 : $_POST['component_quantity']),
+                (empty($_POST['assembly_father_id']) ? null : $_POST['assembly_father_id']),
+                (empty($_POST['assembly_child_id']) ? null : $_POST['assembly_child_id']),
+                (empty($_POST['assembly_quantity']) ? 0 : $_POST['assembly_quantity']), 
                 $_POST['notes']
             ]);
             $message = "Montagem criada/atualizada com sucesso!";
@@ -176,9 +183,10 @@ $manufacturers = getManufacturers($pdo);
 $suppliers = getSuppliers($pdo);
 $prototypes = getPrototypes($pdo);
 $components = getComponents($pdo);
+$assemblies = getAssemblies($pdo);
 
 // Buscar assemblies com informações detalhadas
-$stmt = $pdo->query("
+/*$stmt = $pdo->query("
     SELECT a.*, 
            p.Name as Prototype_Name,
            p.Version as Prototype_Version,
@@ -186,11 +194,11 @@ $stmt = $pdo->query("
            cc.Denomination as Child_Name
     FROM T_Assembly a
     JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-    LEFT JOIN T_Component cf ON a.Father_ID = cf.Component_ID
-    JOIN T_Component cc ON a.Child_ID = cc.Component_ID
+    LEFT JOIN T_Component cf ON a.Component_Father_ID = cf.Component_ID
+    JOIN T_Component cc ON a.Component_Child_ID = cc.Component_ID
     ORDER BY p.Name, p.Version, cf.Denomination, cc.Denomination
 ");
-$assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
 ?>
 
 <div class="container-fluid">
@@ -209,31 +217,31 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <ul class="nav nav-tabs" id="bomTabs" role="tablist">
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'components' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=components'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=components'">
                         <i class="bi bi-cpu"></i> Componentes
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'prototypes' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=prototypes'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=prototypes'">
                         <i class="bi bi-diagram-3"></i> Protótipos
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'assembly' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=assembly'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=assembly'">
                         <i class="bi bi-diagram-2"></i> Montagem (BOM)
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'manufacturers' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=manufacturers'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=manufacturers'">
                         <i class="bi bi-building"></i> Fabricantes
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'suppliers' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=suppliers'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=suppliers'">
                         <i class="bi bi-truck"></i> Fornecedores
                     </button>
                 </li>
@@ -373,7 +381,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </button>
                             
                             <?php if ($editComponent): ?>
-                                <a href="?tab=bomlist&entity=components" class="btn btn-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=components" class="btn btn-secondary">
                                     <i class="bi bi-x-circle"></i> Cancelar
                                 </a>
                             <?php endif; ?>
@@ -432,11 +440,11 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 </span>
                                             </td>
                                             <td>
-                                                <a href="?tab=bomlist&entity=components&action=edit&id=<?= $component['Component_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=components&action=edit&id=<?= $component['Component_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-primary">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
-                                                <a href="?tab=bomlist&entity=components&action=delete&id=<?= $component['Component_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=components&action=delete&id=<?= $component['Component_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-danger"
                                                    onclick="return confirm('Tem a certeza que deseja eliminar este componente?')">
                                                     <i class="bi bi-trash"></i>
@@ -511,7 +519,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </button>
                             
                             <?php if ($editPrototype): ?>
-                                <a href="?tab=bomlist&entity=prototypes" class="btn btn-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=prototypes" class="btn btn-secondary">
                                     <i class="bi bi-x-circle"></i> Cancelar
                                 </a>
                             <?php endif; ?>
@@ -565,19 +573,19 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                             <td><?= date('d/m/Y', strtotime($prototype['Created_Date'])) ?></td>
                                             <td>
                                                 <div class="btn-group" role="group">
-                                                    <a href="?tab=bomlist&entity=prototypes&action=edit&id=<?= $prototype['Prototype_ID'] ?>" 
+                                                    <a href="?tab=bomlist/bomlist&entity=prototypes&action=edit&id=<?= $prototype['Prototype_ID'] ?>" 
                                                        class="btn btn-sm btn-outline-primary" title="Editar">
                                                         <i class="bi bi-pencil"></i>
                                                     </a>
-                                                    <a href="?tab=bomlist&entity=prototypes&action=clone&id=<?= $prototype['Prototype_ID'] ?>" 
+                                                    <a href="?tab=bomlist/bomlist&entity=prototypes&action=clone&id=<?= $prototype['Prototype_ID'] ?>" 
                                                        class="btn btn-sm btn-outline-success" title="Clonar">
                                                         <i class="bi bi-files"></i>
                                                     </a>
-                                                    <a href="?tab=bomlist&entity=assembly&prototype_id=<?= $prototype['Prototype_ID'] ?>" 
+                                                    <a href="?tab=bomlist/bomlist&entity=assembly&prototype_id=<?= $prototype['Prototype_ID'] ?>" 
                                                        class="btn btn-sm btn-outline-info" title="Ver BOM">
                                                         <i class="bi bi-diagram-2"></i>
                                                     </a>
-                                                    <a href="?tab=bomlist&entity=prototypes&action=delete&id=<?= $prototype['Prototype_ID'] ?>" 
+                                                    <a href="?tab=bomlist/bomlist&entity=prototypes&action=delete&id=<?= $prototype['Prototype_ID'] ?>" 
                                                        class="btn btn-sm btn-outline-danger" title="Eliminar"
                                                        onclick="return confirm('Tem a certeza que deseja eliminar este protótipo?')">
                                                         <i class="bi bi-trash"></i>
@@ -621,8 +629,8 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </div>
                             
                             <div class="mb-3">
-                                <label for="father_id" class="form-label">Componente Pai</label>
-                                <select class="form-select" name="father_id">
+                                <label for="component_father_id" class="form-label">Componente Pai</label>
+                                <select class="form-select" name="component_father_id">
                                     <option value="">Nível raiz...</option>
                                     <?php foreach ($components as $component): ?>
                                         <option value="<?= $component['Component_ID'] ?>">
@@ -634,8 +642,8 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </div>
                             
                             <div class="mb-3">
-                                <label for="child_id" class="form-label">Componente Filho *</label>
-                                <select class="form-select" name="child_id" required>
+                                <label for="component_child_id" class="form-label">Componente Filho *</label>
+                                <select class="form-select" name="component_child_id">
                                     <option value="">Selecionar componente...</option>
                                     <?php foreach ($components as $component): ?>
                                         <option value="<?= $component['Component_ID'] ?>">
@@ -646,10 +654,52 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </div>
                             
                             <div class="mb-3">
-                                <label for="quantity" class="form-label">Quantidade *</label>
-                                <input type="number" class="form-control" name="quantity" value="1" required min="1">
+                                <label for="component_quantity" class="form-label">Quantidade (Componentes) *</label>
+                                <input type="number" class="form-control" name="component_quantity" value="1" required min="0">
+                            </div>
+
+                            <!-- NOVOS CAMPOS PARA ASSEMBLY -->
+                            
+                            <div class="mb-3">
+                                <label for="assembly_father_id" class="form-label">Montagem-Pai</label>
+                                <select class="form-select" name="assembly_father_id">
+                                    <option value="">Montagem base</option>
+                                    <?php foreach ($assemblies as $assembly): ?>
+                                        <option value="<?= $assembly['Assembly_ID'] ?>">
+                                            <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
+                                            - <?= $assembly['Father_Name'] ? htmlspecialchars($assembly['Father_Name']) : 'Nível raiz' ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <div class="form-text">Deixar vazio se é uma montagem atómica</div>
+                            </div>                          
+
+                            <div class="mb-3">
+                                <label for="assembly_child_id" class="form-label">Montagem-Filho</label>
+                                <select class="form-select" name="assembly_child_id">
+                                    <option value="">Montagem base</option>
+                                    <?php foreach ($assemblies as $assembly): ?>
+                                        <option value="<?= $assembly['Assembly_ID'] ?>">
+                                            <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
+                                            - <?= $assembly['Father_Name'] ? htmlspecialchars($assembly['Father_Name']) : 'Nível raiz' ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <div class="form-text">Deixar vazio se é uma montagem atómica</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="assembly_quantity" class="form-label">Quantidade (Montagens)</label>
+                                <input type="number" class="form-control" name="assembly_quantity" value="0" min="0">
                             </div>
                             
+                            <div class="mb-3">
+                                <label for="assembly_level_depth" class="form-label">Nível de Montagem</label>
+                                <input type="number" class="form-control" name="assembly_level_depth" value="0" min="0">
+                            </div>                            
+                            
+                            <!-- FIM DOS NOVOS CAMPOS PARA ASSEMBLY -->
+
                             <div class="mb-3">
                                 <label for="notes" class="form-label">Notas</label>
                                 <textarea class="form-control" name="notes" rows="2"></textarea>
@@ -669,7 +719,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     </div>
                     <div class="card-body">
                         <form method="GET">
-                            <input type="hidden" name="tab" value="bomlist">
+                            <input type="hidden" name="tab" value="bomlist/bomlist">
                             <input type="hidden" name="entity" value="assembly">
                             <select class="form-select" name="prototype_id" onchange="this.form.submit()">
                                 <option value="">Todos os protótipos</option>
@@ -718,7 +768,11 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                         <th>Protótipo</th>
                                         <th>Componente Pai</th>
                                         <th>Componente Filho</th>
-                                        <th>Qtd</th>
+                                        <th>Qtd (Componente)</th>
+                                        <th>Montagem-Pai</th>
+                                        <th>Montagem-Filho</th>
+                                        <th>Qtd (Montagem)</th>
+                                        <th>Nível de Montagem</th>
                                         <th>Notas</th>
                                         <th>Ações</th>
                                     </tr>
@@ -737,13 +791,25 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 <strong><?= htmlspecialchars($assembly['Child_Name']) ?></strong>
                                             </td>
                                             <td>
-                                                <span class="badge bg-secondary"><?= $assembly['Quantity'] ?></span>
+                                                <span class="badge bg-secondary"><?= $assembly['Component_Quantity'] ?></span>
+                                            </td>
+                                            <td>
+                                                <?= $assembly['Assembly_Father_ID'] ?? '-' ?>
+                                            </td>
+                                            <td>
+                                                <?= $assembly['Assembly_Child_ID'] ?? '-' ?>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-secondary"><?= $assembly['Assembly_Quantity'] ?></span>
+                                            </td>
+                                            <td>
+                                                <?= $assembly['Assembly_Level_Depth'] ?>
                                             </td>
                                             <td>
                                                 <?= $assembly['Notes'] ? htmlspecialchars($assembly['Notes']) : '-' ?>
                                             </td>
                                             <td>
-                                                <a href="?tab=bomlist&entity=assembly&action=delete&id=<?= $assembly['Assembly_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=assembly&action=delete&id=<?= $assembly['Assembly_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-danger"
                                                    onclick="return confirm('Tem a certeza que deseja remover esta montagem?')">
                                                     <i class="bi bi-trash"></i>
@@ -900,7 +966,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </button>
                             
                             <?php if ($editManufacturer): ?>
-                                <a href="?tab=bomlist&entity=manufacturers" class="btn btn-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=manufacturers" class="btn btn-secondary">
                                     <i class="bi bi-x-circle"></i> Cancelar
                                 </a>
                             <?php endif; ?>
@@ -957,11 +1023,11 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 <span class="badge bg-info"><?= $componentCount ?></span>
                                             </td>
                                             <td>
-                                                <a href="?tab=bomlist&entity=manufacturers&action=edit&id=<?= $manufacturer['Manufacturer_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=manufacturers&action=edit&id=<?= $manufacturer['Manufacturer_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-primary">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
-                                                <a href="?tab=bomlist&entity=manufacturers&action=delete&id=<?= $manufacturer['Manufacturer_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=manufacturers&action=delete&id=<?= $manufacturer['Manufacturer_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-danger"
                                                    onclick="return confirm('Tem a certeza que deseja eliminar este fabricante?')">
                                                     <i class="bi bi-trash"></i>
@@ -1032,7 +1098,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </button>
                             
                             <?php if ($editSupplier): ?>
-                                <a href="?tab=bomlist&entity=suppliers" class="btn btn-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=suppliers" class="btn btn-secondary">
                                     <i class="bi bi-x-circle"></i> Cancelar
                                 </a>
                             <?php endif; ?>
@@ -1089,11 +1155,11 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 <span class="badge bg-info"><?= $componentCount ?></span>
                                             </td>
                                             <td>
-                                                <a href="?tab=bomlist&entity=suppliers&action=edit&id=<?= $supplier['Supplier_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=suppliers&action=edit&id=<?= $supplier['Supplier_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-primary">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
-                                                <a href="?tab=bomlist&entity=suppliers&action=delete&id=<?= $supplier['Supplier_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=suppliers&action=delete&id=<?= $supplier['Supplier_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-danger"
                                                    onclick="return confirm('Tem a certeza que deseja eliminar este fornecedor?')">
                                                     <i class="bi bi-trash"></i>
@@ -1172,19 +1238,19 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <div class="col-12">
                             <h6><i class="bi bi-lightning"></i> Ações Rápidas</h6>
                             <div class="btn-group" role="group">
-                                <a href="?tab=bomlist&entity=components&action=create" class="btn btn-outline-primary">
+                                <a href="?tab=bomlist/bomlist&entity=components&action=create" class="btn btn-outline-primary">
                                     <i class="bi bi-cpu"></i> Novo Componente
                                 </a>
-                                <a href="?tab=bomlist&entity=prototypes&action=create" class="btn btn-outline-success">
+                                <a href="?tab=bomlist/bomlist&entity=prototypes&action=create" class="btn btn-outline-success">
                                     <i class="bi bi-diagram-3"></i> Novo Protótipo
                                 </a>
-                                <a href="?tab=bomlist&entity=assembly" class="btn btn-outline-info">
+                                <a href="?tab=bomlist/bomlist&entity=assembly" class="btn btn-outline-info">
                                     <i class="bi bi-diagram-2"></i> Gerir BOM
                                 </a>
-                                <a href="?tab=bomlist&entity=manufacturers&action=create" class="btn btn-outline-warning">
+                                <a href="?tab=bomlist/bomlist&entity=manufacturers&action=create" class="btn btn-outline-warning">
                                     <i class="bi bi-building"></i> Novo Fabricante
                                 </a>
-                                <a href="?tab=bomlist&entity=suppliers&action=create" class="btn btn-outline-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=suppliers&action=create" class="btn btn-outline-secondary">
                                     <i class="bi bi-truck"></i> Novo Fornecedor
                                 </a>
                             </div>

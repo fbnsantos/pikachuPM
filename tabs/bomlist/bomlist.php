@@ -158,9 +158,10 @@ switch ($entity) {
         
     case 'assembly':
         if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Component_Father_ID, Component_Child_ID, Component_Quantity, Assembly_Father_ID, Assembly_Child_ID, Assembly_Quantity, Notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE Component_Quantity=VALUES(Component_Quantity), Assembly_Quantity=VALUES(Assembly_Quantity), Notes=VALUES(Notes)");
+            $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Assembly_Designation, Component_Father_ID, Component_Child_ID, Component_Quantity, Assembly_Father_ID, Assembly_Child_ID, Assembly_Quantity, Notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Quantity=VALUES(Component_Quantity),Assembly_Quantity=VALUES(Assembly_Quantity), Notes=VALUES(Notes)");
             $stmt->execute([
                 $_POST['prototype_id'], 
+                $_POST['assembly_designation'] ?: null,
                 (empty($_POST['component_father_id']) ? null : $_POST['component_father_id']),
                 (empty($_POST['component_child_id']) ? null : $_POST['component_child_id']),
                 (empty($_POST['component_quantity']) ? 0 : $_POST['component_quantity']),
@@ -616,6 +617,11 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                             <input type="hidden" name="entity" value="assembly">
                             
                             <div class="mb-3">
+                                <label for="assembly_designation" class="form-label">Nome da Montagem *</label>
+                                <input type="text" class="form-control" name="assembly_designation" placeholder="Ex: Montagem1" required>
+                            </div>
+
+                            <div class="mb-3">
                                 <label for="prototype_id" class="form-label">Protótipo *</label>
                                 <select class="form-select" name="prototype_id" required>
                                     <option value="">Selecionar protótipo...</option>
@@ -659,7 +665,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                             </div>
 
                             <!-- NOVOS CAMPOS PARA ASSEMBLY -->
-                            
+
                             <div class="mb-3">
                                 <label for="assembly_father_id" class="form-label">Montagem-Pai</label>
                                 <select class="form-select" name="assembly_father_id">
@@ -667,7 +673,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                     <?php foreach ($assemblies as $assembly): ?>
                                         <option value="<?= $assembly['Assembly_ID'] ?>">
                                             <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
-                                            - <?= $assembly['Father_Name'] ? htmlspecialchars($assembly['Father_Name']) : 'Nível raiz' ?>
+                                            - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>

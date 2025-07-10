@@ -76,23 +76,23 @@ CREATE TABLE IF NOT EXISTS T_Assembly (
     -- UNIQUE KEY unique_component (Prototype_ID, Component_Father_ID, Component_Child_ID),
     -- UNIQUE KEY unique_assembly (Prototype_ID, Assembly_Father_ID, Assembly_Child_ID)
     CHECK (
-    (
-        Component_Father_ID IS NOT NULL
-        AND Component_Child_ID IS NOT NULL
-        AND Assembly_Father_ID IS NULL
-        AND Assembly_Child_ID IS NULL
+        (
+            Component_Father_ID IS NOT NULL
+            AND Component_Child_ID IS NOT NULL
+            AND Assembly_Father_ID IS NULL
+            AND Assembly_Child_ID IS NULL
+        )
+        OR (
+            Assembly_Father_ID IS NOT NULL
+            AND Component_Child_ID IS NOT NULL
+            AND Component_Father_ID IS NULL
+            AND Assembly_Child_ID IS NULL
+        )
+        OR (
+            Assembly_Father_ID IS NOT NULL
+            AND Assembly_Child_ID IS NOT NULL
+            AND Component_Father_ID IS NULL
+            AND Component_Child_ID IS NULL
+        )
     )
-    OR (
-        Assembly_Father_ID IS NOT NULL
-        AND Component_Child_ID IS NOT NULL
-        AND Component_Father_ID IS NULL
-        AND Assembly_Child_ID IS NULL
-    )
-    OR (
-        Assembly_Father_ID IS NOT NULL
-        AND Assembly_Child_ID IS NOT NULL
-        AND Component_Father_ID IS NULL
-        AND Component_Child_ID IS NULL
-    )
-)
 );

@@ -773,8 +773,8 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                     <tr>
                                         <th>Designação</th>
                                         <th>Protótipo Associado</th>
-                                        <th>Componente Pai</th>
-                                        <th>Componente Filho</th>
+                                        <th>Componente-Pai</th>
+                                        <th>Componente-Filho</th>
                                         <th>Qtd (Componente)</th>
                                         <th>Montagem-Pai</th>
                                         <th>Montagem-Filho</th>
@@ -798,16 +798,16 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                                 <?= $assembly['Father_Name'] ? htmlspecialchars($assembly['Father_Name']) : '<em>Nível raiz</em>' ?>
                                             </td>
                                             <td>
-                                                <strong><?= htmlspecialchars($assembly['Child_Name']) ?></strong>
+                                                <strong><?= !empty($assembly['Child_Name']) ? htmlspecialchars($assembly['Child_Name']) : '-' ?></strong>
                                             </td>
                                             <td>
                                                 <span class="badge bg-secondary"><?= $assembly['Component_Quantity'] ?></span>
                                             </td>
                                             <td>
-                                                <?= $assembly['Assembly_Designation'] ?? '-' ?>
+                                                <?= $assembly['Assembly_Father_Designation'] ? htmlspecialchars($assembly['Assembly_Father_Designation']) : '-' ?>
                                             </td>
                                             <td>
-                                                <?= $assembly['Assembly_Designation'] ?? '-' ?>
+                                                <?= $assembly['Assembly_Child_Designation'] ? htmlspecialchars($assembly['Assembly_Child_Designation']) : '-' ?>
                                             </td>
                                             <td>
                                                 <span class="badge bg-secondary"><?= $assembly['Assembly_Quantity'] ?></span>

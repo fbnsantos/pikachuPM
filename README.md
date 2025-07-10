@@ -6,7 +6,7 @@
 
 **TODO**
 
-- Fazer constraints no SQL para alterar entre assemblies atómicas, compostas, ou mixed
+- Restrições não funcionam em distribuições mais recentes do mysql, tenho de inserir as restrições no php (provavelmente)
 - Cada assembly devia ter um nome (ou ID) específico em vez de ficar com o nome do protótipo <--
 - Level-Depth não está a funcionar -> clarificar o que significa
 - Clarificar o que significa Nível Raíz

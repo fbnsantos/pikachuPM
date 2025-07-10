@@ -658,6 +658,23 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                 </select>
                             </div>
                             
+                            <!-- Botões para tipo de montagem -->
+                            <div class="mb-3">
+                                <label class="form-label">Tipo de Montagem</label><br>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="assembly_type" id="type_component_component" value="component_component" checked>
+                                    <label class="form-check-label" for="type_component_component">Componente - Componente</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="assembly_type" id="type_component_assembly" value="component_assembly">
+                                    <label class="form-check-label" for="type_component_assembly">Componente - Montagem</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="assembly_type" id="type_assembly_assembly" value="assembly_assembly">
+                                    <label class="form-check-label" for="type_assembly_assembly">Montagem - Montagem</label>
+                                </div>
+                            </div>      
+
                             <div class="mb-3">
                                 <label for="component_father_id" class="form-label">Componente Pai</label>
                                 <select class="form-select" name="component_father_id">
@@ -685,7 +702,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                             
                             <div class="mb-3">
                                 <label for="component_quantity" class="form-label">Quantidade (Componentes) *</label>
-                                <input type="number" class="form-control" name="component_quantity" value="1" required min="0">
+                                <input type="number" class="form-control" name="component_quantity" value="0" required min="0">
                             </div>
 
                             <!-- NOVOS CAMPOS PARA ASSEMBLY -->

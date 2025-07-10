@@ -182,6 +182,34 @@ switch ($entity) {
         
     case 'assembly':
         if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+
+            // Obter os valores enviados
+            $compFather = trim($_POST['component_father_id'] ?? '');
+            $compChild  = trim($_POST['component_child_id'] ?? '');
+            $assemFather = trim($_POST['assembly_father_id'] ?? '');
+            $assemChild  = trim($_POST['assembly_child_id'] ?? '');
+
+            $valid = false;
+        
+        // Opção 1: Componente-filho e componente-pai
+        if ($compFather !== '' && $compChild !== '' && $assemFather === '' && $assemChild === '') {
+            $valid = true;
+        }
+        // Opção 2: Componente-filho e montagem-pai
+        elseif ($compFather === '' && $compChild !== '' && $assemFather !== '' && $assemChild === '') {
+            $valid = true;
+        }
+        // Opção 3: Montagem-filho e montagem-pai
+        elseif ($compFather === '' && $compChild === '' && $assemFather !== '' && $assemChild !== '') {
+            $valid = true;
+        }
+        
+        if (!$valid) {
+            die("Erro: Combinação inválida de campos para montagem.");
+        }
+
+            // Verificar se os campos estão vazios e definir como NULL
+            
             $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Assembly_Designation, Component_Father_ID, Component_Child_ID, Component_Quantity, Assembly_Father_ID, Assembly_Child_ID, Assembly_Quantity, Notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Quantity=VALUES(Component_Quantity),Assembly_Quantity=VALUES(Assembly_Quantity), Notes=VALUES(Notes)");
             $stmt->execute([
                 $_POST['prototype_id'], 

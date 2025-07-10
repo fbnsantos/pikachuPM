@@ -9,11 +9,10 @@
 - Fazer constraints no SQL para alterar entre assemblies atómicas, compostas, ou mixed
 - Alterar atributos novos em todas as queries no php
 - Cada assembly devia ter um nome (ou ID) específico em vez de ficar com o nome do protótipo
-- Falta alterar os IDs que aparecem nos separadores Montagem-Pai e Montagem-Filho, para aparecer a designação da montagem em vez do ID
 - Level-Depth não está a funcionar -> clarificar o que significa
 - Clarificar o que significa Nível Raíz
 - Tirar a dúvida se se precisa de duas assemblies para fazer uma nova
-- Falta implementar a função com a query para ir buscar as designações das duas sub-montagens a ser usadas para fazer uma montagem nova
+- Mudar o nome da variável "Father_Name" para "Component_Father_Name" (mesmo para a variável do componente-filho) -> não esquecer de mudar na base de dados local também 
 ---
 
 **DONE**
@@ -26,3 +25,7 @@
     - Level_Depth -> Assembly_Level_Depth
 - Alterei a interface para ao selecionar uma Montagem, aparecer *"Protótipo Versão - Designação da Montagem"*
 - Acrescentei um Tab com a designação da montagem
+- Alterei as componentes pai e filho e as montagens pai e filho para não ser obrigatório -> depois acrescentar constraints para garantir que pelo menos dois estão inseridos
+- Alterei a função getAssemblies() para também ter a designação das sub-assemblies presentes lá (se houver)
+- Agora aparece a respectiva designação da montagem pai e filho em vez dos respectivos IDs na Estrutura de Montagem
+

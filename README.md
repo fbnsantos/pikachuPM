@@ -12,6 +12,7 @@
 - Clarificar o que significa Nível Raíz
 - Tirar a dúvida se se precisa de duas assemblies para fazer uma nova
 - Falta acrescentar as assemblys ao "Resumo da BOM"
+- Falta pôr o código para ocultar/mostrar os campos de acordo com a assembly escolhida
 ---
 
 **DONE**
@@ -22,7 +23,7 @@
     - Father_ID -> Component_Father_ID | Assembly_Father_ID
     - Quantity -> Component_Quantity | Assembly_Quantity
     - Level_Depth -> Assembly_Level_Depth
-        -> **Atributos também já alterados em todas as queries necessárias**
+        - **Atributos também já alterados em todas as queries necessárias**
 
 - Alterei a interface para ao selecionar uma Montagem, aparecer *"Protótipo Versão - Designação da Montagem"*
 - Acrescentei um Tab com a designação da montagem
@@ -30,4 +31,4 @@
 - Alterei a função getAssemblies() para também ter a designação das sub-assemblies presentes lá (se houver)
 - Agora aparece a respectiva designação da montagem pai e filho em vez dos respectivos IDs na Estrutura de Montagem
 - Mudei o nome da variável "Father_Name" para "Component_Father_Designation" (mesmo para a variável do componente-filho) -> query no getters.php também já está em conformidade
-
+- Acrescentei botões para escolher o tipo de assembly -> Parte de back-end aínda não está feita

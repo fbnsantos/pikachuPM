@@ -106,8 +106,32 @@ switch ($entity) {
                 $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 
                 foreach ($assemblies as $assembly) {
-                    $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Father_ID, Child_ID, Quantity, Level_Depth, Notes) VALUES (?, ?, ?, ?, ?, ?)");
-                    $stmt->execute([$newPrototypeId, $assembly['Father_ID'], $assembly['Child_ID'], $assembly['Quantity'], $assembly['Level_Depth'], $assembly['Notes']]);
+                    $stmt = $pdo->prepare("
+                        INSERT INTO T_Assembly (
+                            Prototype_ID, 
+                            Assembly_Designation, 
+                            Component_Father_ID, 
+                            Component_Child_ID, 
+                            Component_Quantity, 
+                            Assembly_Father_ID, 
+                            Assembly_Child_ID, 
+                            Assembly_Quantity, 
+                            Assembly_Level_Depth, 
+                            Notes
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $stmt->execute([
+                        $newPrototypeId,
+                        $assembly['Assembly_Designation'],
+                        $assembly['Component_Father_ID'],
+                        $assembly['Component_Child_ID'],
+                        $assembly['Component_Quantity'],
+                        $assembly['Assembly_Father_ID'],
+                        $assembly['Assembly_Child_ID'],
+                        $assembly['Assembly_Quantity'],
+                        $assembly['Assembly_Level_Depth'],
+                        $assembly['Notes']
+                    ]);
                 }
                 
                 $message = "Protótipo clonado com sucesso!";
@@ -795,10 +819,10 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                                 <br><small class="text-muted">v<?= $assembly['Prototype_Version'] ?></small>
                                             </td>
                                             <td>
-                                                <?= $assembly['Father_Name'] ? htmlspecialchars($assembly['Father_Name']) : '<em>Nível raiz</em>' ?>
+                                                <?= $assembly['Component_Father_Designation'] ? htmlspecialchars($assembly['Component_Father_Designation']) : '<em>Nível raiz</em>' ?>
                                             </td>
                                             <td>
-                                                <strong><?= !empty($assembly['Child_Name']) ? htmlspecialchars($assembly['Child_Name']) : '-' ?></strong>
+                                                <strong><?= !empty($assembly['Component_Child_Designation']) ? htmlspecialchars($assembly['Component_Child_Designation']) : '-' ?></strong>
                                             </td>
                                             <td>
                                                 <span class="badge bg-secondary"><?= $assembly['Component_Quantity'] ?></span>
@@ -847,12 +871,12 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                 // Calcular total de componentes necessários
                                 $stmt = $pdo->prepare("
                                     SELECT cc.Component_ID, cc.Denomination, cc.General_Type, cc.Price,
-                                           SUM(a.Quantity) as Total_Quantity,
+                                           SUM(a.Component_Quantity) as Total_Quantity,
                                            cc.Stock_Quantity,
                                            m.Denomination as Manufacturer_Name,
                                            s.Denomination as Supplier_Name
                                     FROM T_Assembly a
-                                    JOIN T_Component cc ON a.Child_ID = cc.Component_ID
+                                    JOIN T_Component cc ON a.Component_Child_ID = cc.Component_ID
                                     LEFT JOIN T_Manufacturer m ON cc.Manufacturer_ID = m.Manufacturer_ID
                                     LEFT JOIN T_Supplier s ON cc.Supplier_ID = s.Supplier_ID
                                     WHERE a.Prototype_ID = ?

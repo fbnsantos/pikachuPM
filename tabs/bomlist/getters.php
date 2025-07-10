@@ -37,8 +37,8 @@ function getAssemblies($pdo) {
         SELECT a.*, 
                p.Name AS Prototype_Name,
                p.Version AS Prototype_Version,
-               cf.Denomination AS Father_Name,
-               cc.Denomination AS Child_Name,
+               cf.Denomination AS Component_Father_Designation,
+               cc.Denomination AS Component_Child_Designation,
                af.Assembly_Designation AS Assembly_Father_Designation,
                ac.Assembly_Designation AS Assembly_Child_Designation
         FROM T_Assembly a

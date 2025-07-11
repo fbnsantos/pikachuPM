@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS T_Assembly (
     Prototype_ID INT NOT NULL,
     Assembly_Designation VARCHAR(255) NOT NULL,
 
+    Is_Prototype BOOLEAN DEFAULT FALSE,
+
     Component_Father_ID INT DEFAULT NULL,
     Component_Child_ID INT DEFAULT NULL,
     Component_Quantity INT NOT NULL DEFAULT 0,

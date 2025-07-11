@@ -8,11 +8,11 @@
 
 - Restrições não funcionam em distribuições mais recentes do mysql, tenho de inserir as restrições no php (provavelmente)
 - Cada assembly devia ter um nome (ou ID) específico em vez de ficar com o nome do protótipo <--
-- Level-Depth não está a funcionar -> clarificar o que significa
-- Clarificar o que significa Nível Raíz
+- Level-Depth não está a funcionar -> pretende-se que seja feito pelo sistema, retirar o nível da tabela atual, e somar ou subtrair conforme necessário
 - Tirar a dúvida se se precisa de duas assemblies para fazer uma nova
 - Falta acrescentar as assemblys ao "Resumo da BOM"
-- Falta pôr o código para ocultar/mostrar os campos de acordo com a assembly escolhida
+- Tornar as informações de cada assembly (e de cada protótipo) numa árvore -> ramos, sub-ramos, etc
+
 ---
 
 **DONE**
@@ -31,4 +31,6 @@
 - Alterei a função getAssemblies() para também ter a designação das sub-assemblies presentes lá (se houver)
 - Agora aparece a respectiva designação da montagem pai e filho em vez dos respectivos IDs na Estrutura de Montagem
 - Mudei o nome da variável "Father_Name" para "Component_Father_Designation" (mesmo para a variável do componente-filho) -> query no getters.php também já está em conformidade
-- Acrescentei botões para escolher o tipo de assembly -> Parte de back-end aínda não está feita
+- Acrescentei botões para escolher o tipo de assembly -> Agora já muda os campos visíveis corretamente baseado no botão escolhido
+- Acrescentei redirecionamento para evitar reenvio do formulário -> para não criar assemblies sozinho ao dar refresh à página (feito para todos os assemblies) -> falta fazer para components, prototypes, etc
+- Já tem o espaço para dar display à árvore dos assemblies de cada protótipo -> back-end não funciona aínda, não consegue mostrar o conteúdo, pode ser problema da função de busca, ou de render

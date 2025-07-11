@@ -5,7 +5,7 @@
 // Incluir configuração da base de dados
 // Incluir arquivo de configuração
 include_once __DIR__ . '/../../PWA/RestAPI/config.php';
-
+require_once 'helpers.php';
 require_once 'getters.php';
 
 // Configurar conexão com o banco de dados
@@ -191,26 +191,26 @@ switch ($entity) {
 
             $valid = false;
         
-        // Opção 1: Componente-filho e componente-pai
-        if ($compFather !== '' && $compChild !== '' && $assemFather === '' && $assemChild === '') {
-            $valid = true;
-        }
-        // Opção 2: Componente-filho e montagem-pai
-        elseif ($compFather === '' && $compChild !== '' && $assemFather !== '' && $assemChild === '') {
-            $valid = true;
-        }
-        // Opção 3: Montagem-filho e montagem-pai
-        elseif ($compFather === '' && $compChild === '' && $assemFather !== '' && $assemChild !== '') {
-            $valid = true;
-        }
-        
-        if (!$valid) {
-            die("Erro: Combinação inválida de campos para montagem.");
-        }
+            // Opção 1: Componente-filho e componente-pai
+            if ($compFather !== '' && $compChild !== '' && $assemFather === '' && $assemChild === '') {
+                $valid = true;
+            }
+            // Opção 2: Componente-filho e montagem-pai
+            elseif ($compFather === '' && $compChild !== '' && $assemFather !== '' && $assemChild === '') {
+                $valid = true;
+            }
+            // Opção 3: Montagem-filho e montagem-pai
+            elseif ($compFather === '' && $compChild === '' && $assemFather !== '' && $assemChild !== '') {
+                $valid = true;
+            }
+            
+            if (!$valid) {
+                die("Erro: Combinação inválida de campos para montagem.");
+            }
 
             // Verificar se os campos estão vazios e definir como NULL
             
-            $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Assembly_Designation, Component_Father_ID, Component_Child_ID, Component_Quantity, Assembly_Father_ID, Assembly_Child_ID, Assembly_Quantity, Notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Quantity=VALUES(Component_Quantity),Assembly_Quantity=VALUES(Assembly_Quantity), Notes=VALUES(Notes)");
+            $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Assembly_Designation, Component_Father_ID, Component_Child_ID, Component_Quantity, Assembly_Father_ID, Assembly_Child_ID, Assembly_Quantity, Notes, Is_Prototype) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Quantity=VALUES(Component_Quantity),Assembly_Quantity=VALUES(Assembly_Quantity), Notes=VALUES(Notes)");
             $stmt->execute([
                 $_POST['prototype_id'], 
                 $_POST['assembly_designation'] ?: null,
@@ -220,13 +220,53 @@ switch ($entity) {
                 (empty($_POST['assembly_father_id']) ? null : $_POST['assembly_father_id']),
                 (empty($_POST['assembly_child_id']) ? null : $_POST['assembly_child_id']),
                 (empty($_POST['assembly_quantity']) ? 0 : $_POST['assembly_quantity']), 
-                $_POST['notes']
+                $_POST['notes'],
+                $_POST['is_prototype'] ?? 0
             ]);
             $message = "Montagem criada/atualizada com sucesso!";
+            header("Location: ?tab=bomlist/bomlist&entity=assembly");
+            exit;
+
+        } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+            $stmt = $pdo->prepare("
+                UPDATE T_Assembly 
+                    SET 
+                        Assembly_Designation = ?, 
+                        Component_Father_ID = ?, 
+                        Component_Child_ID = ?, 
+                        Component_Quantity = ?, 
+                        Assembly_Father_ID = ?, 
+                        Assembly_Child_ID = ?, 
+                        Assembly_Quantity = ?, 
+                        Assembly_Level_Depth = ?, 
+                        Notes = ?, 
+                        Is_Prototype = ?
+                    WHERE Assembly_ID = ?
+                ");
+                $stmt->execute([
+                    $_POST['assembly_designation'] ?: null,
+                    (empty($_POST['component_father_id']) ? null : $_POST['component_father_id']),
+                    (empty($_POST['component_child_id']) ? null : $_POST['component_child_id']),
+                    (empty($_POST['component_quantity']) ? 0 : $_POST['component_quantity']),
+                    (empty($_POST['assembly_father_id']) ? null : $_POST['assembly_father_id']),
+                    (empty($_POST['assembly_child_id']) ? null : $_POST['assembly_child_id']),
+                    (empty($_POST['assembly_quantity']) ? 0 : $_POST['assembly_quantity']), 
+                    (empty($_POST['assembly_level_depth']) ? 0 : $_POST['assembly_level_depth']),
+                    $_POST['notes'],
+                    $_POST['is_prototype'] ?? 0, // Adiciona o valor do campo Is_Prototype
+                    $_POST['id']
+                ]);
+                $message = "Montagem atualizada com sucesso!";
+                header("Location: ?tab=bomlist/bomlist&entity=assembly");
+                exit;
+
+
         } elseif ($action === 'delete' && isset($_GET['id'])) {
             $stmt = $pdo->prepare("DELETE FROM T_Assembly WHERE Assembly_ID=?");
             $stmt->execute([$_GET['id']]);
             $message = "Montagem eliminada com sucesso!";
+            header("Location: ?tab=bomlist/bomlist&entity=assembly");
+            exit;
         }
         break;
 }
@@ -701,22 +741,32 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                     <input class="form-check-input" type="radio" name="assembly_type" id="type_assembly_assembly" value="assembly_assembly">
                                     <label class="form-check-label" for="type_assembly_assembly">Montagem - Montagem</label>
                                 </div>
-                            </div>      
-
+                            </div>
+                            
+                            <!-- Botão para escolher se é um protótipo -->
                             <div class="mb-3">
-                                <label for="component_father_id" class="form-label">Componente Pai</label>
+                                <label for="is_prototype" class="form-label">É um Protótipo?</label>
+                                <select class="form-select" name="is_prototype">
+                                    <option value="0" <?= isset($editAssembly) && !$editAssembly['Is_Prototype'] ? 'selected' : '' ?>>Não</option>
+                                    <option value="1" <?= isset($editAssembly) && $editAssembly['Is_Prototype'] ? 'selected' : '' ?>>Sim</option>
+                                </select>
+                            </div>
+                                                        
+
+                            <div class="mb-3" id="field-component-father">
+                                <label for="component_father_id" class="form-label">Componente Pai *</label>
                                 <select class="form-select" name="component_father_id">
-                                    <option value="">Nível raiz...</option>
+                                    <option value="">Selecionar componente...</option>
                                     <?php foreach ($components as $component): ?>
                                         <option value="<?= $component['Component_ID'] ?>">
                                             <?= htmlspecialchars($component['Denomination']) ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
-                                <div class="form-text">Deixar vazio para componentes de nível superior</div>
+
                             </div>
                             
-                            <div class="mb-3">
+                            <div class="mb-3" id="field-component-child">
                                 <label for="component_child_id" class="form-label">Componente Filho *</label>
                                 <select class="form-select" name="component_child_id">
                                     <option value="">Selecionar componente...</option>
@@ -728,17 +778,17 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                 </select>
                             </div>
                             
-                            <div class="mb-3">
+                            <div class="mb-3" id="field-component-quantity">
                                 <label for="component_quantity" class="form-label">Quantidade (Componentes) *</label>
-                                <input type="number" class="form-control" name="component_quantity" value="0" required min="0">
+                                <input type="number" class="form-control" name="component_quantity" value="1" required min="1">
                             </div>
 
                             <!-- NOVOS CAMPOS PARA ASSEMBLY -->
 
-                            <div class="mb-3">
-                                <label for="assembly_father_id" class="form-label">Montagem-Pai</label>
+                            <div class="mb-3" id="field-assembly-father">
+                                <label for="assembly_father_id" class="form-label">Montagem-Pai *</label>
                                 <select class="form-select" name="assembly_father_id">
-                                    <option value="">Montagem base</option>
+                                    <option value="">Selecionar montagem...</option>
                                     <?php foreach ($assemblies as $assembly): ?>
                                         <option value="<?= $assembly['Assembly_ID'] ?>">
                                             <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
@@ -746,13 +796,12 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
-                                <div class="form-text">Deixar vazio se é uma montagem atómica</div>
                             </div>                          
 
-                            <div class="mb-3">
-                                <label for="assembly_child_id" class="form-label">Montagem-Filho</label>
+                            <div class="mb-3" id="field-assembly-child">
+                                <label for="assembly_child_id" class="form-label">Montagem-Filho *</label>
                                 <select class="form-select" name="assembly_child_id">
-                                    <option value="">Montagem base</option>
+                                    <option value="">Selecionar montagem...</option>
                                     <?php foreach ($assemblies as $assembly): ?>
                                         <option value="<?= $assembly['Assembly_ID'] ?>">
                                             <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
@@ -760,22 +809,21 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
-                                <div class="form-text">Deixar vazio se é uma montagem atómica</div>
                             </div>
 
-                            <div class="mb-3">
-                                <label for="assembly_quantity" class="form-label">Quantidade (Montagens)</label>
-                                <input type="number" class="form-control" name="assembly_quantity" value="0" min="0">
+                            <div class="mb-3" id="field-assembly-quantity">
+                                <label for="assembly_quantity" class="form-label">Quantidade (Montagens) *</label>
+                                <input type="number" class="form-control" name="assembly_quantity" value="1" min="1">
                             </div>
-                            
-                            <div class="mb-3">
-                                <label for="assembly_level_depth" class="form-label">Nível de Montagem</label>
-                                <input type="number" class="form-control" name="assembly_level_depth" value="0" min="0">
+
+                            <div class="mb-3" id="field-assembly-level-depth">
+                                <label for="assembly_level_depth" class="form-label">Nível de Montagem *</label>
+                                <input type="number" class="form-control" name="assembly_level_depth" value="1" min="1" required>
                             </div>                            
                             
                             <!-- FIM DOS NOVOS CAMPOS PARA ASSEMBLY -->
 
-                            <div class="mb-3">
+                            <div class="mb-3" id="field-notes">
                                 <label for="notes" class="form-label">Notas</label>
                                 <textarea class="form-control" name="notes" rows="2"></textarea>
                             </div>
@@ -811,6 +859,19 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
             </div>
             
             <div class="col-md-8">
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5><i class="bi bi-diagram-3"></i> Estrutura de Montagem (Árvore)</h5>
+                    </div>
+                    <div class="card-body">
+                        <?php if (isset($assemblyTree)): ?>
+                            <?php renderAssemblyTree($assemblyTree); ?>
+                        <?php else: ?>
+                            <p>Selecione um protótipo para visualizar a estrutura.</p>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
                 <div class="card">
                     <div class="card-header">
                         <h5><i class="bi bi-diagram-2"></i> Estrutura de Montagem</h5>
@@ -841,6 +902,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                 <thead class="table-dark">
                                     <tr>
                                         <th>Designação</th>
+                                        <th>Protótipo (S/N)</th>
                                         <th>Protótipo Associado</th>
                                         <th>Componente-Pai</th>
                                         <th>Componente-Filho</th>
@@ -860,14 +922,17 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                                                 <?= $assembly['Assembly_Designation'] ?? '-' ?>
                                             </td>
                                             <td>
+                                                <?= $assembly['Is_Prototype'] ? '<span class="badge bg-success">Sim</span>' : '<span class="badge bg-secondary">Não</span>' ?>
+                                            </td>
+                                            <td>
                                                 <strong><?= htmlspecialchars($assembly['Prototype_Name']) ?></strong>
                                                 <br><small class="text-muted">v<?= $assembly['Prototype_Version'] ?></small>
                                             </td>
                                             <td>
-                                                <?= $assembly['Component_Father_Designation'] ? htmlspecialchars($assembly['Component_Father_Designation']) : '<em>Nível raiz</em>' ?>
+                                                <?= $assembly['Component_Father_Designation'] ? htmlspecialchars($assembly['Component_Father_Designation']) : '-' ?>
                                             </td>
                                             <td>
-                                                <strong><?= !empty($assembly['Component_Child_Designation']) ? htmlspecialchars($assembly['Component_Child_Designation']) : '-' ?></strong>
+                                                <?= !empty($assembly['Component_Child_Designation']) ? htmlspecialchars($assembly['Component_Child_Designation']) : '-' ?>
                                             </td>
                                             <td>
                                                 <span class="badge bg-secondary"><?= $assembly['Component_Quantity'] ?></span>
@@ -987,6 +1052,12 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                         <?php endif; ?>
                     </div>
                 </div>
+                <?php
+                if (isset($_GET['prototype_id']) && $_GET['prototype_id']) {
+                    $prototypeId = $_GET['prototype_id'];
+                    $assemblyTree = getAssemblyTree($pdo, $prototypeId);
+                }
+                ?>
             </div>
         </div>
 
@@ -1574,6 +1645,83 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+
+    // Adicionar lógica para exibir campos com base no tipo de montagem selecionado
+    const typeComponentComponent = document.getElementById('type_component_component');
+    const typeComponentAssembly = document.getElementById('type_component_assembly');
+    const typeAssemblyAssembly = document.getElementById('type_assembly_assembly');
+
+    const fieldComponentFather = document.getElementById('field-component-father');
+    const fieldComponentChild = document.getElementById('field-component-child');
+    const fieldComponentQuantity = document.getElementById('field-component-quantity');
+    const fieldAssemblyFather = document.getElementById('field-assembly-father');
+    const fieldAssemblyChild = document.getElementById('field-assembly-child');
+    const fieldAssemblyQuantity = document.getElementById('field-assembly-quantity');
+    const fieldNotes = document.getElementById('field-notes');
+
+    // Função para atualizar a visibilidade dos campos e definir obrigatoriedade
+    function updateFieldVisibility() {
+        if (typeComponentComponent.checked) {
+            // Exibir campos para Componente-Componente
+            fieldComponentFather.style.display = 'block';
+            fieldComponentChild.style.display = 'block';
+            fieldComponentQuantity.style.display = 'block';
+            fieldAssemblyFather.style.display = 'none';
+            fieldAssemblyChild.style.display = 'none';
+            fieldAssemblyQuantity.style.display = 'none';
+            fieldNotes.style.display = 'block';
+
+            // Definir obrigatoriedade
+            fieldComponentFather.querySelector('select').setAttribute('required', 'required');
+            fieldComponentChild.querySelector('select').setAttribute('required', 'required');
+            fieldComponentQuantity.querySelector('input').setAttribute('required', 'required');
+            fieldAssemblyFather.querySelector('select').removeAttribute('required');
+            fieldAssemblyChild.querySelector('select').removeAttribute('required');
+            fieldAssemblyQuantity.querySelector('input').removeAttribute('required');
+        } else if (typeComponentAssembly.checked) {
+            // Exibir campos para Componente-Montagem
+            fieldComponentFather.style.display = 'none';
+            fieldComponentChild.style.display = 'block';
+            fieldComponentQuantity.style.display = 'block';
+            fieldAssemblyFather.style.display = 'block';
+            fieldAssemblyChild.style.display = 'none';
+            fieldAssemblyQuantity.style.display = 'none';
+            fieldNotes.style.display = 'block';
+
+            // Definir obrigatoriedade
+            fieldComponentFather.querySelector('select').removeAttribute('required');
+            fieldComponentChild.querySelector('select').setAttribute('required', 'required');
+            fieldComponentQuantity.querySelector('input').setAttribute('required', 'required');
+            fieldAssemblyFather.querySelector('select').setAttribute('required', 'required');
+            fieldAssemblyChild.querySelector('select').removeAttribute('required');
+            fieldAssemblyQuantity.querySelector('input').removeAttribute('required');
+        } else if (typeAssemblyAssembly.checked) {
+            // Exibir campos para Montagem-Montagem
+            fieldComponentFather.style.display = 'none';
+            fieldComponentChild.style.display = 'none';
+            fieldComponentQuantity.style.display = 'none';
+            fieldAssemblyFather.style.display = 'block';
+            fieldAssemblyChild.style.display = 'block';
+            fieldAssemblyQuantity.style.display = 'block';
+            fieldNotes.style.display = 'block';
+
+            // Definir obrigatoriedade
+            fieldComponentFather.querySelector('select').removeAttribute('required');
+            fieldComponentChild.querySelector('select').removeAttribute('required');
+            fieldComponentQuantity.querySelector('input').removeAttribute('required');
+            fieldAssemblyFather.querySelector('select').setAttribute('required', 'required');
+            fieldAssemblyChild.querySelector('select').setAttribute('required', 'required');
+            fieldAssemblyQuantity.querySelector('input').setAttribute('required', 'required');
+        }
+    }
+
+    // Adicionar eventos aos botões de tipo de montagem
+    typeComponentComponent.addEventListener('change', updateFieldVisibility);
+    typeComponentAssembly.addEventListener('change', updateFieldVisibility);
+    typeAssemblyAssembly.addEventListener('change', updateFieldVisibility);
+
+    // Atualizar a visibilidade inicial com base no botão selecionado
+    updateFieldVisibility();
     
     // Guardar rascunhos automaticamente
     const formInputs = document.querySelectorAll('form input, form select, form textarea');

@@ -71,4 +71,35 @@ function getAssemblies($pdo) {
 }
 */
 
+function getAssemblyTree($pdo, $prototypeId, $parentId = null) {
+    $stmt = $pdo->prepare("
+        SELECT a.*, 
+               p.Name AS Prototype_Name,
+               p.Version AS Prototype_Version,
+               af.Assembly_Designation AS Assembly_Father_Designation,
+               ac.Assembly_Designation AS Assembly_Child_Designation
+        FROM T_Assembly a
+        JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
+        LEFT JOIN T_Assembly af ON a.Assembly_Father_ID = af.Assembly_ID
+        LEFT JOIN T_Assembly ac ON a.Assembly_Child_ID = ac.Assembly_ID
+        WHERE a.Prototype_ID = ? AND a.Assembly_Father_ID " . ($parentId ? "= ?" : "IS NULL") . "
+        ORDER BY a.Assembly_Designation
+    ");
+    $params = [$prototypeId];
+    if ($parentId) {
+        $params[] = $parentId;
+    }
+    $stmt->execute($params);
+    $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Para cada assembly, buscar os filhos recursivamente
+    foreach ($assemblies as &$assembly) {
+        $assembly['children'] = getAssemblyTree($pdo, $prototypeId, $assembly['Assembly_ID']);
+    }
+
+    return $assemblies;
+}
+
+
+
 ?>

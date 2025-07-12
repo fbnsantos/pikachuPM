@@ -7,26 +7,11 @@
 include_once __DIR__ . '/../../PWA/RestAPI/config.php';
 
 require_once 'getters.php';
+require_once 'database/database.php';
+require_once 'processor.php';
 
 // Estabelecer conexão com a base de dados
-$sqlFile = __DIR__ . '/database/database.sql';
-$sql = file_get_contents($sqlFile);
-
-try {
-    $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-    // Split and execute each statement
-    $statements = array_filter(array_map('trim', explode(';', $sql)));
-    foreach ($statements as $statement) {
-        if ($statement) {
-            $pdo->exec($statement);
-        }
-    }
-    echo "Importação concluída!";
-} catch (PDOException $e) {
-    echo "Erro: " . $e->getMessage();
-}
+$pdo = connectDB();
 
 
 
@@ -38,160 +23,18 @@ $message = '';
 
 
 // Processar ações CRUD baseadas no entity e action
-switch ($entity) {
-    case 'manufacturers':
-        if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Manufacturer (Denomination, Origin_Country, Website, Contacts) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts']]);
-            $message = "Fabricante criado com sucesso!";
-        } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("UPDATE T_Manufacturer SET Denomination=?, Origin_Country=?, Website=?, Contacts=? WHERE Manufacturer_ID=?");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['id']]);
-            $message = "Fabricante atualizado com sucesso!";
-        } elseif ($action === 'delete' && isset($_GET['id'])) {
-            $stmt = $pdo->prepare("DELETE FROM T_Manufacturer WHERE Manufacturer_ID=?");
-            $stmt->execute([$_GET['id']]);
-            $message = "Fabricante eliminado com sucesso!";
-        }
-        break;
-        
-    case 'suppliers':
-        if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Supplier (Denomination, Origin_Country, Website, Contacts) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts']]);
-            $message = "Fornecedor criado com sucesso!";
-        } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("UPDATE T_Supplier SET Denomination=?, Origin_Country=?, Website=?, Contacts=? WHERE Supplier_ID=?");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['id']]);
-            $message = "Fornecedor atualizado com sucesso!";
-        } elseif ($action === 'delete' && isset($_GET['id'])) {
-            $stmt = $pdo->prepare("DELETE FROM T_Supplier WHERE Supplier_ID=?");
-            $stmt->execute([$_GET['id']]);
-            $message = "Fornecedor eliminado com sucesso!";
-        }
-        break;
-        
-    case 'prototypes':
-        if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Prototype (Name, Version, Description, Status) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$_POST['name'], $_POST['version'], $_POST['description'], $_POST['status']]);
-            $message = "Protótipo criado com sucesso!";
-        } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("UPDATE T_Prototype SET Name=?, Version=?, Description=?, Status=? WHERE Prototype_ID=?");
-            $stmt->execute([$_POST['name'], $_POST['version'], $_POST['description'], $_POST['status'], $_POST['id']]);
-            $message = "Protótipo atualizado com sucesso!";
-        } elseif ($action === 'delete' && isset($_GET['id'])) {
-            $stmt = $pdo->prepare("DELETE FROM T_Prototype WHERE Prototype_ID=?");
-            $stmt->execute([$_GET['id']]);
-            $message = "Protótipo eliminado com sucesso!";
-        } elseif ($action === 'clone' && isset($_GET['id'])) {
-            // Clonar protótipo
-            $stmt = $pdo->prepare("SELECT * FROM T_Prototype WHERE Prototype_ID=?");
-            $stmt->execute([$_GET['id']]);
-            $prototype = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if ($prototype) {
-                $newVersion = floatval($prototype['Version']) + 0.1;
-                $stmt = $pdo->prepare("INSERT INTO T_Prototype (Name, Version, Description, Status) VALUES (?, ?, ?, 'Development')");
-                $stmt->execute([$prototype['Name'], number_format($newVersion, 1), $prototype['Description'] . ' (Clonado)', ]);
-                $newPrototypeId = $pdo->lastInsertId();
-                
-                // Clonar assembly
-                $stmt = $pdo->prepare("SELECT * FROM T_Assembly WHERE Prototype_ID=?");
-                $stmt->execute([$_GET['id']]);
-                $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                
-                foreach ($assemblies as $assembly) {
-                    $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Father_ID, Child_ID, Quantity, Level_Depth, Notes) VALUES (?, ?, ?, ?, ?, ?)");
-                    $stmt->execute([$newPrototypeId, $assembly['Father_ID'], $assembly['Child_ID'], $assembly['Quantity'], $assembly['Level_Depth'], $assembly['Notes']]);
-                }
-                
-                $message = "Protótipo clonado com sucesso!";
-            }
-        }
-        break;
-        
-    case 'components':
-        if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Component (Denomination, Manufacturer_ID, Manufacturer_ref, Supplier_ID, Supplier_ref, General_Type, Price, Acquisition_Date, Notes_Description, Stock_Quantity, Min_Stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([
-                $_POST['denomination'], 
-                $_POST['manufacturer_id'] ?: null, 
-                $_POST['manufacturer_ref'], 
-                $_POST['supplier_id'] ?: null, 
-                $_POST['supplier_ref'], 
-                $_POST['general_type'], 
-                $_POST['price'] ?: null, 
-                $_POST['acquisition_date'] ?: null, 
-                $_POST['notes_description'],
-                $_POST['stock_quantity'] ?: 0,
-                $_POST['min_stock'] ?: 0
-            ]);
-            $message = "Componente criado com sucesso!";
-        } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("UPDATE T_Component SET Denomination=?, Manufacturer_ID=?, Manufacturer_ref=?, Supplier_ID=?, Supplier_ref=?, General_Type=?, Price=?, Acquisition_Date=?, Notes_Description=?, Stock_Quantity=?, Min_Stock=? WHERE Component_ID=?");
-            $stmt->execute([
-                $_POST['denomination'], 
-                $_POST['manufacturer_id'] ?: null, 
-                $_POST['manufacturer_ref'], 
-                $_POST['supplier_id'] ?: null, 
-                $_POST['supplier_ref'], 
-                $_POST['general_type'], 
-                $_POST['price'] ?: null, 
-                $_POST['acquisition_date'] ?: null, 
-                $_POST['notes_description'],
-                $_POST['stock_quantity'] ?: 0,
-                $_POST['min_stock'] ?: 0,
-                $_POST['id']
-            ]);
-            $message = "Componente atualizado com sucesso!";
-        } elseif ($action === 'delete' && isset($_GET['id'])) {
-            $stmt = $pdo->prepare("DELETE FROM T_Component WHERE Component_ID=?");
-            $stmt->execute([$_GET['id']]);
-            $message = "Componente eliminado com sucesso!";
-        }
-        break;
-        
-    case 'assembly':
-        if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Father_ID, Child_ID, Quantity, Notes) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE Quantity=VALUES(Quantity), Notes=VALUES(Notes)");
-            $stmt->execute([
-                $_POST['prototype_id'], 
-                $_POST['father_id'] ?: null, 
-                $_POST['child_id'], 
-                $_POST['quantity'], 
-                $_POST['notes']
-            ]);
-            $message = "Montagem criada/atualizada com sucesso!";
-        } elseif ($action === 'delete' && isset($_GET['id'])) {
-            $stmt = $pdo->prepare("DELETE FROM T_Assembly WHERE Assembly_ID=?");
-            $stmt->execute([$_GET['id']]);
-            $message = "Montagem eliminada com sucesso!";
-        }
-        break;
-}
+$message = processCRUD($pdo, $entity, $action);
 
 // Buscar dados para exibição
 $manufacturers = getManufacturers($pdo);
 $suppliers = getSuppliers($pdo);
 $prototypes = getPrototypes($pdo);
 $components = getComponents($pdo);
+$assemblies = getAssemblies($pdo);
 
-// Buscar assemblies com informações detalhadas
-$stmt = $pdo->query("
-    SELECT a.*, 
-           p.Name as Prototype_Name,
-           p.Version as Prototype_Version,
-           cf.Denomination as Father_Name,
-           cc.Denomination as Child_Name
-    FROM T_Assembly a
-    JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-    LEFT JOIN T_Component cf ON a.Father_ID = cf.Component_ID
-    JOIN T_Component cc ON a.Child_ID = cc.Component_ID
-    ORDER BY p.Name, p.Version, cf.Denomination, cc.Denomination
-");
-$assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
+
+<!-- HTML CODE -->
 
 <div class="container-fluid">
     <?php if ($message): ?>
@@ -209,31 +52,31 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <ul class="nav nav-tabs" id="bomTabs" role="tablist">
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'components' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=components'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=components'">
                         <i class="bi bi-cpu"></i> Componentes
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'prototypes' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=prototypes'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=prototypes'">
                         <i class="bi bi-diagram-3"></i> Protótipos
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'assembly' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=assembly'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=assembly'">
                         <i class="bi bi-diagram-2"></i> Montagem (BOM)
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'manufacturers' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=manufacturers'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=manufacturers'">
                         <i class="bi bi-building"></i> Fabricantes
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'suppliers' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=suppliers'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=suppliers'">
                         <i class="bi bi-truck"></i> Fornecedores
                     </button>
                 </li>
@@ -373,7 +216,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </button>
                             
                             <?php if ($editComponent): ?>
-                                <a href="?tab=bomlist&entity=components" class="btn btn-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=components" class="btn btn-secondary">
                                     <i class="bi bi-x-circle"></i> Cancelar
                                 </a>
                             <?php endif; ?>
@@ -432,11 +275,11 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 </span>
                                             </td>
                                             <td>
-                                                <a href="?tab=bomlist&entity=components&action=edit&id=<?= $component['Component_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=components&action=edit&id=<?= $component['Component_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-primary">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
-                                                <a href="?tab=bomlist&entity=components&action=delete&id=<?= $component['Component_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=components&action=delete&id=<?= $component['Component_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-danger"
                                                    onclick="return confirm('Tem a certeza que deseja eliminar este componente?')">
                                                     <i class="bi bi-trash"></i>
@@ -511,7 +354,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </button>
                             
                             <?php if ($editPrototype): ?>
-                                <a href="?tab=bomlist&entity=prototypes" class="btn btn-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=prototypes" class="btn btn-secondary">
                                     <i class="bi bi-x-circle"></i> Cancelar
                                 </a>
                             <?php endif; ?>
@@ -565,19 +408,19 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                             <td><?= date('d/m/Y', strtotime($prototype['Created_Date'])) ?></td>
                                             <td>
                                                 <div class="btn-group" role="group">
-                                                    <a href="?tab=bomlist&entity=prototypes&action=edit&id=<?= $prototype['Prototype_ID'] ?>" 
+                                                    <a href="?tab=bomlist/bomlist&entity=prototypes&action=edit&id=<?= $prototype['Prototype_ID'] ?>" 
                                                        class="btn btn-sm btn-outline-primary" title="Editar">
                                                         <i class="bi bi-pencil"></i>
                                                     </a>
-                                                    <a href="?tab=bomlist&entity=prototypes&action=clone&id=<?= $prototype['Prototype_ID'] ?>" 
+                                                    <a href="?tab=bomlist/bomlist&entity=prototypes&action=clone&id=<?= $prototype['Prototype_ID'] ?>" 
                                                        class="btn btn-sm btn-outline-success" title="Clonar">
                                                         <i class="bi bi-files"></i>
                                                     </a>
-                                                    <a href="?tab=bomlist&entity=assembly&prototype_id=<?= $prototype['Prototype_ID'] ?>" 
+                                                    <a href="?tab=bomlist/bomlist&entity=assembly&prototype_id=<?= $prototype['Prototype_ID'] ?>" 
                                                        class="btn btn-sm btn-outline-info" title="Ver BOM">
                                                         <i class="bi bi-diagram-2"></i>
                                                     </a>
-                                                    <a href="?tab=bomlist&entity=prototypes&action=delete&id=<?= $prototype['Prototype_ID'] ?>" 
+                                                    <a href="?tab=bomlist/bomlist&entity=prototypes&action=delete&id=<?= $prototype['Prototype_ID'] ?>" 
                                                        class="btn btn-sm btn-outline-danger" title="Eliminar"
                                                        onclick="return confirm('Tem a certeza que deseja eliminar este protótipo?')">
                                                         <i class="bi bi-trash"></i>
@@ -743,7 +586,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 <?= $assembly['Notes'] ? htmlspecialchars($assembly['Notes']) : '-' ?>
                                             </td>
                                             <td>
-                                                <a href="?tab=bomlist&entity=assembly&action=delete&id=<?= $assembly['Assembly_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=assembly&action=delete&id=<?= $assembly['Assembly_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-danger"
                                                    onclick="return confirm('Tem a certeza que deseja remover esta montagem?')">
                                                     <i class="bi bi-trash"></i>
@@ -900,7 +743,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </button>
                             
                             <?php if ($editManufacturer): ?>
-                                <a href="?tab=bomlist&entity=manufacturers" class="btn btn-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=manufacturers" class="btn btn-secondary">
                                     <i class="bi bi-x-circle"></i> Cancelar
                                 </a>
                             <?php endif; ?>
@@ -957,11 +800,11 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 <span class="badge bg-info"><?= $componentCount ?></span>
                                             </td>
                                             <td>
-                                                <a href="?tab=bomlist&entity=manufacturers&action=edit&id=<?= $manufacturer['Manufacturer_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=manufacturers&action=edit&id=<?= $manufacturer['Manufacturer_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-primary">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
-                                                <a href="?tab=bomlist&entity=manufacturers&action=delete&id=<?= $manufacturer['Manufacturer_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=manufacturers&action=delete&id=<?= $manufacturer['Manufacturer_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-danger"
                                                    onclick="return confirm('Tem a certeza que deseja eliminar este fabricante?')">
                                                     <i class="bi bi-trash"></i>
@@ -1032,7 +875,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </button>
                             
                             <?php if ($editSupplier): ?>
-                                <a href="?tab=bomlist&entity=suppliers" class="btn btn-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=suppliers" class="btn btn-secondary">
                                     <i class="bi bi-x-circle"></i> Cancelar
                                 </a>
                             <?php endif; ?>
@@ -1089,11 +932,11 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 <span class="badge bg-info"><?= $componentCount ?></span>
                                             </td>
                                             <td>
-                                                <a href="?tab=bomlist&entity=suppliers&action=edit&id=<?= $supplier['Supplier_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=suppliers&action=edit&id=<?= $supplier['Supplier_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-primary">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
-                                                <a href="?tab=bomlist&entity=suppliers&action=delete&id=<?= $supplier['Supplier_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=suppliers&action=delete&id=<?= $supplier['Supplier_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-danger"
                                                    onclick="return confirm('Tem a certeza que deseja eliminar este fornecedor?')">
                                                     <i class="bi bi-trash"></i>
@@ -1172,19 +1015,19 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <div class="col-12">
                             <h6><i class="bi bi-lightning"></i> Ações Rápidas</h6>
                             <div class="btn-group" role="group">
-                                <a href="?tab=bomlist&entity=components&action=create" class="btn btn-outline-primary">
+                                <a href="?tab=bomlist/bomlist&entity=components&action=create" class="btn btn-outline-primary">
                                     <i class="bi bi-cpu"></i> Novo Componente
                                 </a>
-                                <a href="?tab=bomlist&entity=prototypes&action=create" class="btn btn-outline-success">
+                                <a href="?tab=bomlist/bomlist&entity=prototypes&action=create" class="btn btn-outline-success">
                                     <i class="bi bi-diagram-3"></i> Novo Protótipo
                                 </a>
-                                <a href="?tab=bomlist&entity=assembly" class="btn btn-outline-info">
+                                <a href="?tab=bomlist/bomlist&entity=assembly" class="btn btn-outline-info">
                                     <i class="bi bi-diagram-2"></i> Gerir BOM
                                 </a>
-                                <a href="?tab=bomlist&entity=manufacturers&action=create" class="btn btn-outline-warning">
+                                <a href="?tab=bomlist/bomlist&entity=manufacturers&action=create" class="btn btn-outline-warning">
                                     <i class="bi bi-building"></i> Novo Fabricante
                                 </a>
-                                <a href="?tab=bomlist&entity=suppliers&action=create" class="btn btn-outline-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=suppliers&action=create" class="btn btn-outline-secondary">
                                     <i class="bi bi-truck"></i> Novo Fornecedor
                                 </a>
                             </div>
@@ -1286,6 +1129,8 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
 </div>
 
 <!-- JavaScript para funcionalidades avançadas -->
+<!-- Neste momento o javascrip está a utilizar variáveis de php, futuramente pode ser trocado no sentido de isolar o javascript -->
+<!-- No entanto penso que não será benéfico dado o trabalho que daria vs o reward que traria  -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Função para exportar dados para CSV
@@ -1469,7 +1314,7 @@ function checkStockAvailability(componentId, quantity) {
 }
 </script>
 
-<style>
+<!-- <style>
 /* Estilos adicionais para melhorar a aparência */
 .table-hover tbody tr:hover {
     background-color: rgba(0,123,255,.075);
@@ -1538,7 +1383,8 @@ function checkStockAvailability(componentId, quantity) {
     border-color: #dc3545;
     box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
 }
-</style>
+</style> -->
+<link rel="stylesheet" href="tabs/bomlist/bomlist.css">
 
 <?php
 // Fechar conexão

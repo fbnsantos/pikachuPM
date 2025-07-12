@@ -30,4 +30,22 @@ function getComponents($pdo) {
     ");
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
+
+function getAssemblies($pdo) {
+
+// Buscar assemblies com informações detalhadas
+    $stmt = $pdo->query("
+        SELECT a.*, 
+               p.Name as Prototype_Name,
+               p.Version as Prototype_Version,
+                cf.Denomination as Father_Name,
+            cc.Denomination as Child_Name
+        FROM T_Assembly a
+        JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
+        LEFT JOIN T_Component cf ON a.Father_ID = cf.Component_ID
+        JOIN T_Component cc ON a.Child_ID = cc.Component_ID
+        ORDER BY p.Name, p.Version, cf.Denomination, cc.Denomination
+    ");
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
 ?>

@@ -5,15 +5,19 @@
 // Incluir configuração da base de dados
 // Incluir arquivo de configuração
 include_once __DIR__ . '/../../PWA/RestAPI/config.php';
-
+require_once 'helpers.php';
 require_once 'getters.php';
 require_once 'database/database.php';
 require_once 'processor.php';
 
-// Estabelecer conexão com a base de dados
+
 $pdo = connectDB();
 
 
+// Processar ações CRUD
+$action = $_POST['action'] ?? $_GET['action'] ?? 'list';
+$entity = $_POST['entity'] ?? $_GET['entity'] ?? 'components';
+$message = '';
 
 // Processar ações CRUD
 $action = $_POST['action'] ?? $_GET['action'] ?? 'list';
@@ -25,6 +29,7 @@ $message = '';
 // Processar ações CRUD baseadas no entity e action
 $message = processCRUD($pdo, $entity, $action);
 
+
 // Buscar dados para exibição
 $manufacturers = getManufacturers($pdo);
 $suppliers = getSuppliers($pdo);
@@ -32,9 +37,8 @@ $prototypes = getPrototypes($pdo);
 $components = getComponents($pdo);
 $assemblies = getAssemblies($pdo);
 
-?>
 
-<!-- HTML CODE -->
+?>
 
 <div class="container-fluid">
     <?php if ($message): ?>
@@ -451,6 +455,11 @@ $assemblies = getAssemblies($pdo);
                             <input type="hidden" name="entity" value="assembly">
                             
                             <div class="mb-3">
+                                <label for="assembly_designation" class="form-label">Nome da Montagem *</label>
+                                <input type="text" class="form-control" name="assembly_designation" placeholder="Ex: Montagem1" required>
+                            </div>
+
+                            <div class="mb-3">
                                 <label for="prototype_id" class="form-label">Protótipo *</label>
                                 <select class="form-select" name="prototype_id" required>
                                     <option value="">Selecionar protótipo...</option>
@@ -463,22 +472,49 @@ $assemblies = getAssemblies($pdo);
                                 </select>
                             </div>
                             
+                            <!-- Botões para tipo de montagem -->
                             <div class="mb-3">
-                                <label for="father_id" class="form-label">Componente Pai</label>
+                                <label class="form-label">Tipo de Montagem</label><br>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="assembly_type" id="type_component_component" value="component_component" checked>
+                                    <label class="form-check-label" for="type_component_component">Componente - Componente</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="assembly_type" id="type_component_assembly" value="component_assembly">
+                                    <label class="form-check-label" for="type_component_assembly">Componente - Montagem</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="assembly_type" id="type_assembly_assembly" value="assembly_assembly">
+                                    <label class="form-check-label" for="type_assembly_assembly">Montagem - Montagem</label>
+                                </div>
+                            </div>
+                            
+                            <!-- Botão para escolher se é um protótipo -->
+                            <div class="mb-3">
+                                <label for="is_prototype" class="form-label">É um Protótipo?</label>
+                                <select class="form-select" name="is_prototype">
+                                    <option value="0" <?= isset($editAssembly) && !$editAssembly['Is_Prototype'] ? 'selected' : '' ?>>Não</option>
+                                    <option value="1" <?= isset($editAssembly) && $editAssembly['Is_Prototype'] ? 'selected' : '' ?>>Sim</option>
+                                </select>
+                            </div>
+                                                        
+
+                            <div class="mb-3" id="field-component-father">
+                                <label for="component_father_id" class="form-label">Componente Pai *</label>
                                 <select class="form-select" name="component_father_id">
-                                    <option value="">Nível raiz...</option>
+                                    <option value="">Selecionar componente...</option>
                                     <?php foreach ($components as $component): ?>
                                         <option value="<?= $component['Component_ID'] ?>">
                                             <?= htmlspecialchars($component['Denomination']) ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
-                                <div class="form-text">Deixar vazio para componentes de nível superior</div>
+
                             </div>
                             
-                            <div class="mb-3">
-                                <label for="child_id" class="form-label">Componente Filho *</label>
-                                <select class="form-select" name="component_child_id" required>
+                            <div class="mb-3" id="field-component-child">
+                                <label for="component_child_id" class="form-label">Componente Filho *</label>
+                                <select class="form-select" name="component_child_id">
                                     <option value="">Selecionar componente...</option>
                                     <?php foreach ($components as $component): ?>
                                         <option value="<?= $component['Component_ID'] ?>">
@@ -487,18 +523,53 @@ $assemblies = getAssemblies($pdo);
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-
-                            <div class="mb-3">
-                                <label for="component_type" class="form-label">Nome da Assembly</label>
-                                <input type="text" class="form-control" name="assembly_designation"> 
-                            </div>
-
-                            <div class="mb-3">
-                                <label for="quantity" class="form-label">Quantidade *</label>
+                            
+                            <div class="mb-3" id="field-component-quantity">
+                                <label for="component_quantity" class="form-label">Quantidade (Componentes) *</label>
                                 <input type="number" class="form-control" name="component_quantity" value="1" required min="1">
                             </div>
+
+                            <!-- NOVOS CAMPOS PARA ASSEMBLY -->
+
+                            <div class="mb-3" id="field-assembly-father">
+                                <label for="assembly_father_id" class="form-label">Montagem-Pai *</label>
+                                <select class="form-select" name="assembly_father_id">
+                                    <option value="">Selecionar montagem...</option>
+                                    <?php foreach ($assemblies as $assembly): ?>
+                                        <option value="<?= $assembly['Assembly_ID'] ?>">
+                                            <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
+                                            - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>                          
+
+                            <div class="mb-3" id="field-assembly-child">
+                                <label for="assembly_child_id" class="form-label">Montagem-Filho *</label>
+                                <select class="form-select" name="assembly_child_id">
+                                    <option value="">Selecionar montagem...</option>
+                                    <?php foreach ($assemblies as $assembly): ?>
+                                        <option value="<?= $assembly['Assembly_ID'] ?>">
+                                            <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
+                                            - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div class="mb-3" id="field-assembly-quantity">
+                                <label for="assembly_quantity" class="form-label">Quantidade (Montagens) *</label>
+                                <input type="number" class="form-control" name="assembly_quantity" value="1" min="1">
+                            </div>
+
+                            <div class="mb-3" id="field-assembly-level-depth">
+                                <label for="assembly_level_depth" class="form-label">Nível de Montagem *</label>
+                                <input type="number" class="form-control" name="assembly_level_depth" value="1" min="1" required>
+                            </div>                            
                             
-                            <div class="mb-3">
+                            <!-- FIM DOS NOVOS CAMPOS PARA ASSEMBLY -->
+
+                            <div class="mb-3" id="field-notes">
                                 <label for="notes" class="form-label">Notas</label>
                                 <textarea class="form-control" name="notes" rows="2"></textarea>
                             </div>
@@ -517,7 +588,7 @@ $assemblies = getAssemblies($pdo);
                     </div>
                     <div class="card-body">
                         <form method="GET">
-                            <input type="hidden" name="tab" value="bomlist">
+                            <input type="hidden" name="tab" value="bomlist/bomlist">
                             <input type="hidden" name="entity" value="assembly">
                             <select class="form-select" name="prototype_id" onchange="this.form.submit()">
                                 <option value="">Todos os protótipos</option>
@@ -534,6 +605,38 @@ $assemblies = getAssemblies($pdo);
             </div>
             
             <div class="col-md-8">
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5><i class="bi bi-diagram-3"></i> Estrutura de Montagem (Árvore)</h5>
+                    </div>
+                    <form method="GET" action="">
+                        <input type="hidden" name="tab" value="bomlist/bomlist">
+                        <input type="hidden" name="entity" value="assembly">
+                        <div class="mb-3">
+                            <label for="prototype_id" class="form-label">Selecione um Protótipo</label>
+                            <select class="form-select" name="prototype_id" onchange="this.form.submit()">
+                                <option value="">-- Escolha um Protótipo --</option>
+                                <?php foreach ($prototypes as $prototype): ?>
+                                    <option value="<?= $prototype['Prototype_ID'] ?>" <?= (isset($_GET['prototype_id']) && $_GET['prototype_id'] == $prototype['Prototype_ID']) ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </form>
+
+                    <?php
+                        if (isset($_GET['prototype_id']) && $_GET['prototype_id']) {
+                            $prototypeId = $_GET['prototype_id'];
+                            $assemblyTree = getAssemblyTree($pdo, $prototypeId);
+                            renderAssemblyTree($assemblyTree);
+                        } else {
+                            echo "<p>Selecione um protótipo para visualizar a árvore de montagem.</p>";
+                        }
+                        ?>
+                    
+                </div>
+
                 <div class="card">
                     <div class="card-header">
                         <h5><i class="bi bi-diagram-2"></i> Estrutura de Montagem</h5>
@@ -563,10 +666,16 @@ $assemblies = getAssemblies($pdo);
                             <table class="table table-striped table-hover">
                                 <thead class="table-dark">
                                     <tr>
-                                        <th>Protótipo</th>
-                                        <th>Componente Pai</th>
-                                        <th>Componente Filho</th>
-                                        <th>Qtd</th>
+                                        <th>Designação</th>
+                                        <th>Protótipo (S/N)</th>
+                                        <th>Protótipo Associado</th>
+                                        <th>Componente-Pai</th>
+                                        <th>Componente-Filho</th>
+                                        <th>Qtd (Componente)</th>
+                                        <th>Montagem-Pai</th>
+                                        <th>Montagem-Filho</th>
+                                        <th>Qtd (Montagem)</th>
+                                        <th>Nível de Montagem</th>
                                         <th>Notas</th>
                                         <th>Ações</th>
                                     </tr>
@@ -575,17 +684,35 @@ $assemblies = getAssemblies($pdo);
                                     <?php foreach ($filteredAssemblies as $assembly): ?>
                                         <tr>
                                             <td>
+                                                <?= $assembly['Assembly_Designation'] ?? '-' ?>
+                                            </td>
+                                            <td>
+                                                <?= $assembly['Is_Prototype'] ? '<span class="badge bg-success">Sim</span>' : '<span class="badge bg-secondary">Não</span>' ?>
+                                            </td>
+                                            <td>
                                                 <strong><?= htmlspecialchars($assembly['Prototype_Name']) ?></strong>
                                                 <br><small class="text-muted">v<?= $assembly['Prototype_Version'] ?></small>
                                             </td>
                                             <td>
-                                                <?= $assembly['Father_Name'] ? htmlspecialchars($assembly['Father_Name']) : '<em>Nível raiz</em>' ?>
+                                                <?= $assembly['Component_Father_Designation'] ? htmlspecialchars($assembly['Component_Father_Designation']) : '-' ?>
                                             </td>
                                             <td>
-                                                <strong><?= htmlspecialchars($assembly['Child_Name']) ?></strong>
+                                                <?= !empty($assembly['Component_Child_Designation']) ? htmlspecialchars($assembly['Component_Child_Designation']) : '-' ?>
                                             </td>
                                             <td>
-                                                <span class="badge bg-secondary"><?= $assembly['Quantity'] ?></span>
+                                                <span class="badge bg-secondary"><?= $assembly['Component_Quantity'] ?></span>
+                                            </td>
+                                            <td>
+                                                <?= $assembly['Assembly_Father_Designation'] ? htmlspecialchars($assembly['Assembly_Father_Designation']) : '-' ?>
+                                            </td>
+                                            <td>
+                                                <?= $assembly['Assembly_Child_Designation'] ? htmlspecialchars($assembly['Assembly_Child_Designation']) : '-' ?>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-secondary"><?= $assembly['Assembly_Quantity'] ?></span>
+                                            </td>
+                                            <td>
+                                                <?= $assembly['Assembly_Level_Depth'] ?>
                                             </td>
                                             <td>
                                                 <?= $assembly['Notes'] ? htmlspecialchars($assembly['Notes']) : '-' ?>
@@ -619,12 +746,12 @@ $assemblies = getAssemblies($pdo);
                                 // Calcular total de componentes necessários
                                 $stmt = $pdo->prepare("
                                     SELECT cc.Component_ID, cc.Denomination, cc.General_Type, cc.Price,
-                                           SUM(a.Quantity) as Total_Quantity,
+                                           SUM(a.Component_Quantity) as Total_Quantity,
                                            cc.Stock_Quantity,
                                            m.Denomination as Manufacturer_Name,
                                            s.Denomination as Supplier_Name
                                     FROM T_Assembly a
-                                    JOIN T_Component cc ON a.Child_ID = cc.Component_ID
+                                    JOIN T_Component cc ON a.Component_Child_ID = cc.Component_ID
                                     LEFT JOIN T_Manufacturer m ON cc.Manufacturer_ID = m.Manufacturer_ID
                                     LEFT JOIN T_Supplier s ON cc.Supplier_ID = s.Supplier_ID
                                     WHERE a.Prototype_ID = ?
@@ -690,6 +817,12 @@ $assemblies = getAssemblies($pdo);
                         <?php endif; ?>
                     </div>
                 </div>
+                <?php
+                if (isset($_GET['prototype_id']) && $_GET['prototype_id']) {
+                    $prototypeId = $_GET['prototype_id'];
+                    $assemblyTree = getAssemblyTree($pdo, $prototypeId);
+                }
+                ?>
             </div>
         </div>
 
@@ -1133,265 +1266,6 @@ $assemblies = getAssemblies($pdo);
     </div>
 </div>
 
-<!-- JavaScript para funcionalidades avançadas -->
-<!-- Neste momento o javascrip está a utilizar variáveis de php, futuramente pode ser trocado no sentido de isolar o javascript -->
-<!-- No entanto penso que não será benéfico dado o trabalho que daria vs o reward que traria  -->
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Função para exportar dados para CSV
-    window.exportToCSV = function(type) {
-        const data = [];
-        let headers = [];
-        
-        switch(type) {
-            case 'components':
-                headers = ['ID', 'Denominação', 'Tipo', 'Fabricante', 'Fornecedor', 'Preço', 'Stock'];
-                <?php foreach ($components as $component): ?>
-                    data.push([
-                        '<?= $component['Component_ID'] ?>',
-                        '<?= addslashes($component['Denomination']) ?>',
-                        '<?= addslashes($component['General_Type']) ?>',
-                        '<?= addslashes($component['Manufacturer_Name']) ?>',
-                        '<?= addslashes($component['Supplier_Name']) ?>',
-                        '<?= $component['Price'] ?? 0 ?>',
-                        '<?= $component['Stock_Quantity'] ?>'
-                    ]);
-                <?php endforeach; ?>
-                break;
-                
-            case 'prototypes':
-                headers = ['ID', 'Nome', 'Versão', 'Estado', 'Data Criação'];
-                <?php foreach ($prototypes as $prototype): ?>
-                    data.push([
-                        '<?= $prototype['Prototype_ID'] ?>',
-                        '<?= addslashes($prototype['Name']) ?>',
-                        '<?= $prototype['Version'] ?>',
-                        '<?= $prototype['Status'] ?>',
-                        '<?= date('d/m/Y', strtotime($prototype['Created_Date'])) ?>'
-                    ]);
-                <?php endforeach; ?>
-                break;
-        }
-        
-        // Criar CSV
-        let csvContent = headers.join(',') + '\n';
-        data.forEach(row => {
-            csvContent += row.map(field => `"${field}"`).join(',') + '\n';
-        });
-        
-        // Download
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        link.setAttribute('href', url);
-        link.setAttribute('download', `${type}_${new Date().toISOString().split('T')[0]}.csv`);
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-    
-    // Função para gerar relatório BOM
-    window.generateBOMReport = function() {
-        const selectedPrototype = '<?= $_GET['prototype_id'] ?? '' ?>';
-        if (!selectedPrototype) {
-            alert('Por favor, selecione um protótipo na aba de Montagem primeiro.');
-            return;
-        }
-        
-        // Redirecionar para página de relatório (seria implementada separadamente)
-        window.open(`bom_report.php?prototype_id=${selectedPrototype}`, '_blank');
-    };
-    
-    // Função para importar dados
-    window.importFromFile = function() {
-        const fileInput = document.getElementById('importFile');
-        const file = fileInput.files[0];
-        
-        if (!file) {
-            alert('Por favor, selecione um ficheiro para importar.');
-            return;
-        }
-        
-        // Aqui seria implementada a lógica de importação
-        alert('Funcionalidade de importação em desenvolvimento.');
-    };
-    
-    // Auto-refresh da página a cada 5 minutos para manter dados atualizados
-    setInterval(function() {
-        if (document.visibilityState === 'visible') {
-            // Verificar se há mudanças na base de dados (poderia ser implementado via AJAX)
-        }
-    }, 300000); // 5 minutos
-    
-    // Busca em tempo real
-    const searchInputs = document.querySelectorAll('input[type="search"]');
-    searchInputs.forEach(input => {
-        input.addEventListener('input', function() {
-            const searchTerm = this.value.toLowerCase();
-            const table = this.closest('.card').querySelector('tbody');
-            const rows = table.querySelectorAll('tr');
-            
-            rows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(searchTerm) ? '' : 'none';
-            });
-        });
-    });
-    
-    // Tooltips para botões
-    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    const tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
-    });
-    
-    // Confirmação de eliminação melhorada
-    const deleteLinks = document.querySelectorAll('a[href*="action=delete"]');
-    deleteLinks.forEach(link => {
-        link.addEventListener('click', function(e) {
-            e.preventDefault();
-            const item = this.closest('tr').querySelector('strong').textContent;
-            if (confirm(`Tem a certeza que deseja eliminar "${item}"?\n\nEsta ação não pode ser desfeita.`)) {
-                window.location.href = this.href;
-            }
-        });
-    });
-    
-    // Validação de formulários
-    const forms = document.querySelectorAll('form');
-    forms.forEach(form => {
-        form.addEventListener('submit', function(e) {
-            const requiredFields = form.querySelectorAll('[required]');
-            let valid = true;
-            
-            requiredFields.forEach(field => {
-                if (!field.value.trim()) {
-                    field.classList.add('is-invalid');
-                    valid = false;
-                } else {
-                    field.classList.remove('is-invalid');
-                }
-            });
-            
-            if (!valid) {
-                e.preventDefault();
-                alert('Por favor, preencha todos os campos obrigatórios.');
-            }
-        });
-    });
-    
-    // Guardar rascunhos automaticamente
-    const formInputs = document.querySelectorAll('form input, form select, form textarea');
-    formInputs.forEach(input => {
-        // Carregar rascunho salvo
-        const savedValue = localStorage.getItem(`draft_${input.name}`);
-        if (savedValue && !input.value) {
-            input.value = savedValue;
-        }
-        
-        // Guardar mudanças
-        input.addEventListener('input', function() {
-            localStorage.setItem(`draft_${this.name}`, this.value);
-        });
-    });
-    
-    // Limpar rascunhos quando formulário é submetido com sucesso
-    forms.forEach(form => {
-        form.addEventListener('submit', function() {
-            const inputs = form.querySelectorAll('input, select, textarea');
-            inputs.forEach(input => {
-                localStorage.removeItem(`draft_${input.name}`);
-            });
-        });
-    });
-});
-
-// Função para calcular custos de protótipo em tempo real
-function calculatePrototypeCost(prototypeId) {
-    // Esta função seria expandida para calcular custos dinamicamente
-    console.log('Calculando custo do protótipo:', prototypeId);
-}
-
-// Função para verificar disponibilidade de stock
-function checkStockAvailability(componentId, quantity) {
-    // Esta função verificaria se há stock suficiente
-    console.log('Verificando stock para componente:', componentId, 'quantidade:', quantity);
-}
-</script>
-
-<!-- <style>
-/* Estilos adicionais para melhorar a aparência */
-.table-hover tbody tr:hover {
-    background-color: rgba(0,123,255,.075);
-}
-
-.badge {
-    font-size: 0.85em;
-}
-
-.card-header h5 {
-    margin-bottom: 0;
-}
-
-.btn-group .btn {
-    margin-right: 5px;
-}
-
-.list-group-item {
-    border-left: none;
-    border-right: none;
-}
-
-.list-group-item:first-child {
-    border-top: none;
-}
-
-.list-group-item:last-child {
-    border-bottom: none;
-}
-
-/* Responsive improvements */
-@media (max-width: 768px) {
-    .btn-group {
-        display: flex;
-        flex-direction: column;
-    }
-    
-    .btn-group .btn {
-        margin-bottom: 5px;
-        margin-right: 0;
-    }
-    
-    .table-responsive {
-        font-size: 0.85em;
-    }
-}
-
-/* Status colors */
-.text-development { color: #0d6efd; }
-.text-testing { color: #fd7e14; }
-.text-production { color: #198754; }
-.text-archived { color: #6c757d; }
-
-/* Loading states */
-.loading {
-    opacity: 0.6;
-    pointer-events: none;
-}
-
-/* Error states */
-.is-invalid {
-    border-color: #dc3545;
-}
-
-.is-invalid:focus {
-    border-color: #dc3545;
-    box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
-}
-</style> -->
-<link rel="stylesheet" href="tabs/bomlist/bomlist.css">
-
-<?php
 // Fechar conexão
 $pdo = null;
 ?>

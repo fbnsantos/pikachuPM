@@ -54,33 +54,41 @@ function getAssemblies($pdo) {
 
 // Função para buscar a árvore de montagens de um protótipo
 // Tem de se alterar para ir buscar outras assemblies em vez de só componentes
-function getAssemblyTree($pdo, $prototypeId, $parentId = null) {
-    $stmt = $pdo->prepare("
-        SELECT a.*, 
-               p.Name AS Prototype_Name,
-               p.Version AS Prototype_Version,
-               af.Assembly_Designation AS Assembly_Father_Designation,
-               ac.Assembly_Designation AS Assembly_Child_Designation
-        FROM T_Assembly a
-        JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-        LEFT JOIN T_Assembly af ON a.Assembly_Father_ID = af.Assembly_ID
-        LEFT JOIN T_Assembly ac ON a.Assembly_Child_ID = ac.Assembly_ID
-        WHERE a.Prototype_ID = ? AND a.Assembly_Father_ID " . ($parentId ? "= ?" : "IS NULL") . "
-        ORDER BY a.Assembly_Designation
-    ");
-    $params = [$prototypeId];
-    if ($parentId) {
-        $params[] = $parentId;
-    }
-    $stmt->execute($params);
-    $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+function getAssemblyTree($pdo, $prototypeId, $assemblyId = null) {
+    if ($assemblyId === null) {
+        // Encontrar todas as montagens (não excluir nenhuma montagem)
+        $stmt = $pdo->prepare("
+            SELECT a.*
+            FROM T_Assembly a
+            WHERE a.Prototype_ID = ?
+            ORDER BY a.Assembly_Level DESC, a.Assembly_Designation ASC
+        ");
+        $stmt->execute([$prototypeId]);
+        $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Para cada assembly, buscar os filhos recursivamente
-    foreach ($assemblies as &$assembly) {
-        $assembly['children'] = getAssemblyTree($pdo, $prototypeId, $assembly['Assembly_ID']);
+        // Construir a árvore a partir das montagens com o nível mais alto
+        $tree = [];
+        foreach ($assemblies as $assembly) {
+            if ($assembly['Assembly_Father_ID'] === null) {
+                $tree[] = buildAssemblyTree($assemblies, $assembly);
+            }
+        }
+        return $tree;
     }
+}
 
-    return $assemblies;
+/**
+ * Função auxiliar para construir a árvore recursivamente
+ */
+function buildAssemblyTree($assemblies, $parent) {
+    $children = [];
+    foreach ($assemblies as $assembly) {
+        if ($assembly['Assembly_Father_ID'] === $parent['Assembly_ID']) {
+            $children[] = buildAssemblyTree($assemblies, $assembly);
+        }
+    }
+    $parent['children'] = $children;
+    return $parent;
 }
 
 

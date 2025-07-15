@@ -142,6 +142,83 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+
+    // Adicionar lógica para exibir campos com base no tipo de montagem selecionado
+    const typeComponentComponent = document.getElementById('type_component_component');
+    const typeComponentAssembly = document.getElementById('type_component_assembly');
+    const typeAssemblyAssembly = document.getElementById('type_assembly_assembly');
+
+    const fieldComponentFather = document.getElementById('field-component-father');
+    const fieldComponentChild = document.getElementById('field-component-child');
+    const fieldComponentQuantity = document.getElementById('field-component-quantity');
+    const fieldAssemblyFather = document.getElementById('field-assembly-father');
+    const fieldAssemblyChild = document.getElementById('field-assembly-child');
+    const fieldAssemblyQuantity = document.getElementById('field-assembly-quantity');
+    const fieldNotes = document.getElementById('field-notes');
+
+    // Função para atualizar a visibilidade dos campos e definir obrigatoriedade
+    function updateFieldVisibility() {
+        if (typeComponentComponent.checked) {
+            // Exibir campos para Componente-Componente
+            fieldComponentFather.style.display = 'block';
+            fieldComponentChild.style.display = 'block';
+            fieldComponentQuantity.style.display = 'block';
+            fieldAssemblyFather.style.display = 'none';
+            fieldAssemblyChild.style.display = 'none';
+            fieldAssemblyQuantity.style.display = 'none';
+            fieldNotes.style.display = 'block';
+
+            // Definir obrigatoriedade
+            fieldComponentFather.querySelector('select').setAttribute('required', 'required');
+            fieldComponentChild.querySelector('select').setAttribute('required', 'required');
+            fieldComponentQuantity.querySelector('input').setAttribute('required', 'required');
+            fieldAssemblyFather.querySelector('select').removeAttribute('required');
+            fieldAssemblyChild.querySelector('select').removeAttribute('required');
+            fieldAssemblyQuantity.querySelector('input').removeAttribute('required');
+        } else if (typeComponentAssembly.checked) {
+            // Exibir campos para Componente-Montagem
+            fieldComponentFather.style.display = 'none';
+            fieldComponentChild.style.display = 'block';
+            fieldComponentQuantity.style.display = 'block';
+            fieldAssemblyFather.style.display = 'block';
+            fieldAssemblyChild.style.display = 'none';
+            fieldAssemblyQuantity.style.display = 'none';
+            fieldNotes.style.display = 'block';
+
+            // Definir obrigatoriedade
+            fieldComponentFather.querySelector('select').removeAttribute('required');
+            fieldComponentChild.querySelector('select').setAttribute('required', 'required');
+            fieldComponentQuantity.querySelector('input').setAttribute('required', 'required');
+            fieldAssemblyFather.querySelector('select').setAttribute('required', 'required');
+            fieldAssemblyChild.querySelector('select').removeAttribute('required');
+            fieldAssemblyQuantity.querySelector('input').removeAttribute('required');
+        } else if (typeAssemblyAssembly.checked) {
+            // Exibir campos para Montagem-Montagem
+            fieldComponentFather.style.display = 'none';
+            fieldComponentChild.style.display = 'none';
+            fieldComponentQuantity.style.display = 'none';
+            fieldAssemblyFather.style.display = 'block';
+            fieldAssemblyChild.style.display = 'block';
+            fieldAssemblyQuantity.style.display = 'block';
+            fieldNotes.style.display = 'block';
+
+            // Definir obrigatoriedade
+            fieldComponentFather.querySelector('select').removeAttribute('required');
+            fieldComponentChild.querySelector('select').removeAttribute('required');
+            fieldComponentQuantity.querySelector('input').removeAttribute('required');
+            fieldAssemblyFather.querySelector('select').setAttribute('required', 'required');
+            fieldAssemblyChild.querySelector('select').setAttribute('required', 'required');
+            fieldAssemblyQuantity.querySelector('input').setAttribute('required', 'required');
+        }
+    }
+
+    // Adicionar eventos aos botões de tipo de montagem
+    typeComponentComponent.addEventListener('change', updateFieldVisibility);
+    typeComponentAssembly.addEventListener('change', updateFieldVisibility);
+    typeAssemblyAssembly.addEventListener('change', updateFieldVisibility);
+
+    // Atualizar a visibilidade inicial com base no botão selecionado
+    updateFieldVisibility();
     
     // Guardar rascunhos automaticamente
     const formInputs = document.querySelectorAll('form input, form select, form textarea');

@@ -465,7 +465,7 @@ $assemblies = getAssemblies($pdo);
                             
                             <div class="mb-3">
                                 <label for="father_id" class="form-label">Componente Pai</label>
-                                <select class="form-select" name="father_id">
+                                <select class="form-select" name="component_father_id">
                                     <option value="">Nível raiz...</option>
                                     <?php foreach ($components as $component): ?>
                                         <option value="<?= $component['Component_ID'] ?>">
@@ -478,7 +478,7 @@ $assemblies = getAssemblies($pdo);
                             
                             <div class="mb-3">
                                 <label for="child_id" class="form-label">Componente Filho *</label>
-                                <select class="form-select" name="child_id" required>
+                                <select class="form-select" name="component_child_id" required>
                                     <option value="">Selecionar componente...</option>
                                     <?php foreach ($components as $component): ?>
                                         <option value="<?= $component['Component_ID'] ?>">
@@ -487,10 +487,15 @@ $assemblies = getAssemblies($pdo);
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-                            
+
+                            <div class="mb-3">
+                                <label for="component_type" class="form-label">Nome da Assembly</label>
+                                <input type="text" class="form-control" name="assembly_designation"> 
+                            </div>
+
                             <div class="mb-3">
                                 <label for="quantity" class="form-label">Quantidade *</label>
-                                <input type="number" class="form-control" name="quantity" value="1" required min="1">
+                                <input type="number" class="form-control" name="component_quantity" value="1" required min="1">
                             </div>
                             
                             <div class="mb-3">

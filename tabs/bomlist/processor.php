@@ -117,15 +117,19 @@ function processCRUD($pdo, $entity , $action){
         
         case 'assembly':
             if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-                $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Father_ID, Child_ID, Quantity, Notes) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE Quantity=VALUES(Quantity), Notes=VALUES(Notes)");
+                $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Assembly_Designation, Component_Father_ID, Component_Child_ID, Component_Quantity, Assembly_Father_ID , Assembly_Child_ID, Assembly_Quantity, Notes) VALUES (?, ?, ?, ?, ?, ?,?,?,?) ON DUPLICATE KEY UPDATE Component_Quantity=VALUES(Component_Quantity), Notes=VALUES(Notes), Assembly_Quantity=VALUES(Assembly_Quantity)");
                 $stmt->execute([
                     $_POST['prototype_id'], 
-                    $_POST['father_id'] ?: null, 
-                    $_POST['child_id'], 
-                    $_POST['quantity'], 
-                    $_POST['notes']
+                    $_POST['assembly_designation'] ?: null, 
+                    $_POST['component_father_id'] ?: null, 
+                    $_POST['component_child_id'] ?: null, 
+                    $_POST['component_quantity'] ?: 0, 
+                    $_POST['assembly_father_id'] ?: null, 
+                    $_POST['assembly_child_id'] ?: null, 
+                    $_POST['assembly_quantity'] ?: 0, 
+                    $_POST['notes'] ?: null
                 ]);
-                $message = "Montagem criada/atualizada com sucesso!";
+                $message = "Montagem criada com sucesso!";
             } elseif ($action === 'delete' && isset($_GET['id'])) {
                 $stmt = $pdo->prepare("DELETE FROM T_Assembly WHERE Assembly_ID=?");
                 $stmt->execute([$_GET['id']]);

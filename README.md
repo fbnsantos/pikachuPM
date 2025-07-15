@@ -10,8 +10,8 @@
 - Level-Depth não está a funcionar -> pretende-se que seja feito pelo sistema, retirar o nível da tabela atual, e somar ou subtrair conforme necessário
 - Falta acrescentar as assemblys ao "Resumo da BOM"
 - Tornar as informações de cada assembly (e de cada protótipo) numa árvore -> ramos, sub-ramos, etc
-- Pôr Assembly_ID na tabela Prototype para o protótipo guardar o ID da assembly que ele é -> em qualquer caso, a assembly vai ser sempre um protótipo quando se chega ao nível mais alto
-- Corrigir a árvore para ir buscar sub-assemblies em vez de só componentes
+- Corrigir a árvore para ir buscar componentes em vez de só sub-assemblies
+- Árvore está a ser gerada ao contrário
 
 
 
@@ -36,3 +36,5 @@
 - Acrescentei botões para escolher o tipo de assembly -> Agora já muda os campos visíveis corretamente baseado no botão escolhido
 - Acrescentei redirecionamento para evitar reenvio do formulário -> para não criar assemblies sozinho ao dar refresh à página (feito para todos os assemblies) -> falta fazer para components, prototypes, etc
 - Já tem o espaço para dar display à árvore dos assemblies de cada protótipo -> back-end não funciona aínda, não consegue mostrar o conteúdo, pode ser problema da função de busca, ou de render
+- Começo da adaptação de código ao refactor: ficheiros bomlist.css, database.php, processor.php, bomlist.js
+- Para já aínda comentado para garantir que funciona antes de apagar

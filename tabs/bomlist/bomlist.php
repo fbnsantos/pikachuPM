@@ -7,13 +7,18 @@
 include_once __DIR__ . '/../../PWA/RestAPI/config.php';
 require_once 'helpers.php';
 require_once 'getters.php';
+require_once 'database/database.php';
+require_once 'processor.php';
 
 // Configurar conexão com o banco de dados
-$pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+/*$pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+*/
+
+$pdo = connectDB();
 
 // Estabelecer conexão com a base de dados
-$sqlFile = __DIR__ . '/database/database.sql';
+/*$sqlFile = __DIR__ . '/database/database.sql';
 $sql = file_get_contents($sqlFile);
 
 try {
@@ -32,7 +37,12 @@ try {
     echo "Erro: " . $e->getMessage();
 }
 
+*/
 
+// Processar ações CRUD
+$action = $_POST['action'] ?? $_GET['action'] ?? 'list';
+$entity = $_POST['entity'] ?? $_GET['entity'] ?? 'components';
+$message = '';
 
 // Processar ações CRUD
 $action = $_POST['action'] ?? $_GET['action'] ?? 'list';
@@ -42,7 +52,10 @@ $message = '';
 
 
 // Processar ações CRUD baseadas no entity e action
-switch ($entity) {
+$message = processCRUD($pdo, $entity, $action);
+
+// Processar ações CRUD baseadas no entity e action
+/*switch ($entity) {
     case 'manufacturers':
         if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare("INSERT INTO T_Manufacturer (Denomination, Origin_Country, Website, Contacts) VALUES (?, ?, ?, ?)");
@@ -209,8 +222,13 @@ switch ($entity) {
             }
 
             // Verificar se os campos estão vazios e definir como NULL
-            
-            $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Assembly_Designation, Component_Father_ID, Component_Child_ID, Component_Quantity, Assembly_Father_ID, Assembly_Child_ID, Assembly_Quantity, Notes, Is_Prototype) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Quantity=VALUES(Component_Quantity),Assembly_Quantity=VALUES(Assembly_Quantity), Notes=VALUES(Notes)");
+
+            $stmt = $pdo->prepare("
+            INSERT INTO T_Assembly (
+                Prototype_ID, Assembly_Designation, Component_Father_ID, Component_Child_ID, 
+                Component_Quantity, Assembly_Father_ID, Assembly_Child_ID, Assembly_Quantity, 
+                Notes, Assembly_Level_Depth
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Quantity=VALUES(Component_Quantity),Assembly_Quantity=VALUES(Assembly_Quantity), Notes=VALUES(Notes)");
             $stmt->execute([
                 $_POST['prototype_id'], 
                 $_POST['assembly_designation'] ?: null,
@@ -221,8 +239,18 @@ switch ($entity) {
                 (empty($_POST['assembly_child_id']) ? null : $_POST['assembly_child_id']),
                 (empty($_POST['assembly_quantity']) ? 0 : $_POST['assembly_quantity']), 
                 $_POST['notes'],
-                $_POST['is_prototype'] ?? 0
             ]);
+
+            // Obter o ID da montagem recém-criada
+            $assemblyId = $pdo->lastInsertId();
+
+            // Calcular o nível da montagem
+            $level = calculateAssemblyLevel($pdo, $assemblyId);
+
+            // Atualizar o nível da montagem
+            $stmt = $pdo->prepare("UPDATE T_Assembly SET Assembly_Level = ? WHERE Assembly_ID = ?");
+            $stmt->execute([$level, $assemblyId]);
+
             $message = "Montagem criada/atualizada com sucesso!";
             header("Location: ?tab=bomlist/bomlist&entity=assembly");
             exit;
@@ -238,7 +266,7 @@ switch ($entity) {
                         Assembly_Father_ID = ?, 
                         Assembly_Child_ID = ?, 
                         Assembly_Quantity = ?, 
-                        Assembly_Level_Depth = ?, 
+                        Assembly_Level_DepTH = ?, 
                         Notes = ?, 
                         Is_Prototype = ?
                     WHERE Assembly_ID = ?
@@ -270,6 +298,7 @@ switch ($entity) {
         }
         break;
 }
+*/
 
 // Buscar dados para exibição
 $manufacturers = getManufacturers($pdo);
@@ -881,10 +910,8 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
 
                     <?php
                         if (isset($_GET['prototype_id']) && $_GET['prototype_id']) {
-                            // Obter a árvore de montagem para o protótipo selecionado
-                            $assemblyTree = getAssemblyTree($pdo, $_GET['prototype_id']);
-                            
-                            // echo "<h4>Árvore de Montagem:</h4>";
+                            $prototypeId = $_GET['prototype_id'];
+                            $assemblyTree = getAssemblyTree($pdo, $prototypeId);
                             renderAssemblyTree($assemblyTree);
                         } else {
                             echo "<p>Selecione um protótipo para visualizar a árvore de montagem.</p>";

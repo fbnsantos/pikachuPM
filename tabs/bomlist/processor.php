@@ -173,8 +173,8 @@ function processCRUD($pdo, $entity , $action){
             INSERT INTO T_Assembly (
                 Prototype_ID, Assembly_Designation, Component_Father_ID, Component_Child_ID, 
                 Component_Quantity, Assembly_Father_ID, Assembly_Child_ID, Assembly_Quantity, 
-                Notes, Assembly_Level_Depth
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Quantity=VALUES(Component_Quantity),Assembly_Quantity=VALUES(Assembly_Quantity), Notes=VALUES(Notes)");
+                Notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Quantity=VALUES(Component_Quantity),Assembly_Quantity=VALUES(Assembly_Quantity), Notes=VALUES(Notes)");
             $stmt->execute([
                 $_POST['prototype_id'], 
                 $_POST['assembly_designation'] ?: null,
@@ -186,16 +186,6 @@ function processCRUD($pdo, $entity , $action){
                 (empty($_POST['assembly_quantity']) ? 0 : $_POST['assembly_quantity']), 
                 $_POST['notes'],
             ]);
-
-            // Obter o ID da montagem recém-criada
-            $assemblyId = $pdo->lastInsertId();
-
-            // Calcular o nível da montagem
-            $level = calculateAssemblyLevel($pdo, $assemblyId);
-
-            // Atualizar o nível da montagem
-            $stmt = $pdo->prepare("UPDATE T_Assembly SET Assembly_Level = ? WHERE Assembly_ID = ?");
-            $stmt->execute([$level, $assemblyId]);
 
             $message = "Montagem criada/atualizada com sucesso!";
             header("Location: ?tab=bomlist/bomlist&entity=assembly");

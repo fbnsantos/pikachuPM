@@ -52,25 +52,8 @@ function getAssemblies($pdo) {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// Função para ir buscar duas submontagens a duas tabelas diferentes
-// (uma para o pai e outra para o filho) com base no ID da montagem
-/*function getSubAssemblies($pdo) {
-    $stmt = $pdo->query("
-        SELECT a.*, 
-               p.Name AS Prototype_Name,
-               p.Version AS Prototype_Version,
-               af.Assembly_Designation AS Assembly_Father_Designation,
-               ac.Assembly_Designation AS Assembly_Child_Designation
-        FROM T_Assembly a
-        JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-        LEFT JOIN T_Assembly af ON a.Assembly_Father_ID = af.Assembly_ID
-        LEFT JOIN T_Assembly ac ON a.Assembly_Child_ID = ac.Assembly_ID
-        ORDER BY p.Name, p.Version
-    ");
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
-*/
-
+// Função para buscar a árvore de montagens de um protótipo
+// Tem de se alterar para ir buscar outras assemblies em vez de só componentes
 function getAssemblyTree($pdo, $prototypeId, $parentId = null) {
     $stmt = $pdo->prepare("
         SELECT a.*, 

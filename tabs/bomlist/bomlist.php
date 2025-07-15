@@ -863,13 +863,34 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); */
                     <div class="card-header">
                         <h5><i class="bi bi-diagram-3"></i> Estrutura de Montagem (Árvore)</h5>
                     </div>
-                    <div class="card-body">
-                        <?php if (isset($assemblyTree)): ?>
-                            <?php renderAssemblyTree($assemblyTree); ?>
-                        <?php else: ?>
-                            <p>Selecione um protótipo para visualizar a estrutura.</p>
-                        <?php endif; ?>
-                    </div>
+                    <form method="GET" action="">
+                        <input type="hidden" name="tab" value="bomlist/bomlist">
+                        <input type="hidden" name="entity" value="assembly">
+                        <div class="mb-3">
+                            <label for="prototype_id" class="form-label">Selecione um Protótipo</label>
+                            <select class="form-select" name="prototype_id" onchange="this.form.submit()">
+                                <option value="">-- Escolha um Protótipo --</option>
+                                <?php foreach ($prototypes as $prototype): ?>
+                                    <option value="<?= $prototype['Prototype_ID'] ?>" <?= (isset($_GET['prototype_id']) && $_GET['prototype_id'] == $prototype['Prototype_ID']) ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </form>
+
+                    <?php
+                        if (isset($_GET['prototype_id']) && $_GET['prototype_id']) {
+                            // Obter a árvore de montagem para o protótipo selecionado
+                            $assemblyTree = getAssemblyTree($pdo, $_GET['prototype_id']);
+                            
+                            // echo "<h4>Árvore de Montagem:</h4>";
+                            renderAssemblyTree($assemblyTree);
+                        } else {
+                            echo "<p>Selecione um protótipo para visualizar a árvore de montagem.</p>";
+                        }
+                        ?>
+                    
                 </div>
 
                 <div class="card">

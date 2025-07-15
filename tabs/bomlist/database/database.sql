@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS T_Prototype (
     Description TEXT,
     Status ENUM('Development', 'Testing', 'Production', 'Archived') DEFAULT 'Development',
     Created_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    Updated_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    Updated_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 );
 
 CREATE TABLE IF NOT EXISTS T_Component (
@@ -52,8 +52,6 @@ CREATE TABLE IF NOT EXISTS T_Assembly (
     Prototype_ID INT NOT NULL,
     Assembly_Designation VARCHAR(255) NOT NULL,
 
-    Is_Prototype BOOLEAN DEFAULT FALSE,
-
     Component_Father_ID INT DEFAULT NULL,
     Component_Child_ID INT DEFAULT NULL,
     Component_Quantity INT NOT NULL DEFAULT 0,
@@ -61,41 +59,13 @@ CREATE TABLE IF NOT EXISTS T_Assembly (
     Assembly_Father_ID INT DEFAULT NULL,
     Assembly_Child_ID INT DEFAULT NULL,
     Assembly_Quantity INT NOT NULL DEFAULT 0,
-    Assembly_Level_Depth INT DEFAULT 0,
 
     Notes TEXT,
     Created_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
-    FOREIGN KEY (Prototype_ID) REFERENCES T_Prototype(Prototype_ID) ON DELETE CASCADE,
     FOREIGN KEY (Component_Father_ID) REFERENCES T_Component(Component_ID) ON DELETE CASCADE,
     FOREIGN KEY (Component_Child_ID) REFERENCES T_Component(Component_ID) ON DELETE CASCADE,
     FOREIGN KEY (Assembly_Father_ID) REFERENCES T_Assembly(Assembly_ID) ON DELETE CASCADE,
-    FOREIGN KEY (Assembly_Child_ID) REFERENCES T_Assembly(Assembly_ID) ON DELETE CASCADE
-
-    -- Ensure that a component or assembly can only be a child of one parent at a time
-    -- Tirei isto porque acho que deviamos poder acrescentar o mesmo componente ou montagem em diferentes montagens
-    -- (por exemplo, rodas estão em diferentes montagens de robôs)
-    -- UNIQUE KEY unique_component (Prototype_ID, Component_Father_ID, Component_Child_ID),
-    -- UNIQUE KEY unique_assembly (Prototype_ID, Assembly_Father_ID, Assembly_Child_ID)
-    
-    -- CHECK (
-    --    (
-    --        Component_Father_ID IS NOT NULL
-    --       AND Component_Child_ID IS NOT NULL
-    --        AND Assembly_Father_ID IS NULL
-    --        AND Assembly_Child_ID IS NULL
-    --    )
-    --    OR (
-    --        Assembly_Father_ID IS NOT NULL
-    --        AND Component_Child_ID IS NOT NULL
-    --        AND Component_Father_ID IS NULL
-    --        AND Assembly_Child_ID IS NULL
-    --    )
-    --    OR (
-    --        Assembly_Father_ID IS NOT NULL
-    --        AND Assembly_Child_ID IS NOT NULL
-    --        AND Component_Father_ID IS NULL
-    --        AND Component_Child_ID IS NULL
-    --    )
-    -- )
+    FOREIGN KEY (Assembly_Child_ID) REFERENCES T_Assembly(Assembly_ID) ON DELETE CASCADE,
+    FOREIGN KEY (Prototype_ID) REFERENCES T_Prototype(Prototype_ID) ON DELETE CASCADE
 );

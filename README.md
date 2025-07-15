@@ -6,12 +6,14 @@
 
 **TODO**
 
-- Restrições não funcionam em distribuições mais recentes do mysql, tenho de inserir as restrições no php (provavelmente)
 - Cada assembly devia ter um nome (ou ID) específico em vez de ficar com o nome do protótipo <--
 - Level-Depth não está a funcionar -> pretende-se que seja feito pelo sistema, retirar o nível da tabela atual, e somar ou subtrair conforme necessário
-- Tirar a dúvida se se precisa de duas assemblies para fazer uma nova
 - Falta acrescentar as assemblys ao "Resumo da BOM"
 - Tornar as informações de cada assembly (e de cada protótipo) numa árvore -> ramos, sub-ramos, etc
+- Pôr Assembly_ID na tabela Prototype para o protótipo guardar o ID da assembly que ele é -> em qualquer caso, a assembly vai ser sempre um protótipo quando se chega ao nível mais alto
+- Corrigir a árvore para ir buscar sub-assemblies em vez de só componentes
+
+
 
 ---
 

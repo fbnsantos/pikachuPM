@@ -36,5 +36,4 @@
 - Acrescentei botões para escolher o tipo de assembly -> Agora já muda os campos visíveis corretamente baseado no botão escolhido
 - Acrescentei redirecionamento para evitar reenvio do formulário -> para não criar assemblies sozinho ao dar refresh à página (feito para todos os assemblies) -> falta fazer para components, prototypes, etc
 - Já tem o espaço para dar display à árvore dos assemblies de cada protótipo -> back-end não funciona aínda, não consegue mostrar o conteúdo, pode ser problema da função de busca, ou de render
-- Começo da adaptação de código ao refactor: ficheiros bomlist.css, database.php, processor.php, bomlist.js
-- Para já aínda comentado para garantir que funciona antes de apagar
+- Código adaptado para encaixar no refactor

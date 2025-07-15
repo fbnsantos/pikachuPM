@@ -31,21 +31,58 @@ function getComponents($pdo) {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+// Função para buscar todas as montagens
 function getAssemblies($pdo) {
-
-// Buscar assemblies com informações detalhadas
     $stmt = $pdo->query("
         SELECT a.*, 
-               p.Name as Prototype_Name,
-               p.Version as Prototype_Version,
-                cf.Denomination as Father_Name,
-            cc.Denomination as Child_Name
+               p.Name AS Prototype_Name,
+               p.Version AS Prototype_Version,
+               cf.Denomination AS Component_Father_Designation,
+               cc.Denomination AS Component_Child_Designation,
+               af.Assembly_Designation AS Assembly_Father_Designation,
+               ac.Assembly_Designation AS Assembly_Child_Designation
         FROM T_Assembly a
         JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-        LEFT JOIN T_Component cf ON a.Father_ID = cf.Component_ID
-        JOIN T_Component cc ON a.Child_ID = cc.Component_ID
-        ORDER BY p.Name, p.Version, cf.Denomination, cc.Denomination
+        LEFT JOIN T_Component cf ON a.Component_Father_ID = cf.Component_ID
+        LEFT JOIN T_Component cc ON a.Component_Child_ID = cc.Component_ID
+        LEFT JOIN T_Assembly af ON a.Assembly_Father_ID = af.Assembly_ID
+        LEFT JOIN T_Assembly ac ON a.Assembly_Child_ID = ac.Assembly_ID
+        ORDER BY p.Name, p.Version
     ");
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
+
+// Função para buscar a árvore de montagens de um protótipo
+// Tem de se alterar para ir buscar outras assemblies em vez de só componentes
+function getAssemblyTree($pdo, $prototypeId, $parentId = null) {
+    $stmt = $pdo->prepare("
+        SELECT a.*, 
+               p.Name AS Prototype_Name,
+               p.Version AS Prototype_Version,
+               af.Assembly_Designation AS Assembly_Father_Designation,
+               ac.Assembly_Designation AS Assembly_Child_Designation
+        FROM T_Assembly a
+        JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
+        LEFT JOIN T_Assembly af ON a.Assembly_Father_ID = af.Assembly_ID
+        LEFT JOIN T_Assembly ac ON a.Assembly_Child_ID = ac.Assembly_ID
+        WHERE a.Prototype_ID = ? AND a.Assembly_Father_ID " . ($parentId ? "= ?" : "IS NULL") . "
+        ORDER BY a.Assembly_Designation
+    ");
+    $params = [$prototypeId];
+    if ($parentId) {
+        $params[] = $parentId;
+    }
+    $stmt->execute($params);
+    $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Para cada assembly, buscar os filhos recursivamente
+    foreach ($assemblies as &$assembly) {
+        $assembly['children'] = getAssemblyTree($pdo, $prototypeId, $assembly['Assembly_ID']);
+    }
+
+    return $assemblies;
+}
+
+
+
 ?>

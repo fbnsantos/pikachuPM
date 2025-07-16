@@ -533,6 +533,11 @@ $assemblies = getAssemblies($pdo);
                                             - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
                                         </option>
                                     <?php endforeach; ?>
+                                                                        <?php foreach ($prototypes as $prototype): ?>
+                                        <option value="<?= $prototype['Prototype_ID'] ?>">
+                                            <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
+                                        </option>
+                                    <?php endforeach; ?>
                                 </select>
                             </div>                          
 

@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     if (assemblyTypeSelection) {    
         // Function to hide all fields and clear their values
-        function hideAndClearAllFields() {
+        function hideAndClearAllFields() {  
             // Hide all fields
             document.getElementById('field-component-father').style.display = 'none';
             document.getElementById('field-component-child').style.display = 'none';
@@ -30,9 +30,6 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Initialize by showing component-component fields (default)
         hideAndClearAllFields();
-        document.getElementById('field-component-father').style.display = 'block';
-        document.getElementById('field-component-child').style.display = 'block';
-        document.getElementById('field-component-quantity').style.display = 'block';
 
         assemblyTypeSelection.addEventListener('change', function(event) {
             const selectedType = event.target.value;
@@ -51,8 +48,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     document.getElementById('field-component-quantity').style.display = 'block';
                     break;
                 case 'component_assembly':
-                    document.getElementById('field-component-father').style.display = 'none';
-                    document.getElementById('field-component-child').style.display = 'block';
+                    document.getElementById('field-component-father').style.display = 'block';
+                    document.getElementById('field-component-child').style.display = 'none';
                     document.getElementById('field-component-quantity').style.display = 'block';
                     document.getElementById('field-assembly-father').style.display = 'block';
                     document.getElementById('field-assembly-quantity').style.display = 'block';

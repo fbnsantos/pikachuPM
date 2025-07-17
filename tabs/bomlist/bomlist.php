@@ -473,10 +473,10 @@ $assemblies = getAssemblies($pdo);
                             </div>
                             
                             <!-- Botões para tipo de montagem -->
-                            <div class="mb-3">
+                            <div class="mb-3" id="assembly-type-selection">
                                 <label class="form-label">Tipo de Montagem</label><br>
                                 <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" name="assembly_type" id="type_component_component" value="component_component" checked>
+                                    <input class="form-check-input" type="radio" name="assembly_type" id="type_component_component" value="component_component" required>
                                     <label class="form-check-label" for="type_component_component">Componente - Componente</label>
                                 </div>
                                 <div class="form-check form-check-inline">
@@ -488,19 +488,11 @@ $assemblies = getAssemblies($pdo);
                                     <label class="form-check-label" for="type_assembly_assembly">Montagem - Montagem</label>
                                 </div>
                             </div>
-                            
-                            <!-- Botão para escolher se é um protótipo -->
-                            <div class="mb-3">
-                                <label for="is_prototype" class="form-label">É um Protótipo?</label>
-                                <select class="form-select" name="is_prototype">
-                                    <option value="0" <?= isset($editAssembly) && !$editAssembly['Is_Prototype'] ? 'selected' : '' ?>>Não</option>
-                                    <option value="1" <?= isset($editAssembly) && $editAssembly['Is_Prototype'] ? 'selected' : '' ?>>Sim</option>
-                                </select>
-                            </div>
-                                                        
 
+
+                            <!-- Load dynamically the fields based on previous selection --> 
                             <div class="mb-3" id="field-component-father">
-                                <label for="component_father_id" class="form-label">Componente Pai *</label>
+                                <label for="component_father_id" class="form-label">Componente 1 *</label>
                                 <select class="form-select" name="component_father_id">
                                     <option value="">Selecionar componente...</option>
                                     <?php foreach ($components as $component): ?>
@@ -513,7 +505,7 @@ $assemblies = getAssemblies($pdo);
                             </div>
                             
                             <div class="mb-3" id="field-component-child">
-                                <label for="component_child_id" class="form-label">Componente Filho *</label>
+                                <label for="component_child_id" class="form-label">Componente 2 *</label>
                                 <select class="form-select" name="component_child_id">
                                     <option value="">Selecionar componente...</option>
                                     <?php foreach ($components as $component): ?>
@@ -532,7 +524,7 @@ $assemblies = getAssemblies($pdo);
                             <!-- NOVOS CAMPOS PARA ASSEMBLY -->
 
                             <div class="mb-3" id="field-assembly-father">
-                                <label for="assembly_father_id" class="form-label">Montagem-Pai *</label>
+                                <label for="assembly_father_id" class="form-label">Montagem 1 *</label>
                                 <select class="form-select" name="assembly_father_id">
                                     <option value="">Selecionar montagem...</option>
                                     <?php foreach ($assemblies as $assembly): ?>
@@ -541,17 +533,27 @@ $assemblies = getAssemblies($pdo);
                                             - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
                                         </option>
                                     <?php endforeach; ?>
+                                                                        <?php foreach ($prototypes as $prototype): ?>
+                                        <option value="<?= $prototype['Prototype_ID'] ?> prototype">
+                                            <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
+                                        </option>
+                                    <?php endforeach; ?>
                                 </select>
                             </div>                          
 
                             <div class="mb-3" id="field-assembly-child">
-                                <label for="assembly_child_id" class="form-label">Montagem-Filho *</label>
+                                <label for="assembly_child_id" class="form-label">Montagem 2 *</label>
                                 <select class="form-select" name="assembly_child_id">
                                     <option value="">Selecionar montagem...</option>
                                     <?php foreach ($assemblies as $assembly): ?>
                                         <option value="<?= $assembly['Assembly_ID'] ?>">
                                             <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
                                             - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
+                                        </option> 
+                                    <?php endforeach; ?>
+                                    <?php foreach ($prototypes as $prototype): ?>
+                                        <option value="<?= $prototype['Prototype_ID'] ?> prototype">
+                                            <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
@@ -562,10 +564,10 @@ $assemblies = getAssemblies($pdo);
                                 <input type="number" class="form-control" name="assembly_quantity" value="1" min="1">
                             </div>
 
-                            <div class="mb-3" id="field-assembly-level-depth">
+                            <!-- <div class="mb-3" id="field-assembly-level-depth">
                                 <label for="assembly_level_depth" class="form-label">Nível de Montagem *</label>
                                 <input type="number" class="form-control" name="assembly_level_depth" value="1" min="1" required>
-                            </div>                            
+                            </div>                             -->
                             
                             <!-- FIM DOS NOVOS CAMPOS PARA ASSEMBLY -->
 
@@ -1266,6 +1268,10 @@ $assemblies = getAssemblies($pdo);
     </div>
 </div>
 
+<!-- Link to assemblyLoader.js -->
+<script src="tabs/bomlist/assemblyLoader.js"></script>
+
+<?php
 // Fechar conexão
 $pdo = null;
 ?>

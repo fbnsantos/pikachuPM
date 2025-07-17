@@ -26,6 +26,15 @@ document.addEventListener('DOMContentLoaded', function() {
             if (assemblyFather) assemblyFather.value = '';
             if (assemblyChild) assemblyChild.value = '';
             if (assemblyQuantity) assemblyQuantity.value = '1';
+
+            // Remover obrigatoriedade dos campos
+            document.querySelector('[name="component_father_id"]').removeAttribute('required');
+            document.querySelector('[name="component_child_id"]').removeAttribute('required');
+            document.querySelector('[name="component_quantity"]').removeAttribute('required');
+            document.querySelector('[name="assembly_father_id"]').removeAttribute('required');
+            document.querySelector('[name="assembly_child_id"]').removeAttribute('required');
+            document.querySelector('[name="assembly_quantity"]').removeAttribute('required');
+
         }
         
         // Initialize by showing component-component fields (default)
@@ -49,24 +58,42 @@ document.addEventListener('DOMContentLoaded', function() {
                     document.getElementById('field-component-quantity').style.display = 'block';
 
                     // Set required attributes for component fields
-                    fieldComponentFather.querySelector('select').setAttribute('required', 'required');
-                    fieldComponentChild.querySelector('select').setAttribute('required', 'required');
-                    fieldComponentQuantity.querySelector('input').setAttribute('required', 'required');
-                    fieldAssemblyFather.querySelector('select').removeAttribute('required');
-                    fieldAssemblyChild.querySelector('select').removeAttribute('required');
-                    fieldAssemblyQuantity.querySelector('input').removeAttribute('required');
+                    document.querySelector('[name="component_father_id"]').setAttribute('required', 'required');
+                    document.querySelector('[name="component_child_id"]').setAttribute('required', 'required');
+                    document.querySelector('[name="component_quantity"]').setAttribute('required', 'required');
+                    document.querySelector('[name="assembly_father_id"]').removeAttribute('required');
+                    document.querySelector('[name="assembly_child_id"]').removeAttribute('required');
+                    document.querySelector('[name="assembly_quantity"]').removeAttribute('required');
                     break;
+                    
                 case 'component_assembly':
                     document.getElementById('field-component-father').style.display = 'block';
                     document.getElementById('field-component-child').style.display = 'none';
                     document.getElementById('field-component-quantity').style.display = 'block';
                     document.getElementById('field-assembly-father').style.display = 'block';
                     document.getElementById('field-assembly-quantity').style.display = 'block';
+
+                     // Set required attributes for component-assembly fields
+                    document.querySelector('[name="component_father_id"]').setAttribute('required', 'required');
+                    document.querySelector('[name="component_quantity"]').setAttribute('required', 'required');
+                    document.querySelector('[name="assembly_father_id"]').setAttribute('required', 'required');
+                    document.querySelector('[name="component_child_id"]').removeAttribute('required');
+                    document.querySelector('[name="assembly_child_id"]').removeAttribute('required');
+                    document.querySelector('[name="assembly_quantity"]').removeAttribute('required');
+
                     break;
                 case 'assembly_assembly':
                     document.getElementById('field-assembly-father').style.display = 'block';
                     document.getElementById('field-assembly-child').style.display = 'block';
                     document.getElementById('field-assembly-quantity').style.display = 'block';
+        // Set required attributes for assembly-assembly fields
+                    document.querySelector('[name="assembly_father_id"]').setAttribute('required', 'required');
+                    document.querySelector('[name="assembly_child_id"]').setAttribute('required', 'required');
+                    document.querySelector('[name="assembly_quantity"]').setAttribute('required', 'required');
+                    document.querySelector('[name="component_father_id"]').removeAttribute('required');
+                    document.querySelector('[name="component_child_id"]').removeAttribute('required');
+                    document.querySelector('[name="component_quantity"]').removeAttribute('required');
+
                     break;
             }
         });

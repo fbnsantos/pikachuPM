@@ -145,19 +145,51 @@ function processCRUD($pdo, $entity , $action){
             // Obter os valores enviados
             $compFather = trim($_POST['component_father_id'] ?? '');
             $compChild  = trim($_POST['component_child_id'] ?? '');
+
+            //error_log("Valor de compFather: " . var_export($compFather, true));
+            //error_log("Valor de compChild: " . var_export($compChild, true));
+            
+            // Verificar se é um protótipo ou montagem
+
+
             $assemFather = trim($_POST['assembly_father_id'] ?? '');
             $assemChild  = trim($_POST['assembly_child_id'] ?? '');
+            error_log("Valor de assemFather: " . var_export($assemFather, true));
+            error_log("Valor de assemChild: " . var_export($assemChild, true));
 
+            // tirar a palavra prototype
+            $assemFather = str_replace(' prototype', '', $assemFather);
+            $assemChild = str_replace(' prototype', '', $assemChild);
+
+            // Converter para inteiro ou NULL
+            $assemFather = $assemFather !== '' ? (int)$assemFather : '';
+            $assemChild = $assemChild !== '' ? (int)$assemChild : '';
+
+            error_log("Valor de assemFather após remoção de 'prototype': " . var_export($assemFather, true));
+            error_log("Valor de assemChild após remoção de 'prototype': " . var_export($assemChild, true));
+            error_log("Valor de compFather: " . var_export($compFather, true));
+            error_log("Valor de compChild: " . var_export($compChild, true));
+        
+            
+            if (!is_null($assemFather) && !is_numeric($assemFather)) {
+                die("Erro: O valor de Assembly_Father_ID deve ser numérico.");
+            }
+            if (!is_null($assemChild) && !is_numeric($assemChild)) {
+                die("Erro: O valor de Assembly_Child_ID deve ser numérico.");
+            }
+            
+            
             $valid = false;
         
             // Opção 1: Componente-filho e componente-pai
             if ($compFather !== '' && $compChild !== '' && $assemFather === '' && $assemChild === '') {
                 $valid = true;
             }
-            // Opção 2: Componente-filho e montagem-pai
-            elseif ($compFather === '' && $compChild !== '' && $assemFather !== '' && $assemChild === '') {
+            // Opção 2: Componente-pai e montagem-pai
+            elseif ($compFather !== '' && $compChild === '' && $assemFather !== '' && $assemChild === '') {
                 $valid = true;
             }
+
             // Opção 3: Montagem-filho e montagem-pai
             elseif ($compFather === '' && $compChild === '' && $assemFather !== '' && $assemChild !== '') {
                 $valid = true;
@@ -181,8 +213,8 @@ function processCRUD($pdo, $entity , $action){
                 (empty($_POST['component_father_id']) ? null : $_POST['component_father_id']),
                 (empty($_POST['component_child_id']) ? null : $_POST['component_child_id']),
                 (empty($_POST['component_quantity']) ? 0 : $_POST['component_quantity']),
-                (empty($_POST['assembly_father_id']) ? null : $_POST['assembly_father_id']),
-                (empty($_POST['assembly_child_id']) ? null : $_POST['assembly_child_id']),
+                (empty($assemFather)) ? null : $assemFather,
+                (empty($assemChild)) ? null : $assemChild,
                 (empty($_POST['assembly_quantity']) ? 0 : $_POST['assembly_quantity']), 
                 $_POST['notes'],
             ]);

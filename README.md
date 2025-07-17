@@ -12,6 +12,7 @@
 - Tornar as informações de cada assembly (e de cada protótipo) numa árvore -> ramos, sub-ramos, etc
 - Corrigir a árvore para ir buscar componentes em vez de só sub-assemblies
 - Árvore está a ser gerada ao contrário
+- Procurar o assembly respectivo do protótipo para pegar nesse Assembly_ID e assim já funcionar com a tabela necessária
 
 
 

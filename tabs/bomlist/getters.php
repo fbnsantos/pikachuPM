@@ -61,10 +61,10 @@ function getAssemblyTree($pdo, $prototypeId, $assemblyId = null) {
             SELECT a.*
             FROM T_Assembly a
             WHERE a.Prototype_ID = ?
-            ORDER BY a.Assembly_Level DESC, a.Assembly_Designation ASC
+            ORDER BY a.Created_Date ASC
         ");
         $stmt->execute([$prototypeId]);
-        $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC); 
 
         // Construir a árvore a partir das montagens com o nível mais alto
         $tree = [];
@@ -84,6 +84,7 @@ function buildAssemblyTree($assemblies, $parent) {
     $children = [];
     foreach ($assemblies as $assembly) {
         if ($assembly['Assembly_Father_ID'] === $parent['Assembly_ID']) {
+
             $children[] = buildAssemblyTree($assemblies, $assembly);
         }
     }

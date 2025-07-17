@@ -533,7 +533,7 @@ $assemblies = getAssemblies($pdo);
                                             - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
                                         </option>
                                     <?php endforeach; ?>
-                                                                        <?php foreach ($prototypes as $prototype): ?>
+                                    <?php foreach ($prototypes as $prototype): ?>
                                         <option value="<?= $prototype['Prototype_ID'] ?>">
                                             <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
                                         </option>
@@ -631,7 +631,9 @@ $assemblies = getAssemblies($pdo);
                         if (isset($_GET['prototype_id']) && $_GET['prototype_id']) {
                             $prototypeId = $_GET['prototype_id'];
                             $assemblyTree = getAssemblyTree($pdo, $prototypeId);
+                            echo "<div id=\"assembly-tree\">";
                             renderAssemblyTree($assemblyTree);
+                            echo "</div>";
                         } else {
                             echo "<p>Selecione um protótipo para visualizar a árvore de montagem.</p>";
                         }
@@ -1268,7 +1270,8 @@ $assemblies = getAssemblies($pdo);
     </div>
 </div>
 
-<!-- Link to assemblyLoader.js -->
+<!-- Link to CSS and JS -->
+<link rel="stylesheet" href="tabs/bomlist/bomlist.css">
 <script src="tabs/bomlist/assemblyLoader.js"></script>
 
 <?php

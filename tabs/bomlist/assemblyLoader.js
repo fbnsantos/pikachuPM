@@ -1,6 +1,96 @@
 document.addEventListener('DOMContentLoaded', function() {
     const assemblyTypeSelection = document.getElementById('assembly-type-selection');
     
+    // Para componente pai
+    const componentFatherSelect = document.getElementById('component_father_id');
+    const componentDetailsBtn = document.getElementById('componentDetailsBtn');
+    
+    // Para componente filho
+    const componentChildSelect = document.getElementById('component_child_id');
+    const componentChildDetailsBtn = document.getElementById('componentChildDetailsBtn');
+    
+        // Função para mostrar detalhes do componente
+    function showComponentDetails(componentId) {
+        if (!componentId) return;
+        
+        // Encontrar o componente selecionado nos dados
+        const selectedComponent = components.find(c => c.Component_ID == componentId);
+        
+        if (selectedComponent) {
+            // Atualizar o conteúdo do modal com os detalhes do componente
+            const modalContent = document.getElementById('componentDetailsContent');
+            
+            // Criar tabela HTML com os detalhes do componente
+            let html = `
+                <table class="table table-bordered">
+                    <tr>
+                        <th>ID</th>
+                        <td>${selectedComponent.Component_ID}</td>
+                    </tr>
+                    <tr>
+                        <th>Denominação</th>
+                        <td>${selectedComponent.Denomination}</td>
+                    </tr>
+                    <tr>
+                        <th>Tipo</th>
+                        <td>${selectedComponent.General_Type || '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Fabricante</th>
+                        <td>${selectedComponent.Manufacturer_Name || '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Fornecedor</th>
+                        <td>${selectedComponent.Supplier_Name || '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Preço</th>
+                        <td>${selectedComponent.Price ? selectedComponent.Price + ' €' : '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Stock</th>
+                        <td>${selectedComponent.Stock_Quantity}</td>
+                    </tr>
+                    <tr>
+                        <th>Notas/Descrição</th>
+                        <td>${selectedComponent.Notes_Description || '-'}</td>
+                    </tr>
+                </table>
+            `;
+            
+            modalContent.innerHTML = html;
+            
+            // Abrir o modal
+            const modal = new bootstrap.Modal(document.getElementById('componentDetailsModal'));
+            modal.show();
+        }
+    }
+    
+    // Configurar eventos para o componente pai
+    if (componentFatherSelect && componentDetailsBtn) {
+        componentFatherSelect.addEventListener('change', function() {
+            componentDetailsBtn.disabled = !componentFatherSelect.value;
+        });
+        
+        componentDetailsBtn.addEventListener('click', function() {
+            const componentId = componentFatherSelect.value;
+            showComponentDetails(componentId);
+        });
+    }
+    
+    // Configurar eventos para o componente filho
+    if (componentChildSelect && componentChildDetailsBtn) {
+        componentChildSelect.addEventListener('change', function() {
+            componentChildDetailsBtn.disabled = !componentChildSelect.value;
+        });
+        
+        componentChildDetailsBtn.addEventListener('click', function() {
+            const componentId = componentChildSelect.value;
+            showComponentDetails(componentId);
+        });
+    }
+
+
     if (assemblyTypeSelection) {    
         // Function to hide all fields and clear their values
         function hideAndClearAllFields() {  

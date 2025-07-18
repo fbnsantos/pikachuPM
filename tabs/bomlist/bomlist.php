@@ -493,15 +493,19 @@ $assemblies = getAssemblies($pdo);
                             <!-- Load dynamically the fields based on previous selection --> 
                             <div class="mb-3" id="field-component-father">
                                 <label for="component_father_id" class="form-label">Componente 1 *</label>
-                                <select class="form-select" name="component_father_id">
-                                    <option value="">Selecionar componente...</option>
-                                    <?php foreach ($components as $component): ?>
-                                        <option value="<?= $component['Component_ID'] ?>">
-                                            <?= htmlspecialchars($component['Denomination']) ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-
+                                <div class="input-group">
+                                    <select class="form-select" name="component_father_id" id="component_father_id">
+                                        <option value="">Selecionar componente...</option>
+                                        <?php foreach ($components as $component): ?>
+                                            <option value="<?= $component['Component_ID'] ?>">
+                                                <?= htmlspecialchars($component['Denomination']) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <button type="button" id="componentDetailsBtn" class="btn btn-outline-info" disabled>
+                                        <i class="bi bi-info-circle"></i> Ver Detalhes
+                                    </button>
+                                </div>
                             </div>
                             <div class="mb-3" id="field-component-father-quantity">
                                 <label for="component_father_quantity" class="form-label">Quantidade (Componente 1) *</label>
@@ -509,14 +513,19 @@ $assemblies = getAssemblies($pdo);
                             </div>
                             <div class="mb-3" id="field-component-child">
                                 <label for="component_child_id" class="form-label">Componente 2 *</label>
-                                <select class="form-select" name="component_child_id">
-                                    <option value="">Selecionar componente...</option>
-                                    <?php foreach ($components as $component): ?>
-                                        <option value="<?= $component['Component_ID'] ?>">
-                                            <?= htmlspecialchars($component['Denomination']) ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
+                                <div class="input-group">
+                                    <select class="form-select" name="component_child_id" id="component_child_id">
+                                        <option value="">Selecionar componente...</option>
+                                        <?php foreach ($components as $component): ?>
+                                            <option value="<?= $component['Component_ID'] ?>">
+                                                <?= htmlspecialchars($component['Denomination']) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <button type="button" id="componentChildDetailsBtn" class="btn btn-outline-info" disabled>
+                                        <i class="bi bi-info-circle"></i> Ver Detalhes
+                                    </button>
+                                </div>
                             </div>
                             
                             <div class="mb-3" id="field-component-child-quantity">
@@ -753,7 +762,7 @@ $assemblies = getAssemblies($pdo);
                                 // Calcular total de componentes necessários
                                 $stmt = $pdo->prepare("
                                     SELECT cc.Component_ID, cc.Denomination, cc.General_Type, cc.Price,
-                                           SUM(a.Component_Quantity) as Total_Quantity,
+                                           SUM(a.Component_Father_Quantity + a.Component_Child_Quantity) as Total_Quantity,
                                            cc.Stock_Quantity,
                                            m.Denomination as Manufacturer_Name,
                                            s.Denomination as Supplier_Name
@@ -1272,9 +1281,31 @@ $assemblies = getAssemblies($pdo);
             </div>
         </div>
     </div>
+    <!-- Modal para detalhes do componente -->
+    <div class="modal fade" id="componentDetailsModal" tabindex="-1" aria-labelledby="componentDetailsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="componentDetailsModalLabel">Detalhes do Componente</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="componentDetailsContent">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Link to assemblyLoader.js -->
+
 <script>
     const components = <?= json_encode($components) ?>;
     const prototypes = <?= json_encode($prototypes) ?>;

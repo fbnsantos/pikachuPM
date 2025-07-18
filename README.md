@@ -38,3 +38,5 @@
 - Acrescentei redirecionamento para evitar reenvio do formulário -> para não criar assemblies sozinho ao dar refresh à página (feito para todos os assemblies) -> falta fazer para components, prototypes, etc
 - Já tem o espaço para dar display à árvore dos assemblies de cada protótipo -> back-end não funciona aínda, não consegue mostrar o conteúdo, pode ser problema da função de busca, ou de render
 - Código adaptado para encaixar no refactor
+- Implementado corretamente o nível da assembly -> quando se acrescenta uma nova assembly, escolhe o nivel mais alto entre as duas, e soma 1
+- Já é possível acrescentar um protótipo a uma assembly nova -> Identifica o ID da maior assembly (maior nível) dentro desse protótipo, e dá essa assembly como assembly filho ou pai, consoante o caso

@@ -564,10 +564,10 @@ $assemblies = getAssemblies($pdo);
                                 <input type="number" class="form-control" name="assembly_quantity" value="1" min="1">
                             </div>
 
-                            <!-- <div class="mb-3" id="field-assembly-level-depth">
-                                <label for="assembly_level_depth" class="form-label">Nível de Montagem *</label>
-                                <input type="number" class="form-control" name="assembly_level_depth" value="1" min="1" required>
-                            </div>                             -->
+                            <div class="mb-3" id="field-assembly-level-depth">
+                                <label for="assembly_level" class="form-label">Nível de Montagem *</label>
+                                <input type="number" class="form-control" name="assembly_level" value="1" min="1" required>
+                            </div>                   
                             
                             <!-- FIM DOS NOVOS CAMPOS PARA ASSEMBLY -->
 
@@ -669,8 +669,7 @@ $assemblies = getAssemblies($pdo);
                                 <thead class="table-dark">
                                     <tr>
                                         <th>Designação</th>
-                                        <th>Protótipo (S/N)</th>
-                                        <th>Protótipo Associado</th>
+                                        <th>Protótipo</th>
                                         <th>Componente-Pai</th>
                                         <th>Componente-Filho</th>
                                         <th>Qtd (Componente)</th>
@@ -687,9 +686,6 @@ $assemblies = getAssemblies($pdo);
                                         <tr>
                                             <td>
                                                 <?= $assembly['Assembly_Designation'] ?? '-' ?>
-                                            </td>
-                                            <td>
-                                                <?= $assembly['Is_Prototype'] ? '<span class="badge bg-success">Sim</span>' : '<span class="badge bg-secondary">Não</span>' ?>
                                             </td>
                                             <td>
                                                 <strong><?= htmlspecialchars($assembly['Prototype_Name']) ?></strong>
@@ -714,7 +710,7 @@ $assemblies = getAssemblies($pdo);
                                                 <span class="badge bg-secondary"><?= $assembly['Assembly_Quantity'] ?></span>
                                             </td>
                                             <td>
-                                                <?= $assembly['Assembly_Level_Depth'] ?>
+                                                <?= $assembly['Assembly_Level'] ?>
                                             </td>
                                             <td>
                                                 <?= $assembly['Notes'] ? htmlspecialchars($assembly['Notes']) : '-' ?>
@@ -1246,6 +1242,7 @@ $assemblies = getAssemblies($pdo);
                                 <button class="btn btn-outline-info" onclick="exportToCSV('prototypes')">
                                     <i class="bi bi-file-earmark-text"></i> Protótipos CSV
                                 </button>
+                                
                                 <button class="btn btn-outline-warning" onclick="generateBOMReport()">
                                     <i class="bi bi-file-earmark-pdf"></i> Relatório BOM
                                 </button>
@@ -1269,6 +1266,13 @@ $assemblies = getAssemblies($pdo);
 </div>
 
 <!-- Link to assemblyLoader.js -->
+<script>
+    const components = <?= json_encode($components) ?>;
+    const prototypes = <?= json_encode($prototypes) ?>;
+</script>
+<script>
+    const selectedPrototype = <?= json_encode($_GET['prototype_id'] ?? '') ?>;
+</script>
 <script src="tabs/bomlist/assemblyLoader.js"></script>
 
 <?php

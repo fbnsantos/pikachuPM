@@ -97,6 +97,69 @@ document.addEventListener('DOMContentLoaded', function() {
                     break;
             }
         });
+
+         // Função para exportar dados para CSV
+        window.exportToCSV = function(type) {
+            const data = [];
+            let headers = [];
+            
+            switch(type) {
+                case 'components':
+                    headers = ['ID', 'Denominação', 'Tipo', 'Fabricante', 'Fornecedor', 'Preço', 'Stock'];
+                    components.forEach(component => {
+                        data.push([
+                            component.Component_ID,
+                            component.Denomination,
+                            component.General_Type,
+                            component.Manufacturer_Name,
+                            component.Supplier_Name,
+                            component.Price ?? 0,
+                            component.Stock_Quantity
+                        ]);
+                    });
+                    break;
+                    
+                case 'prototypes':
+                    headers = ['ID', 'Nome', 'Versão', 'Estado', 'Data Criação'];
+                    prototypes.forEach(prototype => {
+                        data.push([
+                            prototype.Prototype_ID,
+                            prototype.Name,
+                            prototype.Version,
+                            prototype.Status,
+                            new Date(prototype.Created_Date).toLocaleDateString('pt-PT')
+                        ]);
+                    });
+                    break;
+            }
+            
+            // Criar CSV
+            let csvContent = headers.join(',') + '\n';
+            data.forEach(row => {
+                csvContent += row.map(field => `"${field}"`).join(',') + '\n';
+            });
+            
+            // Download
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `${type}_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
+        // Função para gerar relatório BOM
+        window.generateBOMReport = function() {
+            if (!selectedPrototype) {
+                alert('Por favor, selecione um protótipo na aba de Montagem primeiro.');
+                return;
+            }
+            
+            // Redirecionar para a página de relatório
+            window.open(`bom_report.php?prototype_id=${selectedPrototype}`, '_blank');
+        };
     }
 });
     

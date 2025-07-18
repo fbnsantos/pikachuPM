@@ -69,25 +69,29 @@ function processCRUD($pdo, $entity , $action){
                         INSERT INTO T_Assembly (
                             Prototype_ID, 
                             Assembly_Designation, 
-                            Component_Father_ID, 
+                            Component_Father_ID,
+                            Component_Father_Quantity,
                             Component_Child_ID, 
-                            Component_Quantity, 
+                            Component_Child_Quantity, 
                             Assembly_Father_ID, 
+                            Assembly_Father_Quantity,
                             Assembly_Child_ID, 
-                            Assembly_Quantity, 
+                            Assembly_Child_Quantity, 
                             Assembly_Level_Depth, 
                             Notes
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ");
                     $stmt->execute([
                         $newPrototypeId,
                         $assembly['Assembly_Designation'],
                         $assembly['Component_Father_ID'],
+                        $assembly['Component_Father_Quantity'],
                         $assembly['Component_Child_ID'],
-                        $assembly['Component_Quantity'],
+                        $assembly['Component_Child_Quantity'],
                         $assembly['Assembly_Father_ID'],
+                        $assembly['Assembly_Father_Quantity'],
                         $assembly['Assembly_Child_ID'],
-                        $assembly['Assembly_Quantity'],
+                        $assembly['Assembly_Child_Quantity'],
                         $assembly['Assembly_Level_Depth'],
                         $assembly['Notes']
                     ]);
@@ -237,13 +241,21 @@ function processCRUD($pdo, $entity , $action){
             
             
             $valid = false;
-        
+            
+            // Print debug information
+            error_log("Valores recebidos: ");
+            error_log("Component_Father_ID: " . $compFather);
+            error_log("Component_Child_ID: " . $compChild);
+            error_log("Assembly_Father_ID: " . $assemFather);
+            error_log("Assembly_Child_ID: " . $assemChild);
+
+            // Verificar combinações válidas de campos
             // Opção 1: Componente-filho e componente-pai
             if ($compFather !== '' && $compChild !== '' && $assemFather === '' && $assemChild === '') {
                 $valid = true;
             }
             // Opção 2: Componente-pai e montagem-pai
-            elseif ($compFather !== '' && $compChild === '' && $assemFather !== '' && $assemChild === '') {
+            elseif (($compFather !== '' && $compFather !== null) && ($compChild === '' || $compChild === null) && ($assemFather !== '' && $assemFather !== null) && ($assemChild === '' || $assemChild === null)) {
                 $valid = true;
             }
 
@@ -260,19 +272,21 @@ function processCRUD($pdo, $entity , $action){
 
             $stmt = $pdo->prepare("
             INSERT INTO T_Assembly (
-                Prototype_ID, Assembly_Designation, Component_Father_ID, Component_Child_ID, 
-                Component_Quantity, Assembly_Father_ID, Assembly_Child_ID, Assembly_Quantity, Assembly_Level,
+                Prototype_ID, Assembly_Designation, Component_Father_ID, Component_Father_Quantity, Component_Child_ID, 
+                Component_Child_Quantity, Assembly_Father_ID, Assembly_Father_Quantity, Assembly_Child_ID, Assembly_Child_Quantity, Assembly_Level,
                 Notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Quantity=VALUES(Component_Quantity),Assembly_Quantity=VALUES(Assembly_Quantity), Assembly_Level=VALUES(Assembly_Level), Notes=VALUES(Notes)");
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Father_Quantity=VALUES(Component_Father_Quantity), Component_Child_Quantity=VALUES(Component_Child_Quantity), Assembly_Father_Quantity=VALUES(Assembly_Father_Quantity), Assembly_Child_Quantity=VALUES(Assembly_Child_Quantity), Assembly_Level=VALUES(Assembly_Level), Notes=VALUES(Notes)");
             $stmt->execute([
                 $_POST['prototype_id'], 
                 $_POST['assembly_designation'] ?: null,
                 (empty($_POST['component_father_id']) ? null : $_POST['component_father_id']),
+                (empty($_POST['component_father_quantity']) ? 0 : $_POST['component_father_quantity']),
                 (empty($_POST['component_child_id']) ? null : $_POST['component_child_id']),
-                (empty($_POST['component_quantity']) ? 0 : $_POST['component_quantity']),
+                (empty($_POST['component_child_quantity']) ? 0 : $_POST['component_child_quantity']),
                 (empty($assemFather)) ? null : $assemFather,
+                (empty($_POST['assembly_father_quantity']) ? 0 : $_POST['assembly_father_quantity']),
                 (empty($assemChild)) ? null : $assemChild,
-                (empty($_POST['assembly_quantity']) ? 0 : $_POST['assembly_quantity']),
+                (empty($_POST['assembly_child_quantity']) ? 0 : $_POST['assembly_child_quantity']),
                 (empty($assemblyLevel)) ? null : $assemblyLevel,
                 $_POST['notes'],
             ]);
@@ -287,11 +301,13 @@ function processCRUD($pdo, $entity , $action){
                     SET 
                         Assembly_Designation = ?, 
                         Component_Father_ID = ?, 
+                        Component_Father_Quantity = ?, 
                         Component_Child_ID = ?, 
-                        Component_Quantity = ?, 
+                        Component_Child_Quantity = ?, 
                         Assembly_Father_ID = ?, 
+                        Assembly_Father_Quantity = ?,
                         Assembly_Child_ID = ?, 
-                        Assembly_Quantity = ?, 
+                        Assembly_Child_Quantity = ?, 
                         Assembly_Level_DepTH = ?, 
                         Notes = ?, 
                         Is_Prototype = ?
@@ -300,11 +316,13 @@ function processCRUD($pdo, $entity , $action){
                 $stmt->execute([
                     $_POST['assembly_designation'] ?: null,
                     (empty($_POST['component_father_id']) ? null : $_POST['component_father_id']),
+                    (empty($_POST['component_father_quantity']) ? 0 : $_POST['component_father_quantity']),
                     (empty($_POST['component_child_id']) ? null : $_POST['component_child_id']),
-                    (empty($_POST['component_quantity']) ? 0 : $_POST['component_quantity']),
+                    (empty($_POST['component_child_quantity']) ? 0 : $_POST['component_child_quantity']),
                     (empty($_POST['assembly_father_id']) ? null : $_POST['assembly_father_id']),
+                    (empty($_POST['assembly_father_quantity']) ? 0 : $_POST['assembly_father_quantity']),
                     (empty($_POST['assembly_child_id']) ? null : $_POST['assembly_child_id']),
-                    (empty($_POST['assembly_quantity']) ? 0 : $_POST['assembly_quantity']), 
+                    (empty($_POST['assembly_child_quantity']) ? 0 : $_POST['assembly_child_quantity']),
                     (empty($_POST['assembly_level_depth']) ? 0 : $_POST['assembly_level_depth']),
                     $_POST['notes'],
                     $_POST['is_prototype'] ?? 0, // Adiciona o valor do campo Is_Prototype

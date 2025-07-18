@@ -503,7 +503,10 @@ $assemblies = getAssemblies($pdo);
                                 </select>
 
                             </div>
-                            
+                            <div class="mb-3" id="field-component-father-quantity">
+                                <label for="component_father_quantity" class="form-label">Quantidade (Componente 1) *</label>
+                                <input type="number" class="form-control" name="component_father_quantity" value="1" required min="1">
+                            </div>
                             <div class="mb-3" id="field-component-child">
                                 <label for="component_child_id" class="form-label">Componente 2 *</label>
                                 <select class="form-select" name="component_child_id">
@@ -516,9 +519,9 @@ $assemblies = getAssemblies($pdo);
                                 </select>
                             </div>
                             
-                            <div class="mb-3" id="field-component-quantity">
-                                <label for="component_quantity" class="form-label">Quantidade (Componentes) *</label>
-                                <input type="number" class="form-control" name="component_quantity" value="1" required min="1">
+                            <div class="mb-3" id="field-component-child-quantity">
+                                <label for="component_child_quantity" class="form-label">Quantidade (Componente 2) *</label>
+                                <input type="number" class="form-control" name="component_child_quantity" value="1" required min="1">
                             </div>
 
                             <!-- NOVOS CAMPOS PARA ASSEMBLY -->
@@ -539,7 +542,11 @@ $assemblies = getAssemblies($pdo);
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
-                            </div>                          
+                            </div>    
+                            <div class="mb-3" id="field-assembly-father-quantity">
+                                <label for="assembly_father_quantity" class="form-label">Quantidade (Montagem 1) *</label>
+                                <input type="number" class="form-control" name="assembly_father_quantity" value="1" required min="1">
+                            </div>                      
 
                             <div class="mb-3" id="field-assembly-child">
                                 <label for="assembly_child_id" class="form-label">Montagem 2 *</label>
@@ -559,16 +566,11 @@ $assemblies = getAssemblies($pdo);
                                 </select>
                             </div>
 
-                            <div class="mb-3" id="field-assembly-quantity">
-                                <label for="assembly_quantity" class="form-label">Quantidade (Montagens) *</label>
-                                <input type="number" class="form-control" name="assembly_quantity" value="1" min="1">
+                            <div class="mb-3" id="field-assembly-child-quantity">
+                                <label for="assembly_child_quantity" class="form-label">Quantidade (Montagem 2) *</label>
+                                <input type="number" class="form-control" name="assembly_child_quantity" value="1" required min="1">
                             </div>
-
-                            <div class="mb-3" id="field-assembly-level-depth">
-                                <label for="assembly_level" class="form-label">Nível de Montagem *</label>
-                                <input type="number" class="form-control" name="assembly_level" value="1" min="1" required>
-                            </div>                   
-                            
+                  
                             <!-- FIM DOS NOVOS CAMPOS PARA ASSEMBLY -->
 
                             <div class="mb-3" id="field-notes">
@@ -670,12 +672,14 @@ $assemblies = getAssemblies($pdo);
                                     <tr>
                                         <th>Designação</th>
                                         <th>Protótipo</th>
-                                        <th>Componente-Pai</th>
-                                        <th>Componente-Filho</th>
-                                        <th>Qtd (Componente)</th>
-                                        <th>Montagem-Pai</th>
-                                        <th>Montagem-Filho</th>
-                                        <th>Qtd (Montagem)</th>
+                                        <th>Componente 1</th>
+                                        <th>Qtd (Componente 1)</th>
+                                        <th>Componente 2</th>
+                                        <th>Qtd (Componente 2)</th>
+                                        <th>Montagem 1</th>
+                                        <th>Qtd (Montagem 1)</th>
+                                        <th>Montagem 2</th>
+                                        <th>Qtd (Montagem 2)</th>
                                         <th>Nível de Montagem</th>
                                         <th>Notas</th>
                                         <th>Ações</th>
@@ -695,19 +699,24 @@ $assemblies = getAssemblies($pdo);
                                                 <?= $assembly['Component_Father_Designation'] ? htmlspecialchars($assembly['Component_Father_Designation']) : '-' ?>
                                             </td>
                                             <td>
+                                                <span class="badge bg-secondary"><?= $assembly['Component_Father_Quantity'] ?></span>
+                                            <td>
                                                 <?= !empty($assembly['Component_Child_Designation']) ? htmlspecialchars($assembly['Component_Child_Designation']) : '-' ?>
                                             </td>
                                             <td>
-                                                <span class="badge bg-secondary"><?= $assembly['Component_Quantity'] ?></span>
+                                                <span class="badge bg-secondary"><?= $assembly['Component_Child_Quantity'] ?></span>
                                             </td>
+                                    
                                             <td>
                                                 <?= $assembly['Assembly_Father_Designation'] ? htmlspecialchars($assembly['Assembly_Father_Designation']) : '-' ?>
                                             </td>
                                             <td>
+                                                <span class="badge bg-secondary"><?= $assembly['Assembly_Father_Quantity'] ?></span>
+                                            <td>
                                                 <?= $assembly['Assembly_Child_Designation'] ? htmlspecialchars($assembly['Assembly_Child_Designation']) : '-' ?>
                                             </td>
                                             <td>
-                                                <span class="badge bg-secondary"><?= $assembly['Assembly_Quantity'] ?></span>
+                                                <span class="badge bg-secondary"><?= $assembly['Assembly_Child_Quantity'] ?></span>
                                             </td>
                                             <td>
                                                 <?= $assembly['Assembly_Level'] ?>

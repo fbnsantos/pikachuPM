@@ -37,6 +37,8 @@ $prototypes = getPrototypes($pdo);
 $components = getComponents($pdo);
 $assemblies = getAssemblies($pdo);
 
+//error_log(print_r($assemblies, true)); // Log assemblies for debugging
+
 
 ?>
 

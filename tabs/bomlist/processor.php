@@ -1,4 +1,6 @@
 <?php
+require_once 'getters.php';
+
 function processCRUD($pdo, $entity , $action){
     $message = "";
     switch ($entity) {
@@ -151,6 +153,7 @@ function processCRUD($pdo, $entity , $action){
             $assemChild  = trim($_POST['assembly_child_id'] ?? '');
             $compFather = trim($_POST['component_father_id'] ?? '');
             $compChild  = trim($_POST['component_child_id'] ?? '');
+            $assemblies = getAssemblies($pdo);
 
             $assemblyLevel = 0;
 
@@ -183,7 +186,8 @@ function processCRUD($pdo, $entity , $action){
                 // Definir o nível da nova assembly como o maior nível + 1
                 $assemblyLevel = $maxLevel + 1;
                 error_log("Assembly possui outras assemblies associadas. Nível definido como: " . $assemblyLevel);
-            }
+
+                
             // Verificar se é um protótipo ou montagem
 
             if (strpos($assemFather, 'prototype') !== false) {
@@ -239,7 +243,28 @@ function processCRUD($pdo, $entity , $action){
                 die("Erro: O valor de Assembly_Child_ID deve ser numérico.");
             }*/
             
-            
+            // Obter todos os IDs recursivamente para as relações existentes
+                $allSubIDs = [];
+
+                // Se houver assembly pai, obtém suas subassemblies
+                if (!empty($assemFather)) {
+                    $fatherAssembly = findAssemblyById($assemblies, $assemFather);
+                    if ($fatherAssembly) {
+                        $allSubIDs = array_merge($allSubIDs, getAllSubAssemblyIDs($assemblies, $fatherAssembly));
+                    }
+                }
+
+                // Se houver assembly filho, obtém suas subassemblies
+                if (!empty($assemChild)) {
+                    $childAssembly = findAssemblyById($assemblies, $assemChild);
+                    if ($childAssembly) {
+                        $allSubIDs = array_merge($allSubIDs, getAllSubAssemblyIDs($assemblies, $childAssembly));
+                    }
+                }
+                error_log("IDs das assemblies recursivas: " . print_r($allSubIDs, true));
+
+            }
+
             $valid = false;
             
             // Print debug information
@@ -290,6 +315,54 @@ function processCRUD($pdo, $entity , $action){
                 (empty($assemblyLevel)) ? null : $assemblyLevel,
                 $_POST['notes'],
             ]);
+
+            // Preparar a query para selecionar os dados da subassembly original
+            $stmtSelect = $pdo->prepare("SELECT * FROM T_Assembly WHERE Assembly_ID = ?");
+
+            // Preparar a query para inserir a nova subassembly duplicada com o novo Prototype_ID
+            $stmtInsert = $pdo->prepare("
+                INSERT INTO T_Assembly (
+                Prototype_ID, 
+                Assembly_Designation, 
+                Component_Father_ID, Component_Father_Quantity, 
+                Component_Child_ID, Component_Child_Quantity, 
+                Assembly_Father_ID, Assembly_Father_Quantity, 
+                Assembly_Child_ID, Assembly_Child_Quantity, 
+                Assembly_Level,
+                Notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+
+            // Novo Prototype_ID para o qual você quer associar as subassemblies
+            $newPrototypeID = $_POST['prototype_id'];
+
+            foreach ($allSubIDs as $subAssemblyID) {
+                // Buscar registro da subassembly original
+                $stmtSelect->execute([$subAssemblyID]);
+                $subAssembly = $stmtSelect->fetch(PDO::FETCH_ASSOC);
+                    if ($subAssembly) {
+                        // Verificar se o Prototype_ID da subassembly é diferente do novoPrototypeID
+                        if ((int)$newPrototypeID !== (int)$subAssembly['Prototype_ID']) {
+                            // Inserir o registro duplicado com o novo Prototype_ID
+                            $stmtInsert->execute([
+                                $newPrototypeID,
+                                $subAssembly['Assembly_Designation'],
+                                $subAssembly['Component_Father_ID'],
+                                $subAssembly['Component_Father_Quantity'],
+                                $subAssembly['Component_Child_ID'],
+                                $subAssembly['Component_Child_Quantity'],
+                                $subAssembly['Assembly_Father_ID'],
+                                $subAssembly['Assembly_Father_Quantity'],
+                                $subAssembly['Assembly_Child_ID'],
+                                $subAssembly['Assembly_Child_Quantity'],
+                                $subAssembly['Assembly_Level'],
+                                $subAssembly['Notes']
+                            ]);
+                        } else {
+                            error_log("Prototype_ID da subassembly " . $subAssembly['Assembly_ID'] . " já é igual ao novo Prototype_ID.");
+                        }
+                    }
+            }
 
             $message = "Montagem criada/atualizada com sucesso!";
             header("Location: ?tab=bomlist/bomlist&entity=assembly");

@@ -14,6 +14,10 @@
 - Pôr quantidades independentes para cada assembly/componente -> Um campo para cada
 - Navegação -> Na página de montagem, conseguir clicar num componente e ver as informações dele (abrir outra página se for preciso)
 - Não funciona: Ao acrescentar uma assembly, devia acrescentar também as sub-assemblies respectivas -> Problema: recursividade
+- Acrescentar uma restrição para caso não seja encontrada nenhuma assembly para um certo protótipo <<--
+- Quando se insere uma nova assembly composta por assemblies, usar a função **getAllSubAssemblyIDs(array $assemblies, array $assembly)** para procurar todas as assemblies abaixo de ambas as assemblies e inserir também
+
+
 
 *Menos Prioridade*
 - Extração para CSV
@@ -46,3 +50,5 @@
 - Já é possível acrescentar um protótipo a uma assembly nova -> Identifica o ID da maior assembly (maior nível) dentro desse protótipo, e dá essa assembly como assembly filho ou pai, consoante o caso
 - Acrescentei mais um campo para conseguir escolher os valores para cada Componente (ou Assembly se for o caso)
 - Acrescentei debug para a consola (ctrl+shift+I -> separador consola)
+- Quando se associa um assembly a outro protótipo, agora carrega todas as subassemblies para esse protótipo
+

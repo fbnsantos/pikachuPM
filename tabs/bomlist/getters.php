@@ -91,6 +91,87 @@ function buildAssemblyTree($assemblies, $parent) {
     return $parent;
 }
 
+/**
+ * Retorna recursivamente todas as subassemblies de uma assembly mãe
+ * 
+ * @param array $assemblies Array com todas as assemblies
+ * @param int   $parentAssemblyId Assembly_ID da assembly mãe
+ * @return array Lista das subassemblies (cada uma com seus filhos, se houver)
+ */
+function getSubassemblies(array $assemblies, $parentAssemblyId) {
+    $children = [];
+    foreach ($assemblies as $assembly) {
+        if ($assembly['Assembly_Father_ID'] == $parentAssemblyId) {
+            // Chamada recursiva para obter os filhos dessa assembly
+            $assembly['children'] = getSubassemblies($assemblies, $assembly['Assembly_ID']);
+            $children[] = $assembly;
+        }
+    }
+    return $children;
+}
 
+/**
+ * Retorna uma lista (planificada) dos IDs da assembly e todas as subassemblies,
+ * seguindo as relações definidas em Assembly_Father_ID e Assembly_Child_ID.
+ *
+ * @param array $assemblies Array com todas as assemblies.
+ * @param array $assembly Assembly atual (registro).
+ * @return array Lista de Assembly_IDs.
+ */
+function getAllSubAssemblyIDs(array $assemblies, array $assembly) {
+    // Base: se não há relação nem para Father nem para Child, retorna só o próprio ID.
+    if (empty($assembly['Assembly_Father_ID']) && empty($assembly['Assembly_Child_ID'])) {
+        return [$assembly['Assembly_ID']];
+    }
+    
+    // Inicia a lista com o ID da assembly atual
+    $list = [$assembly['Assembly_ID']];
+    
+    // Se Assembly_Father_ID não está definido, pega a relação de Child
+    if (empty($assembly['Assembly_Father_ID']) && !empty($assembly['Assembly_Child_ID'])) {
+        $child = findAssemblyById($assemblies, $assembly['Assembly_Child_ID']);
+        if ($child) {
+            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $child));
+        }
+    }
+    // Se Assembly_Child_ID não está definido, pega a relação de Father
+    elseif (empty($assembly['Assembly_Child_ID']) && !empty($assembly['Assembly_Father_ID'])) {
+        $father = findAssemblyById($assemblies, $assembly['Assembly_Father_ID']);
+        if ($father) {
+            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $father));
+        }
+    }
+    // Se ambos estão definidos, faz para os dois
+    elseif (!empty($assembly['Assembly_Father_ID']) && !empty($assembly['Assembly_Child_ID'])) {
+        $father = findAssemblyById($assemblies, $assembly['Assembly_Father_ID']);
+        $child = findAssemblyById($assemblies, $assembly['Assembly_Child_ID']);
+        
+        if ($father) {
+            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $father));
+        }
+        if ($child) {
+            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $child));
+        }
+    }
+    
+    return $list;
+}
+
+/**
+ * Função auxiliar para encontrar uma assembly pelo seu ID dentro do array de assemblies.
+ *
+ * @param array $assemblies
+ * @param int $id
+ * @return array|null
+ */
+function findAssemblyById(array $assemblies, $id) {
+    foreach ($assemblies as $asm) {
+        if ($asm['Assembly_ID'] == $id) {
+            return $asm;
+        }
+    }
+    return null;
+}
 
 ?>
+

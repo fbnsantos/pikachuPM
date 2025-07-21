@@ -4,299 +4,41 @@
 
 // Incluir configuração da base de dados
 // Incluir arquivo de configuração
-include_once __DIR__ . '/../PWA/RestAPI/config.php';
-
-// Estabelecer conexão com a base de dados
-$sqlFile = __DIR__ . '/database/database.sql';
-$sql = file_get_contents($sqlFile);
-
-try {
-    $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-    // Split and execute each statement
-    $statements = array_filter(array_map('trim', explode(';', $sql)));
-    foreach ($statements as $statement) {
-        if ($statement) {
-            $pdo->exec($statement);
-        }
-    }
-    echo "Importação concluída!";
-} catch (PDOException $e) {
-    echo "Erro: " . $e->getMessage();
-}
+include_once __DIR__ . '/../../PWA/RestAPI/config.php';
+require_once 'helpers.php';
+require_once 'getters.php';
+require_once 'database/database.php';
+require_once 'processor.php';
 
 
-// try {
-//     $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
-//     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-// } catch(PDOException $e) {
-//     die("Erro de conexão: " . $e->getMessage() .$db_host ) ;
-// }
+$pdo = connectDB();
 
-// Criar tabelas se não existirem
-// $createTablesSQL = [
-//     "CREATE TABLE IF NOT EXISTS T_Manufacturer (
-//         Manufacturer_ID INT AUTO_INCREMENT PRIMARY KEY,
-//         Denomination VARCHAR(255) NOT NULL,
-//         Origin_Country VARCHAR(100),
-//         Website VARCHAR(255),
-//         Contacts TEXT,
-//         Created_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//         Updated_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-//     )",
-//     "CREATE TABLE IF NOT EXISTS T_Supplier (
-//         Supplier_ID INT AUTO_INCREMENT PRIMARY KEY,
-//         Denomination VARCHAR(255) NOT NULL,
-//         Origin_Country VARCHAR(100),
-//         Website VARCHAR(255),
-//         Contacts TEXT,
-//         Created_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//         Updated_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-//     )",
-//     "CREATE TABLE IF NOT EXISTS T_Prototype (
-//         Prototype_ID INT AUTO_INCREMENT PRIMARY KEY,
-//         Name VARCHAR(255) NOT NULL,
-//         Version VARCHAR(50) DEFAULT '1.0',
-//         Description TEXT,
-//         Status ENUM('Development', 'Testing', 'Production', 'Archived') DEFAULT 'Development',
-//         Created_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//         Updated_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-//     )",
-//     "CREATE TABLE IF NOT EXISTS T_Component (
-//         Component_ID INT AUTO_INCREMENT PRIMARY KEY,
-//         Denomination VARCHAR(255) NOT NULL,
-//         Manufacturer_ID INT,
-//         Manufacturer_ref VARCHAR(100),
-//         Supplier_ID INT,
-//         Supplier_ref VARCHAR(100),
-//         General_Type VARCHAR(100),
-//         Price DECIMAL(10,2),
-//         Acquisition_Date DATE,
-//         Notes_Description TEXT,
-//         Stock_Quantity INT DEFAULT 0,
-//         Min_Stock INT DEFAULT 0,
-//         Created_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//         Updated_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-//         FOREIGN KEY (Manufacturer_ID) REFERENCES T_Manufacturer(Manufacturer_ID) ON DELETE SET NULL,
-//         FOREIGN KEY (Supplier_ID) REFERENCES T_Supplier(Supplier_ID) ON DELETE SET NULL
-//     )",
-//     "CREATE TABLE IF NOT EXISTS T_Assembly (
-//         Assembly_ID INT AUTO_INCREMENT PRIMARY KEY,
-//         Prototype_ID INT NOT NULL,
-//         Father_ID INT,
-//         Child_ID INT NOT NULL,
-//         Quantity INT NOT NULL DEFAULT 1,
-//         Level_Depth INT DEFAULT 0,
-//         Notes TEXT,
-//         Created_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//         FOREIGN KEY (Prototype_ID) REFERENCES T_Prototype(Prototype_ID) ON DELETE CASCADE,
-//         FOREIGN KEY (Father_ID) REFERENCES T_Component(Component_ID) ON DELETE CASCADE,
-//         FOREIGN KEY (Child_ID) REFERENCES T_Component(Component_ID) ON DELETE CASCADE,
-//         UNIQUE KEY unique_assembly (Prototype_ID, Father_ID, Child_ID)
-//     )"
-// ];
-
-// // Executar criação das tabelas individualmente
-// try {
-//     foreach ($createTablesSQL as $sql) {
-//         $pdo->exec($sql);
-//     }
-// } catch(PDOException $e) {
-//     echo "<div class='alert alert-warning'>Aviso ao criar tabelas: " . $e->getMessage() . "</div>";
-// }
 
 // Processar ações CRUD
 $action = $_POST['action'] ?? $_GET['action'] ?? 'list';
 $entity = $_POST['entity'] ?? $_GET['entity'] ?? 'components';
 $message = '';
 
-// Função para buscar todos os fabricantes
-function getManufacturers($pdo) {
-    $stmt = $pdo->query("SELECT * FROM T_Manufacturer ORDER BY Denomination");
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
+// Processar ações CRUD
+$action = $_POST['action'] ?? $_GET['action'] ?? 'list';
+$entity = $_POST['entity'] ?? $_GET['entity'] ?? 'components';
+$message = '';
 
-// Função para buscar todos os fornecedores
-function getSuppliers($pdo) {
-    $stmt = $pdo->query("SELECT * FROM T_Supplier ORDER BY Denomination");
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
 
-// Função para buscar todos os protótipos
-function getPrototypes($pdo) {
-    $stmt = $pdo->query("SELECT * FROM T_Prototype ORDER BY Name, Version");
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
-
-// Função para buscar todos os componentes
-function getComponents($pdo) {
-    $stmt = $pdo->query("
-        SELECT c.*, 
-               m.Denomination as Manufacturer_Name,
-               s.Denomination as Supplier_Name
-        FROM T_Component c
-        LEFT JOIN T_Manufacturer m ON c.Manufacturer_ID = m.Manufacturer_ID
-        LEFT JOIN T_Supplier s ON c.Supplier_ID = s.Supplier_ID
-        ORDER BY c.Denomination
-    ");
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
 
 // Processar ações CRUD baseadas no entity e action
-switch ($entity) {
-    case 'manufacturers':
-        if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Manufacturer (Denomination, Origin_Country, Website, Contacts) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts']]);
-            $message = "Fabricante criado com sucesso!";
-        } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("UPDATE T_Manufacturer SET Denomination=?, Origin_Country=?, Website=?, Contacts=? WHERE Manufacturer_ID=?");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['id']]);
-            $message = "Fabricante atualizado com sucesso!";
-        } elseif ($action === 'delete' && isset($_GET['id'])) {
-            $stmt = $pdo->prepare("DELETE FROM T_Manufacturer WHERE Manufacturer_ID=?");
-            $stmt->execute([$_GET['id']]);
-            $message = "Fabricante eliminado com sucesso!";
-        }
-        break;
-        
-    case 'suppliers':
-        if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Supplier (Denomination, Origin_Country, Website, Contacts) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts']]);
-            $message = "Fornecedor criado com sucesso!";
-        } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("UPDATE T_Supplier SET Denomination=?, Origin_Country=?, Website=?, Contacts=? WHERE Supplier_ID=?");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['id']]);
-            $message = "Fornecedor atualizado com sucesso!";
-        } elseif ($action === 'delete' && isset($_GET['id'])) {
-            $stmt = $pdo->prepare("DELETE FROM T_Supplier WHERE Supplier_ID=?");
-            $stmt->execute([$_GET['id']]);
-            $message = "Fornecedor eliminado com sucesso!";
-        }
-        break;
-        
-    case 'prototypes':
-        if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Prototype (Name, Version, Description, Status) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$_POST['name'], $_POST['version'], $_POST['description'], $_POST['status']]);
-            $message = "Protótipo criado com sucesso!";
-        } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("UPDATE T_Prototype SET Name=?, Version=?, Description=?, Status=? WHERE Prototype_ID=?");
-            $stmt->execute([$_POST['name'], $_POST['version'], $_POST['description'], $_POST['status'], $_POST['id']]);
-            $message = "Protótipo atualizado com sucesso!";
-        } elseif ($action === 'delete' && isset($_GET['id'])) {
-            $stmt = $pdo->prepare("DELETE FROM T_Prototype WHERE Prototype_ID=?");
-            $stmt->execute([$_GET['id']]);
-            $message = "Protótipo eliminado com sucesso!";
-        } elseif ($action === 'clone' && isset($_GET['id'])) {
-            // Clonar protótipo
-            $stmt = $pdo->prepare("SELECT * FROM T_Prototype WHERE Prototype_ID=?");
-            $stmt->execute([$_GET['id']]);
-            $prototype = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if ($prototype) {
-                $newVersion = floatval($prototype['Version']) + 0.1;
-                $stmt = $pdo->prepare("INSERT INTO T_Prototype (Name, Version, Description, Status) VALUES (?, ?, ?, 'Development')");
-                $stmt->execute([$prototype['Name'], number_format($newVersion, 1), $prototype['Description'] . ' (Clonado)', ]);
-                $newPrototypeId = $pdo->lastInsertId();
-                
-                // Clonar assembly
-                $stmt = $pdo->prepare("SELECT * FROM T_Assembly WHERE Prototype_ID=?");
-                $stmt->execute([$_GET['id']]);
-                $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                
-                foreach ($assemblies as $assembly) {
-                    $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Father_ID, Child_ID, Quantity, Level_Depth, Notes) VALUES (?, ?, ?, ?, ?, ?)");
-                    $stmt->execute([$newPrototypeId, $assembly['Father_ID'], $assembly['Child_ID'], $assembly['Quantity'], $assembly['Level_Depth'], $assembly['Notes']]);
-                }
-                
-                $message = "Protótipo clonado com sucesso!";
-            }
-        }
-        break;
-        
-    case 'components':
-        if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Component (Denomination, Manufacturer_ID, Manufacturer_ref, Supplier_ID, Supplier_ref, General_Type, Price, Acquisition_Date, Notes_Description, Stock_Quantity, Min_Stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([
-                $_POST['denomination'], 
-                $_POST['manufacturer_id'] ?: null, 
-                $_POST['manufacturer_ref'], 
-                $_POST['supplier_id'] ?: null, 
-                $_POST['supplier_ref'], 
-                $_POST['general_type'], 
-                $_POST['price'] ?: null, 
-                $_POST['acquisition_date'] ?: null, 
-                $_POST['notes_description'],
-                $_POST['stock_quantity'] ?: 0,
-                $_POST['min_stock'] ?: 0
-            ]);
-            $message = "Componente criado com sucesso!";
-        } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("UPDATE T_Component SET Denomination=?, Manufacturer_ID=?, Manufacturer_ref=?, Supplier_ID=?, Supplier_ref=?, General_Type=?, Price=?, Acquisition_Date=?, Notes_Description=?, Stock_Quantity=?, Min_Stock=? WHERE Component_ID=?");
-            $stmt->execute([
-                $_POST['denomination'], 
-                $_POST['manufacturer_id'] ?: null, 
-                $_POST['manufacturer_ref'], 
-                $_POST['supplier_id'] ?: null, 
-                $_POST['supplier_ref'], 
-                $_POST['general_type'], 
-                $_POST['price'] ?: null, 
-                $_POST['acquisition_date'] ?: null, 
-                $_POST['notes_description'],
-                $_POST['stock_quantity'] ?: 0,
-                $_POST['min_stock'] ?: 0,
-                $_POST['id']
-            ]);
-            $message = "Componente atualizado com sucesso!";
-        } elseif ($action === 'delete' && isset($_GET['id'])) {
-            $stmt = $pdo->prepare("DELETE FROM T_Component WHERE Component_ID=?");
-            $stmt->execute([$_GET['id']]);
-            $message = "Componente eliminado com sucesso!";
-        }
-        break;
-        
-    case 'assembly':
-        if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Assembly (Prototype_ID, Father_ID, Child_ID, Quantity, Notes) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE Quantity=VALUES(Quantity), Notes=VALUES(Notes)");
-            $stmt->execute([
-                $_POST['prototype_id'], 
-                $_POST['father_id'] ?: null, 
-                $_POST['child_id'], 
-                $_POST['quantity'], 
-                $_POST['notes']
-            ]);
-            $message = "Montagem criada/atualizada com sucesso!";
-        } elseif ($action === 'delete' && isset($_GET['id'])) {
-            $stmt = $pdo->prepare("DELETE FROM T_Assembly WHERE Assembly_ID=?");
-            $stmt->execute([$_GET['id']]);
-            $message = "Montagem eliminada com sucesso!";
-        }
-        break;
-}
+$message = processCRUD($pdo, $entity, $action);
+
 
 // Buscar dados para exibição
 $manufacturers = getManufacturers($pdo);
 $suppliers = getSuppliers($pdo);
 $prototypes = getPrototypes($pdo);
 $components = getComponents($pdo);
+$assemblies = getAssemblies($pdo);
 
-// Buscar assemblies com informações detalhadas
-$stmt = $pdo->query("
-    SELECT a.*, 
-           p.Name as Prototype_Name,
-           p.Version as Prototype_Version,
-           cf.Denomination as Father_Name,
-           cc.Denomination as Child_Name
-    FROM T_Assembly a
-    JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-    LEFT JOIN T_Component cf ON a.Father_ID = cf.Component_ID
-    JOIN T_Component cc ON a.Child_ID = cc.Component_ID
-    ORDER BY p.Name, p.Version, cf.Denomination, cc.Denomination
-");
-$assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+//error_log(print_r($assemblies, true)); // Log assemblies for debugging
+
 ?>
 
 <div class="container-fluid">
@@ -315,31 +57,31 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <ul class="nav nav-tabs" id="bomTabs" role="tablist">
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'components' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=components'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=components'">
                         <i class="bi bi-cpu"></i> Componentes
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'prototypes' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=prototypes'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=prototypes'">
                         <i class="bi bi-diagram-3"></i> Protótipos
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'assembly' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=assembly'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=assembly'">
                         <i class="bi bi-diagram-2"></i> Montagem (BOM)
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'manufacturers' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=manufacturers'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=manufacturers'">
                         <i class="bi bi-building"></i> Fabricantes
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'suppliers' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist&entity=suppliers'">
+                            onclick="location.href='?tab=bomlist/bomlist&entity=suppliers'">
                         <i class="bi bi-truck"></i> Fornecedores
                     </button>
                 </li>
@@ -479,7 +221,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </button>
                             
                             <?php if ($editComponent): ?>
-                                <a href="?tab=bomlist&entity=components" class="btn btn-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=components" class="btn btn-secondary">
                                     <i class="bi bi-x-circle"></i> Cancelar
                                 </a>
                             <?php endif; ?>
@@ -538,11 +280,11 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 </span>
                                             </td>
                                             <td>
-                                                <a href="?tab=bomlist&entity=components&action=edit&id=<?= $component['Component_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=components&action=edit&id=<?= $component['Component_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-primary">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
-                                                <a href="?tab=bomlist&entity=components&action=delete&id=<?= $component['Component_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=components&action=delete&id=<?= $component['Component_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-danger"
                                                    onclick="return confirm('Tem a certeza que deseja eliminar este componente?')">
                                                     <i class="bi bi-trash"></i>
@@ -617,7 +359,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </button>
                             
                             <?php if ($editPrototype): ?>
-                                <a href="?tab=bomlist&entity=prototypes" class="btn btn-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=prototypes" class="btn btn-secondary">
                                     <i class="bi bi-x-circle"></i> Cancelar
                                 </a>
                             <?php endif; ?>
@@ -671,19 +413,19 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                             <td><?= date('d/m/Y', strtotime($prototype['Created_Date'])) ?></td>
                                             <td>
                                                 <div class="btn-group" role="group">
-                                                    <a href="?tab=bomlist&entity=prototypes&action=edit&id=<?= $prototype['Prototype_ID'] ?>" 
+                                                    <a href="?tab=bomlist/bomlist&entity=prototypes&action=edit&id=<?= $prototype['Prototype_ID'] ?>" 
                                                        class="btn btn-sm btn-outline-primary" title="Editar">
                                                         <i class="bi bi-pencil"></i>
                                                     </a>
-                                                    <a href="?tab=bomlist&entity=prototypes&action=clone&id=<?= $prototype['Prototype_ID'] ?>" 
+                                                    <a href="?tab=bomlist/bomlist&entity=prototypes&action=clone&id=<?= $prototype['Prototype_ID'] ?>" 
                                                        class="btn btn-sm btn-outline-success" title="Clonar">
                                                         <i class="bi bi-files"></i>
                                                     </a>
-                                                    <a href="?tab=bomlist&entity=assembly&prototype_id=<?= $prototype['Prototype_ID'] ?>" 
+                                                    <a href="?tab=bomlist/bomlist&entity=assembly&prototype_id=<?= $prototype['Prototype_ID'] ?>" 
                                                        class="btn btn-sm btn-outline-info" title="Ver BOM">
                                                         <i class="bi bi-diagram-2"></i>
                                                     </a>
-                                                    <a href="?tab=bomlist&entity=prototypes&action=delete&id=<?= $prototype['Prototype_ID'] ?>" 
+                                                    <a href="?tab=bomlist/bomlist&entity=prototypes&action=delete&id=<?= $prototype['Prototype_ID'] ?>" 
                                                        class="btn btn-sm btn-outline-danger" title="Eliminar"
                                                        onclick="return confirm('Tem a certeza que deseja eliminar este protótipo?')">
                                                         <i class="bi bi-trash"></i>
@@ -714,6 +456,11 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <input type="hidden" name="entity" value="assembly">
                             
                             <div class="mb-3">
+                                <label for="assembly_designation" class="form-label">Nome da Montagem *</label>
+                                <input type="text" class="form-control" name="assembly_designation" placeholder="Ex: Montagem1" required>
+                            </div>
+
+                            <div class="mb-3">
                                 <label for="prototype_id" class="form-label">Protótipo *</label>
                                 <select class="form-select" name="prototype_id" required>
                                     <option value="">Selecionar protótipo...</option>
@@ -726,37 +473,117 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 </select>
                             </div>
                             
-                            <div class="mb-3">
-                                <label for="father_id" class="form-label">Componente Pai</label>
-                                <select class="form-select" name="father_id">
-                                    <option value="">Nível raiz...</option>
-                                    <?php foreach ($components as $component): ?>
-                                        <option value="<?= $component['Component_ID'] ?>">
-                                            <?= htmlspecialchars($component['Denomination']) ?>
+                            <!-- Botões para tipo de montagem -->
+                            <div class="mb-3" id="assembly-type-selection">
+                                <label class="form-label">Tipo de Montagem</label><br>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="assembly_type" id="type_component_component" value="component_component" required>
+                                    <label class="form-check-label" for="type_component_component">Componente - Componente</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="assembly_type" id="type_component_assembly" value="component_assembly">
+                                    <label class="form-check-label" for="type_component_assembly">Componente - Montagem</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="assembly_type" id="type_assembly_assembly" value="assembly_assembly">
+                                    <label class="form-check-label" for="type_assembly_assembly">Montagem - Montagem</label>
+                                </div>
+                            </div>
+
+
+                            <!-- Load dynamically the fields based on previous selection --> 
+                            <div class="mb-3" id="field-component-father">
+                                <label for="component_father_id" class="form-label">Componente 1 *</label>
+                                <div class="input-group">
+                                    <select class="form-select" name="component_father_id" id="component_father_id">
+                                        <option value="">Selecionar componente...</option>
+                                        <?php foreach ($components as $component): ?>
+                                            <option value="<?= $component['Component_ID'] ?>">
+                                                <?= htmlspecialchars($component['Denomination']) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <button type="button" id="componentDetailsBtn" class="btn btn-outline-info" disabled>
+                                        <i class="bi bi-info-circle"></i> Ver Detalhes
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="mb-3" id="field-component-father-quantity">
+                                <label for="component_father_quantity" class="form-label">Quantidade (Componente 1) *</label>
+                                <input type="number" class="form-control" name="component_father_quantity" value="1" required min="1">
+                            </div>
+                            <div class="mb-3" id="field-component-child">
+                                <label for="component_child_id" class="form-label">Componente 2 *</label>
+                                <div class="input-group">
+                                    <select class="form-select" name="component_child_id" id="component_child_id">
+                                        <option value="">Selecionar componente...</option>
+                                        <?php foreach ($components as $component): ?>
+                                            <option value="<?= $component['Component_ID'] ?>">
+                                                <?= htmlspecialchars($component['Denomination']) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <button type="button" id="componentChildDetailsBtn" class="btn btn-outline-info" disabled>
+                                        <i class="bi bi-info-circle"></i> Ver Detalhes
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3" id="field-component-child-quantity">
+                                <label for="component_child_quantity" class="form-label">Quantidade (Componente 2) *</label>
+                                <input type="number" class="form-control" name="component_child_quantity" value="1" required min="1">
+                            </div>
+
+                            <!-- NOVOS CAMPOS PARA ASSEMBLY -->
+
+                            <div class="mb-3" id="field-assembly-father">
+                                <label for="assembly_father_id" class="form-label">Montagem 1 *</label>
+                                <select class="form-select" name="assembly_father_id">
+                                    <option value="">Selecionar montagem...</option>
+                                    <?php foreach ($assemblies as $assembly): ?>
+                                        <option value="<?= $assembly['Assembly_ID'] ?>">
+                                            <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
+                                            - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                        <?php foreach ($prototypes as $prototype): ?>
+                                        <option value="<?= $prototype['Prototype_ID'] ?> prototype">
+                                            <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
-                                <div class="form-text">Deixar vazio para componentes de nível superior</div>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="child_id" class="form-label">Componente Filho *</label>
-                                <select class="form-select" name="child_id" required>
-                                    <option value="">Selecionar componente...</option>
-                                    <?php foreach ($components as $component): ?>
-                                        <option value="<?= $component['Component_ID'] ?>">
-                                            <?= htmlspecialchars($component['Denomination']) ?>
+                            </div>    
+                            <div class="mb-3" id="field-assembly-father-quantity">
+                                <label for="assembly_father_quantity" class="form-label">Quantidade (Montagem 1) *</label>
+                                <input type="number" class="form-control" name="assembly_father_quantity" value="1" required min="1">
+                            </div>                      
+
+                            <div class="mb-3" id="field-assembly-child">
+                                <label for="assembly_child_id" class="form-label">Montagem 2 *</label>
+                                <select class="form-select" name="assembly_child_id">
+                                    <option value="">Selecionar montagem...</option>
+                                    <?php foreach ($assemblies as $assembly): ?>
+                                        <option value="<?= $assembly['Assembly_ID'] ?>">
+                                            <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
+                                            - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
+                                        </option> 
+                                    <?php endforeach; ?>
+                                    <?php foreach ($prototypes as $prototype): ?>
+                                        <option value="<?= $prototype['Prototype_ID'] ?> prototype">
+                                            <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-                            
-                            <div class="mb-3">
-                                <label for="quantity" class="form-label">Quantidade *</label>
-                                <input type="number" class="form-control" name="quantity" value="1" required min="1">
+
+                            <div class="mb-3" id="field-assembly-child-quantity">
+                                <label for="assembly_child_quantity" class="form-label">Quantidade (Montagem 2) *</label>
+                                <input type="number" class="form-control" name="assembly_child_quantity" value="1" required min="1">
                             </div>
-                            
-                            <div class="mb-3">
+                
+                            <!-- FIM DOS NOVOS CAMPOS PARA ASSEMBLY -->
+
+                            <div class="mb-3" id="field-notes">
                                 <label for="notes" class="form-label">Notas</label>
                                 <textarea class="form-control" name="notes" rows="2"></textarea>
                             </div>
@@ -775,7 +602,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     </div>
                     <div class="card-body">
                         <form method="GET">
-                            <input type="hidden" name="tab" value="bomlist">
+                            <input type="hidden" name="tab" value="bomlist/bomlist">
                             <input type="hidden" name="entity" value="assembly">
                             <select class="form-select" name="prototype_id" onchange="this.form.submit()">
                                 <option value="">Todos os protótipos</option>
@@ -792,6 +619,40 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
             </div>
             
             <div class="col-md-8">
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5><i class="bi bi-diagram-3"></i> Estrutura de Montagem (Árvore)</h5>
+                    </div>
+                    <form method="GET" action="">
+                        <input type="hidden" name="tab" value="bomlist/bomlist">
+                        <input type="hidden" name="entity" value="assembly">
+                        <div class="mb-3">
+                            <label for="prototype_id" class="form-label">Selecione um Protótipo</label>
+                            <select class="form-select" name="prototype_id" onchange="this.form.submit()">
+                                <option value="">-- Escolha um Protótipo --</option>
+                                <?php foreach ($prototypes as $prototype): ?>
+                                    <option value="<?= $prototype['Prototype_ID'] ?>" <?= (isset($_GET['prototype_id']) && $_GET['prototype_id'] == $prototype['Prototype_ID']) ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </form>
+
+                    <?php
+                        if (isset($_GET['prototype_id']) && $_GET['prototype_id']) {
+                            $prototypeId = $_GET['prototype_id'];
+                            $assemblyTree = getAssemblyTree($pdo, $prototypeId);
+                            echo "<div id=\"assembly-tree\">";
+                            renderAssemblyTree($assemblyTree);
+                            echo "</div>";
+                        } else {
+                            echo "<p>Selecione um protótipo para visualizar a árvore de montagem.</p>";
+                        }
+                        ?>
+                    
+                </div>
+
                 <div class="card">
                     <div class="card-header">
                         <h5><i class="bi bi-diagram-2"></i> Estrutura de Montagem</h5>
@@ -821,10 +682,17 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <table class="table table-striped table-hover">
                                 <thead class="table-dark">
                                     <tr>
+                                        <th>Designação</th>
                                         <th>Protótipo</th>
-                                        <th>Componente Pai</th>
-                                        <th>Componente Filho</th>
-                                        <th>Qtd</th>
+                                        <th>Componente 1</th>
+                                        <th>Qtd (Componente 1)</th>
+                                        <th>Componente 2</th>
+                                        <th>Qtd (Componente 2)</th>
+                                        <th>Montagem 1</th>
+                                        <th>Qtd (Montagem 1)</th>
+                                        <th>Montagem 2</th>
+                                        <th>Qtd (Montagem 2)</th>
+                                        <th>Nível de Montagem</th>
                                         <th>Notas</th>
                                         <th>Ações</th>
                                     </tr>
@@ -833,23 +701,43 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                     <?php foreach ($filteredAssemblies as $assembly): ?>
                                         <tr>
                                             <td>
+                                                <?= $assembly['Assembly_Designation'] ?? '-' ?>
+                                            </td>
+                                            <td>
                                                 <strong><?= htmlspecialchars($assembly['Prototype_Name']) ?></strong>
                                                 <br><small class="text-muted">v<?= $assembly['Prototype_Version'] ?></small>
                                             </td>
                                             <td>
-                                                <?= $assembly['Father_Name'] ? htmlspecialchars($assembly['Father_Name']) : '<em>Nível raiz</em>' ?>
+                                                <?= $assembly['Component_Father_Designation'] ? htmlspecialchars($assembly['Component_Father_Designation']) : '-' ?>
                                             </td>
                                             <td>
-                                                <strong><?= htmlspecialchars($assembly['Child_Name']) ?></strong>
+                                                <span class="badge bg-secondary"><?= $assembly['Component_Father_Quantity'] ?></span>
+                                            <td>
+                                                <?= !empty($assembly['Component_Child_Designation']) ? htmlspecialchars($assembly['Component_Child_Designation']) : '-' ?>
                                             </td>
                                             <td>
-                                                <span class="badge bg-secondary"><?= $assembly['Quantity'] ?></span>
+                                                <span class="badge bg-secondary"><?= $assembly['Component_Child_Quantity'] ?></span>
+                                            </td>
+                                    
+                                            <td>
+                                                <?= $assembly['Assembly_Father_Designation'] ? htmlspecialchars($assembly['Assembly_Father_Designation']) : '-' ?>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-secondary"><?= $assembly['Assembly_Father_Quantity'] ?></span>
+                                            <td>
+                                                <?= $assembly['Assembly_Child_Designation'] ? htmlspecialchars($assembly['Assembly_Child_Designation']) : '-' ?>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-secondary"><?= $assembly['Assembly_Child_Quantity'] ?></span>
+                                            </td>
+                                            <td>
+                                                <?= $assembly['Assembly_Level'] ?>
                                             </td>
                                             <td>
                                                 <?= $assembly['Notes'] ? htmlspecialchars($assembly['Notes']) : '-' ?>
                                             </td>
                                             <td>
-                                                <a href="?tab=bomlist&entity=assembly&action=delete&id=<?= $assembly['Assembly_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=assembly&action=delete&id=<?= $assembly['Assembly_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-danger"
                                                    onclick="return confirm('Tem a certeza que deseja remover esta montagem?')">
                                                     <i class="bi bi-trash"></i>
@@ -877,12 +765,12 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 // Calcular total de componentes necessários
                                 $stmt = $pdo->prepare("
                                     SELECT cc.Component_ID, cc.Denomination, cc.General_Type, cc.Price,
-                                           SUM(a.Quantity) as Total_Quantity,
+                                           SUM(a.Component_Father_Quantity + a.Component_Child_Quantity) as Total_Quantity,
                                            cc.Stock_Quantity,
                                            m.Denomination as Manufacturer_Name,
                                            s.Denomination as Supplier_Name
                                     FROM T_Assembly a
-                                    JOIN T_Component cc ON a.Child_ID = cc.Component_ID
+                                    JOIN T_Component cc ON a.Component_Child_ID = cc.Component_ID
                                     LEFT JOIN T_Manufacturer m ON cc.Manufacturer_ID = m.Manufacturer_ID
                                     LEFT JOIN T_Supplier s ON cc.Supplier_ID = s.Supplier_ID
                                     WHERE a.Prototype_ID = ?
@@ -948,6 +836,12 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <?php endif; ?>
                     </div>
                 </div>
+                <?php
+                if (isset($_GET['prototype_id']) && $_GET['prototype_id']) {
+                    $prototypeId = $_GET['prototype_id'];
+                    $assemblyTree = getAssemblyTree($pdo, $prototypeId);
+                }
+                ?>
             </div>
         </div>
 
@@ -1006,7 +900,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </button>
                             
                             <?php if ($editManufacturer): ?>
-                                <a href="?tab=bomlist&entity=manufacturers" class="btn btn-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=manufacturers" class="btn btn-secondary">
                                     <i class="bi bi-x-circle"></i> Cancelar
                                 </a>
                             <?php endif; ?>
@@ -1063,11 +957,11 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 <span class="badge bg-info"><?= $componentCount ?></span>
                                             </td>
                                             <td>
-                                                <a href="?tab=bomlist&entity=manufacturers&action=edit&id=<?= $manufacturer['Manufacturer_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=manufacturers&action=edit&id=<?= $manufacturer['Manufacturer_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-primary">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
-                                                <a href="?tab=bomlist&entity=manufacturers&action=delete&id=<?= $manufacturer['Manufacturer_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=manufacturers&action=delete&id=<?= $manufacturer['Manufacturer_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-danger"
                                                    onclick="return confirm('Tem a certeza que deseja eliminar este fabricante?')">
                                                     <i class="bi bi-trash"></i>
@@ -1138,7 +1032,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </button>
                             
                             <?php if ($editSupplier): ?>
-                                <a href="?tab=bomlist&entity=suppliers" class="btn btn-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=suppliers" class="btn btn-secondary">
                                     <i class="bi bi-x-circle"></i> Cancelar
                                 </a>
                             <?php endif; ?>
@@ -1195,11 +1089,11 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 <span class="badge bg-info"><?= $componentCount ?></span>
                                             </td>
                                             <td>
-                                                <a href="?tab=bomlist&entity=suppliers&action=edit&id=<?= $supplier['Supplier_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=suppliers&action=edit&id=<?= $supplier['Supplier_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-primary">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
-                                                <a href="?tab=bomlist&entity=suppliers&action=delete&id=<?= $supplier['Supplier_ID'] ?>" 
+                                                <a href="?tab=bomlist/bomlist&entity=suppliers&action=delete&id=<?= $supplier['Supplier_ID'] ?>" 
                                                    class="btn btn-sm btn-outline-danger"
                                                    onclick="return confirm('Tem a certeza que deseja eliminar este fornecedor?')">
                                                     <i class="bi bi-trash"></i>
@@ -1278,19 +1172,19 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <div class="col-12">
                             <h6><i class="bi bi-lightning"></i> Ações Rápidas</h6>
                             <div class="btn-group" role="group">
-                                <a href="?tab=bomlist&entity=components&action=create" class="btn btn-outline-primary">
+                                <a href="?tab=bomlist/bomlist&entity=components&action=create" class="btn btn-outline-primary">
                                     <i class="bi bi-cpu"></i> Novo Componente
                                 </a>
-                                <a href="?tab=bomlist&entity=prototypes&action=create" class="btn btn-outline-success">
+                                <a href="?tab=bomlist/bomlist&entity=prototypes&action=create" class="btn btn-outline-success">
                                     <i class="bi bi-diagram-3"></i> Novo Protótipo
                                 </a>
-                                <a href="?tab=bomlist&entity=assembly" class="btn btn-outline-info">
+                                <a href="?tab=bomlist/bomlist&entity=assembly" class="btn btn-outline-info">
                                     <i class="bi bi-diagram-2"></i> Gerir BOM
                                 </a>
-                                <a href="?tab=bomlist&entity=manufacturers&action=create" class="btn btn-outline-warning">
+                                <a href="?tab=bomlist/bomlist&entity=manufacturers&action=create" class="btn btn-outline-warning">
                                     <i class="bi bi-building"></i> Novo Fabricante
                                 </a>
-                                <a href="?tab=bomlist&entity=suppliers&action=create" class="btn btn-outline-secondary">
+                                <a href="?tab=bomlist/bomlist&entity=suppliers&action=create" class="btn btn-outline-secondary">
                                     <i class="bi bi-truck"></i> Novo Fornecedor
                                 </a>
                             </div>
@@ -1369,6 +1263,7 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 <button class="btn btn-outline-info" onclick="exportToCSV('prototypes')">
                                     <i class="bi bi-file-earmark-text"></i> Protótipos CSV
                                 </button>
+                                
                                 <button class="btn btn-outline-warning" onclick="generateBOMReport()">
                                     <i class="bi bi-file-earmark-pdf"></i> Relatório BOM
                                 </button>
@@ -1389,262 +1284,41 @@ $assemblies = $stmt->fetchAll(PDO::FETCH_ASSOC);
             </div>
         </div>
     </div>
+    <!-- Modal para detalhes do componente -->
+    <div class="modal fade" id="componentDetailsModal" tabindex="-1" aria-labelledby="componentDetailsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="componentDetailsModalLabel">Detalhes do Componente</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="componentDetailsContent">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
-<!-- JavaScript para funcionalidades avançadas -->
+<!-- Link to assemblyLoader.js -->
+
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Função para exportar dados para CSV
-    window.exportToCSV = function(type) {
-        const data = [];
-        let headers = [];
-        
-        switch(type) {
-            case 'components':
-                headers = ['ID', 'Denominação', 'Tipo', 'Fabricante', 'Fornecedor', 'Preço', 'Stock'];
-                <?php foreach ($components as $component): ?>
-                    data.push([
-                        '<?= $component['Component_ID'] ?>',
-                        '<?= addslashes($component['Denomination']) ?>',
-                        '<?= addslashes($component['General_Type']) ?>',
-                        '<?= addslashes($component['Manufacturer_Name']) ?>',
-                        '<?= addslashes($component['Supplier_Name']) ?>',
-                        '<?= $component['Price'] ?? 0 ?>',
-                        '<?= $component['Stock_Quantity'] ?>'
-                    ]);
-                <?php endforeach; ?>
-                break;
-                
-            case 'prototypes':
-                headers = ['ID', 'Nome', 'Versão', 'Estado', 'Data Criação'];
-                <?php foreach ($prototypes as $prototype): ?>
-                    data.push([
-                        '<?= $prototype['Prototype_ID'] ?>',
-                        '<?= addslashes($prototype['Name']) ?>',
-                        '<?= $prototype['Version'] ?>',
-                        '<?= $prototype['Status'] ?>',
-                        '<?= date('d/m/Y', strtotime($prototype['Created_Date'])) ?>'
-                    ]);
-                <?php endforeach; ?>
-                break;
-        }
-        
-        // Criar CSV
-        let csvContent = headers.join(',') + '\n';
-        data.forEach(row => {
-            csvContent += row.map(field => `"${field}"`).join(',') + '\n';
-        });
-        
-        // Download
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        link.setAttribute('href', url);
-        link.setAttribute('download', `${type}_${new Date().toISOString().split('T')[0]}.csv`);
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-    
-    // Função para gerar relatório BOM
-    window.generateBOMReport = function() {
-        const selectedPrototype = '<?= $_GET['prototype_id'] ?? '' ?>';
-        if (!selectedPrototype) {
-            alert('Por favor, selecione um protótipo na aba de Montagem primeiro.');
-            return;
-        }
-        
-        // Redirecionar para página de relatório (seria implementada separadamente)
-        window.open(`bom_report.php?prototype_id=${selectedPrototype}`, '_blank');
-    };
-    
-    // Função para importar dados
-    window.importFromFile = function() {
-        const fileInput = document.getElementById('importFile');
-        const file = fileInput.files[0];
-        
-        if (!file) {
-            alert('Por favor, selecione um ficheiro para importar.');
-            return;
-        }
-        
-        // Aqui seria implementada a lógica de importação
-        alert('Funcionalidade de importação em desenvolvimento.');
-    };
-    
-    // Auto-refresh da página a cada 5 minutos para manter dados atualizados
-    setInterval(function() {
-        if (document.visibilityState === 'visible') {
-            // Verificar se há mudanças na base de dados (poderia ser implementado via AJAX)
-        }
-    }, 300000); // 5 minutos
-    
-    // Busca em tempo real
-    const searchInputs = document.querySelectorAll('input[type="search"]');
-    searchInputs.forEach(input => {
-        input.addEventListener('input', function() {
-            const searchTerm = this.value.toLowerCase();
-            const table = this.closest('.card').querySelector('tbody');
-            const rows = table.querySelectorAll('tr');
-            
-            rows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(searchTerm) ? '' : 'none';
-            });
-        });
-    });
-    
-    // Tooltips para botões
-    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    const tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
-    });
-    
-    // Confirmação de eliminação melhorada
-    const deleteLinks = document.querySelectorAll('a[href*="action=delete"]');
-    deleteLinks.forEach(link => {
-        link.addEventListener('click', function(e) {
-            e.preventDefault();
-            const item = this.closest('tr').querySelector('strong').textContent;
-            if (confirm(`Tem a certeza que deseja eliminar "${item}"?\n\nEsta ação não pode ser desfeita.`)) {
-                window.location.href = this.href;
-            }
-        });
-    });
-    
-    // Validação de formulários
-    const forms = document.querySelectorAll('form');
-    forms.forEach(form => {
-        form.addEventListener('submit', function(e) {
-            const requiredFields = form.querySelectorAll('[required]');
-            let valid = true;
-            
-            requiredFields.forEach(field => {
-                if (!field.value.trim()) {
-                    field.classList.add('is-invalid');
-                    valid = false;
-                } else {
-                    field.classList.remove('is-invalid');
-                }
-            });
-            
-            if (!valid) {
-                e.preventDefault();
-                alert('Por favor, preencha todos os campos obrigatórios.');
-            }
-        });
-    });
-    
-    // Guardar rascunhos automaticamente
-    const formInputs = document.querySelectorAll('form input, form select, form textarea');
-    formInputs.forEach(input => {
-        // Carregar rascunho salvo
-        const savedValue = localStorage.getItem(`draft_${input.name}`);
-        if (savedValue && !input.value) {
-            input.value = savedValue;
-        }
-        
-        // Guardar mudanças
-        input.addEventListener('input', function() {
-            localStorage.setItem(`draft_${this.name}`, this.value);
-        });
-    });
-    
-    // Limpar rascunhos quando formulário é submetido com sucesso
-    forms.forEach(form => {
-        form.addEventListener('submit', function() {
-            const inputs = form.querySelectorAll('input, select, textarea');
-            inputs.forEach(input => {
-                localStorage.removeItem(`draft_${input.name}`);
-            });
-        });
-    });
-});
-
-// Função para calcular custos de protótipo em tempo real
-function calculatePrototypeCost(prototypeId) {
-    // Esta função seria expandida para calcular custos dinamicamente
-    console.log('Calculando custo do protótipo:', prototypeId);
-}
-
-// Função para verificar disponibilidade de stock
-function checkStockAvailability(componentId, quantity) {
-    // Esta função verificaria se há stock suficiente
-    console.log('Verificando stock para componente:', componentId, 'quantidade:', quantity);
-}
+    const components = <?= json_encode($components) ?>;
+    const prototypes = <?= json_encode($prototypes) ?>;
 </script>
-
-<style>
-/* Estilos adicionais para melhorar a aparência */
-.table-hover tbody tr:hover {
-    background-color: rgba(0,123,255,.075);
-}
-
-.badge {
-    font-size: 0.85em;
-}
-
-.card-header h5 {
-    margin-bottom: 0;
-}
-
-.btn-group .btn {
-    margin-right: 5px;
-}
-
-.list-group-item {
-    border-left: none;
-    border-right: none;
-}
-
-.list-group-item:first-child {
-    border-top: none;
-}
-
-.list-group-item:last-child {
-    border-bottom: none;
-}
-
-/* Responsive improvements */
-@media (max-width: 768px) {
-    .btn-group {
-        display: flex;
-        flex-direction: column;
-    }
-    
-    .btn-group .btn {
-        margin-bottom: 5px;
-        margin-right: 0;
-    }
-    
-    .table-responsive {
-        font-size: 0.85em;
-    }
-}
-
-/* Status colors */
-.text-development { color: #0d6efd; }
-.text-testing { color: #fd7e14; }
-.text-production { color: #198754; }
-.text-archived { color: #6c757d; }
-
-/* Loading states */
-.loading {
-    opacity: 0.6;
-    pointer-events: none;
-}
-
-/* Error states */
-.is-invalid {
-    border-color: #dc3545;
-}
-
-.is-invalid:focus {
-    border-color: #dc3545;
-    box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
-}
-</style>
+<script>
+    const selectedPrototype = <?= json_encode($_GET['prototype_id'] ?? '') ?>;
+</script>
+<!-- Link to CSS and JS -->
+<link rel="stylesheet" href="tabs/bomlist/bomlist.css">
+<script src="tabs/bomlist/assemblyLoader.js"></script>
 
 <?php
 // Fechar conexão

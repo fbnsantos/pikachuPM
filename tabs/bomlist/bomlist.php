@@ -37,6 +37,7 @@ $prototypes = getPrototypes($pdo);
 $components = getComponents($pdo);
 $assemblies = getAssemblies($pdo);
 
+//error_log(print_r($assemblies, true)); // Log assemblies for debugging
 
 ?>
 
@@ -476,7 +477,7 @@ $assemblies = getAssemblies($pdo);
                             <div class="mb-3" id="assembly-type-selection">
                                 <label class="form-label">Tipo de Montagem</label><br>
                                 <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" name="assembly_type" id="type_component_component" value="component_component">
+                                    <input class="form-check-input" type="radio" name="assembly_type" id="type_component_component" value="component_component" required>
                                     <label class="form-check-label" for="type_component_component">Componente - Componente</label>
                                 </div>
                                 <div class="form-check form-check-inline">
@@ -493,32 +494,44 @@ $assemblies = getAssemblies($pdo);
                             <!-- Load dynamically the fields based on previous selection --> 
                             <div class="mb-3" id="field-component-father">
                                 <label for="component_father_id" class="form-label">Componente 1 *</label>
-                                <select class="form-select" name="component_father_id">
-                                    <option value="">Selecionar componente...</option>
-                                    <?php foreach ($components as $component): ?>
-                                        <option value="<?= $component['Component_ID'] ?>">
-                                            <?= htmlspecialchars($component['Denomination']) ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-
+                                <div class="input-group">
+                                    <select class="form-select" name="component_father_id" id="component_father_id">
+                                        <option value="">Selecionar componente...</option>
+                                        <?php foreach ($components as $component): ?>
+                                            <option value="<?= $component['Component_ID'] ?>">
+                                                <?= htmlspecialchars($component['Denomination']) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <button type="button" id="componentDetailsBtn" class="btn btn-outline-info" disabled>
+                                        <i class="bi bi-info-circle"></i> Ver Detalhes
+                                    </button>
+                                </div>
                             </div>
-                            
+                            <div class="mb-3" id="field-component-father-quantity">
+                                <label for="component_father_quantity" class="form-label">Quantidade (Componente 1) *</label>
+                                <input type="number" class="form-control" name="component_father_quantity" value="1" required min="1">
+                            </div>
                             <div class="mb-3" id="field-component-child">
                                 <label for="component_child_id" class="form-label">Componente 2 *</label>
-                                <select class="form-select" name="component_child_id">
-                                    <option value="">Selecionar componente...</option>
-                                    <?php foreach ($components as $component): ?>
-                                        <option value="<?= $component['Component_ID'] ?>">
-                                            <?= htmlspecialchars($component['Denomination']) ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
+                                <div class="input-group">
+                                    <select class="form-select" name="component_child_id" id="component_child_id">
+                                        <option value="">Selecionar componente...</option>
+                                        <?php foreach ($components as $component): ?>
+                                            <option value="<?= $component['Component_ID'] ?>">
+                                                <?= htmlspecialchars($component['Denomination']) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <button type="button" id="componentChildDetailsBtn" class="btn btn-outline-info" disabled>
+                                        <i class="bi bi-info-circle"></i> Ver Detalhes
+                                    </button>
+                                </div>
                             </div>
                             
-                            <div class="mb-3" id="field-component-quantity">
-                                <label for="component_quantity" class="form-label">Quantidade (Componentes) *</label>
-                                <input type="number" class="form-control" name="component_quantity" value="1" required min="1">
+                            <div class="mb-3" id="field-component-child-quantity">
+                                <label for="component_child_quantity" class="form-label">Quantidade (Componente 2) *</label>
+                                <input type="number" class="form-control" name="component_child_quantity" value="1" required min="1">
                             </div>
 
                             <!-- NOVOS CAMPOS PARA ASSEMBLY -->
@@ -533,13 +546,17 @@ $assemblies = getAssemblies($pdo);
                                             - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
                                         </option>
                                     <?php endforeach; ?>
-                                    <?php foreach ($prototypes as $prototype): ?>
-                                        <option value="<?= $prototype['Prototype_ID'] ?>">
+                                        <?php foreach ($prototypes as $prototype): ?>
+                                        <option value="<?= $prototype['Prototype_ID'] ?> prototype">
                                             <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
-                            </div>                          
+                            </div>    
+                            <div class="mb-3" id="field-assembly-father-quantity">
+                                <label for="assembly_father_quantity" class="form-label">Quantidade (Montagem 1) *</label>
+                                <input type="number" class="form-control" name="assembly_father_quantity" value="1" required min="1">
+                            </div>                      
 
                             <div class="mb-3" id="field-assembly-child">
                                 <label for="assembly_child_id" class="form-label">Montagem 2 *</label>
@@ -552,23 +569,18 @@ $assemblies = getAssemblies($pdo);
                                         </option> 
                                     <?php endforeach; ?>
                                     <?php foreach ($prototypes as $prototype): ?>
-                                        <option value="<?= $prototype['Prototype_ID'] ?>">
+                                        <option value="<?= $prototype['Prototype_ID'] ?> prototype">
                                             <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
 
-                            <div class="mb-3" id="field-assembly-quantity">
-                                <label for="assembly_quantity" class="form-label">Quantidade (Montagens) *</label>
-                                <input type="number" class="form-control" name="assembly_quantity" value="1" min="1">
+                            <div class="mb-3" id="field-assembly-child-quantity">
+                                <label for="assembly_child_quantity" class="form-label">Quantidade (Montagem 2) *</label>
+                                <input type="number" class="form-control" name="assembly_child_quantity" value="1" required min="1">
                             </div>
-
-                            <!-- <div class="mb-3" id="field-assembly-level-depth">
-                                <label for="assembly_level_depth" class="form-label">Nível de Montagem *</label>
-                                <input type="number" class="form-control" name="assembly_level_depth" value="1" min="1" required>
-                            </div>                             -->
-                            
+                
                             <!-- FIM DOS NOVOS CAMPOS PARA ASSEMBLY -->
 
                             <div class="mb-3" id="field-notes">
@@ -671,14 +683,15 @@ $assemblies = getAssemblies($pdo);
                                 <thead class="table-dark">
                                     <tr>
                                         <th>Designação</th>
-                                        <th>Protótipo (S/N)</th>
-                                        <th>Protótipo Associado</th>
-                                        <th>Componente-Pai</th>
-                                        <th>Componente-Filho</th>
-                                        <th>Qtd (Componente)</th>
-                                        <th>Montagem-Pai</th>
-                                        <th>Montagem-Filho</th>
-                                        <th>Qtd (Montagem)</th>
+                                        <th>Protótipo</th>
+                                        <th>Componente 1</th>
+                                        <th>Qtd (Componente 1)</th>
+                                        <th>Componente 2</th>
+                                        <th>Qtd (Componente 2)</th>
+                                        <th>Montagem 1</th>
+                                        <th>Qtd (Montagem 1)</th>
+                                        <th>Montagem 2</th>
+                                        <th>Qtd (Montagem 2)</th>
                                         <th>Nível de Montagem</th>
                                         <th>Notas</th>
                                         <th>Ações</th>
@@ -691,9 +704,6 @@ $assemblies = getAssemblies($pdo);
                                                 <?= $assembly['Assembly_Designation'] ?? '-' ?>
                                             </td>
                                             <td>
-                                                <?= $assembly['Is_Prototype'] ? '<span class="badge bg-success">Sim</span>' : '<span class="badge bg-secondary">Não</span>' ?>
-                                            </td>
-                                            <td>
                                                 <strong><?= htmlspecialchars($assembly['Prototype_Name']) ?></strong>
                                                 <br><small class="text-muted">v<?= $assembly['Prototype_Version'] ?></small>
                                             </td>
@@ -701,22 +711,27 @@ $assemblies = getAssemblies($pdo);
                                                 <?= $assembly['Component_Father_Designation'] ? htmlspecialchars($assembly['Component_Father_Designation']) : '-' ?>
                                             </td>
                                             <td>
+                                                <span class="badge bg-secondary"><?= $assembly['Component_Father_Quantity'] ?></span>
+                                            <td>
                                                 <?= !empty($assembly['Component_Child_Designation']) ? htmlspecialchars($assembly['Component_Child_Designation']) : '-' ?>
                                             </td>
                                             <td>
-                                                <span class="badge bg-secondary"><?= $assembly['Component_Quantity'] ?></span>
+                                                <span class="badge bg-secondary"><?= $assembly['Component_Child_Quantity'] ?></span>
                                             </td>
+                                    
                                             <td>
                                                 <?= $assembly['Assembly_Father_Designation'] ? htmlspecialchars($assembly['Assembly_Father_Designation']) : '-' ?>
                                             </td>
                                             <td>
+                                                <span class="badge bg-secondary"><?= $assembly['Assembly_Father_Quantity'] ?></span>
+                                            <td>
                                                 <?= $assembly['Assembly_Child_Designation'] ? htmlspecialchars($assembly['Assembly_Child_Designation']) : '-' ?>
                                             </td>
                                             <td>
-                                                <span class="badge bg-secondary"><?= $assembly['Assembly_Quantity'] ?></span>
+                                                <span class="badge bg-secondary"><?= $assembly['Assembly_Child_Quantity'] ?></span>
                                             </td>
                                             <td>
-                                                <?= $assembly['Assembly_Level_Depth'] ?>
+                                                <?= $assembly['Assembly_Level'] ?>
                                             </td>
                                             <td>
                                                 <?= $assembly['Notes'] ? htmlspecialchars($assembly['Notes']) : '-' ?>
@@ -750,7 +765,7 @@ $assemblies = getAssemblies($pdo);
                                 // Calcular total de componentes necessários
                                 $stmt = $pdo->prepare("
                                     SELECT cc.Component_ID, cc.Denomination, cc.General_Type, cc.Price,
-                                           SUM(a.Component_Quantity) as Total_Quantity,
+                                           SUM(a.Component_Father_Quantity + a.Component_Child_Quantity) as Total_Quantity,
                                            cc.Stock_Quantity,
                                            m.Denomination as Manufacturer_Name,
                                            s.Denomination as Supplier_Name
@@ -1248,6 +1263,7 @@ $assemblies = getAssemblies($pdo);
                                 <button class="btn btn-outline-info" onclick="exportToCSV('prototypes')">
                                     <i class="bi bi-file-earmark-text"></i> Protótipos CSV
                                 </button>
+                                
                                 <button class="btn btn-outline-warning" onclick="generateBOMReport()">
                                     <i class="bi bi-file-earmark-pdf"></i> Relatório BOM
                                 </button>
@@ -1268,8 +1284,38 @@ $assemblies = getAssemblies($pdo);
             </div>
         </div>
     </div>
+    <!-- Modal para detalhes do componente -->
+    <div class="modal fade" id="componentDetailsModal" tabindex="-1" aria-labelledby="componentDetailsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="componentDetailsModalLabel">Detalhes do Componente</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="componentDetailsContent">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
+<!-- Link to assemblyLoader.js -->
+
+<script>
+    const components = <?= json_encode($components) ?>;
+    const prototypes = <?= json_encode($prototypes) ?>;
+</script>
+<script>
+    const selectedPrototype = <?= json_encode($_GET['prototype_id'] ?? '') ?>;
+</script>
 <!-- Link to CSS and JS -->
 <link rel="stylesheet" href="tabs/bomlist/bomlist.css">
 <script src="tabs/bomlist/assemblyLoader.js"></script>

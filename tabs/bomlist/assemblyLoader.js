@@ -133,7 +133,7 @@ document.addEventListener('DOMContentLoaded', function() {
             document.querySelector('[name="assembly_father_quantity"]').removeAttribute('required');
             document.querySelector('[name="assembly_child_id"]').removeAttribute('required');
             document.querySelector('[name="assembly_child_quantity"]').removeAttribute('required');
-
+        }
         
         // Initialize by showing component-component fields (default)
         hideAndClearAllFields();

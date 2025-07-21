@@ -91,6 +91,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
 
+
     if (assemblyTypeSelection) {    
         // Function to hide all fields and clear their values
         function hideAndClearAllFields() {  
@@ -133,7 +134,6 @@ document.addEventListener('DOMContentLoaded', function() {
             document.querySelector('[name="assembly_child_id"]').removeAttribute('required');
             document.querySelector('[name="assembly_child_quantity"]').removeAttribute('required');
 
-        }
         
         // Initialize by showing component-component fields (default)
         hideAndClearAllFields();

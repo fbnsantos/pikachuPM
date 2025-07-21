@@ -67,3 +67,99 @@
     border-color: #dc3545;
     box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
 }
+
+#assembly-tree {
+    margin-top: 20px;
+    font-family: monospace; /* Use monospace for better alignment */
+}
+
+#assembly-tree ul {
+    list-style-type: none;
+    padding-left: 0; /* Remove default padding */
+    margin: 0;
+}
+
+#assembly-tree li {
+    list-style-type: none;
+    margin-bottom: 5px;
+    position: relative;
+}
+
+/* Level-based indentation - target the UL elements directly */
+.assembly-tree-level-0 {
+    padding-left: 0px;
+}
+
+.assembly-tree-level-1 {
+    padding-left: 20px;
+}
+
+.assembly-tree-level-2 {
+    padding-left: 40px;
+}
+
+.assembly-tree-level-3 {
+    padding-left: 60px;
+}
+
+.assembly-tree-level-4 {
+    padding-left: 80px;
+}
+
+.assembly-tree-level-5 {
+    padding-left: 100px;
+}
+
+/* Tree connectors for different levels */
+.assembly-tree-level-1 > li:before {
+    content: "└─ ";
+    color: #6c757d;
+    font-weight: bold;
+    position: absolute;
+    left: -18px;
+}
+
+.assembly-tree-level-2 > li:before {
+    content: "└─ ";
+    color: #6c757d;
+    font-weight: bold;
+    position: absolute;
+    left: -18px;
+}
+
+.assembly-tree-level-3 > li:before {
+    content: "└─ ";
+    color: #6c757d;
+    font-weight: bold;
+    position: absolute;
+    left: -18px;
+}
+
+.assembly-tree-level-4 > li:before {
+    content: "└─ ";
+    color: #6c757d;
+    font-weight: bold;
+    position: absolute;
+    left: -18px;
+}
+
+.assembly-tree-level-5 > li:before {
+    content: "└─ ";
+    color: #6c757d;
+    font-weight: bold;
+    position: absolute;
+    left: -18px;
+}
+
+/* Assembly names styling */
+#assembly-tree strong {
+    color: #007bff;
+    font-weight: 600;
+}
+
+/* Hover effects */
+#assembly-tree li:hover strong {
+    background-color: #e7f3ff;
+    padding: 2px 4px;
+    border-radius: 3px;
+}

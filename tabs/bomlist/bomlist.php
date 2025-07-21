@@ -39,7 +39,6 @@ $assemblies = getAssemblies($pdo);
 
 //error_log(print_r($assemblies, true)); // Log assemblies for debugging
 
-
 ?>
 
 <div class="container-fluid">
@@ -581,7 +580,7 @@ $assemblies = getAssemblies($pdo);
                                 <label for="assembly_child_quantity" class="form-label">Quantidade (Montagem 2) *</label>
                                 <input type="number" class="form-control" name="assembly_child_quantity" value="1" required min="1">
                             </div>
-                  
+                
                             <!-- FIM DOS NOVOS CAMPOS PARA ASSEMBLY -->
 
                             <div class="mb-3" id="field-notes">
@@ -644,7 +643,9 @@ $assemblies = getAssemblies($pdo);
                         if (isset($_GET['prototype_id']) && $_GET['prototype_id']) {
                             $prototypeId = $_GET['prototype_id'];
                             $assemblyTree = getAssemblyTree($pdo, $prototypeId);
+                            echo "<div id=\"assembly-tree\">";
                             renderAssemblyTree($assemblyTree);
+                            echo "</div>";
                         } else {
                             echo "<p>Selecione um protótipo para visualizar a árvore de montagem.</p>";
                         }
@@ -1315,6 +1316,8 @@ $assemblies = getAssemblies($pdo);
 <script>
     const selectedPrototype = <?= json_encode($_GET['prototype_id'] ?? '') ?>;
 </script>
+<!-- Link to CSS and JS -->
+<link rel="stylesheet" href="tabs/bomlist/bomlist.css">
 <script src="tabs/bomlist/assemblyLoader.js"></script>
 
 <?php

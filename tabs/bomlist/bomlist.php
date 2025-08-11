@@ -51,7 +51,7 @@ $assemblies = getAssemblies($pdo);
 
     <div class="row mb-4">
         <div class="col-12">
-            <h2><i class="bi bi-list-ul"></i> Sistema de Gestão BOM FFF (Bill of Materials)</h2>
+            <h2><i class="bi bi-list-ul"></i> Sistema de Gestão BOM FFI (Bill of Materials)</h2>
             
             <!-- Navigation tabs -->
             <ul class="nav nav-tabs" id="bomTabs" role="tablist">

@@ -8,7 +8,7 @@
 
 // Incluir configurações
 require_once 'config.php';
-include __DIR__ . '/milestone_functions.php';
+
 
 // Verificar sessão
 if (!isset($_SESSION['username'])) {
@@ -16,6 +16,7 @@ if (!isset($_SESSION['username'])) {
     exit;
 }
 
+include __DIR__ . '/milestone_functions.php';
 
 // Extrair projetos e protótipos associados a uma milestone da descrição
 function extractAssociatedProjectsFromDescription($description) {

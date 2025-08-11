@@ -9,7 +9,7 @@ if (!isset($_SESSION['user_id'])) {
 
 // Incluir arquivo de configuração
 include_once __DIR__ . '/../config.php';
-include_once __DIR__ . '/todos_milestones.php';
+include __DIR__ . '/todos_milestones.php';
 
 // Conectar ao banco de dados MySQL
 try {

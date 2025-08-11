@@ -16,7 +16,7 @@ function connectDB(){
     try {
          echo $db_pass;
          echo "2";
-        $pdo = new PDO("mysql:host=127.0.0.1;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+        $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
         echo "2";
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 

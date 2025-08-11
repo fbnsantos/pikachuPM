@@ -1,4 +1,6 @@
 <?php
+
+require_once  'milestone_functions.php'
 /**
  * Função para obter milestones filtradas por usuário responsável
  * 

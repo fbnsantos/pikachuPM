@@ -3,7 +3,7 @@
 
 
 function connectDB(){
-    include_once __DIR__ . '/../../../config.php';
+    include __DIR__ . '/../../../config.php';
     // Database configuration
     //$db_host = 'localhost';
     //$db_user = 'pkmt_user';

@@ -14,7 +14,9 @@ function connectDB(){
     $sql = file_get_contents($sqlFile);
 
     try {
+         echo "1";
         $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+        echo "2";
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
         // Split and execute each statement

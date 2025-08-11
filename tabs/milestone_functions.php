@@ -1,6 +1,6 @@
 <?php
 
-include __DIR__ . '/milestone_functions.php'
+include __DIR__ . '/milestone_functions.php';
 
 // Funções de utilidade para API Redmine
 function callRedmineAPI($endpoint, $method = 'GET', $data = null) {

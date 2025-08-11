@@ -16,7 +16,7 @@ if (!isset($_SESSION['username'])) {
     exit;
 }
 
-include __DIR__ . '/milestone_functions.php';
+include_once __DIR__ . '/milestone_functions.php';
 
 // Extrair projetos e protótipos associados a uma milestone da descrição
 function extractAssociatedProjectsFromDescription($description) {

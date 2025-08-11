@@ -8,7 +8,7 @@
 
 // Incluir configurações
 require_once 'config.php';
-require_once  'milestone_functions.php'
+include_once __DIR__ . '/tabs/milestone_functions.php'
 
 // Verificar sessão
 if (!isset($_SESSION['username'])) {

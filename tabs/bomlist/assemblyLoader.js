@@ -230,8 +230,11 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
-         // Função para exportar dados para CSV
+
+    }
+             // Função para exportar dados para CSV
         window.exportToCSV = function(type) {
+            console.log('Exportando CSV para:', type);
             const data = [];
             let headers = [];
             
@@ -292,6 +295,5 @@ document.addEventListener('DOMContentLoaded', function() {
             // Redirecionar para a página de relatório
             window.open(`bom_report.php?prototype_id=${selectedPrototype}`, '_blank');
         };
-    }
 });
     

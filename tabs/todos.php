@@ -997,6 +997,7 @@ try {
 
 <?php 
 
+echo "OLLLLLLLLLLLLL";
 $milestones = getMilestonesByUser($user_id);
 if (!isset($milestones['error'])) {
     foreach ($milestones as $milestone) {

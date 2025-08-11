@@ -11,7 +11,7 @@ if (!isset($_SESSION['user_id'])) {
 include_once __DIR__ . '/../config.php';
 
 // Incluir funções do milestone.php para buscar milestones
-require_once __DIR__ . '/../milestone.php';
+require_once __DIR__ . '/milestone.php';
 
 // Conectar ao banco de dados MySQL
 try {

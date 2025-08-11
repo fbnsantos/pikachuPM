@@ -1,11 +1,13 @@
 <?php
 
+require_once ../../../config.php 
+
 function connectDB(){
     // Database configuration
-    $db_host = '127.0.0.1';
-    $db_user = 'pikachu';
-    $db_pass = 'pikachu123'; 
-    $db_name = 'pikachuPM';
+    //$db_host = 'localhost';
+    //$db_user = 'pkmt_user';
+    //$db_pass = 'pikachu123'; 
+    //$db_name = 'pkmt_db';
     
     $sqlFile = __DIR__ . '/database.sql';
     $sql = file_get_contents($sqlFile);

@@ -7,6 +7,19 @@ if (!isset($_SESSION['username'])) {
     exit;
 }
 
+$flagFile = __DIR__ . '/debug.txt';
+
+// Quando o botão é pressionado, escreve 1 no ficheiro
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    file_put_contents($flagFile, "1");
+    // Redireciona para forçar abrir o debug.html numa nova aba via JS
+    echo "<script>
+        window.open('debug.html', '_blank');
+        window.location.href = '" . basename(__FILE__) . "';
+    </script>";
+    exit;
+}
+
 // Definição dos horários para reuniões e transições
 $HORA_REUNIAO_EQUIPA = "11:26"; // formato HH:MM - Hora para iniciar contagem para reunião
 $HORA_TRANSICAO_CALENDARIO = "12:00"; // formato HH:MM - Hora para transição para o calendário
@@ -298,6 +311,17 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             border-radius: 10px;
             transition: width 1s linear;
         }
+   
+        button {
+        background: #007bff;
+        color: #fff;
+        padding: 10px 18px;
+        border: none;
+        border-radius: 6px;
+        font-size: 1rem;
+        cursor: pointer;
+        }
+        button:hover { background: #0056b3; }
     </style>
     <!-- Estilos adicionais para garantir centralização perfeita do relógio -->
     <style>
@@ -860,7 +884,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
-
+<form method="post">
+    <button type="submit">Ver error.log</button>
+  </form>
 </body>
 </html>
 <?php

@@ -997,10 +997,16 @@ try {
 
 <?php 
 
-$milestones = getMilestonesByUser(1);
-echo "<pre>";
-print_r($milestones);
-echo "</pre>";
+$milestones = getMilestonesByUser($user_id);
+if (!isset($milestones['error'])) {
+    foreach ($milestones as $milestone) {
+        echo "- " . htmlspecialchars($milestone['subject']) . "<br>";
+    }
+} else {
+    echo "Erro: " . $milestones['error'];
+}
+
+
 ?>
 
 <script>

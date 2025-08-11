@@ -1,6 +1,6 @@
 <?php
 
-include __DIR__ . '/tabs/milestone_functions.php'
+include __DIR__ . '/milestone_functions.php'
 /**
  * Função para obter milestones filtradas por usuário responsável
  * 

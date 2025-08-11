@@ -4,7 +4,8 @@
 
 // Incluir configuração da base de dados
 // Incluir arquivo de configuração
-include_once __DIR__ . '/../../PWA/RestAPI/config.php';
+//include_once __DIR__ . '/../../PWA/RestAPI/config.php';
+include_once __DIR__ . '/../../../config.php';
 require_once 'helpers.php';
 require_once 'getters.php';
 require_once 'database/database.php';

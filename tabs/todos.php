@@ -9,6 +9,7 @@ if (!isset($_SESSION['user_id'])) {
 
 // Incluir arquivo de configuração
 include_once __DIR__ . '/../config.php';
+include __DIR__ . '/todos_milestones.php';
 
 // Conectar ao banco de dados MySQL
 try {
@@ -993,6 +994,21 @@ try {
     <input type="hidden" name="todo_id" id="update-todo-id">
     <input type="hidden" name="new_estado" id="update-new-estado">
 </form>
+
+<?php 
+
+echo "OLLLLLLLLLLLLL";
+$milestones = getMilestonesByUser($user_id);
+if (!isset($milestones['error'])) {
+    foreach ($milestones as $milestone) {
+        echo "- " . htmlspecialchars($milestone['subject']) . "<br>";
+    }
+} else {
+    echo "Erro: " . $milestones['error'];
+}
+
+
+?>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {

@@ -1,5 +1,5 @@
 equipa.sqlite
+equipa2.sqlite
 eventos.sqlite
 links2.sqlite
-tabs/database
-tabs/bomlist/neo4j
+config.php

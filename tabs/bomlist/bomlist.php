@@ -4,7 +4,8 @@
 
 // Incluir configuração da base de dados
 // Incluir arquivo de configuração
-include_once __DIR__ . '/../../PWA/RestAPI/config.php';
+//include_once __DIR__ . '/../../PWA/RestAPI/config.php';
+include_once __DIR__ . '/../../config.php';
 require_once 'helpers.php';
 require_once 'getters.php';
 require_once 'database/database.php';
@@ -51,7 +52,7 @@ $assemblies = getAssemblies($pdo);
 
     <div class="row mb-4">
         <div class="col-12">
-            <h2><i class="bi bi-list-ul"></i> Sistema de Gestão BOM FFF (Bill of Materials)</h2>
+            <h2><i class="bi bi-list-ul"></i> Sistema de Gestão BOM FFI (Bill of Materials)</h2>
             
             <!-- Navigation tabs -->
             <ul class="nav nav-tabs" id="bomTabs" role="tablist">

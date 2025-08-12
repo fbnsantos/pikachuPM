@@ -101,4 +101,50 @@ function calculateAssemblyLevel($pdo, $assemblyId) {
     return max($fatherLevel, $childLevel) + 1;
 }
 
-?>
+/**
+ * Gera uma referência para o componente com base na categoria.
+ *
+ * As categorias e respectivos prefixos:
+ * - "Mecânica e Suportes Estruturais" => "MS"
+ * - "Transmissão e movimento"      => "TM"
+ * - "Sistema elétrico"             => "SE"
+ * - "Eletrónica e controlo"        => "EC"
+ *
+ * A referência segue o formato: PREFIX-0000, onde o número é incremental.
+ *
+ * @param PDO $pdo Conexão com o banco.
+ * @param string $category Categoria do componente.
+ * @return string|null A referência gerada ou null se a categoria não for reconhecida.
+ */
+function generateComponentReference(PDO $pdo, string $category): ?string {
+    $mapping = [
+        "Mecânica e Suportes Estruturais" => "MS",
+        "Transmissão e movimento" => "TM",
+        "Sistema elétrico" => "SE",
+        "Eletrónica e controlo" => "EC"
+    ];
+    
+    if (!isset($mapping[$category])) {
+        return null;
+    }
+    
+    $prefix = $mapping[$category];
+    
+    // Buscar a referência máxima já gerada para este prefixo
+    $stmt = $pdo->prepare("SELECT MAX(Reference) AS maxRef FROM T_Component WHERE Reference LIKE ?");
+    $stmt->execute([$prefix . "-%"]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($row && $row['maxRef']) {
+        // Remove o prefixo e o hífen, e incrementa o valor numérico
+        $num = (int)substr($row['maxRef'], strlen($prefix) + 1);
+        $num++;
+    } else {
+        $num = 1;
+    }
+    
+    // Formata sempre com 4 dígitos
+    return sprintf("%s-%04d", $prefix, $num);
+}
+
+?> 

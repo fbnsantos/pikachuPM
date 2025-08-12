@@ -159,7 +159,7 @@ function getAllSubAssemblyIDs(array $assemblies, array $assembly) {
 }
 
 /**
- * Função auxiliar para encontrar uma assembly pelo seu ID dentro do array de assemblies.
+ * Função auxiliar para encontrar uma assembly/componente pelo seu ID dentro do array de assemblies/componentes.
  *
  * @param array $assemblies
  * @param int $id
@@ -183,26 +183,6 @@ function findComponentById(array $components, $id) {
     return null;
 }
 
-/**
- * Função que retorna o valor total (soma) do preço da assembly e de todas as suas subassemblies.
- *
- * @param array $assemblies Array com todas as assemblies.
- * @param array $assembly Assembly atual.
- * @return float Valor total somado dos preços.
- */
-function getTotalSubAssembliesPrice(array $assemblies, array $assembly) {
-    // Se a assembly não tiver definida uma propriedade 'Price', assume 0.
-    $total = isset($assembly['Price']) ? $assembly['Price'] : 0;
-
-    // Obter as subassemblies diretamente relacionadas à assembly atual.
-    $subassemblies = getSubassemblies($assemblies, $assembly['Assembly_ID']);
-    foreach ($subassemblies as $sub) {
-        // Soma o total da subassembly, recursivamente.
-        $total += getTotalSubAssembliesPrice($assemblies, $sub);
-    }
-    
-    return $total;
-}
 
 /**
  * Retorna o preço acumulado da assembly / componente.
@@ -218,3 +198,18 @@ function getComponentPrice(array $component) {
     return (float) ($component['Price'] ?? 0);
 }
 
+/**
+ * Procura um componente pelo campo Reference.
+ *
+ * @param array $components Array com os componentes.
+ * @param string $reference A referência.
+ * @return array|null Retorna o componente ou null se não encontrado.
+ */
+function getComponentByReference(array $components, string $reference): ?array {
+    foreach ($components as $component) {
+        if (isset($component['Reference']) && $component['Reference'] === $reference) {
+            return $component;
+        }
+    }
+    return null;
+}

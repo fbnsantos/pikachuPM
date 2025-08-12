@@ -106,15 +106,32 @@ function processCRUD($pdo, $entity , $action){
         
     case 'components':
         if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-
-            
             if (empty($_POST['manufacturer_id']) && empty($_POST['supplier_id'])) {
                 die("Erro: é necessário vincular pelo menos um Fabricante ou Fornecedor.");
             }
 
-            $stmt = $pdo->prepare("INSERT INTO T_Component (Denomination, Manufacturer_ID, Manufacturer_ref, Supplier_ID, Supplier_ref, General_Type, Price, Acquisition_Date, Notes_Description, Stock_Quantity, Min_Stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            // Captura o valor inserido no input de referência manual
+            $compFatherCustomRef = trim($_POST['component_father_custom_ref'] ?? '');
+
+            // Se houver valor, tentativa de encontrar o componente pela referência
+            if (!empty($compFatherCustomRef)) {
+                // Função auxiliar para buscar por referência (implemente-a se ainda não existir)
+                $compFatherRecord = getComponentByReference($components, $compFatherCustomRef);
+                if ($compFatherRecord) {
+                    // Sobrescreve o ID selecionado pelo select com o ID encontrado
+                    $compFather = $compFatherRecord['Component_ID'];
+                } else {
+                    // Se não encontrar, pode lançar um erro ou definir como null
+                    die("Erro: Nenhum componente encontrado com a referência \"$compFatherCustomRef\".");
+                }
+            }
+
+            $reference = generateComponentReference($pdo, $_POST['general_type']);
+
+            $stmt = $pdo->prepare("INSERT INTO T_Component (Denomination, Reference, Manufacturer_ID, Manufacturer_ref, Supplier_ID, Supplier_ref, General_Type, Price, Acquisition_Date, Notes_Description, Stock_Quantity, Min_Stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([
                 $_POST['denomination'], 
+                $reference,
                 $_POST['manufacturer_id'] ?: null, 
                 $_POST['manufacturer_ref'], 
                 $_POST['supplier_id'] ?: null, 
@@ -126,11 +143,13 @@ function processCRUD($pdo, $entity , $action){
                 $_POST['stock_quantity'] ?: 0,
                 $_POST['min_stock'] ?: 0
             ]);
-            $message = "Componente criado com sucesso!";
+            $message = "Componente criado com sucesso! Referência: $reference";
+
         } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("UPDATE T_Component SET Denomination=?, Manufacturer_ID=?, Manufacturer_ref=?, Supplier_ID=?, Supplier_ref=?, General_Type=?, Price=?, Acquisition_Date=?, Notes_Description=?, Stock_Quantity=?, Min_Stock=? WHERE Component_ID=?");
+            $stmt = $pdo->prepare("UPDATE T_Component SET Denomination=?, Reference=?, Manufacturer_ID=?, Manufacturer_ref=?, Supplier_ID=?, Supplier_ref=?, General_Type=?, Price=?, Acquisition_Date=?, Notes_Description=?, Stock_Quantity=?, Min_Stock=? WHERE Component_ID=?");
             $stmt->execute([
-                $_POST['denomination'], 
+                $_POST['denomination'],
+                $_POST['reference'],
                 $_POST['manufacturer_id'] ?: null, 
                 $_POST['manufacturer_ref'], 
                 $_POST['supplier_id'] ?: null, 
@@ -196,7 +215,7 @@ function processCRUD($pdo, $entity , $action){
                 $priceAssemChild  = ($assemChild !== '' && !is_null($assemChild)) ? getAssemblyPrice(findAssemblyById($assemblies, $assemChild)) * $assemChildQty : 0;
 
                 $assemblyPrice = $priceCompFather + $priceCompChild + $priceAssemFather + $priceAssemChild;
-                
+
                 if (!is_null($assemFather) || $assemFather !== '') {
                     $stmt = $pdo->prepare("SELECT Assembly_Level FROM T_Assembly WHERE Assembly_ID = ?");
                     $stmt->execute([$assemFather]);

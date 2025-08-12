@@ -125,8 +125,21 @@ $assemblies = getAssemblies($pdo);
                             
                             <div class="mb-3">
                                 <label for="general_type" class="form-label">Tipo Geral</label>
-                                <input type="text" class="form-control" name="general_type" 
-                                       value="<?= $editComponent ? htmlspecialchars($editComponent['General_Type']) : '' ?>">
+                                <select class="form-select" name="general_type" id="general_type" required>
+                                    <option value="">Selecionar...</option>
+                                    <option value="Mecânica e Suportes Estruturais" <?= ($editComponent && $editComponent['General_Type'] === 'Mecânica e Suportes Estruturais') ? 'selected' : '' ?>>
+                                        Mecânica e Suportes Estruturais
+                                    </option>
+                                    <option value="Transmissão e movimento" <?= ($editComponent && $editComponent['General_Type'] === 'Transmissão e movimento') ? 'selected' : '' ?>>
+                                        Transmissão e movimento
+                                    </option>
+                                    <option value="Sistema elétrico" <?= ($editComponent && $editComponent['General_Type'] === 'Sistema elétrico') ? 'selected' : '' ?>>
+                                        Sistema elétrico
+                                    </option>
+                                    <option value="Eletrónica e controlo" <?= ($editComponent && $editComponent['General_Type'] === 'Eletrónica e controlo') ? 'selected' : '' ?>>
+                                        Eletrónica e controlo
+                                    </option>
+                                </select>
                             </div>
                             
                             <div class="row">
@@ -181,8 +194,8 @@ $assemblies = getAssemblies($pdo);
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label for="price" class="form-label">Preço (€)</label>
-                                        <input type="number" step="0.01" class="form-control" name="price" 
-                                               value="<?= $editComponent ? $editComponent['Price'] : '' ?>">
+                                        <input type="number" step="0.01" min="0.5" class="form-control" name="price" 
+                                               value="<?= $editComponent ? $editComponent['Price'] : '' ?>" required>
                                     </div>
                                 </div>
                                 <div class="col-md-6">
@@ -496,14 +509,19 @@ $assemblies = getAssemblies($pdo);
                             <div class="mb-3" id="field-component-father">
                                 <label for="component_father_id" class="form-label">Componente 1 *</label>
                                 <div class="input-group">
-                                    <select class="form-select" name="component_father_id" id="component_father_id">
+                                    <select class="form-select" name="component_father_id" id="component_father_id" required>
                                         <option value="">Selecionar componente...</option>
                                         <?php foreach ($components as $component): ?>
                                             <option value="<?= $component['Component_ID'] ?>">
-                                                <?= htmlspecialchars($component['Denomination']) ?>
+                                                <?= htmlspecialchars($component['Denomination']) ?> 
+                                                <?php if (!empty($component['Reference'])): ?>
+                                                    (<?= htmlspecialchars($component['Reference']) ?>)
+                                                <?php endif; ?>
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
+                                    <!-- Campo para escrever manualmente a referência -->
+                                    <input type="text" class="form-control" name="component_father_custom_ref" placeholder="Referência">
                                     <button type="button" id="componentDetailsBtn" class="btn btn-outline-info" disabled>
                                         <i class="bi bi-info-circle"></i> Ver Detalhes
                                     </button>
@@ -521,9 +539,14 @@ $assemblies = getAssemblies($pdo);
                                         <?php foreach ($components as $component): ?>
                                             <option value="<?= $component['Component_ID'] ?>">
                                                 <?= htmlspecialchars($component['Denomination']) ?>
+                                                <?php if (!empty($component['Reference'])): ?>
+                                                    (<?= htmlspecialchars($component['Reference']) ?>)
+                                                <?php endif; ?>
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
+                                    <!-- Campo para escrever manualmente a referência -->
+                                    <input type="text" class="form-control" name="component_child_custom_ref" placeholder="Referência">
                                     <button type="button" id="componentChildDetailsBtn" class="btn btn-outline-info" disabled>
                                         <i class="bi bi-info-circle"></i> Ver Detalhes
                                     </button>

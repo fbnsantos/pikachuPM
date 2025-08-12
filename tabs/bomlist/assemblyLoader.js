@@ -1,6 +1,10 @@
 document.addEventListener('DOMContentLoaded', function() {
     const assemblyTypeSelection = document.getElementById('assembly-type-selection');
     
+    // Referência dos componentes
+    const customFatherRefInput = document.querySelector('[name="component_father_custom_ref"]');
+    const customChildRefInput = document.querySelector('[name="component_child_custom_ref"]');
+
     // Para componente pai
     const componentFatherSelect = document.getElementById('component_father_id');
     const componentDetailsBtn = document.getElementById('componentDetailsBtn');
@@ -9,6 +13,82 @@ document.addEventListener('DOMContentLoaded', function() {
     const componentChildSelect = document.getElementById('component_child_id');
     const componentChildDetailsBtn = document.getElementById('componentChildDetailsBtn');
     
+    // # Para mostrar os botões de detalhes ao escrever a referência
+    if (customFatherRefInput && componentFatherSelect && typeof components !== 'undefined') {
+        customFatherRefInput.addEventListener('input', function() {
+            const val = customFatherRefInput.value.trim();
+            if (val !== '') {
+                // Procura o componente cujo campo Reference seja igual ao valor inserido
+                const found = components.find(c => c.Reference === val);
+                if(found) {
+                    // Atualiza o select para o componente encontrado
+                    componentFatherSelect.value = found.Component_ID;
+                    componentDetailsBtn.disabled = false; // Habilita o botão de detalhes
+                } else {
+                    // Caso não encontre, opcionalmente limpa a seleção
+                    componentFatherSelect.value = '';
+                    componentChildDetailsBtn.disabled = true; // Desabilita o botão de detalhes
+                }
+            } else {
+                // Se o campo estiver vazio, limpar a seleção
+                componentFatherSelect.value = '';
+                componentDetailsBtn.disabled = true; // Desabilita o botão de detalhes
+            }
+        });
+    }
+    if (customChildRefInput && componentChildSelect && typeof components !== 'undefined') {
+        customChildRefInput.addEventListener('input', function() {
+            const val = customChildRefInput.value.trim();
+            if (val !== '') {
+                // Procura o componente cujo campo Reference seja igual ao valor inserido
+                const found = components.find(c => c.Reference === val);
+                if(found) {
+                    // Atualiza o select para o componente encontrado
+                    componentChildSelect.value = found.Component_ID;
+                    componentChildDetailsBtn.disabled = false; // Habilita o botão de detalhes
+                } else {
+                    // Caso não encontre, opcionalmente limpa a seleção
+                    componentChildSelect.value = '';
+                    componentChildDetailsBtn.disabled = true; // Desabilita o botão de detalhes
+                }
+            } else {
+                // Se o campo estiver vazio, limpar a seleção
+                componentChildSelect.value = '';
+                componentChildDetailsBtn.disabled = true; // Desabilita o botão de detalhes
+            }
+        });
+    } // #
+
+    // Para componente pai: quando o select mudar, atualiza o input da referência manual
+    if (componentFatherSelect && customFatherRefInput) {
+        componentFatherSelect.addEventListener('change', function() {
+            const selectedId = componentFatherSelect.value;
+            if (selectedId) {
+                const found = components.find(c => c.Component_ID == selectedId);
+                if (found) {
+                    customFatherRefInput.value = found.Reference || '';
+                }
+            } else {
+                customFatherRefInput.value = '';
+            }
+        });
+    }
+
+    // Para componente filho: quando o select mudar, atualiza o input da referência manual
+    if (componentChildSelect && customChildRefInput) {
+        componentChildSelect.addEventListener('change', function() {
+            const selectedId = componentChildSelect.value;
+            if (selectedId) {
+                const found = components.find(c => c.Component_ID == selectedId);
+                if (found) {
+                    customChildRefInput.value = found.Reference || '';
+                }
+            } else {
+                customChildRefInput.value = '';
+            }
+        });
+    }
+
         // Função para mostrar detalhes do componente
     function showComponentDetails(componentId) {
         if (!componentId) return;

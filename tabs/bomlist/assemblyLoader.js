@@ -288,12 +288,24 @@ document.addEventListener('DOMContentLoaded', function() {
         // Função para gerar relatório BOM
         window.generateBOMReport = function() {
             if (!selectedPrototype) {
-                alert('Por favor, selecione um protótipo na aba de Montagem primeiro.');
+                alert('Selecionar um protótipo na aba de Assembly primeiro.');
                 return;
             }
             
             // Redirecionar para a página de relatório
             window.open(`bom_report.php?prototype_id=${selectedPrototype}`, '_blank');
         };
-});
+
+        const form = document.querySelector('form');
+        if (form) {
+            form.addEventListener('submit', function(e) {
+                const manufacturer = document.querySelector('[name="manufacturer_id"]').value;
+                const supplier = document.querySelector('[name="supplier_id"]').value;
+                if (manufacturer === '' && supplier === '') {
+                    alert('Selecionar um fabricante ou fornecedor.');
+                    e.preventDefault();
+                }
+            });
+        }
+    });
     

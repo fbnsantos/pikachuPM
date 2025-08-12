@@ -71,7 +71,7 @@ $assemblies = getAssemblies($pdo);
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'assembly' ? 'active' : '' ?>" 
                             onclick="location.href='?tab=bomlist/bomlist&entity=assembly'">
-                        <i class="bi bi-diagram-2"></i> Montagem (BOM)
+                        <i class="bi bi-diagram-2"></i> Assembly (BOM)
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
@@ -449,7 +449,7 @@ $assemblies = getAssemblies($pdo);
             <div class="col-md-4">
                 <div class="card">
                     <div class="card-header">
-                        <h5><i class="bi bi-plus-circle"></i> Nova Montagem</h5>
+                        <h5><i class="bi bi-plus-circle"></i> Nova Assembly</h5>
                     </div>
                     <div class="card-body">
                         <form method="POST">
@@ -457,8 +457,8 @@ $assemblies = getAssemblies($pdo);
                             <input type="hidden" name="entity" value="assembly">
                             
                             <div class="mb-3">
-                                <label for="assembly_designation" class="form-label">Nome da Montagem *</label>
-                                <input type="text" class="form-control" name="assembly_designation" placeholder="Ex: Montagem1" required>
+                                <label for="assembly_designation" class="form-label">Nome da Assembly *</label>
+                                <input type="text" class="form-control" name="assembly_designation" placeholder="Ex: Assembly1" required>
                             </div>
 
                             <div class="mb-3">
@@ -476,18 +476,18 @@ $assemblies = getAssemblies($pdo);
                             
                             <!-- Botões para tipo de montagem -->
                             <div class="mb-3" id="assembly-type-selection">
-                                <label class="form-label">Tipo de Montagem</label><br>
+                                <label class="form-label">Tipo de Assembly</label><br>
                                 <div class="form-check form-check-inline">
                                     <input class="form-check-input" type="radio" name="assembly_type" id="type_component_component" value="component_component" required>
                                     <label class="form-check-label" for="type_component_component">Componente - Componente</label>
                                 </div>
                                 <div class="form-check form-check-inline">
                                     <input class="form-check-input" type="radio" name="assembly_type" id="type_component_assembly" value="component_assembly">
-                                    <label class="form-check-label" for="type_component_assembly">Componente - Montagem</label>
+                                    <label class="form-check-label" for="type_component_assembly">Componente - Assembly</label>
                                 </div>
                                 <div class="form-check form-check-inline">
                                     <input class="form-check-input" type="radio" name="assembly_type" id="type_assembly_assembly" value="assembly_assembly">
-                                    <label class="form-check-label" for="type_assembly_assembly">Montagem - Montagem</label>
+                                    <label class="form-check-label" for="type_assembly_assembly">Assembly - Assembly</label>
                                 </div>
                             </div>
 
@@ -538,9 +538,9 @@ $assemblies = getAssemblies($pdo);
                             <!-- NOVOS CAMPOS PARA ASSEMBLY -->
 
                             <div class="mb-3" id="field-assembly-father">
-                                <label for="assembly_father_id" class="form-label">Montagem 1 *</label>
+                                <label for="assembly_father_id" class="form-label">Assembly 1 *</label>
                                 <select class="form-select" name="assembly_father_id">
-                                    <option value="">Selecionar montagem...</option>
+                                    <option value="">Selecionar assembly...</option>
                                     <?php foreach ($assemblies as $assembly): ?>
                                         <option value="<?= $assembly['Assembly_ID'] ?>">
                                             <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
@@ -555,14 +555,14 @@ $assemblies = getAssemblies($pdo);
                                 </select>
                             </div>    
                             <div class="mb-3" id="field-assembly-father-quantity">
-                                <label for="assembly_father_quantity" class="form-label">Quantidade (Montagem 1) *</label>
+                                <label for="assembly_father_quantity" class="form-label">Quantidade (Assembly 1) *</label>
                                 <input type="number" class="form-control" name="assembly_father_quantity" value="1" required min="1">
                             </div>                      
 
                             <div class="mb-3" id="field-assembly-child">
-                                <label for="assembly_child_id" class="form-label">Montagem 2 *</label>
+                                <label for="assembly_child_id" class="form-label">Assembly 2 *</label>
                                 <select class="form-select" name="assembly_child_id">
-                                    <option value="">Selecionar montagem...</option>
+                                    <option value="">Selecionar assembly...</option>
                                     <?php foreach ($assemblies as $assembly): ?>
                                         <option value="<?= $assembly['Assembly_ID'] ?>">
                                             <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
@@ -578,7 +578,7 @@ $assemblies = getAssemblies($pdo);
                             </div>
 
                             <div class="mb-3" id="field-assembly-child-quantity">
-                                <label for="assembly_child_quantity" class="form-label">Quantidade (Montagem 2) *</label>
+                                <label for="assembly_child_quantity" class="form-label">Quantidade (Assembly 2) *</label>
                                 <input type="number" class="form-control" name="assembly_child_quantity" value="1" required min="1">
                             </div>
                 
@@ -590,7 +590,7 @@ $assemblies = getAssemblies($pdo);
                             </div>
                             
                             <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-save"></i> Adicionar à Montagem
+                                <i class="bi bi-save"></i> Adicionar à Assembly
                             </button>
                         </form>
                     </div>
@@ -622,7 +622,7 @@ $assemblies = getAssemblies($pdo);
             <div class="col-md-8">
                 <div class="card mt-4">
                     <div class="card-header">
-                        <h5><i class="bi bi-diagram-3"></i> Estrutura de Montagem (Árvore)</h5>
+                        <h5><i class="bi bi-diagram-3"></i> Estrutura de Assembly (Árvore)</h5>
                     </div>
                     <form method="GET" action="">
                         <input type="hidden" name="tab" value="bomlist/bomlist">
@@ -648,7 +648,7 @@ $assemblies = getAssemblies($pdo);
                             renderAssemblyTree($assemblyTree);
                             echo "</div>";
                         } else {
-                            echo "<p>Selecione um protótipo para visualizar a árvore de montagem.</p>";
+                            echo "<p>Selecione um protótipo para visualizar a árvore de assembly.</p>";
                         }
                         ?>
                     
@@ -656,7 +656,7 @@ $assemblies = getAssemblies($pdo);
 
                 <div class="card">
                     <div class="card-header">
-                        <h5><i class="bi bi-diagram-2"></i> Estrutura de Montagem</h5>
+                        <h5><i class="bi bi-diagram-2"></i> Estrutura de Assembly</h5>
                         <?php if (isset($_GET['prototype_id']) && $_GET['prototype_id']): ?>
                             <?php
                             $stmt = $pdo->prepare("SELECT * FROM T_Prototype WHERE Prototype_ID=?");
@@ -689,11 +689,12 @@ $assemblies = getAssemblies($pdo);
                                         <th>Qtd (Componente 1)</th>
                                         <th>Componente 2</th>
                                         <th>Qtd (Componente 2)</th>
-                                        <th>Montagem 1</th>
-                                        <th>Qtd (Montagem 1)</th>
-                                        <th>Montagem 2</th>
-                                        <th>Qtd (Montagem 2)</th>
-                                        <th>Nível de Montagem</th>
+                                        <th>Assembly 1</th>
+                                        <th>Qtd (Assembly 1)</th>
+                                        <th>Assembly 2</th>
+                                        <th>Qtd (Assembly 2)</th>
+                                        <th>Preço</th>
+                                        <th>Nível de Assembly</th>
                                         <th>Notas</th>
                                         <th>Ações</th>
                                     </tr>
@@ -730,6 +731,11 @@ $assemblies = getAssemblies($pdo);
                                             </td>
                                             <td>
                                                 <span class="badge bg-secondary"><?= $assembly['Assembly_Child_Quantity'] ?></span>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-secondary">
+                                                    <?= $assembly['Price'] ? number_format($assembly['Price'], 2) . '€' : '-' ?>
+                                                </span>
                                             </td>
                                             <td>
                                                 <?= $assembly['Assembly_Level'] ?>

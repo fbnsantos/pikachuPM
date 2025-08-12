@@ -63,6 +63,8 @@ CREATE TABLE IF NOT EXISTS T_Assembly (
     Assembly_Child_Quantity INT NOT NULL DEFAULT 0,
     Assembly_Level INT DEFAULT 0,
 
+    Price FLOAT NOT NULL DEFAULT 0,
+
     Notes TEXT,
     Created_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     

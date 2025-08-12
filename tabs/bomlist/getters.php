@@ -52,6 +52,7 @@ function getAssemblies($pdo) {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+
 // Função para buscar a árvore de montagens de um protótipo
 // Tem de se alterar para ir buscar outras assemblies em vez de só componentes
 function getAssemblyTree($pdo, $prototypeId, $assemblyId = null) {
@@ -115,7 +116,7 @@ function getSubassemblies(array $assemblies, $parentAssemblyId) {
  * seguindo as relações definidas em Assembly_Father_ID e Assembly_Child_ID.
  *
  * @param array $assemblies Array com todas as assemblies.
- * @param array $assembly Assembly atual (registro).
+ * @param array $assembly Assembly atual.
  * @return array Lista de Assembly_IDs.
  */
 function getAllSubAssemblyIDs(array $assemblies, array $assembly) {
@@ -173,5 +174,47 @@ function findAssemblyById(array $assemblies, $id) {
     return null;
 }
 
-?>
+function findComponentById(array $components, $id) {
+    foreach ($components as $component) {
+        if ($component['Component_ID'] == $id) {
+            return $component;
+        }
+    }
+    return null;
+}
+
+/**
+ * Função que retorna o valor total (soma) do preço da assembly e de todas as suas subassemblies.
+ *
+ * @param array $assemblies Array com todas as assemblies.
+ * @param array $assembly Assembly atual.
+ * @return float Valor total somado dos preços.
+ */
+function getTotalSubAssembliesPrice(array $assemblies, array $assembly) {
+    // Se a assembly não tiver definida uma propriedade 'Price', assume 0.
+    $total = isset($assembly['Price']) ? $assembly['Price'] : 0;
+
+    // Obter as subassemblies diretamente relacionadas à assembly atual.
+    $subassemblies = getSubassemblies($assemblies, $assembly['Assembly_ID']);
+    foreach ($subassemblies as $sub) {
+        // Soma o total da subassembly, recursivamente.
+        $total += getTotalSubAssembliesPrice($assemblies, $sub);
+    }
+    
+    return $total;
+}
+
+/**
+ * Retorna o preço acumulado da assembly / componente.
+ *
+ * @param array $assembly Assembly atual / Componente atual.
+ * @return float Preço.
+ */
+function getAssemblyPrice(array $assembly) {
+    return (float) ($assembly['Price'] ?? 0);
+}
+
+function getComponentPrice(array $component) {
+    return (float) ($component['Price'] ?? 0);
+}
 

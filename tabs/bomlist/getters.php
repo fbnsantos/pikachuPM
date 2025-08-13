@@ -55,7 +55,7 @@ function getAssemblies($pdo) {
 
 // Função para buscar a árvore de montagens de um protótipo
 // Tem de se alterar para ir buscar outras assemblies em vez de só componentes
-function getAssemblyTree($pdo, $prototypeId, $assemblyId = null) {
+/*function getAssemblyTree($pdo, $prototypeId, $assemblyId = null) {
     if ($assemblyId === null) {
         // Encontrar todas as montagens (não excluir nenhuma montagem)
         $stmt = $pdo->prepare("
@@ -76,12 +76,12 @@ function getAssemblyTree($pdo, $prototypeId, $assemblyId = null) {
         }
         return $tree;
     }
-}
+}*/
 
 /**
  * Função auxiliar para construir a árvore recursivamente
  */
-function buildAssemblyTree($assemblies, $parent) {
+/*function buildAssemblyTree($assemblies, $parent) {
     $children = [];
     foreach ($assemblies as $assembly) {
         if ($assembly['Assembly_Father_ID'] === $parent['Assembly_ID']) {
@@ -90,7 +90,7 @@ function buildAssemblyTree($assemblies, $parent) {
     }
     $parent['children'] = $children;
     return $parent;
-}
+}*/
 
 /**
  * Retorna recursivamente todas as subassemblies de uma assembly mãe
@@ -154,7 +154,7 @@ function getAllSubAssemblyIDs(array $assemblies, array $assembly) {
             $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $child));
         }
     }
-    
+
     return $list;
 }
 
@@ -213,3 +213,100 @@ function getComponentByReference(array $components, string $reference): ?array {
     }
     return null;
 }
+
+
+
+
+/**
+ * Renderiza a árvore de assemblies em HTML usando indentação baseada na propriedade 'depth'.
+ *
+ * @param array $assemblies Árvore hierárquica (com 'children' e 'depth').
+ * @return string HTML gerado.
+ */
+function renderAssemblyTree(array $assemblies): string {
+    $html = '<ul>';
+    foreach ($assemblies as $assembly) {
+        // Cria a indentação: você pode usar &nbsp; ou CSS para espaçamento
+        $indent = str_repeat('&nbsp;&nbsp;&nbsp;', $assembly['depth']);
+        // Se não for raiz, adiciona o símbolo "└─" (ou similar)
+        $branch = $assembly['depth'] > 0 ? '└─ ' : '';
+        $html .= '<li>';
+        $html .= $indent . $branch . '<strong>' . htmlspecialchars($assembly['Assembly_Designation']) . '</strong>';
+        if (isset($assembly['Price'])) {
+            $html .= ' - ' . number_format($assembly['Price'], 2) . '€';
+        }
+        if (!empty($assembly['children'])) {
+            $html .= renderAssemblyTree($assembly['children']);
+        }
+        $html .= '</li>';
+    }
+    $html .= '</ul>';
+    return $html;
+}
+
+/**
+ * Função auxiliar recursiva para construir a árvore de assemblies 
+ *
+ * @param array $assemblies Lista completa de assemblies.
+ * @param array $parent Assembly pai.
+ * @return array Assembly pai com os filhos preenchidos em 'children'.
+ */
+function buildAssemblyTreeDual(array $assemblies, array $parent): array {
+    $children = [];
+
+    // Se existir uma subassembly 1 (Assembly_Father_ID)
+    if (!empty($parent['Assembly_Father_ID'])) {
+        $child1 = findAssemblyById($assemblies, $parent['Assembly_Father_ID']);
+        if ($child1) {
+            $child1['depth'] = $parent['depth'] + 1;
+            $child1 = buildAssemblyTreeDual($assemblies, $child1);
+            $children[] = $child1;
+        }
+    }
+
+    // Se existir uma subassembly 2 (Assembly_Child_ID)
+    if (!empty($parent['Assembly_Child_ID'])) {
+        $child2 = findAssemblyById($assemblies, $parent['Assembly_Child_ID']);
+        if ($child2) {
+            $child2['depth'] = $parent['depth'] + 1;
+            $child2 = buildAssemblyTreeDual($assemblies, $child2);
+            $children[] = $child2;
+        }
+    }
+
+    $parent['children'] = $children;
+    return $parent;
+}
+
+/**
+ * Constrói a árvore completa de assemblies usando a relação dual: 
+ * - Assembly_Father_ID representa a subassembly 1
+ * - Assembly_Child_ID representa a subassembly 2
+ *
+ * Os registros que não aparecem em nenhum desses campos serão considerados nós raiz.
+ *
+ * @param array $assemblies Lista plana de assemblies.
+ * @return array Árvore hierárquica de assemblies.
+ */
+function getAssemblyTreeDual(array $assemblies): array {
+    // Primeiro, reúna todos os IDs que aparecem nos campos de subassemblies
+    $childIDs = [];
+    foreach ($assemblies as $asm) {
+        if (!empty($asm['Assembly_Father_ID'])) {
+            $childIDs[] = trim($asm['Assembly_Father_ID']);
+        }
+        if (!empty($asm['Assembly_Child_ID'])) {
+            $childIDs[] = trim($asm['Assembly_Child_ID']);
+        }
+    }
+    // Os nós raiz são os que não aparecem como subassembly em lado nenhum
+    $tree = [];
+    foreach ($assemblies as $asm) {
+        if (!in_array($asm['Assembly_ID'], $childIDs)) {
+            $asm['depth'] = 0;
+            $tree[] = buildAssemblyTreeDual($assemblies, $asm);
+        }
+    }
+    return $tree;
+}
+?>

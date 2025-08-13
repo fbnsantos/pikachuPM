@@ -15,7 +15,7 @@ function getMaxDepth($assemblies) {
     }
     return $maxDepth;
 }
-
+/*
 function renderAssemblyTree($assemblies, $currentDepth = null, $maxDepth = null) {
     if (empty($assemblies)) {
         return;
@@ -51,7 +51,7 @@ function renderAssemblyTree($assemblies, $currentDepth = null, $maxDepth = null)
         echo '<strong style="color: #007bff;">' . htmlspecialchars($item['assembly']['Assembly_Designation']) . '</strong>';
         echo '</div>';
     }
-}
+}*/
 
 function collectItemsInOrder($assemblies, $currentDepth, $maxDepth, &$orderedItems) {
     foreach ($assemblies as $assembly) {

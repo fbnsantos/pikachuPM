@@ -69,8 +69,9 @@
 }
 
 #assembly-tree {
-    margin-top: 20px;
+    margin-top: 10px;
     font-family: monospace; /* Use monospace for better alignment */
+    padding-left: 10px;
 }
 
 #assembly-tree ul {
@@ -153,7 +154,7 @@
 
 /* Assembly names styling */
 #assembly-tree strong {
-    color: #007bff;
+    color: #006eff;
     font-weight: 600;
 }
 

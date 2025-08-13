@@ -6,12 +6,12 @@ function processCRUD($pdo, $entity , $action){
     switch ($entity) {
     case 'manufacturers':
         if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Manufacturer (Denomination, Origin_Country, Website, Contacts) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts']]);
+            $stmt = $pdo->prepare("INSERT INTO T_Manufacturer (Denomination, Origin_Country, Website, Contacts, Address , Notes) VALUES (?, ?, ?, ?,?,?)");
+            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['morada'], $_POST['notes']]);
             $message = "Fabricante criado com sucesso!";
         } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("UPDATE T_Manufacturer SET Denomination=?, Origin_Country=?, Website=?, Contacts=? WHERE Manufacturer_ID=?");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['id']]);
+            $stmt = $pdo->prepare("UPDATE T_Manufacturer SET Denomination=?, Origin_Country=?, Website=?, Contacts=?, Address=?, Notes=? WHERE Manufacturer_ID=?");
+            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['morada'], $_POST['notes'], $_POST['id']]);
             $message = "Fabricante atualizado com sucesso!";
         } elseif ($action === 'delete' && isset($_GET['id'])) {
             $stmt = $pdo->prepare("DELETE FROM T_Manufacturer WHERE Manufacturer_ID=?");
@@ -22,12 +22,12 @@ function processCRUD($pdo, $entity , $action){
         
     case 'suppliers':
         if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Supplier (Denomination, Origin_Country, Website, Contacts) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts']]);
+            $stmt = $pdo->prepare("INSERT INTO T_Supplier (Denomination, Origin_Country, Website, Contacts , Address , Notes) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['morada'], $_POST['notes']]);
             $message = "Fornecedor criado com sucesso!";
         } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("UPDATE T_Supplier SET Denomination=?, Origin_Country=?, Website=?, Contacts=? WHERE Supplier_ID=?");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['id']]);
+            $stmt = $pdo->prepare("UPDATE T_Supplier SET Denomination=?, Origin_Country=?, Website=?, Contacts=?, Address=?, Notes=? WHERE Supplier_ID=?");
+            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['morada'], $_POST['notes'], $_POST['id']]);
             $message = "Fornecedor atualizado com sucesso!";
         } elseif ($action === 'delete' && isset($_GET['id'])) {
             $stmt = $pdo->prepare("DELETE FROM T_Supplier WHERE Supplier_ID=?");

@@ -670,10 +670,10 @@ $assemblies = getAssemblies($pdo);
                         $filteredAssemblies = array_filter($assemblies, function($asm) {
                             return $asm['Prototype_ID'] == $_GET['prototype_id'];
                         });
-                        // Constrói a árvore utilizando a relação dual
-                        $assemblyTree = getAssemblyTreeDual($filteredAssemblies);
+                        // Constrói a árvore mista a partir das assemblies filtradas e dos componentes
+                        $tree = getAssemblyTreeMixed($filteredAssemblies, $components);
                         echo '<div id="assembly-tree">';
-                        echo renderAssemblyTree($assemblyTree);
+                        echo renderAssemblyTreeMixed($tree);
                         echo '</div>';
                     } else {
                         echo "<p>Selecione um protótipo para visualizar a árvore de assembly.</p>";

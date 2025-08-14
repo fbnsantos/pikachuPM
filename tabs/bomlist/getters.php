@@ -251,7 +251,7 @@ function renderAssemblyTree(array $assemblies): string {
  * @param array $parent Assembly pai.
  * @return array Assembly pai com os filhos preenchidos em 'children'.
  */
-function buildAssemblyTreeDual(array $assemblies, array $parent): array {
+/*function buildAssemblyTreeDual(array $assemblies, array $parent): array {
     $children = [];
 
     // Se existir uma subassembly 1 (Assembly_Father_ID)
@@ -276,7 +276,7 @@ function buildAssemblyTreeDual(array $assemblies, array $parent): array {
 
     $parent['children'] = $children;
     return $parent;
-}
+}*/
 
 /**
  * Constrói a árvore completa de assemblies usando a relação dual: 
@@ -288,7 +288,7 @@ function buildAssemblyTreeDual(array $assemblies, array $parent): array {
  * @param array $assemblies Lista plana de assemblies.
  * @return array Árvore hierárquica de assemblies.
  */
-function getAssemblyTreeDual(array $assemblies): array {
+/*function getAssemblyTreeDual(array $assemblies): array {
     // Primeiro, reúna todos os IDs que aparecem nos campos de subassemblies
     $childIDs = [];
     foreach ($assemblies as $asm) {
@@ -309,4 +309,134 @@ function getAssemblyTreeDual(array $assemblies): array {
     }
     return $tree;
 }
+*/
+
+/**
+ * Constrói recursivamente a árvore mista de uma assembly.
+ * Verifica para cada lado: se existe um componente, usa-o; caso contrário, usa a assembly.
+ *
+ * @param array $assemblies Lista plana de assemblies.
+ * @param array $components Lista de componentes.
+ * @param array $parent Nó atual (assembly).
+ * @return array Nó com filhos adicionados (key 'children')
+ */
+function buildAssemblyTreeMixed(array $assemblies, array $components, array $parent): array {
+    if (!isset($parent['depth'])) {
+        $parent['depth'] = 0;
+    }
+    $children = [];
+    
+    // Lado esquerdo: tenta primeiro pelo componente, se existir; senão assembly
+    if (!empty($parent['Component_Father_ID'])) {
+        $childComp = findComponentById($components, $parent['Component_Father_ID']);
+        if ($childComp) {
+            $childComp['depth'] = $parent['depth'] + 1;
+            $childComp['node_type'] = 'component';
+            $children[] = $childComp;
+        }
+    }
+    if (!empty($parent['Assembly_Father_ID'])) {
+        $childAsm = findAssemblyById($assemblies, $parent['Assembly_Father_ID']);
+        if ($childAsm) {
+            $childAsm['depth'] = $parent['depth'] + 1;
+            $childAsm['node_type'] = 'assembly';
+            // Recursão para construir filhos
+            $childAsm = buildAssemblyTreeMixed($assemblies, $components, $childAsm);
+            $children[] = $childAsm;
+        }
+    }
+    
+    // Lado direito: componente ou assembly
+    if (!empty($parent['Component_Child_ID'])) {
+        $childComp = findComponentById($components, $parent['Component_Child_ID']);
+        if ($childComp) {
+            $childComp['depth'] = $parent['depth'] + 1;
+            $childComp['node_type'] = 'component';
+            $children[] = $childComp;
+        }
+    } elseif (!empty($parent['Assembly_Child_ID'])) {
+        $childAsm = findAssemblyById($assemblies, $parent['Assembly_Child_ID']);
+        if ($childAsm) {
+            $childAsm['depth'] = $parent['depth'] + 1;
+            $childAsm['node_type'] = 'assembly';
+            $childAsm = buildAssemblyTreeMixed($assemblies, $components, $childAsm);
+            $children[] = $childAsm;
+        }
+    }
+    
+    $parent['children'] = $children;
+    return $parent;
+}
+
+/**
+ * Constrói a árvore mista completa a partir das assemblies filtradas.
+ * Um nó raiz é aquele que não aparece em nenhum dos campos de filho (componente ou assembly).
+ *
+ * @param array $assemblies Lista de assemblies.
+ * @param array $components Lista de componentes.
+ * @return array Árvore mista de assemblies.
+ */
+function getAssemblyTreeMixed(array $assemblies, array $components): array {
+    $childIDs = [];
+    foreach ($assemblies as $asm) {
+        if (!empty($asm['Assembly_Father_ID'])) {
+            $childIDs[] = trim($asm['Assembly_Father_ID']);
+        }
+        if (!empty($asm['Assembly_Child_ID'])) {
+            $childIDs[] = trim($asm['Assembly_Child_ID']);
+        }
+        if (!empty($asm['Component_Father_ID'])) {
+            $childIDs[] = trim($asm['Component_Father_ID']);
+        }
+        if (!empty($asm['Component_Child_ID'])) {
+            $childIDs[] = trim($asm['Component_Child_ID']);
+        }
+    }
+    
+    $tree = [];
+    foreach ($assemblies as $asm) {
+        if (!in_array($asm['Assembly_ID'], $childIDs)) {
+            $asm['depth'] = 0;
+            $asm['node_type'] = 'assembly';
+            $tree[] = buildAssemblyTreeMixed($assemblies, $components, $asm);
+        }
+    }
+    return $tree;
+}
+
+/**
+ * Renderiza a árvore mista em HTML.
+ * Se o nó for do tipo "component" será exibido com um estilo (ex: cor azul) e sem recursão.
+ *
+ * @param array $nodes Árvore mista.
+ * @return string HTML gerado.
+ */
+function renderAssemblyTreeMixed(array $nodes): string {
+    $html = '<ul>';
+    foreach ($nodes as $node) {
+        $indent = str_repeat('&nbsp;&nbsp;&nbsp;', $node['depth']);
+        $branch = $node['depth'] > 0 ? '└─ ' : '';
+        $html .= '<li>';
+        if (isset($node['node_type']) && $node['node_type'] === 'component') {
+            // Exibe o componente e o seu preço
+            $html .= $indent . $branch . '<span class="assembly-component">' . htmlspecialchars($node['Denomination']) . '</span>';
+            if (isset($node['Price'])) {
+                $html .= ' - <span class="assembly-price">' . number_format($node['Price'], 2) . '€</span>';
+            }
+        } else {
+            // Nó assembly
+            $html .= $indent . $branch . '<strong>' . htmlspecialchars($node['Assembly_Designation']) . '</strong>';
+            if (isset($node['Price'])) {
+                $html .= ' - <span class="assembly-price">' . number_format($node['Price'], 2) . '€</span>';
+            }
+        }
+        if (!empty($node['children'])) {
+            $html .= renderAssemblyTreeMixed($node['children']);
+        }
+        $html .= '</li>';
+    }
+    $html .= '</ul>';
+    return $html;
+}
+
 ?>

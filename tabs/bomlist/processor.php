@@ -146,10 +146,15 @@ function processCRUD($pdo, $entity , $action){
             $message = "Componente criado com sucesso! Referência: $reference";
 
         } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+            // Recupera a referência atual do componente
+            $stmtSelect = $pdo->prepare("SELECT Reference FROM T_Component WHERE Component_ID = ?");
+            $stmtSelect->execute([$_POST['id']]);
+            $currentReference = $stmtSelect->fetchColumn();
+
             $stmt = $pdo->prepare("UPDATE T_Component SET Denomination=?, Reference=?, Manufacturer_ID=?, Manufacturer_ref=?, Supplier_ID=?, Supplier_ref=?, General_Type=?, Price=?, Acquisition_Date=?, Notes_Description=?, Stock_Quantity=?, Min_Stock=? WHERE Component_ID=?");
             $stmt->execute([
                 $_POST['denomination'],
-                $_POST['reference'],
+                $currentReference, 
                 $_POST['manufacturer_id'] ?: null, 
                 $_POST['manufacturer_ref'], 
                 $_POST['supplier_id'] ?: null, 

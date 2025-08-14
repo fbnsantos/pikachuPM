@@ -665,20 +665,20 @@ $assemblies = getAssemblies($pdo);
                     
 
                     <?php
-if (isset($_GET['prototype_id']) && $_GET['prototype_id']) {
-    // Filtrar as assemblies para o protótipo selecionado
-    $filteredAssemblies = array_filter($assemblies, function($asm) {
-        return $asm['Prototype_ID'] == $_GET['prototype_id'];
-    });
-    // Constrói a árvore utilizando a relação dual
-    $assemblyTree = getAssemblyTreeDual($filteredAssemblies);
-    echo '<div id="assembly-tree">';
-    echo renderAssemblyTree($assemblyTree);
-    echo '</div>';
-} else {
-    echo "<p>Selecione um protótipo para visualizar a árvore de assembly.</p>";
-}
-                        ?>
+                    if (isset($_GET['prototype_id']) && $_GET['prototype_id']) {
+                        // Filtrar as assemblies para o protótipo selecionado
+                        $filteredAssemblies = array_filter($assemblies, function($asm) {
+                            return $asm['Prototype_ID'] == $_GET['prototype_id'];
+                        });
+                        // Constrói a árvore utilizando a relação dual
+                        $assemblyTree = getAssemblyTreeDual($filteredAssemblies);
+                        echo '<div id="assembly-tree">';
+                        echo renderAssemblyTree($assemblyTree);
+                        echo '</div>';
+                    } else {
+                        echo "<p>Selecione um protótipo para visualizar a árvore de assembly.</p>";
+                    }
+                    ?>
                     
                 </div>
 

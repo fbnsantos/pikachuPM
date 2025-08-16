@@ -106,9 +106,32 @@ function processCRUD($pdo, $entity , $action){
         
     case 'components':
         if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Component (Denomination, Manufacturer_ID, Manufacturer_ref, Supplier_ID, Supplier_ref, General_Type, Price, Acquisition_Date, Notes_Description, Stock_Quantity, Min_Stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            if (empty($_POST['manufacturer_id']) && empty($_POST['supplier_id'])) {
+                die("Erro: é necessário vincular pelo menos um Fabricante ou Fornecedor.");
+            }
+
+            // Captura o valor inserido no input de referência manual
+            $compFatherCustomRef = trim($_POST['component_father_custom_ref'] ?? '');
+
+            // Se houver valor, tentativa de encontrar o componente pela referência
+            if (!empty($compFatherCustomRef)) {
+                // Função auxiliar para buscar por referência (implemente-a se ainda não existir)
+                $compFatherRecord = getComponentByReference($components, $compFatherCustomRef);
+                if ($compFatherRecord) {
+                    // Sobrescreve o ID selecionado pelo select com o ID encontrado
+                    $compFather = $compFatherRecord['Component_ID'];
+                } else {
+                    // Se não encontrar, pode lançar um erro ou definir como null
+                    die("Erro: Nenhum componente encontrado com a referência \"$compFatherCustomRef\".");
+                }
+            }
+
+            $reference = generateComponentReference($pdo, $_POST['general_type']);
+
+            $stmt = $pdo->prepare("INSERT INTO T_Component (Denomination, Reference, Manufacturer_ID, Manufacturer_ref, Supplier_ID, Supplier_ref, General_Type, Price, Acquisition_Date, Notes_Description, Stock_Quantity, Min_Stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([
                 $_POST['denomination'], 
+                $reference,
                 $_POST['manufacturer_id'] ?: null, 
                 $_POST['manufacturer_ref'], 
                 $_POST['supplier_id'] ?: null, 
@@ -120,11 +143,18 @@ function processCRUD($pdo, $entity , $action){
                 $_POST['stock_quantity'] ?: 0,
                 $_POST['min_stock'] ?: 0
             ]);
-            $message = "Componente criado com sucesso!";
+            $message = "Componente criado com sucesso! Referência: $reference";
+
         } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("UPDATE T_Component SET Denomination=?, Manufacturer_ID=?, Manufacturer_ref=?, Supplier_ID=?, Supplier_ref=?, General_Type=?, Price=?, Acquisition_Date=?, Notes_Description=?, Stock_Quantity=?, Min_Stock=? WHERE Component_ID=?");
+            // Recupera a referência atual do componente
+            $stmtSelect = $pdo->prepare("SELECT Reference FROM T_Component WHERE Component_ID = ?");
+            $stmtSelect->execute([$_POST['id']]);
+            $currentReference = $stmtSelect->fetchColumn();
+
+            $stmt = $pdo->prepare("UPDATE T_Component SET Denomination=?, Reference=?, Manufacturer_ID=?, Manufacturer_ref=?, Supplier_ID=?, Supplier_ref=?, General_Type=?, Price=?, Acquisition_Date=?, Notes_Description=?, Stock_Quantity=?, Min_Stock=? WHERE Component_ID=?");
             $stmt->execute([
-                $_POST['denomination'], 
+                $_POST['denomination'],
+                $currentReference, 
                 $_POST['manufacturer_id'] ?: null, 
                 $_POST['manufacturer_ref'], 
                 $_POST['supplier_id'] ?: null, 
@@ -148,22 +178,48 @@ function processCRUD($pdo, $entity , $action){
     case 'assembly':
         if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
+            $assemblies = getAssemblies($pdo);
+            $components = getComponents($pdo);
+            
             // Obter os valores enviados
             $assemFather = trim($_POST['assembly_father_id'] ?? '');
             $assemChild  = trim($_POST['assembly_child_id'] ?? '');
             $compFather = trim($_POST['component_father_id'] ?? '');
             $compChild  = trim($_POST['component_child_id'] ?? '');
-            $assemblies = getAssemblies($pdo);
+            
+            // Obter quantidades
+            $compFatherQty = trim($_POST['component_father_quantity'] ?? 0);
+            $compChildQty  = trim($_POST['component_child_quantity'] ?? 0);
+            $assemFatherQty = trim($_POST['assembly_father_quantity'] ?? 0);
+            $assemChildQty  = trim($_POST['assembly_child_quantity'] ?? 0);
+
+            // Print debug information
+            error_log("Valores recebidos: ");
+            error_log("Component_Father_ID: " . $compFather);
+            error_log("Component_Child_ID: " . $compChild);
+            error_log("Assembly_Father_ID: " . $assemFather);
+            error_log("Assembly_Child_ID: " . $assemChild);
+            
+            $compFatherRecord = findComponentById($components, $compFather);
+            $compChildRecord  = findComponentById($components, $compChild);
 
             $assemblyLevel = 0;
 
             // Verificar se a assembly possui apenas componentes
             if ((!is_null($compFather) || $compFather !== '') && (!is_null($compChild) || $compChild !== '') && (is_null($assemFather) || $assemFather === '') && (is_null($assemChild) || $assemChild === '')) {
                 $assemblyLevel = 0; // Assembly com apenas componentes
+                $assemblyPrice = (getComponentPrice($compFatherRecord) * $compFatherQty) + (getComponentPrice($compChildRecord) * $compChildQty);
                 error_log("Assembly possui apenas componentes. Nível definido como 0.");
             } else {
                 // Verificar o maior nível das assemblies associadas
                 $maxLevel = 0;
+
+                $priceCompFather = ($compFatherRecord !== null) ? getComponentPrice($compFatherRecord) * $compFatherQty : 0;
+                $priceCompChild  = ($compChildRecord !== null) ? getComponentPrice($compChildRecord) * $compChildQty : 0;
+                $priceAssemFather = ($assemFather !== '' && !is_null($assemFather)) ? getAssemblyPrice(findAssemblyById($assemblies, $assemFather)) * $assemFatherQty : 0;
+                $priceAssemChild  = ($assemChild !== '' && !is_null($assemChild)) ? getAssemblyPrice(findAssemblyById($assemblies, $assemChild)) * $assemChildQty : 0;
+
+                $assemblyPrice = $priceCompFather + $priceCompChild + $priceAssemFather + $priceAssemChild;
 
                 if (!is_null($assemFather) || $assemFather !== '') {
                     $stmt = $pdo->prepare("SELECT Assembly_Level FROM T_Assembly WHERE Assembly_ID = ?");
@@ -173,7 +229,7 @@ function processCRUD($pdo, $entity , $action){
                         $maxLevel = max($maxLevel, (int)$result['Assembly_Level']);
                     }
                 }
-
+                
                 if (!is_null($assemChild) || $assemChild !== '') {
                     $stmt = $pdo->prepare("SELECT Assembly_Level FROM T_Assembly WHERE Assembly_ID = ?");
                     $stmt->execute([$assemChild]);
@@ -264,15 +320,10 @@ function processCRUD($pdo, $entity , $action){
                 error_log("IDs das assemblies recursivas: " . print_r($allSubIDs, true));
 
             }
-
+            error_log("Assembly_Price: " . $assemblyPrice);
             $valid = false;
             
-            // Print debug information
-            error_log("Valores recebidos: ");
-            error_log("Component_Father_ID: " . $compFather);
-            error_log("Component_Child_ID: " . $compChild);
-            error_log("Assembly_Father_ID: " . $assemFather);
-            error_log("Assembly_Child_ID: " . $assemChild);
+
 
             // Verificar combinações válidas de campos
             // Opção 1: Componente-filho e componente-pai
@@ -298,9 +349,9 @@ function processCRUD($pdo, $entity , $action){
             $stmt = $pdo->prepare("
             INSERT INTO T_Assembly (
                 Prototype_ID, Assembly_Designation, Component_Father_ID, Component_Father_Quantity, Component_Child_ID, 
-                Component_Child_Quantity, Assembly_Father_ID, Assembly_Father_Quantity, Assembly_Child_ID, Assembly_Child_Quantity, Assembly_Level,
+                Component_Child_Quantity, Assembly_Father_ID, Assembly_Father_Quantity, Assembly_Child_ID, Assembly_Child_Quantity, Assembly_Level, Price,
                 Notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Father_Quantity=VALUES(Component_Father_Quantity), Component_Child_Quantity=VALUES(Component_Child_Quantity), Assembly_Father_Quantity=VALUES(Assembly_Father_Quantity), Assembly_Child_Quantity=VALUES(Assembly_Child_Quantity), Assembly_Level=VALUES(Assembly_Level), Notes=VALUES(Notes)");
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Father_Quantity=VALUES(Component_Father_Quantity), Component_Child_Quantity=VALUES(Component_Child_Quantity), Assembly_Father_Quantity=VALUES(Assembly_Father_Quantity), Assembly_Child_Quantity=VALUES(Assembly_Child_Quantity), Assembly_Level=VALUES(Assembly_Level), Price=VALUES(Price), Notes=VALUES(Notes)");
             $stmt->execute([
                 $_POST['prototype_id'], 
                 $_POST['assembly_designation'] ?: null,
@@ -313,6 +364,7 @@ function processCRUD($pdo, $entity , $action){
                 (empty($assemChild)) ? null : $assemChild,
                 (empty($_POST['assembly_child_quantity']) ? 0 : $_POST['assembly_child_quantity']),
                 (empty($assemblyLevel)) ? null : $assemblyLevel,
+                $assemblyPrice,
                 $_POST['notes'],
             ]);
 
@@ -329,6 +381,7 @@ function processCRUD($pdo, $entity , $action){
                 Assembly_Father_ID, Assembly_Father_Quantity, 
                 Assembly_Child_ID, Assembly_Child_Quantity, 
                 Assembly_Level,
+                Price,
                 Notes
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
@@ -336,32 +389,35 @@ function processCRUD($pdo, $entity , $action){
             // Novo Prototype_ID para o qual você quer associar as subassemblies
             $newPrototypeID = $_POST['prototype_id'];
 
-            foreach ($allSubIDs as $subAssemblyID) {
-                // Buscar registro da subassembly original
-                $stmtSelect->execute([$subAssemblyID]);
-                $subAssembly = $stmtSelect->fetch(PDO::FETCH_ASSOC);
-                    if ($subAssembly) {
-                        // Verificar se o Prototype_ID da subassembly é diferente do novoPrototypeID
-                        if ((int)$newPrototypeID !== (int)$subAssembly['Prototype_ID']) {
-                            // Inserir o registro duplicado com o novo Prototype_ID
-                            $stmtInsert->execute([
-                                $newPrototypeID,
-                                $subAssembly['Assembly_Designation'],
-                                $subAssembly['Component_Father_ID'],
-                                $subAssembly['Component_Father_Quantity'],
-                                $subAssembly['Component_Child_ID'],
-                                $subAssembly['Component_Child_Quantity'],
-                                $subAssembly['Assembly_Father_ID'],
-                                $subAssembly['Assembly_Father_Quantity'],
-                                $subAssembly['Assembly_Child_ID'],
-                                $subAssembly['Assembly_Child_Quantity'],
-                                $subAssembly['Assembly_Level'],
-                                $subAssembly['Notes']
-                            ]);
-                        } else {
-                            error_log("Prototype_ID da subassembly " . $subAssembly['Assembly_ID'] . " já é igual ao novo Prototype_ID.");
+            if (!empty($allSubIDs)) {
+                foreach ($allSubIDs as $subAssemblyID) {
+                    // Buscar registro da subassembly original
+                    $stmtSelect->execute([$subAssemblyID]);
+                    $subAssembly = $stmtSelect->fetch(PDO::FETCH_ASSOC);
+                        if ($subAssembly) {
+                            // Verificar se o Prototype_ID da subassembly é diferente do novoPrototypeID
+                            if ((int)$newPrototypeID !== (int)$subAssembly['Prototype_ID']) {
+                                // Inserir o registro duplicado com o novo Prototype_ID
+                                $stmtInsert->execute([
+                                    $newPrototypeID,
+                                    $subAssembly['Assembly_Designation'],
+                                    $subAssembly['Component_Father_ID'],
+                                    $subAssembly['Component_Father_Quantity'],
+                                    $subAssembly['Component_Child_ID'],
+                                    $subAssembly['Component_Child_Quantity'],
+                                    $subAssembly['Assembly_Father_ID'],
+                                    $subAssembly['Assembly_Father_Quantity'],
+                                    $subAssembly['Assembly_Child_ID'],
+                                    $subAssembly['Assembly_Child_Quantity'],
+                                    $subAssembly['Assembly_Level'],
+                                    $subAssembly['Price'],
+                                    $subAssembly['Notes']
+                                ]);
+                            } else {
+                                error_log("Prototype_ID da subassembly " . $subAssembly['Assembly_ID'] . " já é igual ao novo Prototype_ID.");
+                            }
                         }
-                    }
+                }
             }
 
             $message = "Montagem criada/atualizada com sucesso!";

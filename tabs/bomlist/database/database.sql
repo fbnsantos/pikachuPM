@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS T_Prototype (
 CREATE TABLE IF NOT EXISTS T_Component (
     Component_ID INT AUTO_INCREMENT PRIMARY KEY,
     Denomination VARCHAR(255) NOT NULL,
+    Reference VARCHAR(100),
     Manufacturer_ID INT DEFAULT 1,
     Manufacturer_ref VARCHAR(100),
     Supplier_ID INT,
@@ -66,6 +67,8 @@ CREATE TABLE IF NOT EXISTS T_Assembly (
     Assembly_Father_Quantity INT NOT NULL DEFAULT 0,
     Assembly_Child_Quantity INT NOT NULL DEFAULT 0,
     Assembly_Level INT DEFAULT 0,
+
+    Price FLOAT NOT NULL DEFAULT 0,
 
     Notes TEXT,
     Created_Date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

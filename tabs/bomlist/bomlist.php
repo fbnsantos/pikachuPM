@@ -57,15 +57,21 @@ $assemblies = getAssemblies($pdo);
             <!-- Navigation tabs -->
             <ul class="nav nav-tabs" id="bomTabs" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link <?= $entity === 'components' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist/bomlist&entity=components'">
-                        <i class="bi bi-cpu"></i> Componentes
+                    <button class="nav-link <?= $entity === 'manufacturers' ? 'active' : '' ?>" 
+                            onclick="location.href='?tab=bomlist/bomlist&entity=manufacturers'">
+                        <i class="bi bi-house"></i> Fabricantes
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link <?= $entity === 'prototypes' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist/bomlist&entity=prototypes'">
-                        <i class="bi bi-diagram-3"></i> Protótipos
+                    <button class="nav-link <?= $entity === 'suppliers' ? 'active' : '' ?>" 
+                            onclick="location.href='?tab=bomlist/bomlist&entity=suppliers'">
+                        <i class="bi bi-truck"></i> Fornecedores
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link <?= $entity === 'components' ? 'active' : '' ?>" 
+                            onclick="location.href='?tab=bomlist/bomlist&entity=components'">
+                        <i class="bi bi-cpu"></i> Componentes
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
@@ -74,16 +80,18 @@ $assemblies = getAssemblies($pdo);
                         <i class="bi bi-diagram-2"></i> Assembly (BOM)
                     </button>
                 </li>
+
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link <?= $entity === 'manufacturers' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist/bomlist&entity=manufacturers'">
-                        <i class="bi bi-building"></i> Fabricantes
+                    <button class="nav-link <?= $entity === 'prototypes' ? 'active' : '' ?>" 
+                            onclick="location.href='?tab=bomlist/bomlist&entity=prototypes'">
+                        <i class="bi bi-diagram-3"></i> Protótipos
                     </button>
                 </li>
+
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link <?= $entity === 'suppliers' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist/bomlist&entity=suppliers'">
-                        <i class="bi bi-truck"></i> Fornecedores
+                    <button class="nav-link <?= $entity === 'search' ? 'active' : '' ?>" 
+                            onclick="location.href='?tab=bomlist/bomlist&entity=search'">
+                        <i class="bi bi-search"></i> Pesquisa
                     </button>
                 </li>
             </ul>
@@ -1253,7 +1261,7 @@ $assemblies = getAssemblies($pdo);
                                                 <?php if ($manufacturer['Notes']): ?>
                                                     <span class="badge bg-secondary"><?= htmlspecialchars(substr($manufacturer['Notes'], 0, 30)) ?>...</span>
                                                 <?php else: ?>
-                                                    wrong
+                                                    -
                                                 <?php endif; ?>
                                             </td>
                                             <td>
@@ -1678,7 +1686,40 @@ $assemblies = getAssemblies($pdo);
             </div>
         </div>
 
-    <?php endif; ?>
+    <?php elseif ($entity === 'search'): ?>
+        <!-- SEARCH -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-search"></i> Pesquisa Avançada</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="GET" action="?tab=bomlist/bomlist&entity=search">
+                            <input type="hidden" name="tab" value="bomlist/bomlist">
+                            <input type="hidden" name="entity" value="search">
+                            <input type="hidden" name="action" value="search">
+                            <div class="mb-3">
+                                <label for="query" class="form-label">Termo de Pesquisa</label>
+                                <input type="text" class="form-control " name="query" id="query" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="area" class="form-label">Pesquisar em</label>
+                                <select class="form-select" name="area" id="area">
+                                    <option value="components">Componentes</option>
+                                    <option value="prototypes">Protótipos</option>
+                                    <option value="assemblies">Assemblies</option>
+                                    <option value="manufacturers">Fabricantes</option>
+                                    <option value="suppliers">Fornecedores</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-search"></i> Pesquisar
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                <?php endif; ?>
 
     <!-- Statistics Dashboard -->
     <div class="row mt-4">

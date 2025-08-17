@@ -142,9 +142,26 @@ function generateComponentReference(PDO $pdo, string $category): ?string {
     } else {
         $num = 1;
     }
-    
-    // Formata sempre com 4 dígitos
-    return sprintf("%s-%04d", $prefix, $num);
+
+    // Formata sempre com 6 dígitos
+    return sprintf("%s-%06d", $prefix, $num);
 }
 
-?> 
+function generateAssemblyReference(PDO $pdo, string $category): ?string {
+    $prefix = "AS"; 
+
+    $stmt = $pdo->prepare("SELECT MAX(Assembly_Reference) AS maxRef FROM T_Assembly WHERE Assembly_Reference LIKE ?");
+    $stmt->execute([$prefix . "-%"]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($row && $row['maxRef']) {
+        // Remove o prefixo e o hífen, e incrementa o valor numérico
+        $num = (int)substr($row['maxRef'], strlen($prefix) + 1);
+        $num++;
+    } else {
+        $num = 1;
+    }
+
+    // Formata sempre com 6 dígitos
+    return sprintf("%s-%06d", $prefix, $num);
+}

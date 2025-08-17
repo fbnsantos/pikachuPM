@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS T_Prototype (
 CREATE TABLE IF NOT EXISTS T_Component (
     Component_ID INT AUTO_INCREMENT PRIMARY KEY,
     Denomination VARCHAR(255) NOT NULL,
-    Reference VARCHAR(100),
+    Reference VARCHAR(9) NOT NULL,
     Manufacturer_ID INT DEFAULT 1,
     Manufacturer_ref VARCHAR(100),
     Supplier_ID INT,
@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS T_Assembly (
     Assembly_ID INT AUTO_INCREMENT PRIMARY KEY,
     Prototype_ID INT NOT NULL,
     Assembly_Designation VARCHAR(255) NOT NULL,
+    Assembly_Reference VARCHAR(9) NOT NULL,
 
     Component_Father_ID INT DEFAULT NULL,
     Component_Child_ID INT DEFAULT NULL,

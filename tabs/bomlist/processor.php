@@ -350,8 +350,8 @@ function processCRUD($pdo, $entity , $action){
             INSERT INTO T_Assembly (
                 Prototype_ID, Assembly_Designation, Component_Father_ID, Component_Father_Quantity, Component_Child_ID, 
                 Component_Child_Quantity, Assembly_Father_ID, Assembly_Father_Quantity, Assembly_Child_ID, Assembly_Child_Quantity, Assembly_Level, Price,
-                Notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Father_Quantity=VALUES(Component_Father_Quantity), Component_Child_Quantity=VALUES(Component_Child_Quantity), Assembly_Father_Quantity=VALUES(Assembly_Father_Quantity), Assembly_Child_Quantity=VALUES(Assembly_Child_Quantity), Assembly_Level=VALUES(Assembly_Level), Price=VALUES(Price), Notes=VALUES(Notes)");
+                Notes , Assembly_Reference
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Father_Quantity=VALUES(Component_Father_Quantity), Component_Child_Quantity=VALUES(Component_Child_Quantity), Assembly_Father_Quantity=VALUES(Assembly_Father_Quantity), Assembly_Child_Quantity=VALUES(Assembly_Child_Quantity), Assembly_Level=VALUES(Assembly_Level), Price=VALUES(Price), Notes=VALUES(Notes), Assembly_Reference=VALUES(Assembly_Reference)");
             $stmt->execute([
                 $_POST['prototype_id'], 
                 $_POST['assembly_designation'] ?: null,
@@ -366,6 +366,7 @@ function processCRUD($pdo, $entity , $action){
                 (empty($assemblyLevel)) ? null : $assemblyLevel,
                 $assemblyPrice,
                 $_POST['notes'],
+                $reference = generateAssemblyReference($pdo, $_POST['prototype_id'], $_POST['assembly_designation'])
             ]);
 
             // Preparar a query para selecionar os dados da subassembly original
@@ -471,7 +472,110 @@ function processCRUD($pdo, $entity , $action){
         }
         break;
         
-        default:
+    case 'search':
+        if ($action === 'search' && $_SERVER['REQUEST_METHOD'] === 'GET'){
+            $query = $_GET['query'] ?? '';
+            $area = $_GET['area'] ?? '';
+
+            switch ($area) {
+                case 'components':
+                    $stmt = $pdo->prepare("
+                        SELECT DISTINCT c.*, 
+                               m.Denomination as Manufacturer_Name,
+                               s.Denomination as Supplier_Name
+                        FROM T_Component c
+                        LEFT JOIN T_Manufacturer m ON c.Manufacturer_ID = m.Manufacturer_ID
+                        LEFT JOIN T_Supplier s ON c.Supplier_ID = s.Supplier_ID
+                        WHERE c.Denomination LIKE ? 
+                           OR c.Notes_Description LIKE ? 
+                           OR c.Reference LIKE ? 
+                           OR c.Manufacturer_ref LIKE ? 
+                           OR c.Supplier_ref LIKE ?
+                           OR m.Denomination LIKE ?
+                           OR s.Denomination LIKE ?
+                           OR c.Component_ID LIKE ?
+                    ");
+                    $stmt->execute([
+                        "%$query%",  // Component denomination
+                        "%$query%",  // Component notes
+                        "%$query%",  // Component reference
+                        "%$query%",  // Manufacturer reference
+                        "%$query%",  // Supplier reference
+                        "%$query%",  // Manufacturer denomination
+                        "%$query%",  // Supplier denomination
+                        "%$query%"   // Component ID
+                    ]);
+                    $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    break;
+                    
+                case 'assemblies':
+                    $stmt = $pdo->prepare("SELECT * FROM T_Assembly WHERE Assembly_Designation LIKE ? OR Notes LIKE ? OR Assembly_ID LIKE ? OR Assembly_Reference LIKE ?");
+                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%"]);
+                    $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    break;
+                    
+                case 'manufacturers':
+                    $stmt = $pdo->prepare("SELECT * FROM T_Manufacturer WHERE Denomination LIKE ? OR Notes LIKE ? OR Origin_Country LIKE ? OR Address LIKE ? OR Manufacturer_ID LIKE ?");
+                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%", "%$query%"]);
+                    $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    break;
+                    
+                case 'suppliers':
+                    $stmt = $pdo->prepare("SELECT * FROM T_Supplier WHERE Denomination LIKE ? OR Notes LIKE ? OR Origin_Country LIKE ? OR Address LIKE ? OR Supplier_ID LIKE ?");
+                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%", "%$query%"]);
+                    $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    break;
+                    
+                case 'prototypes':
+                    $stmt = $pdo->prepare("SELECT * FROM T_Prototype WHERE Name LIKE ? OR Description LIKE ? OR Status LIKE ? OR Prototype_ID LIKE ?");
+                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%"]);
+                    $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    break;
+            }
+            
+            // Display search results
+            if (!empty($results)) {
+                echo "<div class='row mt-4'>";
+                echo "<div class='col-12'>";
+                echo "<div class='card'>";
+                echo "<div class='card-header'>";
+                echo "<h5><i class='bi bi-search'></i> Resultados da Pesquisa (" . count($results) . ")</h5>";
+                echo "</div>";
+                echo "<div class='card-body'>";
+                
+                foreach ($results as $row) {
+                    echo "<div class='border-bottom pb-2 mb-2'>";
+                    
+                    if ($area === 'components') {
+                        echo "<h6>" . htmlspecialchars($row['Denomination']) . " <small class='text-muted'>(" . htmlspecialchars($row['Reference']) . ")</small></h6>";
+                        if (!empty($row['Manufacturer_Name'])) {
+                            echo "<small class='text-muted'>Fabricante: " . htmlspecialchars($row['Manufacturer_Name']) . "</small><br>";
+                        }
+                        if (!empty($row['Supplier_Name'])) {
+                            echo "<small class='text-muted'>Fornecedor: " . htmlspecialchars($row['Supplier_Name']) . "</small><br>";
+                        }
+                        echo "<p class='mb-0'>" . htmlspecialchars($row['Notes_Description'] ?? '') . "</p>";
+                    } else {
+                        echo "<h6>" . htmlspecialchars($row['Denomination'] ?? $row['Name'] ?? $row['Assembly_Designation']) . "</h6>";
+                        echo "<p class='mb-0'>" . htmlspecialchars($row['Notes'] ?? $row['Description'] ?? '') . "</p>";
+                    }
+                    
+                    echo "</div>";
+                }
+                
+                echo "</div>";
+                echo "</div>";
+                echo "</div>";
+                echo "</div>";
+            } else {
+                echo "<div class='alert alert-info mt-4'>";
+                echo "<i class='bi bi-info-circle'></i> Nenhum resultado encontrado para '<strong>" . htmlspecialchars($query) . "</strong>' em " . ucfirst($area) . ".";
+                echo "</div>";
+            }
+        }
+        break;
+
+    default:
             $message = "Ação não reconhecida.";
             break;
     }

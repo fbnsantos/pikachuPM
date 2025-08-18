@@ -175,3 +175,28 @@
     color: rgb(255, 115, 0);        /* define a cor desejada */
     font-weight: normal;  /* aplica negrito */
 }
+
+/* Botões*/
+.btn-compact {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0.10rem 0.5rem !important; /* reduz padding vertical */
+    font-size: 0.9rem !important;
+    line-height: 1 !important;
+    height: 1.6rem !important;       /* controla a altura total da caixa */
+    min-height: 1.6rem !important;
+    width: auto !important;
+    min-width: 0;
+    border-radius: 0.25rem;
+    box-sizing: border-box;
+}
+
+/* regra mais específica para garantir override do Bootstrap */
+.btn.btn-primary.btn-sm.btn-compact {
+    padding-top: 0.10rem !important;
+    padding-bottom: 0.10rem !important;
+    height: 1.6rem !important;
+    line-height: 1 !important;
+}

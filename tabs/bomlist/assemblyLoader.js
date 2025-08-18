@@ -388,4 +388,127 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
     });
-    
+
+    // --- AJAX helpers para criar fabricante/fornecedor sem perder o formulário principal ---
+   async function submitFormAjaxElement(formEl, modalId, triggerBtn) {
+    if (!formEl) return console.error('Form not found for AJAX submit');
+    if (triggerBtn) triggerBtn.disabled = true;
+
+    // fallback para um path absoluto caso form.action esteja vazio/relativo errado
+    const fallbackUrl = '/tabs/bomlist/processor.php';
+    // ler action de forma segura (property pode não ser string)
+    let actionValue = '';
+    if (typeof formEl.action === 'string') {
+        actionValue = formEl.action;
+    } else if (formEl.getAttribute) {
+        actionValue = formEl.getAttribute('action') || '';
+    }
+    actionValue = String(actionValue || '').trim();
+    let url = fallbackUrl;
+    if (actionValue !== '') {
+        try {
+            // resolve relative URLs against current location
+            url = new URL(actionValue, window.location.href).toString();
+        } catch (e) {
+            console.warn('Invalid form action, using fallback:', actionValue, e);
+            url = fallbackUrl;
+        }
+    }
+     console.log('AJAX submit URL ->', url);
+ 
+    const fd = new FormData(formEl);
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            body: fd,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+
+        console.log('AJAX response status:', res.status, 'content-type:', res.headers.get('content-type'));
+        const text = await res.text();
+
+        // Se o servidor devolveu HTML (começa por '<'), abortar e logar
+        if (text.trim().startsWith('<')) {
+            console.error('Resposta contém HTML — provavelmente o request foi para index.php em vez de processor.php. Response (preview):', text.slice(0,300));
+            // mostrar erro ao utilizador
+            const container = document.querySelector('.container-fluid') || document.body;
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger alert-dismissible fade show';
+            alert.role = 'alert';
+            alert.innerHTML = 'Erro do servidor: resposta inesperada (HTML). Ver console / Network para detalhes.' +
+                '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+            container.prepend(alert);
+            throw new Error('Invalid HTML response');
+        }
+
+        let json = {};
+        try { json = JSON.parse(text); } catch (e) { console.warn('JSON parse failed:', e, 'raw:', text); }
+
+        // inserir novo option se veio created
+        if (json.created) {
+            const entity = json.created.entity;
+            let sel = null;
+            if (entity === 'manufacturers') sel = document.querySelector('select[name="manufacturer_id"]');
+            if (entity === 'suppliers') sel = document.querySelector('select[name="supplier_id"]');
+            if (sel) {
+                const opt = document.createElement('option');
+                opt.value = json.created.id;
+                opt.textContent = json.created.denomination;
+                opt.selected = true;
+                sel.appendChild(opt);
+            }
+        }
+
+        // mostrar mensagem (se houver)
+        if (json.message) {
+            const container = document.querySelector('.container-fluid') || document.body;
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-success alert-dismissible fade show';
+            alert.role = 'alert';
+            alert.innerHTML = document.createTextNode(json.message).textContent +
+                '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+            container.prepend(alert);
+            setTimeout(()=>{ try{ bootstrap.Alert.getOrCreateInstance(alert).close(); }catch{} }, 4000);
+        }
+
+        // fechar modal
+        if (modalId) {
+            const modalEl = document.getElementById(modalId);
+            if (modalEl) {
+                const modalInstance = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+                modalInstance.hide();
+            }
+        }
+        // limpar apenas o form do modal
+        formEl.reset();
+    } catch (err) {
+        console.error('submitFormAjax error:', err);
+    } finally {
+        if (triggerBtn) triggerBtn.disabled = false;
+    }
+}
+
+    // Tornar disponível globalmente se ainda usas onclick inline (opcional)
+    window.submitFormAjax = function(formId, modalId) {
+        const formEl = document.getElementById(formId) || document.querySelector(`#${modalId} form`) || document.querySelector('form');
+        return submitFormAjaxElement(formEl, modalId, null);
+    };
+
+    // Ligar listeners aos botões com data-ajax-trigger
+    document.querySelectorAll('button[data-ajax-trigger]').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            // encontra o form dentro do modal (ou o form mais próximo)
+            const modalEl = btn.closest('.modal');
+            const modalId = modalEl ? modalEl.id : null;
+            // procura form: botão normalmente está dentro do form do modal
+            let formEl = btn.closest('form');
+            if (!formEl && modalEl) formEl = modalEl.querySelector('form');
+            if (!formEl) {
+                console.error('Nenhum form encontrado para o botão AJAX', btn);
+                return;
+            }
+            submitFormAjaxElement(formEl, modalId, btn);
+        });
+    });
+
+    // --- fim AJAX helpers ---

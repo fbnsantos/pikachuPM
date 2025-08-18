@@ -226,21 +226,9 @@ function processCRUD($pdo, $entity , $action){
                 if ($result) {
                     $assemFather = (int)$result['Assembly_ID'];
                     error_log("ID da assembly com o maior nível associado ao protótipo (assemFather): " . $assemFather);
-
-                    // Buscar o registro completo da assembly para calcular o preço
-                    $stmt2 = $pdo->prepare("SELECT * FROM T_Assembly WHERE Assembly_ID = ?");
-                    $stmt2->execute([$assemFather]);
-                    $assemblyRecord = $stmt2->fetch(PDO::FETCH_ASSOC);
-
-                    if ($assemblyRecord) {
-                        $fatherAssemblyPrice = getAssemblyPrice($assemblyRecord);
-                    } else {
-                        $fatherAssemblyPrice = 0;
-                    }
                 } else {
                     error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $assemFather);
                     $assemFather = null; // Caso não encontre nenhuma assembly
-                    $fatherAssemblyPrice = 0;
                 }
             }
             if (strpos($assemChild, 'prototype') !== false) {
@@ -263,20 +251,9 @@ function processCRUD($pdo, $entity , $action){
                     $assemChild = (int)$result['Assembly_ID'];
                     error_log("ID da assembly com o maior nível associado ao protótipo (assemChild): " . $assemChild);
 
-                    // Buscar o registro completo da assembly para calcular o preço
-                    $stmt2 = $pdo->prepare("SELECT * FROM T_Assembly WHERE Assembly_ID = ?");
-                    $stmt2->execute([$assemChild]);
-                    $assemblyRecord = $stmt2->fetch(PDO::FETCH_ASSOC);
-
-                    if ($assemblyRecord) {
-                        $childAssemblyPrice = getAssemblyPrice($assemblyRecord);
-                    } else {
-                        $childAssemblyPrice = 0;
-                    }
                 } else {
                     error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $assemChild);
                     $assemChild = null; // Caso não encontre nenhuma assembly
-                    $childAssemblyPrice = 0;
                 }
             }
 

@@ -205,6 +205,81 @@ function processCRUD($pdo, $entity , $action){
 
             $assemblyLevel = 0;
 
+            // Verificar se é um protótipo ou montagem
+
+            if (strpos($assemFather, 'prototype') !== false) {
+                // Remove a string " prototype" e converte para inteiro
+                $assemFather = str_replace(' prototype', '', $assemFather);
+
+                // Busca o ID da assembly com o maior nível associado ao protótipo recebido
+                $stmt = $pdo->prepare("
+                    SELECT a.Assembly_ID
+                    FROM T_Assembly a
+                    INNER JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
+                    WHERE p.Prototype_ID = ?
+                    ORDER BY a.Assembly_Level DESC
+                    LIMIT 1
+                ");
+                $stmt->execute([(int)$assemFather]);
+                $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($result) {
+                    $assemFather = (int)$result['Assembly_ID'];
+                    error_log("ID da assembly com o maior nível associado ao protótipo (assemFather): " . $assemFather);
+
+                    // Buscar o registro completo da assembly para calcular o preço
+                    $stmt2 = $pdo->prepare("SELECT * FROM T_Assembly WHERE Assembly_ID = ?");
+                    $stmt2->execute([$assemFather]);
+                    $assemblyRecord = $stmt2->fetch(PDO::FETCH_ASSOC);
+
+                    if ($assemblyRecord) {
+                        $fatherAssemblyPrice = getAssemblyPrice($assemblyRecord);
+                    } else {
+                        $fatherAssemblyPrice = 0;
+                    }
+                } else {
+                    error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $assemFather);
+                    $assemFather = null; // Caso não encontre nenhuma assembly
+                    $fatherAssemblyPrice = 0;
+                }
+            }
+            if (strpos($assemChild, 'prototype') !== false) {
+                // Remove a string " prototype" e converte para inteiro
+                $assemChild = str_replace(' prototype', '', $assemChild);
+
+                // Busca o ID da assembly com o maior nível associado ao protótipo recebido
+                $stmt = $pdo->prepare("
+                    SELECT a.Assembly_ID
+                    FROM T_Assembly a
+                    INNER JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
+                    WHERE p.Prototype_ID = ?
+                    ORDER BY a.Assembly_Level DESC
+                    LIMIT 1
+                ");
+                $stmt->execute([(int)$assemChild]);
+                $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($result) {
+                    $assemChild = (int)$result['Assembly_ID'];
+                    error_log("ID da assembly com o maior nível associado ao protótipo (assemChild): " . $assemChild);
+
+                    // Buscar o registro completo da assembly para calcular o preço
+                    $stmt2 = $pdo->prepare("SELECT * FROM T_Assembly WHERE Assembly_ID = ?");
+                    $stmt2->execute([$assemChild]);
+                    $assemblyRecord = $stmt2->fetch(PDO::FETCH_ASSOC);
+
+                    if ($assemblyRecord) {
+                        $childAssemblyPrice = getAssemblyPrice($assemblyRecord);
+                    } else {
+                        $childAssemblyPrice = 0;
+                    }
+                } else {
+                    error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $assemChild);
+                    $assemChild = null; // Caso não encontre nenhuma assembly
+                    $childAssemblyPrice = 0;
+                }
+            }
+
             // Verificar se a assembly possui apenas componentes
             if ((!is_null($compFather) || $compFather !== '') && (!is_null($compChild) || $compChild !== '') && (is_null($assemFather) || $assemFather === '') && (is_null($assemChild) || $assemChild === '')) {
                 $assemblyLevel = 0; // Assembly com apenas componentes
@@ -243,61 +318,6 @@ function processCRUD($pdo, $entity , $action){
                 $assemblyLevel = $maxLevel + 1;
                 error_log("Assembly possui outras assemblies associadas. Nível definido como: " . $assemblyLevel);
 
-                
-            // Verificar se é um protótipo ou montagem
-
-            if (strpos($assemFather, 'prototype') !== false) {
-                $assemFather = str_replace(' prototype', '', $assemFather);
-                $stmt = $pdo->prepare("
-                    SELECT a.Assembly_ID
-                    FROM T_Assembly a
-                    INNER JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-                    WHERE p.Prototype_ID = ?
-                    ORDER BY a.Assembly_Level DESC
-                    LIMIT 1
-                ");
-                $stmt->execute([(int)$assemFather]);
-                $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if ($result) {
-                    $assemFather = (int)$result['Assembly_ID'];
-                    error_log("ID da assembly com o maior nível associado ao protótipo (assemFather): " . $assemFather);
-                } else {
-                    error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $assemFather);
-                    $assemFather = null; // Caso não encontre nenhuma assembly
-                }
-            }
-            if (strpos($assemChild, 'prototype') !== false) {
-                $assemChild = str_replace(' prototype', '', $assemChild);
-
-                // Buscar o ID da assembly com o maior nível associada ao protótipo
-                $stmt = $pdo->prepare("
-                    SELECT a.Assembly_ID
-                    FROM T_Assembly a
-                    INNER JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-                    WHERE p.Prototype_ID = ?
-                    ORDER BY a.Assembly_Level DESC
-                    LIMIT 1
-                ");
-                $stmt->execute([(int)$assemChild]);
-                $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if ($result) {
-                    $assemChild = (int)$result['Assembly_ID'];
-                    error_log("ID da assembly com o maior nível associado ao protótipo (assemChild): " . $assemChild);
-                } else {
-                    error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $assemChild);
-                    $assemChild = null; // Caso não encontre nenhuma assembly
-                }
-            }
-       
-            
-            /*if ((!is_null($assemFather) || $assemFather !== '') && !is_numeric($assemFather)) {
-                die("Erro: O valor de Assembly_Father_ID deve ser numérico.");
-            }
-            if ((!is_null($assemChild) || $assemChild !== '') && !is_numeric($assemChild)) {
-                die("Erro: O valor de Assembly_Child_ID deve ser numérico.");
-            }*/
             
             // Obter todos os IDs recursivamente para as relações existentes
                 $allSubIDs = [];

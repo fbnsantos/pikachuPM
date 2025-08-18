@@ -25,7 +25,7 @@ $tabs = [
     'links' => 'Links',
     'search' => 'Search',
     'todos' => 'ToDo',
-    'reflete' => '18Minutes',
+    'reflete' => '18 Minutes',
     'bomlist/bomlist'  => 'BOM_LIST',
 ];
 

@@ -69,8 +69,9 @@
 }
 
 #assembly-tree {
-    margin-top: 20px;
+    margin-top: 10px;
     font-family: monospace; /* Use monospace for better alignment */
+    padding-left: 10px;
 }
 
 #assembly-tree ul {
@@ -153,7 +154,7 @@
 
 /* Assembly names styling */
 #assembly-tree strong {
-    color: #007bff;
+    color: #006eff;
     font-weight: 600;
 }
 
@@ -162,4 +163,15 @@
     background-color: #e7f3ff;
     padding: 2px 4px;
     border-radius: 3px;
+}
+
+.assembly-price {
+    color: #2d2c2e; /* defina aqui a cor desejada para o preço */
+    font-weight: normal; /* ou bold, se preferir */
+    text-decoration: none; /* remove underline */
+}
+
+.assembly-component {
+    color: rgb(255, 115, 0);        /* define a cor desejada */
+    font-weight: normal;  /* aplica negrito */
 }

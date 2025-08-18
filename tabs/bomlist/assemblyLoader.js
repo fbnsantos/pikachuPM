@@ -170,6 +170,98 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    window.showManufacturerComponents = function(manufacturerId) {
+        if (!manufacturerId) return;
+        
+        // Filtrar os componentes pelo Manufacturer_ID
+        const filteredComponents = components.filter(c => c.Manufacturer_ID == manufacturerId);
+        
+        // Construir HTML com os componentes filtrados
+        let html = '';
+        if (filteredComponents.length) {
+            html += `
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Denominação</th>
+                            <th>Referência</th>
+                            <th>Preço</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            filteredComponents.forEach(comp => {
+                html += `
+                    <tr>
+                        <td>${comp.Component_ID}</td>
+                        <td>${comp.Denomination}</td>
+                        <td>${comp.Reference || '-'}</td>
+                        <td>${comp.Price ? comp.Price + ' €' : '-'}</td>
+                    </tr>
+                `;
+            });
+            html += `
+                    </tbody>
+                </table>
+            `;
+        } else {
+            html = '<div class="alert alert-info">Nenhum componente encontrado para este fabricante.</div>';
+        }
+        
+        // Atualizar o corpo da modal e exibi-la
+        const modalContent = document.getElementById('associatedComponentsContent');
+        modalContent.innerHTML = html;
+        const modal = new bootstrap.Modal(document.getElementById('associatedComponentsModal'));
+        modal.show();
+    };
+
+    window.showSupplierComponents = function(supplierId) {
+        if (!supplierId) return;
+        
+        // Filtrar os componentes pelo Supplier_ID
+        const filteredComponents = components.filter(c => c.Supplier_ID == supplierId);
+        
+        // Construir HTML com os componentes filtrados
+        let html = '';
+        if (filteredComponents.length) {
+            html += `
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Denominação</th>
+                            <th>Referência</th>
+                            <th>Preço</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            filteredComponents.forEach(comp => {
+                html += `
+                        <tr>
+                            <td>${comp.Component_ID}</td>
+                            <td>${comp.Denomination}</td>
+                            <td>${comp.Reference || '-'}</td>
+                            <td>${comp.Price ? comp.Price + ' €' : '-'}</td>
+                        </tr>
+                `;
+            });
+            html += `
+                    </tbody>
+                </table>
+            `;
+        } else {
+            html = '<div class="alert alert-info">Nenhum componente encontrado para este fornecedor.</div>';
+        }
+        
+        // Atualizar o corpo da modal correspondente e exibi-la
+        const modalContent = document.getElementById('associatedSupplierComponentsContent');
+        modalContent.innerHTML = html;
+        const modal = new bootstrap.Modal(document.getElementById('associatedSupplierComponentsModal'));
+        modal.show();
+    };
+
 
 
     if (assemblyTypeSelection) {    

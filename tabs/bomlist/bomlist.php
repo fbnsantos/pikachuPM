@@ -933,10 +933,30 @@ $assemblies = getAssemblies($pdo);
                         <form method="POST">
                             <input type="hidden" name="action" value="<?= $editManufacturer ? 'update' : 'create' ?>">
                             <input type="hidden" name="entity" value="manufacturers">
-                            <?php if ($editManufacturer): ?>
-                                <input type="hidden" name="id" value="<?= $editManufacturer['Manufacturer_ID'] ?>">
-                            <?php endif; ?>
-                            
+                            <?php
+                            // mostrar componentes do fabricante (quando a edição está aberta ou existe ?manufacturer_id)
+                            $showManufacturerId = null;
+                            if (!empty($editManufacturer) && !empty($editManufacturer['Manufacturer_ID'])) {
+                                $showManufacturerId = (int)$editManufacturer['Manufacturer_ID'];
+                            } elseif (!empty($_GET['manufacturer_id'])) {
+                                $showManufacturerId = (int)$_GET['manufacturer_id'];
+                            }
+
+                            if ($showManufacturerId) {
+                                // usa a função de getters.php
+                                $componentsByManufacturer = getComponentsByManufacturer($pdo, $showManufacturerId);
+
+                                // nome do fabricante (tentativa por $editManufacturer ou consulta rápida)
+                                $manufacturerName = $editManufacturer['Denomination'] ?? null;
+                                if (!$manufacturerName) {
+                                    $s = $pdo->prepare("SELECT Denomination FROM T_Manufacturer WHERE Manufacturer_ID=?");
+                                    $s->execute([$showManufacturerId]);
+                                    $r = $s->fetch(PDO::FETCH_ASSOC);
+                                    $manufacturerName = $r['Denomination'] ?? '—';
+                                }
+                            }
+                            ?>
+
                             <div class="mb-3">
                                 <label for="denomination" class="form-label">Denominação *</label>
                                 <input type="text" class="form-control" name="denomination" required 
@@ -1279,7 +1299,11 @@ $assemblies = getAssemblies($pdo);
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <span class="badge bg-info"><?= $componentCount ?></span>
+                                                <button type="button" 
+                                                        class="btn btn-link p-0 m-0" 
+                                                        onclick="showManufacturerComponents(<?= $manufacturer['Manufacturer_ID'] ?>)">
+                                                    <span class="badge bg-info"><?= $componentCount ?></span>
+                                                </button>
                                             </td>
                                                                                         <td>
                                                 <?php if ($manufacturer['Notes']): ?>
@@ -1680,7 +1704,11 @@ $assemblies = getAssemblies($pdo);
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <span class="badge bg-info"><?= $componentCount ?></span>
+                                                <button type="button" 
+                                                        class="btn btn-link p-0 m-0" 
+                                                        onclick="showSupplierComponents(<?= $supplier['Supplier_ID'] ?>)">
+                                                    <span class="badge bg-info"><?= $componentCount ?></span>
+                                                </button>
                                             </td>
                                             <td>
                                                 <a href="?tab=bomlist/bomlist&entity=suppliers&action=edit&id=<?= $supplier['Supplier_ID'] ?>" 
@@ -1918,6 +1946,7 @@ $assemblies = getAssemblies($pdo);
             </div>
         </div>
     </div>
+    
     <!-- Modal para detalhes do componente -->
     <div class="modal fade" id="componentDetailsModal" tabindex="-1" aria-labelledby="componentDetailsModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg">
@@ -1939,17 +1968,66 @@ $assemblies = getAssemblies($pdo);
             </div>
         </div>
     </div>
+
+    <!-- Modal para ver Componentes associados a um Fabricante -->
+    <div class="modal fade" id="associatedComponentsModal" tabindex="-1" aria-labelledby="associatedComponentsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="associatedComponentsModalLabel">Componentes Associados</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="associatedComponentsContent">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para componentes associados a um fornecedor -->
+    <div class="modal fade" id="associatedSupplierComponentsModal" tabindex="-1" aria-labelledby="associatedSupplierComponentsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="associatedSupplierComponentsModalLabel">Componentes do Fornecedor</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="associatedSupplierComponentsContent">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
 </div>
+
+
 
 <!-- Modal para Novo Fabricante (tab Componentes) -->
 <div class="modal fade" id="newManufacturerModal" tabindex="-1" aria-labelledby="newManufacturerModalLabel" aria-hidden="true">
   <div class="modal-dialog">
--    <form method="POST">
--      <input type="hidden" name="entity" value="manufacturers">
--      <input type="hidden" name="action" value="create">
-+    <form id="newManufacturerForm" method="POST" action="tabs/bomlist/processor.php">
-+      <input type="hidden" name="entity" value="manufacturers">
-+      <input type="hidden" name="action" value="create">
+    <form method="POST">
+      <input type="hidden" name="entity" value="manufacturers">
+      <input type="hidden" name="action" value="create">
+    <form id="newManufacturerForm" method="POST" action="tabs/bomlist/processor.php">
+      <input type="hidden" name="entity" value="manufacturers">
+      <input type="hidden" name="action" value="create">
        <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title" id="newManufacturerModalLabel">Novo Fabricante</h5>
@@ -2247,12 +2325,12 @@ $assemblies = getAssemblies($pdo);
  <!-- Modal para Novo Fornecedor (tab Fornecedores) -->
  <div class="modal fade" id="newSupplierModal" tabindex="-1" aria-labelledby="newSupplierModalLabel" aria-hidden="true">
    <div class="modal-dialog">
--    <form method="POST">
--      <input type="hidden" name="entity" value="suppliers">
--      <input type="hidden" name="action" value="create">
-+    <form id="newSupplierForm" method="POST" action="tabs/bomlist/processor.php">
-+      <input type="hidden" name="entity" value="suppliers">
-+      <input type="hidden" name="action" value="create">
+    <form method="POST">
+      <input type="hidden" name="entity" value="suppliers">
+      <input type="hidden" name="action" value="create">
+    <form id="newSupplierForm" method="POST" action="tabs/bomlist/processor.php">
+      <input type="hidden" name="entity" value="suppliers">
+      <input type="hidden" name="action" value="create">
        <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title" id="newSupplierModalLabel">Novo Fornecedor</h5>

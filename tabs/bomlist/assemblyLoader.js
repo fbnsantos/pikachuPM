@@ -1,6 +1,10 @@
 document.addEventListener('DOMContentLoaded', function() {
     const assemblyTypeSelection = document.getElementById('assembly-type-selection');
     
+    // Referência dos componentes
+    const customFatherRefInput = document.querySelector('[name="component_father_custom_ref"]');
+    const customChildRefInput = document.querySelector('[name="component_child_custom_ref"]');
+
     // Para componente pai
     const componentFatherSelect = document.getElementById('component_father_id');
     const componentDetailsBtn = document.getElementById('componentDetailsBtn');
@@ -9,6 +13,82 @@ document.addEventListener('DOMContentLoaded', function() {
     const componentChildSelect = document.getElementById('component_child_id');
     const componentChildDetailsBtn = document.getElementById('componentChildDetailsBtn');
     
+    // # Para mostrar os botões de detalhes ao escrever a referência
+    if (customFatherRefInput && componentFatherSelect && typeof components !== 'undefined') {
+        customFatherRefInput.addEventListener('input', function() {
+            const val = customFatherRefInput.value.trim();
+            if (val !== '') {
+                // Procura o componente cujo campo Reference seja igual ao valor inserido
+                const found = components.find(c => c.Reference === val);
+                if(found) {
+                    // Atualiza o select para o componente encontrado
+                    componentFatherSelect.value = found.Component_ID;
+                    componentDetailsBtn.disabled = false; // Habilita o botão de detalhes
+                } else {
+                    // Caso não encontre, opcionalmente limpa a seleção
+                    componentFatherSelect.value = '';
+                    componentChildDetailsBtn.disabled = true; // Desabilita o botão de detalhes
+                }
+            } else {
+                // Se o campo estiver vazio, limpar a seleção
+                componentFatherSelect.value = '';
+                componentDetailsBtn.disabled = true; // Desabilita o botão de detalhes
+            }
+        });
+    }
+    if (customChildRefInput && componentChildSelect && typeof components !== 'undefined') {
+        customChildRefInput.addEventListener('input', function() {
+            const val = customChildRefInput.value.trim();
+            if (val !== '') {
+                // Procura o componente cujo campo Reference seja igual ao valor inserido
+                const found = components.find(c => c.Reference === val);
+                if(found) {
+                    // Atualiza o select para o componente encontrado
+                    componentChildSelect.value = found.Component_ID;
+                    componentChildDetailsBtn.disabled = false; // Habilita o botão de detalhes
+                } else {
+                    // Caso não encontre, opcionalmente limpa a seleção
+                    componentChildSelect.value = '';
+                    componentChildDetailsBtn.disabled = true; // Desabilita o botão de detalhes
+                }
+            } else {
+                // Se o campo estiver vazio, limpar a seleção
+                componentChildSelect.value = '';
+                componentChildDetailsBtn.disabled = true; // Desabilita o botão de detalhes
+            }
+        });
+    } // #
+
+    // Para componente pai: quando o select mudar, atualiza o input da referência manual
+    if (componentFatherSelect && customFatherRefInput) {
+        componentFatherSelect.addEventListener('change', function() {
+            const selectedId = componentFatherSelect.value;
+            if (selectedId) {
+                const found = components.find(c => c.Component_ID == selectedId);
+                if (found) {
+                    customFatherRefInput.value = found.Reference || '';
+                }
+            } else {
+                customFatherRefInput.value = '';
+            }
+        });
+    }
+
+    // Para componente filho: quando o select mudar, atualiza o input da referência manual
+    if (componentChildSelect && customChildRefInput) {
+        componentChildSelect.addEventListener('change', function() {
+            const selectedId = componentChildSelect.value;
+            if (selectedId) {
+                const found = components.find(c => c.Component_ID == selectedId);
+                if (found) {
+                    customChildRefInput.value = found.Reference || '';
+                }
+            } else {
+                customChildRefInput.value = '';
+            }
+        });
+    }
+
         // Função para mostrar detalhes do componente
     function showComponentDetails(componentId) {
         if (!componentId) return;
@@ -89,6 +169,98 @@ document.addEventListener('DOMContentLoaded', function() {
             showComponentDetails(componentId);
         });
     }
+
+    window.showManufacturerComponents = function(manufacturerId) {
+        if (!manufacturerId) return;
+        
+        // Filtrar os componentes pelo Manufacturer_ID
+        const filteredComponents = components.filter(c => c.Manufacturer_ID == manufacturerId);
+        
+        // Construir HTML com os componentes filtrados
+        let html = '';
+        if (filteredComponents.length) {
+            html += `
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Denominação</th>
+                            <th>Referência</th>
+                            <th>Preço</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            filteredComponents.forEach(comp => {
+                html += `
+                    <tr>
+                        <td>${comp.Component_ID}</td>
+                        <td>${comp.Denomination}</td>
+                        <td>${comp.Reference || '-'}</td>
+                        <td>${comp.Price ? comp.Price + ' €' : '-'}</td>
+                    </tr>
+                `;
+            });
+            html += `
+                    </tbody>
+                </table>
+            `;
+        } else {
+            html = '<div class="alert alert-info">Nenhum componente encontrado para este fabricante.</div>';
+        }
+        
+        // Atualizar o corpo da modal e exibi-la
+        const modalContent = document.getElementById('associatedComponentsContent');
+        modalContent.innerHTML = html;
+        const modal = new bootstrap.Modal(document.getElementById('associatedComponentsModal'));
+        modal.show();
+    };
+
+    window.showSupplierComponents = function(supplierId) {
+        if (!supplierId) return;
+        
+        // Filtrar os componentes pelo Supplier_ID
+        const filteredComponents = components.filter(c => c.Supplier_ID == supplierId);
+        
+        // Construir HTML com os componentes filtrados
+        let html = '';
+        if (filteredComponents.length) {
+            html += `
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Denominação</th>
+                            <th>Referência</th>
+                            <th>Preço</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            filteredComponents.forEach(comp => {
+                html += `
+                        <tr>
+                            <td>${comp.Component_ID}</td>
+                            <td>${comp.Denomination}</td>
+                            <td>${comp.Reference || '-'}</td>
+                            <td>${comp.Price ? comp.Price + ' €' : '-'}</td>
+                        </tr>
+                `;
+            });
+            html += `
+                    </tbody>
+                </table>
+            `;
+        } else {
+            html = '<div class="alert alert-info">Nenhum componente encontrado para este fornecedor.</div>';
+        }
+        
+        // Atualizar o corpo da modal correspondente e exibi-la
+        const modalContent = document.getElementById('associatedSupplierComponentsContent');
+        modalContent.innerHTML = html;
+        const modal = new bootstrap.Modal(document.getElementById('associatedSupplierComponentsModal'));
+        modal.show();
+    };
 
 
 
@@ -230,8 +402,11 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
-         // Função para exportar dados para CSV
+
+    }
+             // Função para exportar dados para CSV
         window.exportToCSV = function(type) {
+            console.log('Exportando CSV para:', type);
             const data = [];
             let headers = [];
             
@@ -285,13 +460,147 @@ document.addEventListener('DOMContentLoaded', function() {
         // Função para gerar relatório BOM
         window.generateBOMReport = function() {
             if (!selectedPrototype) {
-                alert('Por favor, selecione um protótipo na aba de Montagem primeiro.');
+                alert('Selecionar um protótipo na aba de Assembly primeiro.');
                 return;
             }
             
             // Redirecionar para a página de relatório
             window.open(`bom_report.php?prototype_id=${selectedPrototype}`, '_blank');
         };
+
+        const form = document.querySelector('form');
+        if (form) {
+            form.addEventListener('submit', function(e) {
+                const manufacturer = document.querySelector('[name="manufacturer_id"]').value;
+                const supplier = document.querySelector('[name="supplier_id"]').value;
+                if (manufacturer === '' && supplier === '') {
+                    alert('Selecionar um fabricante ou fornecedor.');
+                    e.preventDefault();
+                }
+            });
+        }
+    });
+
+    // --- AJAX helpers para criar fabricante/fornecedor sem perder o formulário principal ---
+   async function submitFormAjaxElement(formEl, modalId, triggerBtn) {
+    if (!formEl) return console.error('Form not found for AJAX submit');
+    if (triggerBtn) triggerBtn.disabled = true;
+
+    // fallback para um path absoluto caso form.action esteja vazio/relativo errado
+    const fallbackUrl = '/tabs/bomlist/processor.php';
+    // ler action de forma segura (property pode não ser string)
+    let actionValue = '';
+    if (typeof formEl.action === 'string') {
+        actionValue = formEl.action;
+    } else if (formEl.getAttribute) {
+        actionValue = formEl.getAttribute('action') || '';
     }
-});
-    
+    actionValue = String(actionValue || '').trim();
+    let url = fallbackUrl;
+    if (actionValue !== '') {
+        try {
+            // resolve relative URLs against current location
+            url = new URL(actionValue, window.location.href).toString();
+        } catch (e) {
+            console.warn('Invalid form action, using fallback:', actionValue, e);
+            url = fallbackUrl;
+        }
+    }
+     console.log('AJAX submit URL ->', url);
+ 
+    const fd = new FormData(formEl);
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            body: fd,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+
+        console.log('AJAX response status:', res.status, 'content-type:', res.headers.get('content-type'));
+        const text = await res.text();
+
+        // Se o servidor devolveu HTML (começa por '<'), abortar e logar
+        if (text.trim().startsWith('<')) {
+            console.error('Resposta contém HTML — provavelmente o request foi para index.php em vez de processor.php. Response (preview):', text.slice(0,300));
+            // mostrar erro ao utilizador
+            const container = document.querySelector('.container-fluid') || document.body;
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger alert-dismissible fade show';
+            alert.role = 'alert';
+            alert.innerHTML = 'Erro do servidor: resposta inesperada (HTML). Ver console / Network para detalhes.' +
+                '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+            container.prepend(alert);
+            throw new Error('Invalid HTML response');
+        }
+
+        let json = {};
+        try { json = JSON.parse(text); } catch (e) { console.warn('JSON parse failed:', e, 'raw:', text); }
+
+        // inserir novo option se veio created
+        if (json.created) {
+            const entity = json.created.entity;
+            let sel = null;
+            if (entity === 'manufacturers') sel = document.querySelector('select[name="manufacturer_id"]');
+            if (entity === 'suppliers') sel = document.querySelector('select[name="supplier_id"]');
+            if (sel) {
+                const opt = document.createElement('option');
+                opt.value = json.created.id;
+                opt.textContent = json.created.denomination;
+                opt.selected = true;
+                sel.appendChild(opt);
+            }
+        }
+
+        // mostrar mensagem (se houver)
+        if (json.message) {
+            const container = document.querySelector('.container-fluid') || document.body;
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-success alert-dismissible fade show';
+            alert.role = 'alert';
+            alert.innerHTML = document.createTextNode(json.message).textContent +
+                '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+            container.prepend(alert);
+            setTimeout(()=>{ try{ bootstrap.Alert.getOrCreateInstance(alert).close(); }catch{} }, 4000);
+        }
+
+        // fechar modal
+        if (modalId) {
+            const modalEl = document.getElementById(modalId);
+            if (modalEl) {
+                const modalInstance = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+                modalInstance.hide();
+            }
+        }
+        // limpar apenas o form do modal
+        formEl.reset();
+    } catch (err) {
+        console.error('submitFormAjax error:', err);
+    } finally {
+        if (triggerBtn) triggerBtn.disabled = false;
+    }
+}
+
+    // Tornar disponível globalmente se ainda usas onclick inline (opcional)
+    window.submitFormAjax = function(formId, modalId) {
+        const formEl = document.getElementById(formId) || document.querySelector(`#${modalId} form`) || document.querySelector('form');
+        return submitFormAjaxElement(formEl, modalId, null);
+    };
+
+    // Ligar listeners aos botões com data-ajax-trigger
+    document.querySelectorAll('button[data-ajax-trigger]').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            // encontra o form dentro do modal (ou o form mais próximo)
+            const modalEl = btn.closest('.modal');
+            const modalId = modalEl ? modalEl.id : null;
+            // procura form: botão normalmente está dentro do form do modal
+            let formEl = btn.closest('form');
+            if (!formEl && modalEl) formEl = modalEl.querySelector('form');
+            if (!formEl) {
+                console.error('Nenhum form encontrado para o botão AJAX', btn);
+                return;
+            }
+            submitFormAjaxElement(formEl, modalId, btn);
+        });
+    });
+
+    // --- fim AJAX helpers ---

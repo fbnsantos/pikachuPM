@@ -67,7 +67,14 @@ $assemblies = getAssemblies($pdo);
             <h2><i class="bi bi-list-ul"></i> Sistema de Gestão BOM FFI (Bill of Materials)</h2>
             
             <!-- Navigation tabs -->
+             
             <ul class="nav nav-tabs" id="bomTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link <?= $entity === 'components' ? 'active' : '' ?>" 
+                            onclick="location.href='?tab=bomlist/bomlist&entity=components'">
+                        <i class="bi bi-cpu"></i> Componentes
+                    </button>
+                </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link <?= $entity === 'manufacturers' ? 'active' : '' ?>" 
                             onclick="location.href='?tab=bomlist/bomlist&entity=manufacturers'">
@@ -78,12 +85,6 @@ $assemblies = getAssemblies($pdo);
                     <button class="nav-link <?= $entity === 'suppliers' ? 'active' : '' ?>" 
                             onclick="location.href='?tab=bomlist/bomlist&entity=suppliers'">
                         <i class="bi bi-truck"></i> Fornecedores
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link <?= $entity === 'components' ? 'active' : '' ?>" 
-                            onclick="location.href='?tab=bomlist/bomlist&entity=components'">
-                        <i class="bi bi-cpu"></i> Componentes
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">

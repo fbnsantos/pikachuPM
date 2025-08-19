@@ -521,7 +521,6 @@ function processCRUD($pdo, $entity , $action){
                         LEFT JOIN T_Manufacturer m ON c.Manufacturer_ID = m.Manufacturer_ID
                         LEFT JOIN T_Supplier s ON c.Supplier_ID = s.Supplier_ID
                         WHERE c.Denomination LIKE ? 
-                           OR c.Notes_Description LIKE ? 
                            OR c.Reference LIKE ? 
                            OR c.Manufacturer_ref LIKE ? 
                            OR c.Supplier_ref LIKE ?
@@ -531,7 +530,6 @@ function processCRUD($pdo, $entity , $action){
                     ");
                     $stmt->execute([
                         "%$query%",  // Component denomination
-                        "%$query%",  // Component notes
                         "%$query%",  // Component reference
                         "%$query%",  // Manufacturer reference
                         "%$query%",  // Supplier reference
@@ -543,20 +541,20 @@ function processCRUD($pdo, $entity , $action){
                     break;
                     
                 case 'assemblies':
-                    $stmt = $pdo->prepare("SELECT * FROM T_Assembly WHERE Assembly_Designation LIKE ? OR Notes LIKE ? OR Assembly_ID LIKE ? OR Assembly_Reference LIKE ?");
-                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%"]);
+                    $stmt = $pdo->prepare("SELECT * FROM T_Assembly WHERE Assembly_Designation LIKE ? OR Assembly_ID LIKE ? OR Assembly_Reference LIKE ?");
+                    $stmt->execute(["%$query%", "%$query%", "%$query%"]);
                     $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     break;
                     
                 case 'manufacturers':
-                    $stmt = $pdo->prepare("SELECT * FROM T_Manufacturer WHERE Denomination LIKE ? OR Notes LIKE ? OR Origin_Country LIKE ? OR Address LIKE ? OR Manufacturer_ID LIKE ?");
-                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%", "%$query%"]);
+                    $stmt = $pdo->prepare("SELECT * FROM T_Manufacturer WHERE Denomination LIKE ? OR Origin_Country LIKE ? OR Address LIKE ? OR Manufacturer_ID LIKE ?");
+                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%"]);
                     $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     break;
                     
                 case 'suppliers':
-                    $stmt = $pdo->prepare("SELECT * FROM T_Supplier WHERE Denomination LIKE ? OR Notes LIKE ? OR Origin_Country LIKE ? OR Address LIKE ? OR Supplier_ID LIKE ?");
-                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%", "%$query%"]);
+                    $stmt = $pdo->prepare("SELECT * FROM T_Supplier WHERE Denomination LIKE ? OR Origin_Country LIKE ? OR Address LIKE ? OR Supplier_ID LIKE ?");
+                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%"]);
                     $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     break;
                     

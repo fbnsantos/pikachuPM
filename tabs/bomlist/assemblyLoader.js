@@ -1,3 +1,21 @@
+
+function showAssociationFields(value) {
+    const associationFields = document.getElementById('association-fields');
+    associationFields.style.display = value ? 'block' : 'none';
+}
+
+function showAssemblyFields() {
+    document.getElementById('assembly-association-fields').style.display = 'block';
+    document.getElementById('component-association-fields').style.display = 'none';
+}
+
+function showComponentFields() {
+    document.getElementById('assembly-association-fields').style.display = 'none';
+    document.getElementById('component-association-fields').style.display = 'block';
+}
+
+
+
 document.addEventListener('DOMContentLoaded', function() {
     const assemblyTypeSelection = document.getElementById('assembly-type-selection');
     
@@ -262,6 +280,7 @@ document.addEventListener('DOMContentLoaded', function() {
         modal.show();
     };
 
+    
 
 
     if (assemblyTypeSelection) {    
@@ -306,6 +325,26 @@ document.addEventListener('DOMContentLoaded', function() {
             document.querySelector('[name="assembly_child_id"]').removeAttribute('required');
             document.querySelector('[name="assembly_child_quantity"]').removeAttribute('required');
         }
+
+
+        // Atribuir eventos aos botões
+        document.addEventListener('DOMContentLoaded', function() {
+            const btnComponent = document.getElementById('btn-add-component');
+            const btnAssembly = document.getElementById('btn-add-assembly');
+            
+            if (btnComponent) {
+                btnComponent.addEventListener('click', function() {
+                    // Por exemplo, para "Adicionar Componente" usamos o tipo component_component
+                    showAssemblyFields('component_component');
+                });
+            }
+            if (btnAssembly) {
+                btnAssembly.addEventListener('click', function() {
+                    // Se desejar "Adicionar Assembly" use outro valor, aqui 'component_assembly' ou 'assembly_assembly'
+                    showAssemblyFields('component_assembly');
+                });
+            }
+        });
         
         // Initialize by showing component-component fields (default)
         hideAndClearAllFields();

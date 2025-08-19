@@ -31,24 +31,56 @@ function getComponents($pdo) {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// Função para buscar todas as montagens
+/**
+ * Busca todas as assemblies (montagens) com informações do protótipo
+ */
 function getAssemblies($pdo) {
     $stmt = $pdo->query("
         SELECT a.*, 
                p.Name AS Prototype_Name,
-               p.Version AS Prototype_Version,
-               cf.Denomination AS Component_Father_Designation,
-               cc.Denomination AS Component_Child_Designation,
-               af.Assembly_Designation AS Assembly_Father_Designation,
-               ac.Assembly_Designation AS Assembly_Child_Designation
+               p.Version AS Prototype_Version
         FROM T_Assembly a
         JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-        LEFT JOIN T_Component cf ON a.Component_Father_ID = cf.Component_ID
-        LEFT JOIN T_Component cc ON a.Component_Child_ID = cc.Component_ID
-        LEFT JOIN T_Assembly af ON a.Assembly_Father_ID = af.Assembly_ID
-        LEFT JOIN T_Assembly ac ON a.Assembly_Child_ID = ac.Assembly_ID
         ORDER BY p.Name, p.Version
     ");
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Busca os componentes associados a uma assembly a partir da tabela de junção T_Assembly_Component
+ */
+function getAssemblyComponents($pdo, $assemblyID) {
+    $stmt = $pdo->prepare("
+        SELECT ac.Quantity, c.*,
+               m.Denomination AS Manufacturer_Name,
+               s.Denomination AS Supplier_Name
+        FROM T_Assembly_Component ac
+        JOIN T_Component c ON ac.Component_ID = c.Component_ID
+        LEFT JOIN T_Manufacturer m ON c.Manufacturer_ID = m.Manufacturer_ID
+        LEFT JOIN T_Supplier s ON c.Supplier_ID = s.Supplier_ID
+        WHERE ac.Assembly_ID = ?
+        ORDER BY c.Denomination
+    ");
+    $stmt->execute([$assemblyID]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Busca as subassemblies (ou assemblies relacionadas) associadas a uma dada assembly
+ * utilizando a tabela T_Assembly_Assembly.
+ */
+function getAssemblyAssemblies($pdo, $parentAssemblyID) {
+    $stmt = $pdo->prepare("
+        SELECT aa.Quantity, a.*,
+               p.Name AS Prototype_Name,
+               p.Version AS Prototype_Version
+        FROM T_Assembly_Assembly aa
+        JOIN T_Assembly a ON aa.Child_Assembly_ID = a.Assembly_ID
+        JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
+        WHERE aa.Parent_Assembly_ID = ?
+        ORDER BY a.Assembly_Designation
+    ");
+    $stmt->execute([$parentAssemblyID]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -194,7 +226,10 @@ function getAssemblyPrice(array $assembly) {
     return (float) ($assembly['Price'] ?? 0);
 }
 
-function getComponentPrice(array $component) {
+function getComponentPrice(array $component = null): float {
+    if (!$component) {
+        return 0; 
+    }
     return (float) ($component['Price'] ?? 0);
 }
 

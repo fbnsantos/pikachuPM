@@ -8,6 +8,7 @@
 $GLOBALS['last_created'] = null;
 
 require_once 'getters.php';
+require_once 'helpers.php';
 
 function processCRUD($pdo, $entity , $action){
     $message = "";
@@ -384,48 +385,34 @@ function processCRUD($pdo, $entity , $action){
             
 
 
-            // Verificar combinações válidas de campos
-            // Opção 1: Componente-filho e componente-pai
-            if ($compFather !== '' && $compChild !== '' && $assemFather === '' && $assemChild === '') {
-                $valid = true;
-            }
-            // Opção 2: Componente-pai e montagem-pai
-            elseif (($compFather !== '' && $compFather !== null) && ($compChild === '' || $compChild === null) && ($assemFather !== '' && $assemFather !== null) && ($assemChild === '' || $assemChild === null)) {
-                $valid = true;
-            }
 
-            // Opção 3: Montagem-filho e montagem-pai
-            elseif ($compFather === '' && $compChild === '' && $assemFather !== '' && $assemChild !== '') {
-                $valid = true;
-            }
-            
-            if (!$valid) {
-                die("Erro: Combinação inválida de campos para montagem.");
-            }
 
-            // Verificar se os campos estão vazios e definir como NULL
+           
 
             $stmt = $pdo->prepare("
-            INSERT INTO T_Assembly (
-                Prototype_ID, Assembly_Designation, Component_Father_ID, Component_Father_Quantity, Component_Child_ID, 
-                Component_Child_Quantity, Assembly_Father_ID, Assembly_Father_Quantity, Assembly_Child_ID, Assembly_Child_Quantity, Assembly_Level, Price,
-                Notes , Assembly_Reference
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE  Assembly_Designation = VALUES(Assembly_Designation), Component_Father_Quantity=VALUES(Component_Father_Quantity), Component_Child_Quantity=VALUES(Component_Child_Quantity), Assembly_Father_Quantity=VALUES(Assembly_Father_Quantity), Assembly_Child_Quantity=VALUES(Assembly_Child_Quantity), Assembly_Level=VALUES(Assembly_Level), Price=VALUES(Price), Notes=VALUES(Notes), Assembly_Reference=VALUES(Assembly_Reference)");
+                INSERT INTO T_Assembly (
+                    Prototype_ID, 
+                    Assembly_Designation,
+                    Assembly_Reference,
+                    Assembly_Level,
+                    Price,
+                    Notes
+                ) VALUES (?, ?, ?, ?, ?, ?) 
+                ON DUPLICATE KEY UPDATE  
+                    Assembly_Designation = VALUES(Assembly_Designation),
+                    Assembly_Level = VALUES(Assembly_Level),
+                    Price = VALUES(Price), 
+                    Notes = VALUES(Notes),
+                    Assembly_Reference = VALUES(Assembly_Reference)
+            ");
+
             $stmt->execute([
-                $_POST['prototype_id'], 
+                $_POST['prototype_id'],
                 $_POST['assembly_designation'] ?: null,
-                (empty($_POST['component_father_id']) ? null : $_POST['component_father_id']),
-                (empty($_POST['component_father_quantity']) ? 0 : $_POST['component_father_quantity']),
-                (empty($_POST['component_child_id']) ? null : $_POST['component_child_id']),
-                (empty($_POST['component_child_quantity']) ? 0 : $_POST['component_child_quantity']),
-                (empty($assemFather)) ? null : $assemFather,
-                (empty($_POST['assembly_father_quantity']) ? 0 : $_POST['assembly_father_quantity']),
-                (empty($assemChild)) ? null : $assemChild,
-                (empty($_POST['assembly_child_quantity']) ? 0 : $_POST['assembly_child_quantity']),
-                (empty($assemblyLevel)) ? null : $assemblyLevel,
-                $assemblyPrice,
-                $_POST['notes'],
-                $reference = generateAssemblyReference($pdo, $_POST['prototype_id'], $_POST['assembly_designation'])
+                generateAssemblyReference($pdo, $_POST['prototype_id'], $_POST['assembly_designation']),
+                (empty($assemblyLevel)) ? 0 : $assemblyLevel,
+                $assemblyPrice, 
+                $_POST['notes']
             ]);
 
             // Preparar a query para selecionar os dados da subassembly original
@@ -486,40 +473,28 @@ function processCRUD($pdo, $entity , $action){
 
         } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare("
-                UPDATE T_Assembly 
-                    SET 
-                        Assembly_Designation = ?, 
-                        Component_Father_ID = ?, 
-                        Component_Father_Quantity = ?, 
-                        Component_Child_ID = ?, 
-                        Component_Child_Quantity = ?, 
-                        Assembly_Father_ID = ?, 
-                        Assembly_Father_Quantity = ?,
-                        Assembly_Child_ID = ?, 
-                        Assembly_Child_Quantity = ?, 
-                        Assembly_Level_DepTH = ?, 
-                        Notes = ?, 
-                        Is_Prototype = ?
-                    WHERE Assembly_ID = ?
-                ");
-                $stmt->execute([
-                    $_POST['assembly_designation'] ?: null,
-                    (empty($_POST['component_father_id']) ? null : $_POST['component_father_id']),
-                    (empty($_POST['component_father_quantity']) ? 0 : $_POST['component_father_quantity']),
-                    (empty($_POST['component_child_id']) ? null : $_POST['component_child_id']),
-                    (empty($_POST['component_child_quantity']) ? 0 : $_POST['component_child_quantity']),
-                    (empty($_POST['assembly_father_id']) ? null : $_POST['assembly_father_id']),
-                    (empty($_POST['assembly_father_quantity']) ? 0 : $_POST['assembly_father_quantity']),
-                    (empty($_POST['assembly_child_id']) ? null : $_POST['assembly_child_id']),
-                    (empty($_POST['assembly_child_quantity']) ? 0 : $_POST['assembly_child_quantity']),
-                    (empty($_POST['assembly_level_depth']) ? 0 : $_POST['assembly_level_depth']),
-                    $_POST['notes'],
-                    $_POST['is_prototype'] ?? 0, // Adiciona o valor do campo Is_Prototype
-                    $_POST['id']
-                ]);
-                $message = "Montagem atualizada com sucesso!";
-                header("Location: ?tab=bomlist/bomlist&entity=assembly");
-                exit;
+            UPDATE T_Assembly 
+            SET 
+                Prototype_ID = ?,
+                Assembly_Designation = ?,
+                Assembly_Level = ?,
+                Price = ?,
+                Notes = ?
+            WHERE Assembly_ID = ?
+            ");
+            
+            $stmt->execute([
+            $_POST['prototype_id'],
+            $_POST['assembly_designation'] ?: null,
+            $_POST['assembly_level'] ?: 0,
+            $_POST['price'] ?: 0,
+            $_POST['notes'],
+            $_POST['id']
+            ]);
+
+            $message = "Montagem atualizada com sucesso!";
+            header("Location: ?tab=bomlist/bomlist&entity=assembly");
+            exit;
 
 
         } elseif ($action === 'delete' && isset($_GET['id'])) {

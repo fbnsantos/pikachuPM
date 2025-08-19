@@ -165,3 +165,23 @@ function generateAssemblyReference(PDO $pdo, string $category): ?string {
     // Formata sempre com 6 dígitos
     return sprintf("%s-%06d", $prefix, $num);
 }
+
+function addAssembly(PDO $pdo, array $data) {
+    // Exemplo de inserção na tabela T_Assembly – ajuste os campos conforme sua estrutura atual
+    $stmt = $pdo->prepare("
+        INSERT INTO T_Assembly (Assembly_Designation, Prototype_ID, Assembly_Reference, Assembly_Quantity, Notes, Created_Date)
+        VALUES (?, ?, ?, ?, ?, NOW())
+    ");
+    $result = $stmt->execute([
+        $data['assembly_designation'],
+        $data['prototype_id'],
+        $data['assembly_ref'],
+        $data['assembly_quantity'],
+        $data['notes']
+    ]);
+    if ($result) {
+        return $pdo->lastInsertId();
+    } else {
+        return false;
+    }
+}

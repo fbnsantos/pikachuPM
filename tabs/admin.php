@@ -1,4 +1,12 @@
-x<?php
+<?php
+
+// Botão de acesso ao debug (disponível para todos os utilizadores logados)
+echo '<div class="mb-3">';
+echo '<a href="debug.php" class="btn btn-info btn-sm" target="_blank">';
+echo '<i class="bi bi-bug"></i> Abrir Debug';
+echo '</a>';
+echo '</div>';
+
 // admin.php - Tab de administração para PikachuPM
 // Verificar se o usuário tem permissão de admin (pode ajustar conforme necessário)
 if ($_SESSION['username'] !== 'fbsantos' && $_SESSION['user_id'] != 1) {

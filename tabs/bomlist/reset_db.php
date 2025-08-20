@@ -19,20 +19,20 @@ try {
     
     // Check if database exists before dropping
     echo "Checking if database exists...<br>";
-    $stmt = $pdo->query("SHOW DATABASES LIKE ' $db_name_boom'");
+    $stmt = $pdo->query("SHOW DATABASES LIKE '$db_name_boom'");
     $exists = $stmt->fetch();
     echo "Database exists: " . ($exists ? 'YES' : 'NO') . "<br><br>";
     
     // Drop and recreate database
     echo "Dropping database if exists...<br>";
-    $result = $pdo->exec("DROP DATABASE IF EXISTS ` $db_name_boom`");
+    $result = $pdo->exec("DROP DATABASE IF EXISTS `$db_name_boom`");
     echo "Drop result: $result<br>";
     
     echo "Creating new database...<br>";
-    $result = $pdo->exec("CREATE DATABASE ` $db_name_boom`");
+    $result = $pdo->exec("CREATE DATABASE `$db_name_boom`");
     echo "Create result: $result<br>";
     
-    $result = $pdo->exec("USE ` $db_name_boom`");
+    $result = $pdo->exec("USE `$db_name_boom`");
     echo "Use database result: $result<br><br>";
     
     // Check SQL file

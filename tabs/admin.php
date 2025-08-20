@@ -1,5 +1,5 @@
 <?php
-include_once __DIR__ . '/config.php';
+include_once __DIR__ . '/../config.php';
 
 function connectDB() {
     global $db_host, $db_user, $db_pass, $db_name;

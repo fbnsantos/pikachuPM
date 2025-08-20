@@ -1,12 +1,15 @@
 <?php
 include_once __DIR__ . '/../../config.php';
 
+$db_name = 'pkmt_boomlist';
+
 echo "<h2>Database Reset Debug</h2>";
 echo "<strong>Config values:</strong><br>";
 echo "Host: $db_host<br>";
 echo "Database: $db_name<br>";
 echo "User: $db_user<br>";
 echo "Password: " . ($db_pass ? '[SET]' : '[EMPTY]') . "<br><br>";
+
 
 try {
     // Connect without database

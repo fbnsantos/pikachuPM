@@ -1,10 +1,10 @@
 x<?php
 // admin.php - Tab de administração para PikachuPM
 // Verificar se o usuário tem permissão de admin (pode ajustar conforme necessário)
-//if ($_SESSION['username'] !== 'fbsantos' && $_SESSION['user_id'] != 1) {
-//    echo "<div class='alert alert-danger'><i class='bi bi-exclamation-triangle'></i> Acesso negado. Esta área é restrita a administradores.</div>";
-//    return;
-//}
+if ($_SESSION['username'] !== 'fbsantos' && $_SESSION['user_id'] != 1) {
+    echo "<div class='alert alert-danger'><i class='bi bi-exclamation-triangle'></i> Acesso negado. Esta área é restrita a administradores.</div>";
+    return;
+}
 
 include_once __DIR__ . '/../config.php';
 

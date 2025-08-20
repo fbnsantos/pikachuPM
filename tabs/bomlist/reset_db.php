@@ -1,12 +1,11 @@
 <?php
 include_once __DIR__ . '/../../config.php';
 
-$db_name = 'pkmt_boomlist';
 
 echo "<h2>Database Reset Debug</h2>";
 echo "<strong>Config values:</strong><br>";
 echo "Host: $db_host<br>";
-echo "Database: $db_name<br>";
+echo "Database:  $db_name_boom<br>";
 echo "User: $db_user<br>";
 echo "Password: " . ($db_pass ? '[SET]' : '[EMPTY]') . "<br><br>";
 
@@ -20,20 +19,20 @@ try {
     
     // Check if database exists before dropping
     echo "Checking if database exists...<br>";
-    $stmt = $pdo->query("SHOW DATABASES LIKE '$db_name'");
+    $stmt = $pdo->query("SHOW DATABASES LIKE ' $db_name_boom'");
     $exists = $stmt->fetch();
     echo "Database exists: " . ($exists ? 'YES' : 'NO') . "<br><br>";
     
     // Drop and recreate database
     echo "Dropping database if exists...<br>";
-    $result = $pdo->exec("DROP DATABASE IF EXISTS `$db_name`");
+    $result = $pdo->exec("DROP DATABASE IF EXISTS ` $db_name_boom`");
     echo "Drop result: $result<br>";
     
     echo "Creating new database...<br>";
-    $result = $pdo->exec("CREATE DATABASE `$db_name`");
+    $result = $pdo->exec("CREATE DATABASE ` $db_name_boom`");
     echo "Create result: $result<br>";
     
-    $result = $pdo->exec("USE `$db_name`");
+    $result = $pdo->exec("USE ` $db_name_boom`");
     echo "Use database result: $result<br><br>";
     
     // Check SQL file

@@ -1,8 +1,8 @@
-<?php
+x<?php
 // admin.php - Tab de administração para PikachuPM
 // Verificar se o usuário tem permissão de admin (pode ajustar conforme necessário)
 //if ($_SESSION['username'] !== 'test' && $_SESSION['user_id'] != 1) {
- //   echo "<div class='alert alert-danger'><i class='bi bi-exclamation-triangle'></i> Acesso negado. Esta área é restrita a administradores.</div>";
+//    echo "<div class='alert alert-danger'><i class='bi bi-exclamation-triangle'></i> Acesso negado. Esta área é restrita a administradores.</div>";
 //    return;
 //}
 
@@ -104,6 +104,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare("DELETE FROM `$tableName`");
             $stmt->execute();
             $mensagem = "Tabela '$tableName' limpa com sucesso!";
+        }
+        
+        // Apagar tabela completamente
+        if (isset($_POST['drop_table']) && !empty($_POST['table_name'])) {
+            $tableName = $_POST['table_name'];
+            $stmt = $pdo->prepare("DROP TABLE `$tableName`");
+            $stmt->execute();
+            $mensagem = "Tabela '$tableName' apagada completamente!";
         }
         
     } catch (Exception $e) {
@@ -249,12 +257,20 @@ function formatBytes($size, $precision = 2) {
                                             <td><?= htmlspecialchars($tabela['engine']) ?></td>
                                             <td><small><?= htmlspecialchars($tabela['collation']) ?></small></td>
                                             <td>
-                                                <form method="post" class="d-inline" onsubmit="return confirm('ATENÇÃO: Esta ação irá apagar TODOS os dados da tabela <?= htmlspecialchars($tabela['nome']) ?>. Confirma?')">
-                                                    <input type="hidden" name="table_name" value="<?= htmlspecialchars($tabela['nome']) ?>">
-                                                    <button type="submit" name="clear_table" class="btn btn-sm btn-outline-danger" title="Limpar tabela">
-                                                        <i class="bi bi-trash"></i>
-                                                    </button>
-                                                </form>
+                                                <div class="btn-group" role="group">
+                                                    <form method="post" class="d-inline" onsubmit="return confirm('ATENÇÃO: Esta ação irá apagar TODOS os dados da tabela <?= htmlspecialchars($tabela['nome']) ?>. A estrutura da tabela será mantida. Confirma?')">
+                                                        <input type="hidden" name="table_name" value="<?= htmlspecialchars($tabela['nome']) ?>">
+                                                        <button type="submit" name="clear_table" class="btn btn-sm btn-outline-warning" title="Limpar dados da tabela">
+                                                            <i class="bi bi-trash"></i> Limpar
+                                                        </button>
+                                                    </form>
+                                                    <form method="post" class="d-inline ms-1" onsubmit="return confirm('PERIGO: Esta ação irá APAGAR COMPLETAMENTE a tabela <?= htmlspecialchars($tabela['nome']) ?> (estrutura e dados). Esta operação NÃO pode ser desfeita! Tem a certeza absoluta?')">
+                                                        <input type="hidden" name="table_name" value="<?= htmlspecialchars($tabela['nome']) ?>">
+                                                        <button type="submit" name="drop_table" class="btn btn-sm btn-danger" title="Apagar tabela completamente">
+                                                            <i class="bi bi-trash-fill"></i> Apagar
+                                                        </button>
+                                                    </form>
+                                                </div>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>

@@ -8,7 +8,7 @@ function connectDB(){
     //$db_host = 'localhost';
     //$db_user = 'pkmt_user';
     //$db_pass = 'pikachu123'; 
-    $db_name = 'pkmt_boomlistm';
+    //$db_name = 'pkmt_boomlistm';
     
     $sqlFile = __DIR__ . '/database.sql';
     $sql = file_get_contents($sqlFile);

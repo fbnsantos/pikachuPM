@@ -1,5 +1,5 @@
 <?php
-include_once __DIR__ . '/../config.php';
+include_once __DIR__ . '/config.php';
 
 function connectDB() {
     global $db_host, $db_user, $db_pass, $db_name;
@@ -23,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['sql_file'])) {
 }
 
 // Handle download
-if (isset($_GET['download']) && $_GET['download'] === '1') {
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['download']) && $_GET['download'] === '1') {
     $filename = "backup_" . date("Y-m-d_H-i-s") . ".sql";
     $command = "mysqldump -h $db_host -u $db_user -p$db_pass $db_name > $filename";
     system($command);
@@ -51,12 +51,14 @@ if (isset($_GET['download']) && $_GET['download'] === '1') {
 </table>
 
 <h3>Download da Base de Dados</h3>
-<form method="get">
-    <button type="submit" name="download" value="1">Descarregar Backup (.sql)</button>
+<form method="get" action="index.php">
+    <input type="hidden" name="tab" value="admin">
+    <input type="hidden" name="download" value="1">
+    <button type="submit">Descarregar Backup (.sql)</button>
 </form>
 
 <h3>Upload e Restauração</h3>
-<form method="post" enctype="multipart/form-data">
+<form method="post" action="index.php?tab=admin" enctype="multipart/form-data">
     <input type="file" name="sql_file" accept=".sql" required>
     <button type="submit">Restaurar Base de Dados</button>
 </form>

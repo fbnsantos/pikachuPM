@@ -1,17 +1,50 @@
 <?php
+
+// Desativar impressão de warnings no browser (logs continuam)
+//ini_set('display_errors', '0');
+//ini_set('log_errors', '1');
+//error_reporting(E_ALL);
+
+$GLOBALS['last_created'] = null;
+
 require_once 'getters.php';
 
 function processCRUD($pdo, $entity , $action){
     $message = "";
+    try {   
     switch ($entity) {
     case 'manufacturers':
         if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Manufacturer (Denomination, Origin_Country, Website, Contacts, Address , Notes) VALUES (?, ?, ?, ?,?,?)");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['morada'], $_POST['notes']]);
-            $message = "Fabricante criado com sucesso!";
+            $denomination   = $_POST['denomination']   ?? null;
+            $origin_country = $_POST['origin_country'] ?? null;
+            $website        = $_POST['website']        ?? null;
+            $contacts       = $_POST['contacts']       ?? null;
+            $morada         = $_POST['morada']         ?? null;
+            $notes          = $_POST['notes']          ?? null;
+            
+            // evitar duplicados pelo mesmo nome
+            $chk = $pdo->prepare("SELECT Manufacturer_ID FROM T_Manufacturer WHERE Denomination = ?");
+            $chk->execute([$denomination]);
+            if ($chk->fetch()) {
+                $message = "Fabricante já existe.";
+            } else {
+                $stmt = $pdo->prepare("INSERT INTO T_Manufacturer (Denomination, Origin_Country, Website, Contacts, Address , Notes) VALUES (?, ?, ?, ?,?,?)");
+                $stmt->execute([$denomination, $origin_country, $website, $contacts, $morada, $notes]);
+                $lastId = $pdo->lastInsertId();
+                $message = "Fabricante criado com sucesso!";
+                $GLOBALS['last_created'] = ['entity'=>'manufacturers','id'=>$lastId,'denomination'=>$denomination];
+            }
         } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+            $denomination   = $_POST['denomination']   ?? null;
+            $origin_country = $_POST['origin_country'] ?? null;
+            $website        = $_POST['website']        ?? null;
+            $contacts       = $_POST['contacts']       ?? null;
+            $morada         = $_POST['morada']         ?? null;
+            $notes          = $_POST['notes']          ?? null;
+            $id             = $_POST['id']             ?? null;
+
             $stmt = $pdo->prepare("UPDATE T_Manufacturer SET Denomination=?, Origin_Country=?, Website=?, Contacts=?, Address=?, Notes=? WHERE Manufacturer_ID=?");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['morada'], $_POST['notes'], $_POST['id']]);
+            $stmt->execute([$denomination, $origin_country, $website, $contacts, $morada, $notes, $id]);
             $message = "Fabricante atualizado com sucesso!";
         } elseif ($action === 'delete' && isset($_GET['id'])) {
             $stmt = $pdo->prepare("DELETE FROM T_Manufacturer WHERE Manufacturer_ID=?");
@@ -21,13 +54,42 @@ function processCRUD($pdo, $entity , $action){
         break;
         
     case 'suppliers':
-        if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("INSERT INTO T_Supplier (Denomination, Origin_Country, Website, Contacts , Address , Notes) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['morada'], $_POST['notes']]);
-            $message = "Fornecedor criado com sucesso!";
+            if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+            $denomination   = $_POST['denomination']   ?? null;
+            $origin_country = $_POST['origin_country'] ?? null;
+            $website        = $_POST['website']        ?? null;
+            $contacts       = $_POST['contacts']       ?? null;
+            $morada         = $_POST['morada']         ?? null;
+            $notes          = $_POST['notes']          ?? null;
+
+            // evitar duplicados pelo mesmo nome
+            $chk = $pdo->prepare("SELECT Supplier_ID FROM T_Supplier WHERE Denomination = ?");
+            $chk->execute([$denomination]);
+            if ($chk->fetch()) {
+                $message = "Fornecedor já existe.";
+            } else {
+                $stmt = $pdo->prepare("INSERT INTO T_Supplier (Denomination, Origin_Country, Website, Contacts , Address , Notes) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$denomination, $origin_country, $website, $contacts, $morada, $notes]);
+                $lastId = $pdo->lastInsertId();
+                $message = "Fornecedor criado com sucesso!";
+                // guarda info do criado para a resposta AJAX
+                $GLOBALS['last_created'] = [
+                    'entity' => 'suppliers',
+                    'id' => $lastId,
+                    'denomination' => $denomination
+                ];
+            }
         } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+            $denomination   = $_POST['denomination']   ?? null;
+            $origin_country = $_POST['origin_country'] ?? null;
+            $website        = $_POST['website']        ?? null;
+            $contacts       = $_POST['contacts']       ?? null;
+            $morada         = $_POST['morada']         ?? null;
+            $notes          = $_POST['notes']          ?? null;
+            $id             = $_POST['id']             ?? null;
+
             $stmt = $pdo->prepare("UPDATE T_Supplier SET Denomination=?, Origin_Country=?, Website=?, Contacts=?, Address=?, Notes=? WHERE Supplier_ID=?");
-            $stmt->execute([$_POST['denomination'], $_POST['origin_country'], $_POST['website'], $_POST['contacts'], $_POST['morada'], $_POST['notes'], $_POST['id']]);
+            $stmt->execute([$denomination, $origin_country, $website, $contacts, $morada, $notes, $id]);
             $message = "Fornecedor atualizado com sucesso!";
         } elseif ($action === 'delete' && isset($_GET['id'])) {
             $stmt = $pdo->prepare("DELETE FROM T_Supplier WHERE Supplier_ID=?");
@@ -205,6 +267,58 @@ function processCRUD($pdo, $entity , $action){
 
             $assemblyLevel = 0;
 
+            // Verificar se é um protótipo ou montagem
+
+            if (strpos($assemFather, 'prototype') !== false) {
+                // Remove a string " prototype" e converte para inteiro
+                $assemFather = str_replace(' prototype', '', $assemFather);
+
+                // Busca o ID da assembly com o maior nível associado ao protótipo recebido
+                $stmt = $pdo->prepare("
+                    SELECT a.Assembly_ID
+                    FROM T_Assembly a
+                    INNER JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
+                    WHERE p.Prototype_ID = ?
+                    ORDER BY a.Assembly_Level DESC
+                    LIMIT 1
+                ");
+                $stmt->execute([(int)$assemFather]);
+                $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($result) {
+                    $assemFather = (int)$result['Assembly_ID'];
+                    error_log("ID da assembly com o maior nível associado ao protótipo (assemFather): " . $assemFather);
+                } else {
+                    error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $assemFather);
+                    $assemFather = null; // Caso não encontre nenhuma assembly
+                }
+            }
+            if (strpos($assemChild, 'prototype') !== false) {
+                // Remove a string " prototype" e converte para inteiro
+                $assemChild = str_replace(' prototype', '', $assemChild);
+
+                // Busca o ID da assembly com o maior nível associado ao protótipo recebido
+                $stmt = $pdo->prepare("
+                    SELECT a.Assembly_ID
+                    FROM T_Assembly a
+                    INNER JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
+                    WHERE p.Prototype_ID = ?
+                    ORDER BY a.Assembly_Level DESC
+                    LIMIT 1
+                ");
+                $stmt->execute([(int)$assemChild]);
+                $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($result) {
+                    $assemChild = (int)$result['Assembly_ID'];
+                    error_log("ID da assembly com o maior nível associado ao protótipo (assemChild): " . $assemChild);
+
+                } else {
+                    error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $assemChild);
+                    $assemChild = null; // Caso não encontre nenhuma assembly
+                }
+            }
+
             // Verificar se a assembly possui apenas componentes
             if ((!is_null($compFather) || $compFather !== '') && (!is_null($compChild) || $compChild !== '') && (is_null($assemFather) || $assemFather === '') && (is_null($assemChild) || $assemChild === '')) {
                 $assemblyLevel = 0; // Assembly com apenas componentes
@@ -243,61 +357,6 @@ function processCRUD($pdo, $entity , $action){
                 $assemblyLevel = $maxLevel + 1;
                 error_log("Assembly possui outras assemblies associadas. Nível definido como: " . $assemblyLevel);
 
-                
-            // Verificar se é um protótipo ou montagem
-
-            if (strpos($assemFather, 'prototype') !== false) {
-                $assemFather = str_replace(' prototype', '', $assemFather);
-                $stmt = $pdo->prepare("
-                    SELECT a.Assembly_ID
-                    FROM T_Assembly a
-                    INNER JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-                    WHERE p.Prototype_ID = ?
-                    ORDER BY a.Assembly_Level DESC
-                    LIMIT 1
-                ");
-                $stmt->execute([(int)$assemFather]);
-                $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if ($result) {
-                    $assemFather = (int)$result['Assembly_ID'];
-                    error_log("ID da assembly com o maior nível associado ao protótipo (assemFather): " . $assemFather);
-                } else {
-                    error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $assemFather);
-                    $assemFather = null; // Caso não encontre nenhuma assembly
-                }
-            }
-            if (strpos($assemChild, 'prototype') !== false) {
-                $assemChild = str_replace(' prototype', '', $assemChild);
-
-                // Buscar o ID da assembly com o maior nível associada ao protótipo
-                $stmt = $pdo->prepare("
-                    SELECT a.Assembly_ID
-                    FROM T_Assembly a
-                    INNER JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-                    WHERE p.Prototype_ID = ?
-                    ORDER BY a.Assembly_Level DESC
-                    LIMIT 1
-                ");
-                $stmt->execute([(int)$assemChild]);
-                $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if ($result) {
-                    $assemChild = (int)$result['Assembly_ID'];
-                    error_log("ID da assembly com o maior nível associado ao protótipo (assemChild): " . $assemChild);
-                } else {
-                    error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $assemChild);
-                    $assemChild = null; // Caso não encontre nenhuma assembly
-                }
-            }
-       
-            
-            /*if ((!is_null($assemFather) || $assemFather !== '') && !is_numeric($assemFather)) {
-                die("Erro: O valor de Assembly_Father_ID deve ser numérico.");
-            }
-            if ((!is_null($assemChild) || $assemChild !== '') && !is_numeric($assemChild)) {
-                die("Erro: O valor de Assembly_Child_ID deve ser numérico.");
-            }*/
             
             // Obter todos os IDs recursivamente para as relações existentes
                 $allSubIDs = [];
@@ -487,7 +546,6 @@ function processCRUD($pdo, $entity , $action){
                         LEFT JOIN T_Manufacturer m ON c.Manufacturer_ID = m.Manufacturer_ID
                         LEFT JOIN T_Supplier s ON c.Supplier_ID = s.Supplier_ID
                         WHERE c.Denomination LIKE ? 
-                           OR c.Notes_Description LIKE ? 
                            OR c.Reference LIKE ? 
                            OR c.Manufacturer_ref LIKE ? 
                            OR c.Supplier_ref LIKE ?
@@ -497,7 +555,6 @@ function processCRUD($pdo, $entity , $action){
                     ");
                     $stmt->execute([
                         "%$query%",  // Component denomination
-                        "%$query%",  // Component notes
                         "%$query%",  // Component reference
                         "%$query%",  // Manufacturer reference
                         "%$query%",  // Supplier reference
@@ -509,20 +566,20 @@ function processCRUD($pdo, $entity , $action){
                     break;
                     
                 case 'assemblies':
-                    $stmt = $pdo->prepare("SELECT * FROM T_Assembly WHERE Assembly_Designation LIKE ? OR Notes LIKE ? OR Assembly_ID LIKE ? OR Assembly_Reference LIKE ?");
-                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%"]);
+                    $stmt = $pdo->prepare("SELECT * FROM T_Assembly WHERE Assembly_Designation LIKE ? OR Assembly_ID LIKE ? OR Assembly_Reference LIKE ?");
+                    $stmt->execute(["%$query%", "%$query%", "%$query%"]);
                     $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     break;
                     
                 case 'manufacturers':
-                    $stmt = $pdo->prepare("SELECT * FROM T_Manufacturer WHERE Denomination LIKE ? OR Notes LIKE ? OR Origin_Country LIKE ? OR Address LIKE ? OR Manufacturer_ID LIKE ?");
-                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%", "%$query%"]);
+                    $stmt = $pdo->prepare("SELECT * FROM T_Manufacturer WHERE Denomination LIKE ? OR Origin_Country LIKE ? OR Address LIKE ? OR Manufacturer_ID LIKE ?");
+                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%"]);
                     $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     break;
                     
                 case 'suppliers':
-                    $stmt = $pdo->prepare("SELECT * FROM T_Supplier WHERE Denomination LIKE ? OR Notes LIKE ? OR Origin_Country LIKE ? OR Address LIKE ? OR Supplier_ID LIKE ?");
-                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%", "%$query%"]);
+                    $stmt = $pdo->prepare("SELECT * FROM T_Supplier WHERE Denomination LIKE ? OR Origin_Country LIKE ? OR Address LIKE ? OR Supplier_ID LIKE ?");
+                    $stmt->execute(["%$query%", "%$query%", "%$query%", "%$query%"]);
                     $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     break;
                     
@@ -579,6 +636,74 @@ function processCRUD($pdo, $entity , $action){
             $message = "Ação não reconhecida.";
             break;
     }
+    } catch (Exception $e) {
+        // log server-side e devolve mensagem genérica
+        error_log("processor error: " . $e->getMessage());
+        $message = "Erro no processamento (ver logs).";
+    }
     return $message;
+
+    
+
 }
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['entity']) && isset($_POST['action']))) {
+    require_once 'database/database.php';
+    $pdo = connectDB();
+    $entity = $_POST['entity'];
+    $action = $_POST['action'];
+    $message = processCRUD($pdo, $entity, $action);
+
+    // resposta JSON para AJAX — inclui created se existir
+    if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+        header('Content-Type: application/json; charset=utf-8');
+        $response = [
+            'status' => $message ? 'ok' : 'error',
+            'message' => $message
+        ];
+        if (!empty($GLOBALS['last_created'])) {
+            $response['created'] = $GLOBALS['last_created'];
+        }
+        echo json_encode($response);
+        exit;
+    }
+
+    // fallback: redirect de volta para a página que enviou o form (evita sempre ir para components)
+    $return = $_POST['return'] ?? $_SERVER['HTTP_REFERER'] ?? null;
+    $allowed = ['manufacturers','suppliers','components','assembly','prototypes','search'];
+    $defaultEntity = in_array($entity, $allowed, true) ? $entity : 'manufacturers';
+    $default = '?tab=bomlist/bomlist&entity=' . $defaultEntity;
+
+    // validar / normalizar $return — permitir URLs relativas ('?' ou '/' ou referer do mesmo host
+    $validReturn = $default;
+    if (!empty($return)) {
+        $r = trim($return);
+        if ($r !== '') {
+            if ($r[0] === '?' || $r[0] === '/') {
+                $validReturn = $r;
+            } else {
+                $parts = parse_url($r);
+                if (!empty($parts['host']) && $parts['host'] === $_SERVER['HTTP_HOST']) {
+                    $validReturn = $r;
+                }
+            }
+        }
+    }
+
+    $sep = (strpos($validReturn, '?') === false) ? '?' : '&';
+
+    // determinar status para o redirect (ok / warning / error)
+    $status = 'ok';
+    if (empty($message)) {
+        $status = 'error';
+    } elseif (stripos($message, 'já existe') !== false || stripos($message, 'já existe') !== false) {
+        $status = 'warning';
+    } elseif (stripos($message, 'erro') !== false) {
+        $status = 'error';
+    }
+    
+    header('Location: ' . $validReturn . $sep . 'msg=' . urlencode($message));
+    exit;
+}
+
 ?>

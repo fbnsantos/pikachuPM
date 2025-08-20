@@ -439,4 +439,50 @@ function renderAssemblyTreeMixed(array $nodes): string {
     return $html;
 }
 
+
+/**
+ * Busca todos os componentes associados a um fabricante.
+ *
+ * @param PDO $pdo
+ * @param int $manufacturerId
+ * @return array
+ */
+function getComponentsByManufacturer(PDO $pdo, int $manufacturerId): array {
+    $stmt = $pdo->prepare("
+        SELECT c.*,
+               m.Denomination AS Manufacturer_Name,
+               s.Denomination AS Supplier_Name
+        FROM T_Component c
+        LEFT JOIN T_Manufacturer m ON c.Manufacturer_ID = m.Manufacturer_ID
+        LEFT JOIN T_Supplier s ON c.Supplier_ID = s.Supplier_ID
+        WHERE c.Manufacturer_ID = ?
+        ORDER BY c.Denomination
+    ");
+    $stmt->execute([$manufacturerId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Busca todos os componentes associados a um fornecedor.
+ *
+ * @param PDO $pdo
+ * @param int $supplierId
+ * @return array
+ */
+function getComponentsBySupplier(PDO $pdo, int $supplierId): array {
+    $stmt = $pdo->prepare("
+        SELECT c.*,
+               m.Denomination AS Manufacturer_Name,
+               s.Denomination AS Supplier_Name
+        FROM T_Component c
+        LEFT JOIN T_Manufacturer m ON c.Manufacturer_ID = m.Manufacturer_ID
+        LEFT JOIN T_Supplier s ON c.Supplier_ID = s.Supplier_ID
+        WHERE c.Supplier_ID = ?
+        ORDER BY c.Denomination
+    ");
+    $stmt->execute([$supplierId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+
 ?>

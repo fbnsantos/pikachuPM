@@ -185,3 +185,33 @@ function addAssembly(PDO $pdo, array $data) {
         return false;
     }
 }
+
+ /**
+ * Verifica se $searchId aparece em qualquer descendente de $startId.
+ * Retorna true se encontrar (logo, inserir $parent→$child criaria ciclo).
+ *
+ * @param PDO $pdo
+ * @param int $startId     Assembly onde começamos a descer (o "filho" proposto).
+ * @param int $searchId    Assembly que não podemos encontrar abaixo (o "pai" proposto).
+ * @return bool
+ */
+function checkInfRecursion(PDO $pdo, int $startId, int $searchId): bool {
+    $stmt = $pdo->prepare("
+        SELECT Child_Assembly_ID
+        FROM T_Assembly_Assembly
+        WHERE Parent_Assembly_ID = ?
+    ");
+    $stmt->execute([$startId]);
+    $children = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    foreach ($children as $childId) {
+        if ((int)$childId === $searchId) {
+            return true;
+        }
+        // recursão: desce um nível
+        if (checkInfRecursion($pdo, (int)$childId, $searchId)) {
+            return true;
+        }
+    }
+    return false;
+}

@@ -451,23 +451,32 @@ function processCRUD($pdo, $entity , $action){
                 ");
                 $stmt->execute([$assemblyId, $componentId, $quantity]);
                 $message = "Associação de Componente criada com sucesso!";
-            } elseif (!empty($_POST['associated_assembly'])) {
+            } 
+            elseif (!empty($_POST['associated_assembly']))
+            {
                 // Associação com outra assembly:
-                $assemblyId = $_POST['assembly_id']; // assembly principal (já existente)
+                $parentAssemblyId = (int) $_POST['assembly_id'];            // assembly principal (já existente)
+                $childAssemblyId  = (int) $_POST['associated_assembly'];     // assembly filha
                 $childAssemblyId = $_POST['associated_assembly'];
                 $quantity = $_POST['assembly_quantity'] ?: 1;
 
-                $stmt = $pdo->prepare("
-                    INSERT INTO T_Assembly_Assembly (Parent_Assembly_ID, Child_Assembly_ID, Quantity)
-                    VALUES (?, ?, ?)
-                ");
-                $stmt->execute([$assemblyId, $childAssemblyId, $quantity]);
-                $message = "Associação de Assembly criada com sucesso!";
+                if (checkInfRecursion($pdo, $childAssemblyId, $parentAssemblyId)) {
+                    $message = "Adição Inválida: Recursividade Infinita";
+                } else {
+                    $stmt = $pdo->prepare("
+                        INSERT INTO T_Assembly_Assembly (Parent_Assembly_ID, Child_Assembly_ID, Quantity)
+                        VALUES (?, ?, ?)
+                    ");
+                    $stmt->execute([$parentAssemblyId, $childAssemblyId, $quantity]);
+                    $message = "Associação de Assembly criada com sucesso!";
+                }
             } else {
                 $message = "Nenhuma associação foi especificada.";
             }
-
-            header("Location: ?tab=bomlist/bomlist&entity=assembly");
+            $status = 'ok';
+            header("Location: ?tab=bomlist/bomlist&entity=assembly"
+            ."&msg="   . urlencode($message)
+            ."&status=". urlencode($status));
             exit;
         }
         elseif ($action === 'delete' && isset($_GET['id'])) {

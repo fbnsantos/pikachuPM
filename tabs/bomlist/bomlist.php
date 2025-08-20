@@ -710,11 +710,26 @@ $assemblies = getAssemblies($pdo);
                         $filteredAssemblies = array_filter($assemblies, function($asm) {
                             return $asm['Prototype_ID'] == $_GET['prototype_id'];
                         });
-                        // Constrói a árvore mista a partir das assemblies filtradas e dos componentes
-                        $tree = getAssemblyTreeMixed($filteredAssemblies, $components);
+
+                        $ids = array_column($filteredAssemblies, 'Assembly_ID');
+
+                        $assocComps = getAssemblyComponentsByIds($pdo, $ids);
+
+                        // carregar associações de sub‐assemblies
+                        $stmt = $pdo->prepare(
+                        "SELECT * FROM T_Assembly_Assembly WHERE Parent_Assembly_ID IN (" .
+                        implode(',', array_fill(0, count($ids), '?')) . ")"
+                        );
+                        $stmt->execute($ids);
+                        $assocAssems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        $tree = getAssemblyTreeFromList($filteredAssemblies, $assocComps, $assocAssems);
+
                         echo '<div id="assembly-tree">';
-                        echo renderAssemblyTreeMixed($tree);
+                        echo renderAssemblyTreeMixed($tree);  
                         echo '</div>';
+
+                        
+                        
                     } else {
                         echo "<p>Selecione um protótipo para visualizar a árvore de assembly.</p>";
                     }

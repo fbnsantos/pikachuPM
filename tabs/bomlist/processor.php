@@ -138,7 +138,7 @@ function processCRUD($pdo, $entity , $action){
                             Component_Father_Quantity,
                             Component_Child_ID, 
                             Component_Child_Quantity, 
-                            Assembly_Father_ID, 
+                            assembly_id, 
                             Assembly_Father_Quantity,
                             Assembly_Child_ID, 
                             Assembly_Child_Quantity, 
@@ -153,7 +153,7 @@ function processCRUD($pdo, $entity , $action){
                         $assembly['Component_Father_Quantity'],
                         $assembly['Component_Child_ID'],
                         $assembly['Component_Child_Quantity'],
-                        $assembly['Assembly_Father_ID'],
+                        $assembly['Assembly_id'],
                         $assembly['Assembly_Father_Quantity'],
                         $assembly['Assembly_Child_ID'],
                         $assembly['Assembly_Child_Quantity'],
@@ -239,32 +239,30 @@ function processCRUD($pdo, $entity , $action){
         break;
         
     case 'assembly':
+
+        $assemblies = getAssemblies($pdo);
+        $components = getComponents($pdo);
+        
+        // Obter os valores enviados
+        $assemFather = trim($_POST['assembly_id'] ?? '');
+        $compFather = trim($_POST['component_father_id'] ?? '');
+
+        
+        // Obter quantidades
+        $compQty = trim($_POST['component_quantity'] ?? 0);
+        $assemFatherQty = trim($_POST['assembly_quantity'] ?? 0);
+
+        // Print debug information
+        error_log("Valores recebidos: ");
+        error_log("Component_Father_ID: " . $compFather);
+
+        error_log("assembly_id: " . $assemFather);
+
+
         if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
-            $assemblies = getAssemblies($pdo);
-            $components = getComponents($pdo);
-            
-            // Obter os valores enviados
-            $assemFather = trim($_POST['assembly_father_id'] ?? '');
-            $assemChild  = trim($_POST['assembly_child_id'] ?? '');
-            $compFather = trim($_POST['component_father_id'] ?? '');
-            $compChild  = trim($_POST['component_child_id'] ?? '');
-            
-            // Obter quantidades
-            $compFatherQty = trim($_POST['component_father_quantity'] ?? 0);
-            $compChildQty  = trim($_POST['component_child_quantity'] ?? 0);
-            $assemFatherQty = trim($_POST['assembly_father_quantity'] ?? 0);
-            $assemChildQty  = trim($_POST['assembly_child_quantity'] ?? 0);
-
-            // Print debug information
-            error_log("Valores recebidos: ");
-            error_log("Component_Father_ID: " . $compFather);
-            error_log("Component_Child_ID: " . $compChild);
-            error_log("Assembly_Father_ID: " . $assemFather);
-            error_log("Assembly_Child_ID: " . $assemChild);
-            
             $compFatherRecord = findComponentById($components, $compFather);
-            $compChildRecord  = findComponentById($components, $compChild);
+            
 
             $assemblyLevel = 0;
 
@@ -294,47 +292,23 @@ function processCRUD($pdo, $entity , $action){
                     $assemFather = null; // Caso não encontre nenhuma assembly
                 }
             }
-            if (strpos($assemChild, 'prototype') !== false) {
-                // Remove a string " prototype" e converte para inteiro
-                $assemChild = str_replace(' prototype', '', $assemChild);
-
-                // Busca o ID da assembly com o maior nível associado ao protótipo recebido
-                $stmt = $pdo->prepare("
-                    SELECT a.Assembly_ID
-                    FROM T_Assembly a
-                    INNER JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-                    WHERE p.Prototype_ID = ?
-                    ORDER BY a.Assembly_Level DESC
-                    LIMIT 1
-                ");
-                $stmt->execute([(int)$assemChild]);
-                $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if ($result) {
-                    $assemChild = (int)$result['Assembly_ID'];
-                    error_log("ID da assembly com o maior nível associado ao protótipo (assemChild): " . $assemChild);
-
-                } else {
-                    error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $assemChild);
-                    $assemChild = null; // Caso não encontre nenhuma assembly
-                }
-            }
-
+            
+            $assemblyPrice = 0;
             // Verificar se a assembly possui apenas componentes
-            if ((!is_null($compFather) || $compFather !== '') && (!is_null($compChild) || $compChild !== '') && (is_null($assemFather) || $assemFather === '') && (is_null($assemChild) || $assemChild === '')) {
+            if ((!is_null($compFather) || $compFather !== '') && (is_null($assemFather) || $assemFather === '')) {
                 $assemblyLevel = 0; // Assembly com apenas componentes
-                $assemblyPrice = (getComponentPrice($compFatherRecord) * $compFatherQty) + (getComponentPrice($compChildRecord) * $compChildQty);
+                $assemblyPrice = (getComponentPrice($compFatherRecord) * $compQty);
                 error_log("Assembly possui apenas componentes. Nível definido como 0.");
             } else {
                 // Verificar o maior nível das assemblies associadas
                 $maxLevel = 0;
 
-                $priceCompFather = ($compFatherRecord !== null) ? getComponentPrice($compFatherRecord) * $compFatherQty : 0;
-                $priceCompChild  = ($compChildRecord !== null) ? getComponentPrice($compChildRecord) * $compChildQty : 0;
+                $priceCompFather = ($compFatherRecord !== null) ? getComponentPrice($compFatherRecord) * $compQty : 0;
+                
                 $priceAssemFather = ($assemFather !== '' && !is_null($assemFather)) ? getAssemblyPrice(findAssemblyById($assemblies, $assemFather)) * $assemFatherQty : 0;
-                $priceAssemChild  = ($assemChild !== '' && !is_null($assemChild)) ? getAssemblyPrice(findAssemblyById($assemblies, $assemChild)) * $assemChildQty : 0;
+                
 
-                $assemblyPrice = $priceCompFather + $priceCompChild + $priceAssemFather + $priceAssemChild;
+                $assemblyPrice = $priceCompFather + $priceAssemFather;
 
                 if (!is_null($assemFather) || $assemFather !== '') {
                     $stmt = $pdo->prepare("SELECT Assembly_Level FROM T_Assembly WHERE Assembly_ID = ?");
@@ -382,12 +356,6 @@ function processCRUD($pdo, $entity , $action){
             }
             error_log("Assembly_Price: " . $assemblyPrice);
             $valid = false;
-            
-
-
-
-
-           
 
             $stmt = $pdo->prepare("
                 INSERT INTO T_Assembly (
@@ -422,15 +390,13 @@ function processCRUD($pdo, $entity , $action){
             $stmtInsert = $pdo->prepare("
                 INSERT INTO T_Assembly (
                 Prototype_ID, 
-                Assembly_Designation, 
-                Component_Father_ID, Component_Father_Quantity, 
-                Component_Child_ID, Component_Child_Quantity, 
-                Assembly_Father_ID, Assembly_Father_Quantity, 
-                Assembly_Child_ID, Assembly_Child_Quantity, 
+                Assembly_Designation,
+                Assembly_Reference,
                 Assembly_Level,
                 Price,
-                Notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                Notes,
+                Created_Date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
             ");
 
             // Novo Prototype_ID para o qual você quer associar as subassemblies
@@ -452,7 +418,7 @@ function processCRUD($pdo, $entity , $action){
                                     $subAssembly['Component_Father_Quantity'],
                                     $subAssembly['Component_Child_ID'],
                                     $subAssembly['Component_Child_Quantity'],
-                                    $subAssembly['Assembly_Father_ID'],
+                                    $subAssembly['assembly_id'],
                                     $subAssembly['Assembly_Father_Quantity'],
                                     $subAssembly['Assembly_Child_ID'],
                                     $subAssembly['Assembly_Child_Quantity'],
@@ -472,32 +438,39 @@ function processCRUD($pdo, $entity , $action){
             exit;
 
         } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-            $stmt = $pdo->prepare("
-            UPDATE T_Assembly 
-            SET 
-                Prototype_ID = ?,
-                Assembly_Designation = ?,
-                Assembly_Level = ?,
-                Price = ?,
-                Notes = ?
-            WHERE Assembly_ID = ?
-            ");
-            
-            $stmt->execute([
-            $_POST['prototype_id'],
-            $_POST['assembly_designation'] ?: null,
-            $_POST['assembly_level'] ?: 0,
-            $_POST['price'] ?: 0,
-            $_POST['notes'],
-            $_POST['id']
-            ]);
+            // Verifica se a associação é de componente ou de assembly
+            if (!empty($_POST['component_father_id'])) {
+                // Associação com componente:
+                $assemblyId = $_POST['assembly_id']; // assembly principal (já existente)
+                $componentId = $_POST['component_father_id'];
+                $quantity = $_POST['component_quantity'] ?: 1;
 
-            $message = "Montagem atualizada com sucesso!";
+                $stmt = $pdo->prepare("
+                    INSERT INTO T_Assembly_Component (Assembly_ID, Component_ID, Quantity)
+                    VALUES (?, ?, ?)
+                ");
+                $stmt->execute([$assemblyId, $componentId, $quantity]);
+                $message = "Associação de Componente criada com sucesso!";
+            } elseif (!empty($_POST['associated_assembly'])) {
+                // Associação com outra assembly:
+                $assemblyId = $_POST['assembly_id']; // assembly principal (já existente)
+                $childAssemblyId = $_POST['associated_assembly'];
+                $quantity = $_POST['assembly_quantity'] ?: 1;
+
+                $stmt = $pdo->prepare("
+                    INSERT INTO T_Assembly_Assembly (Parent_Assembly_ID, Child_Assembly_ID, Quantity)
+                    VALUES (?, ?, ?)
+                ");
+                $stmt->execute([$assemblyId, $childAssemblyId, $quantity]);
+                $message = "Associação de Assembly criada com sucesso!";
+            } else {
+                $message = "Nenhuma associação foi especificada.";
+            }
+
             header("Location: ?tab=bomlist/bomlist&entity=assembly");
             exit;
-
-
-        } elseif ($action === 'delete' && isset($_GET['id'])) {
+        }
+        elseif ($action === 'delete' && isset($_GET['id'])) {
             $stmt = $pdo->prepare("DELETE FROM T_Assembly WHERE Assembly_ID=?");
             $stmt->execute([$_GET['id']]);
             $message = "Montagem eliminada com sucesso!";

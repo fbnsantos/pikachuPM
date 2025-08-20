@@ -625,7 +625,7 @@ $assemblies = getAssemblies($pdo);
                                         <div class="mb-3">
                                             <label for="component_father_id" class="form-label">Selecionar Componente:</label>
                                         <div class="input-group">
-                                            <select class="form-select" name="component_father_id" id="component_father_id" required>
+                                            <select class="form-select" name="component_father_id" id="component_father_id">
                                                 <option value="">Selecionar componente...</option>
                                                 <?php foreach ($components as $component): ?>
                                                     <option value="<?= $component['Component_ID'] ?>">
@@ -761,9 +761,17 @@ $assemblies = getAssemblies($pdo);
                                 <tbody>
                                     <?php foreach ($filteredAssemblies as $assembly): ?>
                                         <tr>
-                                            <td>
+                                            <td class="assembly-designation" data-assembly-id="<?= $assembly['Assembly_ID'] ?>">
                                                 <?= $assembly['Assembly_Designation'] ?? '-' ?>
-                                            </td>
+                                            
+                                            
+                                                <button 
+                                                    type="button" 
+                                                    class="btn btn-sm btn-outline-info ms-2" 
+                                                    onclick="showAssemblyAssociations(<?= $assembly['Assembly_ID'] ?>)">
+                                                    <i class="bi bi-info-circle"></i> Ver Detalhes
+                                                </button>
+</td>
                                             <td>
                                                 <strong><?= htmlspecialchars($assembly['Prototype_Name']) ?></strong>
                                                 <br><small class="text-muted">v<?= $assembly['Prototype_Version'] ?></small>
@@ -1922,6 +1930,8 @@ $assemblies = getAssemblies($pdo);
         </div>
     </div>
     
+                                    <!-- CÓDIGO PARA OS BOTÕES (POP-UP) -->
+
     <!-- Modal para detalhes do componente -->
     <div class="modal fade" id="componentDetailsModal" tabindex="-1" aria-labelledby="componentDetailsModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg">
@@ -2600,6 +2610,28 @@ $assemblies = getAssemblies($pdo);
   </div>
 </div>
 
+<!-- Modal para ver associações de uma Assembly -->
+<div class="modal fade" id="associatedAssemblyModal" tabindex="-1" aria-labelledby="associatedAssemblyModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="associatedAssemblyModalLabel">Associações da Assembly</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="associatedAssemblyContent">
+                <div class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Carregando...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 
 <!-- Link to assemblyLoader.js -->
 
@@ -2610,6 +2642,7 @@ $assemblies = getAssemblies($pdo);
 <script>
     const selectedPrototype = <?= json_encode($_GET['prototype_id'] ?? '') ?>;
 </script>
+
 <!-- Link to CSS and JS -->
 <link rel="stylesheet" href="tabs/bomlist/bomlist.css">
 <script src="tabs/bomlist/assemblyLoader.js"></script>

@@ -1,4 +1,5 @@
 <?php
+// admin.php - Tab de administração para PikachuPM
 
 // Botão de acesso ao debug (disponível para todos os utilizadores logados)
 echo '<div class="mb-3">';
@@ -7,7 +8,6 @@ echo '<i class="bi bi-bug"></i> Abrir Debug';
 echo '</a>';
 echo '</div>';
 
-// admin.php - Tab de administração para PikachuPM
 // Verificar se o usuário tem permissão de admin (pode ajustar conforme necessário)
 if ($_SESSION['username'] !== 'fbsantos' && $_SESSION['user_id'] != 1) {
     echo "<div class='alert alert-danger'><i class='bi bi-exclamation-triangle'></i> Acesso negado. Esta área é restrita a administradores.</div>";
@@ -17,28 +17,33 @@ if ($_SESSION['username'] !== 'fbsantos' && $_SESSION['user_id'] != 1) {
 include_once __DIR__ . '/../config.php';
 
 // Função para conectar à base de dados
-function conectarDB() {
-    global $db_host, $db_name, $db_user, $db_pass;
+function conectarDB($dbName = null) {
+    global $db_host, $db_name, $db_name_boom, $db_user, $db_pass;
+    
+    // Se não especificar, usar a base de dados principal
+    $database = $dbName ?: $db_name;
+    
     try {
-        $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+        $pdo = new PDO("mysql:host=$db_host;dbname=$database;charset=utf8mb4", $db_user, $db_pass);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         return $pdo;
     } catch(PDOException $e) {
-        throw new Exception("Erro de conexão: " . $e->getMessage());
+        throw new Exception("Erro de conexão com $database: " . $e->getMessage());
     }
 }
 
 // Processar ações
 $mensagem = '';
 $erro = '';
+$dbSelecionada = $_POST['db_selected'] ?? $_GET['db'] ?? $db_name; // Base de dados selecionada
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
-        $pdo = conectarDB();
+        $pdo = conectarDB($dbSelecionada);
         
         // Download da base de dados
         if (isset($_POST['download_db'])) {
-            $filename = "backup_" . $db_name . "_" . date('Y-m-d_H-i-s') . ".sql";
+            $filename = "backup_" . $dbSelecionada . "_" . date('Y-m-d_H-i-s') . ".sql";
             
             header('Content-Type: application/octet-stream');
             header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -46,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Pragma: public');
             
             // Gerar backup SQL
-            echo "-- Backup da base de dados: $db_name\n";
+            echo "-- Backup da base de dados: $dbSelecionada\n";
             echo "-- Data: " . date('Y-m-d H:i:s') . "\n";
             echo "-- Gerado pelo PikachuPM Admin\n\n";
             echo "SET FOREIGN_KEY_CHECKS = 0;\n\n";
@@ -97,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($sqlContent !== false) {
                     // Executar o SQL
                     $pdo->exec($sqlContent);
-                    $mensagem = "Base de dados restaurada com sucesso!";
+                    $mensagem = "Base de dados '$dbSelecionada' restaurada com sucesso!";
                 } else {
                     throw new Exception("Erro ao ler o arquivo SQL.");
                 }
@@ -111,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $tableName = $_POST['table_name'];
             $stmt = $pdo->prepare("DELETE FROM `$tableName`");
             $stmt->execute();
-            $mensagem = "Tabela '$tableName' limpa com sucesso!";
+            $mensagem = "Tabela '$tableName' da base de dados '$dbSelecionada' limpa com sucesso!";
         }
         
         // Apagar tabela completamente
@@ -119,7 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $tableName = $_POST['table_name'];
             $stmt = $pdo->prepare("DROP TABLE `$tableName`");
             $stmt->execute();
-            $mensagem = "Tabela '$tableName' apagada completamente!";
+            $mensagem = "Tabela '$tableName' da base de dados '$dbSelecionada' apagada completamente!";
         }
         
     } catch (Exception $e) {
@@ -129,8 +134,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Obter informações das tabelas
 $tabelasInfo = [];
+$basesDisponiveis = [$db_name, $db_name_boom];
+
 try {
-    $pdo = conectarDB();
+    $pdo = conectarDB($dbSelecionada);
     
     // Obter lista de tabelas
     $stmt = $pdo->query("SHOW TABLES");
@@ -155,7 +162,7 @@ try {
     }
     
 } catch (Exception $e) {
-    $erro = "Erro ao obter informações da base de dados: " . $e->getMessage();
+    $erro = "Erro ao obter informações da base de dados '$dbSelecionada': " . $e->getMessage();
 }
 
 function formatBytes($size, $precision = 2) {
@@ -173,7 +180,16 @@ function formatBytes($size, $precision = 2) {
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <h2><i class="bi bi-gear-fill"></i> Administração da Base de Dados</h2>
                 <div class="text-muted">
-                    <small>Base de dados: <strong><?= htmlspecialchars($db_name) ?></strong></small>
+                    <form method="get" class="d-inline">
+                        <input type="hidden" name="tab" value="admin">
+                        <select name="db" class="form-select form-select-sm d-inline-block w-auto" onchange="this.form.submit()">
+                            <?php foreach ($basesDisponiveis as $db): ?>
+                                <option value="<?= htmlspecialchars($db) ?>" <?= $dbSelecionada === $db ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($db) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </form>
                 </div>
             </div>
 
@@ -201,7 +217,8 @@ function formatBytes($size, $precision = 2) {
                         <div class="card-body">
                             <p class="card-text">Faça o download de toda a base de dados em formato SQL.</p>
                             <form method="post" class="d-inline">
-                                <button type="submit" name="download_db" class="btn btn-primary" onclick="return confirm('Confirma o download da base de dados?')">
+                                <input type="hidden" name="db_selected" value="<?= htmlspecialchars($dbSelecionada) ?>">
+                                <button type="submit" name="download_db" class="btn btn-primary" onclick="return confirm('Confirma o download da base de dados <?= htmlspecialchars($dbSelecionada) ?>?')">
                                     <i class="bi bi-download"></i> Download SQL
                                 </button>
                             </form>
@@ -217,10 +234,11 @@ function formatBytes($size, $precision = 2) {
                         <div class="card-body">
                             <p class="card-text">Restaure a base de dados a partir de um arquivo SQL.</p>
                             <form method="post" enctype="multipart/form-data">
+                                <input type="hidden" name="db_selected" value="<?= htmlspecialchars($dbSelecionada) ?>">
                                 <div class="mb-3">
                                     <input type="file" class="form-control" name="sql_file" accept=".sql" required>
                                 </div>
-                                <button type="submit" name="upload_db" class="btn btn-warning" onclick="return confirm('ATENÇÃO: Esta operação irá substituir todos os dados existentes. Confirma?')">
+                                <button type="submit" name="upload_db" class="btn btn-warning" onclick="return confirm('ATENÇÃO: Esta operação irá substituir todos os dados existentes na base <?= htmlspecialchars($dbSelecionada) ?>. Confirma?')">
                                     <i class="bi bi-upload"></i> Restaurar BD
                                 </button>
                             </form>
@@ -266,13 +284,15 @@ function formatBytes($size, $precision = 2) {
                                             <td><small><?= htmlspecialchars($tabela['collation']) ?></small></td>
                                             <td>
                                                 <div class="btn-group" role="group">
-                                                    <form method="post" class="d-inline" onsubmit="return confirm('ATENÇÃO: Esta ação irá apagar TODOS os dados da tabela <?= htmlspecialchars($tabela['nome']) ?>. A estrutura da tabela será mantida. Confirma?')">
+                                                    <form method="post" class="d-inline" onsubmit="return confirm('ATENÇÃO: Esta ação irá apagar TODOS os dados da tabela <?= htmlspecialchars($tabela['nome']) ?> na base <?= htmlspecialchars($dbSelecionada) ?>. A estrutura da tabela será mantida. Confirma?')">
+                                                        <input type="hidden" name="db_selected" value="<?= htmlspecialchars($dbSelecionada) ?>">
                                                         <input type="hidden" name="table_name" value="<?= htmlspecialchars($tabela['nome']) ?>">
                                                         <button type="submit" name="clear_table" class="btn btn-sm btn-outline-warning" title="Limpar dados da tabela">
                                                             <i class="bi bi-trash"></i> Limpar
                                                         </button>
                                                     </form>
-                                                    <form method="post" class="d-inline ms-1" onsubmit="return confirm('PERIGO: Esta ação irá APAGAR COMPLETAMENTE a tabela <?= htmlspecialchars($tabela['nome']) ?> (estrutura e dados). Esta operação NÃO pode ser desfeita! Tem a certeza absoluta?')">
+                                                    <form method="post" class="d-inline ms-1" onsubmit="return confirm('PERIGO: Esta ação irá APAGAR COMPLETAMENTE a tabela <?= htmlspecialchars($tabela['nome']) ?> da base <?= htmlspecialchars($dbSelecionada) ?> (estrutura e dados). Esta operação NÃO pode ser desfeita! Tem a certeza absoluta?')">
+                                                        <input type="hidden" name="db_selected" value="<?= htmlspecialchars($dbSelecionada) ?>">
                                                         <input type="hidden" name="table_name" value="<?= htmlspecialchars($tabela['nome']) ?>">
                                                         <button type="submit" name="drop_table" class="btn btn-sm btn-danger" title="Apagar tabela completamente">
                                                             <i class="bi bi-trash-fill"></i> Apagar
@@ -311,12 +331,16 @@ function formatBytes($size, $precision = 2) {
                         <div class="card-body">
                             <table class="table table-sm">
                                 <tr>
+                                    <td><strong>Base de Dados Ativa:</strong></td>
+                                    <td><?= htmlspecialchars($dbSelecionada) ?></td>
+                                </tr>
+                                <tr>
                                     <td><strong>Host:</strong></td>
                                     <td><?= htmlspecialchars($db_host) ?></td>
                                 </tr>
                                 <tr>
-                                    <td><strong>Base de Dados:</strong></td>
-                                    <td><?= htmlspecialchars($db_name) ?></td>
+                                    <td><strong>Bases Disponíveis:</strong></td>
+                                    <td><?= htmlspecialchars($db_name) ?>, <?= htmlspecialchars($db_name_boom) ?></td>
                                 </tr>
                                 <tr>
                                     <td><strong>Utilizador:</strong></td>

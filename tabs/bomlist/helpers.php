@@ -165,3 +165,122 @@ function generateAssemblyReference(PDO $pdo, string $category): ?string {
     // Formata sempre com 6 dígitos
     return sprintf("%s-%06d", $prefix, $num);
 }
+
+function addAssembly(PDO $pdo, array $data) {
+    // Exemplo de inserção na tabela T_Assembly – ajuste os campos conforme sua estrutura atual
+    $stmt = $pdo->prepare("
+        INSERT INTO T_Assembly (Assembly_Designation, Prototype_ID, Assembly_Reference, Assembly_Quantity, Notes, Created_Date)
+        VALUES (?, ?, ?, ?, ?, NOW())
+    ");
+    $result = $stmt->execute([
+        $data['assembly_designation'],
+        $data['prototype_id'],
+        $data['assembly_ref'],
+        $data['assembly_quantity'],
+        $data['notes']
+    ]);
+    if ($result) {
+        return $pdo->lastInsertId();
+    } else {
+        return false;
+    }
+}
+
+ /**
+ * Verifica se $searchId aparece em qualquer descendente de $startId.
+ * Retorna true se encontrar (logo, inserir $parent→$child criaria ciclo).
+ *
+ * @param PDO $pdo
+ * @param int $startId     Assembly onde começamos a descer (o "filho" proposto).
+ * @param int $searchId    Assembly que não podemos encontrar abaixo (o "pai" proposto).
+ * @return bool
+ */
+function checkInfRecursion(PDO $pdo, int $startId, int $searchId): bool {
+    $stmt = $pdo->prepare("
+        SELECT Child_Assembly_ID
+        FROM T_Assembly_Assembly
+        WHERE Parent_Assembly_ID = ?
+    ");
+    $stmt->execute([$startId]);
+    $children = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    foreach ($children as $childId) {
+        if ((int)$childId === $searchId) {
+            return true;
+        }
+        // recursão: desce um nível
+        if (checkInfRecursion($pdo, (int)$childId, $searchId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+ /**
+ * Duplica recursivamente uma assembly (com suas relações) e retorna o novo Assembly_ID.
+ *
+ * @param PDO $pdo Conexão.
+ * @param int $sourceAssemblyId ID da assembly original (fonte).
+ * @param int $newPrototypeId Novo Prototype_ID que deve ser associado à cópia.
+ * @return int Novo Assembly_ID duplicado.
+ * @throws Exception Se não encontrar a assembly fonte.
+ */
+function duplicateAssemblyTree(PDO $pdo, int $sourceAssemblyId, int $newPrototypeId): int {
+    // Buscar a assembly fonte
+    $stmt = $pdo->prepare("SELECT * FROM T_Assembly WHERE Assembly_ID = ?");
+    $stmt->execute([$sourceAssemblyId]);
+    $source = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$source) {
+        throw new Exception("Assembly não encontrada: $sourceAssemblyId");
+    }
+    
+    // Gerar uma nova referência para a cópia (pode usar a função já existente)
+    $newRef = generateAssemblyReference($pdo, $newPrototypeId, $source['Assembly_Designation']);
+    $createdDate = date('Y-m-d H:i:s');
+    
+    // Inserir a nova assembly com os mesmos dados, mas com Prototype_ID novo
+    $stmtInsert = $pdo->prepare("
+        INSERT INTO T_Assembly (
+            Prototype_ID, 
+            Assembly_Designation, 
+            Assembly_Reference, 
+            Assembly_Level, 
+            Price, 
+            Notes, 
+            Created_Date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ");
+    $stmtInsert->execute([
+        $newPrototypeId,
+        $source['Assembly_Designation'],
+        $newRef,
+        $source['Assembly_Level'], // Pode recalcular se necessário
+        $source['Price'],
+        $source['Notes'],
+        $createdDate
+    ]);
+    $newAssemblyId = (int)$pdo->lastInsertId();
+
+    // Duplicar as relações com componentes (na tabela T_Assembly_Component)
+    $stmtGetComps = $pdo->prepare("SELECT * FROM T_Assembly_Component WHERE Assembly_ID = ?");
+    $stmtGetComps->execute([$sourceAssemblyId]);
+    $components = $stmtGetComps->fetchAll(PDO::FETCH_ASSOC);
+    $stmtInsertComp = $pdo->prepare("INSERT INTO T_Assembly_Component (Assembly_ID, Component_ID, Quantity) VALUES (?, ?, ?)");
+    foreach ($components as $comp) {
+        $stmtInsertComp->execute([$newAssemblyId, $comp['Component_ID'], $comp['Quantity']]);
+    }
+
+    // Duplicar as subassemblies (na tabela T_Assembly_Assembly)
+    $stmtGetSub = $pdo->prepare("SELECT * FROM T_Assembly_Assembly WHERE Parent_Assembly_ID = ?");
+    $stmtGetSub->execute([$sourceAssemblyId]);
+    $childRelations = $stmtGetSub->fetchAll(PDO::FETCH_ASSOC);
+    $stmtInsertSub = $pdo->prepare("INSERT INTO T_Assembly_Assembly (Parent_Assembly_ID, Child_Assembly_ID, Quantity) VALUES (?, ?, ?)");
+    foreach ($childRelations as $rel) {
+        // Duplica a assembly filha recursivamente
+        $childNewId = duplicateAssemblyTree($pdo, (int)$rel['Child_Assembly_ID'], $newPrototypeId);
+        // Cria a nova relação usando o novo ID da assembly duplicada
+        $stmtInsertSub->execute([$newAssemblyId, $childNewId, $rel['Quantity']]);
+    }
+    
+    return $newAssemblyId;
+}

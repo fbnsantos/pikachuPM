@@ -1,3 +1,115 @@
+function showAssociationFields(value) {
+    const associationFields = document.getElementById('association-fields');
+    associationFields.style.display = value ? 'block' : 'none';
+}
+
+function showAssemblyFields() {
+    document.getElementById('assembly-association-fields').style.display = 'block';
+    document.getElementById('component-association-fields').style.display = 'none';
+}
+
+function showComponentFields() {
+    document.getElementById('assembly-association-fields').style.display = 'none';
+    document.getElementById('component-association-fields').style.display = 'block';
+}
+
+// Função que carrega os dados de associações de assemblies via AJAX
+
+
+function loadAllAssociations() {
+    return fetch('tabs/bomlist/assemblyAssociations.php')
+        .then(response => response.json())
+        .catch(error => {
+            console.error("Erro ao carregar as associações:", error);
+            return { components: [], assemblies: [] };
+        });
+}
+
+
+
+
+
+// Função para mostrar associações de uma assembly (filtrando os registros conforme o assemblyId)
+
+
+// Função para mostrar associações de uma assembly (filtrando os registros conforme o assemblyId)
+
+
+function showAssemblyAssociations(assemblyId) {
+    if (!assemblyId) return;
+
+    // Exibe spinner enquanto carrega
+    const modalBody = document.getElementById('associatedAssemblyContent');
+
+    modalBody.innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Carregando...</span>
+            </div>
+        </div>`;
+    loadAllAssociations().then(data => {
+        // Filtra os registros que pertencem ao assembly selecionado
+        const compAssoc = data.components.filter(item => item.Assembly_ID == assemblyId);
+        const assemAssoc = data.assemblies.filter(item => item.Parent_Assembly_ID == assemblyId);
+        // Monta o HTML para os componentes associados
+        let compHtml = compAssoc.length
+            ? `<table class="table table-bordered table-fixed">
+                   <thead>
+                       <tr>
+                           <th class="col-id">ID</th>
+                           <th class="col-designacao">Designação</th>
+                           <th class="col-quantidade">Quantidade</th>
+                       </tr>
+                   </thead>
+                   <tbody>`
+            : '<div class="alert alert-info">Nenhum componente associado.</div>';
+
+
+        compAssoc.forEach(item => {
+            compHtml += `<tr>
+                            <td class="col-id">${item.Component_ID}</td>
+                            <td class="col-designacao">${item.Denomination || '-'}</td>
+                            <td class="col-quantidade">${item.Quantity}</td>
+                         </tr>`;
+        });
+
+
+        if (compAssoc.length) compHtml += '</tbody></table>';
+        // Monta o HTML para as assemblies associadas
+        let assemHtml = assemAssoc.length
+            ? `<table class="table table-bordered table-fixed">
+                   <thead>
+                       <tr>
+                           <th class="col-id">ID</th>
+                           <th class="col-designacao">Designação</th>
+                           <th class="col-quantidade">Quantidade</th>
+                       </tr>
+                   </thead>
+                   <tbody>`
+            : '<div class="alert alert-info">Nenhuma assembly associada.</div>';
+
+
+        assemAssoc.forEach(item => {
+            assemHtml += `<tr>
+                            <td class="col-id">${item.Child_Assembly_ID}</td>
+                            <td class="col-designacao">${item.Assembly_Designation || '-'}</td>
+                            <td class="col-quantidade">${item.Quantity}</td>
+                         </tr>`;
+        });
+
+
+        if(assemAssoc.length) assemHtml += '</tbody></table>';
+        // Junta as seções e atualiza o modal
+        const html = `<h6>Componentes Associados</h6>${compHtml}<hr>
+                      <h6>Assemblies Associadas</h6>${assemHtml}`;
+        modalBody.innerHTML = html;
+        const modal = new bootstrap.Modal(document.getElementById('associatedAssemblyModal'));
+        modal.show();
+    });
+}
+
+
+
 document.addEventListener('DOMContentLoaded', function() {
     const assemblyTypeSelection = document.getElementById('assembly-type-selection');
     
@@ -90,61 +202,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
         // Função para mostrar detalhes do componente
-    function showComponentDetails(componentId) {
-        if (!componentId) return;
-        
-        // Encontrar o componente selecionado nos dados
-        const selectedComponent = components.find(c => c.Component_ID == componentId);
-        
-        if (selectedComponent) {
-            // Atualizar o conteúdo do modal com os detalhes do componente
-            const modalContent = document.getElementById('componentDetailsContent');
-            
-            // Criar tabela HTML com os detalhes do componente
-            let html = `
-                <table class="table table-bordered">
-                    <tr>
-                        <th>ID</th>
-                        <td>${selectedComponent.Component_ID}</td>
-                    </tr>
-                    <tr>
-                        <th>Denominação</th>
-                        <td>${selectedComponent.Denomination}</td>
-                    </tr>
-                    <tr>
-                        <th>Tipo</th>
-                        <td>${selectedComponent.General_Type || '-'}</td>
-                    </tr>
-                    <tr>
-                        <th>Fabricante</th>
-                        <td>${selectedComponent.Manufacturer_Name || '-'}</td>
-                    </tr>
-                    <tr>
-                        <th>Fornecedor</th>
-                        <td>${selectedComponent.Supplier_Name || '-'}</td>
-                    </tr>
-                    <tr>
-                        <th>Preço</th>
-                        <td>${selectedComponent.Price ? selectedComponent.Price + ' €' : '-'}</td>
-                    </tr>
-                    <tr>
-                        <th>Stock</th>
-                        <td>${selectedComponent.Stock_Quantity}</td>
-                    </tr>
-                    <tr>
-                        <th>Notas/Descrição</th>
-                        <td>${selectedComponent.Notes_Description || '-'}</td>
-                    </tr>
-                </table>
-            `;
-            
-            modalContent.innerHTML = html;
-            
-            // Abrir o modal
-            const modal = new bootstrap.Modal(document.getElementById('componentDetailsModal'));
-            modal.show();
-        }
-    }
+
     
     // Configurar eventos para o componente pai
     if (componentFatherSelect && componentDetailsBtn) {
@@ -262,6 +320,7 @@ document.addEventListener('DOMContentLoaded', function() {
         modal.show();
     };
 
+    
 
 
     if (assemblyTypeSelection) {    
@@ -306,6 +365,26 @@ document.addEventListener('DOMContentLoaded', function() {
             document.querySelector('[name="assembly_child_id"]').removeAttribute('required');
             document.querySelector('[name="assembly_child_quantity"]').removeAttribute('required');
         }
+
+
+        // Atribuir eventos aos botões
+        document.addEventListener('DOMContentLoaded', function() {
+            const btnComponent = document.getElementById('btn-add-component');
+            const btnAssembly = document.getElementById('btn-add-assembly');
+            
+            if (btnComponent) {
+                btnComponent.addEventListener('click', function() {
+                    // Por exemplo, para "Adicionar Componente" usamos o tipo component_component
+                    showAssemblyFields('component_component');
+                });
+            }
+            if (btnAssembly) {
+                btnAssembly.addEventListener('click', function() {
+                    // Se desejar "Adicionar Assembly" use outro valor, aqui 'component_assembly' ou 'assembly_assembly'
+                    showAssemblyFields('component_assembly');
+                });
+            }
+        });
         
         // Initialize by showing component-component fields (default)
         hideAndClearAllFields();
@@ -604,3 +683,63 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // --- fim AJAX helpers ---
+
+    function showComponentDetails(componentId) {
+        if (!componentId) return;
+        
+        // Encontrar o componente selecionado nos dados
+        const selectedComponent = components.find(c => c.Component_ID == componentId);
+        
+        if (selectedComponent) {
+            // Atualizar o conteúdo do modal com os detalhes do componente
+            const modalContent = document.getElementById('componentDetailsContent');
+            
+            // Criar tabela HTML com os detalhes do componente
+            let html = `
+                <table class="table table-bordered">
+                    <tr>
+                        <th>ID</th>
+                        <td>${selectedComponent.Component_ID}</td>
+                    </tr>
+                    <tr>
+                        <th>Referência</th>
+                        <td>${selectedComponent.Reference || '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Denominação</th>
+                        <td>${selectedComponent.Denomination}</td>
+                    </tr>
+                    <tr>
+                        <th>Tipo</th>
+                        <td>${selectedComponent.General_Type || '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Fabricante</th>
+                        <td>${selectedComponent.Manufacturer_Name || '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Fornecedor</th>
+                        <td>${selectedComponent.Supplier_Name || '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Preço</th>
+                        <td>${selectedComponent.Price ? selectedComponent.Price + ' €' : '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Stock</th>
+                        <td>${selectedComponent.Stock_Quantity}</td>
+                    </tr>
+                    <tr>
+                        <th>Notas/Descrição</th>
+                        <td>${selectedComponent.Notes_Description || '-'}</td>
+                    </tr>
+                </table>
+            `;
+            
+            modalContent.innerHTML = html;
+            
+            // Abrir o modal
+            const modal = new bootstrap.Modal(document.getElementById('componentDetailsModal'));
+            modal.show();
+        }
+    }

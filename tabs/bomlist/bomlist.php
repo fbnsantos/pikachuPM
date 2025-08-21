@@ -625,7 +625,7 @@ $assemblies = getAssemblies($pdo);
                                         <div class="mb-3">
                                             <label for="component_father_id" class="form-label">Selecionar Componente:</label>
                                         <div class="input-group">
-                                            <select class="form-select" name="component_father_id" id="component_father_id">
+                                            <select class="form-select" name="component_father_id" id="component_father_id" required>
                                                 <option value="">Selecionar componente...</option>
                                                 <?php foreach ($components as $component): ?>
                                                     <option value="<?= $component['Component_ID'] ?>">
@@ -687,29 +687,13 @@ $assemblies = getAssemblies($pdo);
                     <?php
                     if (isset($_GET['prototype_id']) && $_GET['prototype_id']) {
                         // Filtrar as assemblies para o protótipo selecionado
-                        $filteredAssemblies = array_filter($assemblies, function($assembly) {
-                            return $assembly['Prototype_ID'] == $_GET['prototype_id'];
+                        $filteredAssemblies = array_filter($assemblies, function($asm) {
+                            return $asm['Prototype_ID'] == $_GET['prototype_id'];
                         });
-                        
-                        $ids = array_column($filteredAssemblies, 'Assembly_ID');
-                        
-                        if (count($ids) > 0) {
-                            $stmt = $pdo->prepare(
-                                "SELECT * FROM T_Assembly_Assembly WHERE Parent_Assembly_ID IN (" .
-                                implode(',', array_fill(0, count($ids), '?')) . ")"
-                            );
-                            $stmt->execute($ids);
-                            $assocAssems = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                        } else {
-                            $assocAssems = [];
-                        }
-                        
-                        $assocComps = getAssemblyComponentsByIds($pdo, $ids);
-                        
-                        $tree = getAssemblyTreeFromList($filteredAssemblies, $assocComps, $assocAssems);
-                        
+                        // Constrói a árvore mista a partir das assemblies filtradas e dos componentes
+                        $tree = getAssemblyTreeMixed($filteredAssemblies, $components);
                         echo '<div id="assembly-tree">';
-                        echo renderAssemblyTreeMixed($tree);  
+                        echo renderAssemblyTreeMixed($tree);
                         echo '</div>';
                     } else {
                         echo "<p>Selecione um protótipo para visualizar a árvore de assembly.</p>";
@@ -757,17 +741,9 @@ $assemblies = getAssemblies($pdo);
                                 <tbody>
                                     <?php foreach ($filteredAssemblies as $assembly): ?>
                                         <tr>
-                                            <td class="assembly-designation" data-assembly-id="<?= $assembly['Assembly_ID'] ?>">
+                                            <td>
                                                 <?= $assembly['Assembly_Designation'] ?? '-' ?>
-                                            
-                                            
-                                                <button 
-                                                    type="button" 
-                                                    class="btn btn-sm btn-outline-info ms-2" 
-                                                    onclick="showAssemblyAssociations(<?= $assembly['Assembly_ID'] ?>)">
-                                                    <i class="bi bi-info-circle"></i> Ver Detalhes
-                                                </button>
-</td>
+                                            </td>
                                             <td>
                                                 <strong><?= htmlspecialchars($assembly['Prototype_Name']) ?></strong>
                                                 <br><small class="text-muted">v<?= $assembly['Prototype_Version'] ?></small>
@@ -804,87 +780,83 @@ $assemblies = getAssemblies($pdo);
                         </div>
                         
                         <?php if (isset($_GET['prototype_id']) && $_GET['prototype_id']): ?>
-    <!-- BOM Summary para o protótipo selecionado -->
-    <div class="mt-4">
-        <h6><i class="bi bi-list-check"></i> Resumo da BOM</h6>
-        <?php
-        // Calcular total de componentes necessários usando a nova tabela de junção
-        $stmt = $pdo->prepare("
-            SELECT 
-                c.Component_ID,
-                c.Denomination,
-                c.General_Type,
-                c.Price,
-                SUM(ac.Quantity) as Total_Quantity,
-                c.Stock_Quantity,
-                m.Denomination as Manufacturer_Name,
-                s.Denomination as Supplier_Name
-            FROM T_Assembly_Component ac
-            JOIN T_Assembly a ON ac.Assembly_ID = a.Assembly_ID
-            JOIN T_Component c ON ac.Component_ID = c.Component_ID
-            LEFT JOIN T_Manufacturer m ON c.Manufacturer_ID = m.Manufacturer_ID
-            LEFT JOIN T_Supplier s ON c.Supplier_ID = s.Supplier_ID
-            WHERE a.Prototype_ID = ?
-            GROUP BY c.Component_ID
-            ORDER BY c.Denomination
-        ");
-        $stmt->execute([$_GET['prototype_id']]);
-        $bomSummary = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        if ($bomSummary):
-        ?>
-            <div class="table-responsive">
-                <table class="table table-sm table-bordered">
-                    <thead class="table-secondary">
-                        <tr>
-                            <th>Componente</th>
-                            <th>Tipo</th>
-                            <th>Fabricante/Fornecedor</th>
-                            <th>Qtd Necessária</th>
-                            <th>Stock</th>
-                            <th>Preço Unit.</th>
-                            <th>Preço Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php 
-                        $totalBOMPrice = 0;
-                        foreach ($bomSummary as $item): 
-                            $itemTotal = $item['Price'] ? $item['Price'] * $item['Total_Quantity'] : 0;
-                            $totalBOMPrice += $itemTotal;
-                            $stockStatus = $item['Stock_Quantity'] >= $item['Total_Quantity'] ? 'success' : 'danger';
-                        ?>
-                            <tr>
-                                <td><strong><?= htmlspecialchars($item['Denomination']) ?></strong></td>
-                                <td><?= htmlspecialchars($item['General_Type']) ?></td>
-                                <td>
-                                    <?= htmlspecialchars($item['Manufacturer_Name']) ?>
-                                    <?php if ($item['Supplier_Name']): ?>
-                                        <br><small class="text-muted"><?= htmlspecialchars($item['Supplier_Name']) ?></small>
-                                    <?php endif; ?>
-                                </td>
-                                <td><span class="badge bg-primary"><?= $item['Total_Quantity'] ?></span></td>
-                                <td><span class="badge bg-<?= $stockStatus ?>"><?= $item['Stock_Quantity'] ?></span></td>
-                                <td><?= $item['Price'] ? number_format($item['Price'], 2) . '€' : '-' ?></td>
-                                <td><strong><?= $itemTotal ? number_format($itemTotal, 2) . '€' : '-' ?></strong></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                    <tfoot class="table-info">
-                        <tr>
-                            <th colspan="6">Total da BOM:</th>
-                            <th><?= number_format($totalBOMPrice, 2) ?>€</th>
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>
-        <?php else: ?>
-            <div class="alert alert-info">
-                <i class="bi bi-info-circle"></i> Nenhum componente definido para este protótipo.
-            </div>
-        <?php endif; ?>
-    </div>
-<?php endif; ?>
+                            <!-- BOM Summary para o protótipo selecionado -->
+                            <div class="mt-4">
+                                <h6><i class="bi bi-list-check"></i> Resumo da BOM</h6>
+                                <?php
+                                // Calcular total de componentes necessários
+                                $stmt = $pdo->prepare("
+                                    SELECT cc.Component_ID, cc.Denomination, cc.General_Type, cc.Price,
+                                           SUM(aa.Quantity + ac.Quantity) as Total_Quantity,
+                                           cc.Stock_Quantity,
+                                           m.Denomination as Manufacturer_Name,
+                                           s.Denomination as Supplier_Name
+                                    FROM T_Assembly a
+                                    JOIN T_Assembly_Component ac ON a.Assembly_ID = ac.Assembly_ID
+                                    JOIN T_Component cc ON ac.Component_ID = cc.Component_ID
+                                    LEFT JOIN T_Manufacturer m ON cc.Manufacturer_ID = m.Manufacturer_ID
+                                    LEFT JOIN T_Supplier s ON cc.Supplier_ID = s.Supplier_ID
+                                    WHERE a.Prototype_ID = ?
+                                    GROUP BY cc.Component_ID
+                                    ORDER BY cc.Denomination
+                                ");
+                                $stmt->execute([$_GET['prototype_id']]);
+                                $bomSummary = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                                
+                                if ($bomSummary):
+                                ?>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-bordered">
+                                            <thead class="table-secondary">
+                                                <tr>
+                                                    <th>Componente</th>
+                                                    <th>Tipo</th>
+                                                    <th>Fabricante/Fornecedor</th>
+                                                    <th>Qtd Necessária</th>
+                                                    <th>Stock</th>
+                                                    <th>Preço Unit.</th>
+                                                    <th>Preço Total</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <?php 
+                                                $totalBOMPrice = 0;
+                                                foreach ($bomSummary as $item): 
+                                                    $itemTotal = $item['Price'] ? $item['Price'] * $item['Total_Quantity'] : 0;
+                                                    $totalBOMPrice += $itemTotal;
+                                                    $stockStatus = $item['Stock_Quantity'] >= $item['Total_Quantity'] ? 'success' : 'danger';
+                                                ?>
+                                                    <tr>
+                                                        <td><strong><?= htmlspecialchars($item['Denomination']) ?></strong></td>
+                                                        <td><?= htmlspecialchars($item['General_Type']) ?></td>
+                                                        <td>
+                                                            <?= htmlspecialchars($item['Manufacturer_Name']) ?>
+                                                            <?php if ($item['Supplier_Name']): ?>
+                                                                <br><small class="text-muted"><?= htmlspecialchars($item['Supplier_Name']) ?></small>
+                                                            <?php endif; ?>
+                                                        </td>
+                                                        <td><span class="badge bg-primary"><?= $item['Total_Quantity'] ?></span></td>
+                                                        <td><span class="badge bg-<?= $stockStatus ?>"><?= $item['Stock_Quantity'] ?></span></td>
+                                                        <td><?= $item['Price'] ? number_format($item['Price'], 2) . '€' : '-' ?></td>
+                                                        <td><strong><?= $itemTotal ? number_format($itemTotal, 2) . '€' : '-' ?></strong></td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                            <tfoot class="table-info">
+                                                <tr>
+                                                    <th colspan="6">Total da BOM:</th>
+                                                    <th><?= number_format($totalBOMPrice, 2) ?>€</th>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
+                                <?php else: ?>
+                                    <div class="alert alert-info">
+                                        <i class="bi bi-info-circle"></i> Nenhum componente definido para este protótipo.
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <?php
@@ -1722,40 +1694,89 @@ $assemblies = getAssemblies($pdo);
             </div>
         </div>
 
-    <?php elseif ($entity === 'search'): ?>
-        <!-- SEARCH -->
-        <div class="row">
-            <div class="col-md-12">
+<?php elseif ($entity === 'search'): ?>
+    <!-- SEARCH -->
+    <!-- Search Form - Always visible -->
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="bi bi-search"></i> Pesquisar</h5>
+                </div>
+                <div class="card-body">
+                    <form method="GET" action="">
+                        <input type="hidden" name="tab" value="bomlist/bomlist">
+                        <input type="hidden" name="entity" value="search">
+                        <input type="hidden" name="action" value="search">
+                        <div class="mb-3">
+                            <label for="query" class="form-label">Termo de Pesquisa</label>
+                            <input type="text" class="form-control" name="query" id="query" 
+                                   value="<?= isset($GLOBALS['search_query']) ? htmlspecialchars($GLOBALS['search_query']) : '' ?>" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="area" class="form-label">Pesquisar em</label>
+                            <select class="form-select" name="area" id="area">
+                                <option value="components" <?= (isset($GLOBALS['search_area']) && $GLOBALS['search_area'] === 'components') ? 'selected' : '' ?>>Componentes</option>
+                                <option value="prototypes" <?= (isset($GLOBALS['search_area']) && $GLOBALS['search_area'] === 'prototypes') ? 'selected' : '' ?>>Protótipos</option>
+                                <option value="assemblies" <?= (isset($GLOBALS['search_area']) && $GLOBALS['search_area'] === 'assemblies') ? 'selected' : '' ?>>Montagens</option>
+                                <option value="manufacturers" <?= (isset($GLOBALS['search_area']) && $GLOBALS['search_area'] === 'manufacturers') ? 'selected' : '' ?>>Fabricantes</option>
+                                <option value="suppliers" <?= (isset($GLOBALS['search_area']) && $GLOBALS['search_area'] === 'suppliers') ? 'selected' : '' ?>>Fornecedores</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-search"></i> Pesquisar
+                        </button>
+                        <?php if (isset($GLOBALS['search_query'])): ?>
+                            <a href="?tab=bomlist/bomlist&entity=search" class="btn btn-outline-secondary">
+                                <i class="bi bi-x-circle"></i> Limpar
+                            </a>
+                        <?php endif; ?>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search Results -->
+    <?php if (!empty($GLOBALS['search_results'])): ?>
+        <div class="row mt-4">
+            <div class="col-12">
                 <div class="card">
                     <div class="card-header">
-                        <h5><i class="bi bi-search"></i> Pesquisa Avançada</h5>
+                        <h5><i class="bi bi-search"></i> Resultados da Pesquisa (<?= count($GLOBALS['search_results']) ?>)</h5>
+                        <small class="text-muted">Pesquisa por "<?= htmlspecialchars($GLOBALS['search_query']) ?>" em <?= ucfirst($GLOBALS['search_area']) ?></small>
                     </div>
                     <div class="card-body">
-                        <form method="GET" action="?tab=bomlist/bomlist&entity=search">
-                            <input type="hidden" name="tab" value="bomlist/bomlist">
-                            <input type="hidden" name="entity" value="search">
-                            <input type="hidden" name="action" value="search">
-                            <div class="mb-3">
-                                <label for="query" class="form-label">Termo de Pesquisa</label>
-                                <input type="text" class="form-control " name="query" id="query" required>
+                        <?php foreach ($GLOBALS['search_results'] as $row): ?>
+                            <div class="border-bottom pb-2 mb-2">
+                                <?php if ($GLOBALS['search_area'] === 'components'): ?>
+                                    <h6><?= htmlspecialchars($row['Denomination']) ?> <small class="text-muted">(<?= htmlspecialchars($row['Reference']) ?>)</small></h6>
+                                    <?php if (!empty($row['Manufacturer_Name'])): ?>
+                                        <small class="text-muted">Fabricante: <?= htmlspecialchars($row['Manufacturer_Name']) ?></small><br>
+                                    <?php endif; ?>
+                                    <?php if (!empty($row['Supplier_Name'])): ?>
+                                        <small class="text-muted">Fornecedor: <?= htmlspecialchars($row['Supplier_Name']) ?></small><br>
+                                    <?php endif; ?>
+                                    <button type='button' class='btn btn-outline-info btn-sm' onclick='showComponentDetails(<?= htmlspecialchars($row['Component_ID']) ?>)'>
+                                        <i class='bi bi-info-circle'></i> Ver Detalhes
+                                    </button>
+                                <?php else: ?>
+                                    <h6><?= htmlspecialchars($row['Denomination'] ?? $row['Name'] ?? $row['Assembly_Designation']) ?></h6>
+                                    <p class="mb-0"><?= htmlspecialchars($row['Notes'] ?? $row['Description'] ?? '') ?></p>
+                                <?php endif; ?>
                             </div>
-                            <div class="mb-3">
-                                <label for="area" class="form-label">Pesquisar em</label>
-                                <select class="form-select" name="area" id="area">
-                                    <option value="components">Componentes</option>
-                                    <option value="prototypes">Protótipos</option>
-                                    <option value="assemblies">Assemblies</option>
-                                    <option value="manufacturers">Fabricantes</option>
-                                    <option value="suppliers">Fornecedores</option>
-                                </select>
-                            </div>
-                            <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-search"></i> Pesquisar
-                            </button>
-                        </form>
+                        <?php endforeach; ?>
                     </div>
                 </div>
-                <?php endif; ?>
+            </div>
+        </div>
+
+    <?php elseif (isset($GLOBALS['search_query'])): ?>
+        <div class="alert alert-info mt-4">
+            <i class="bi bi-info-circle"></i> Nenhum resultado encontrado para '<strong><?= htmlspecialchars($GLOBALS['search_query']) ?></strong>' em <?= ucfirst($GLOBALS['search_area']) ?>.
+        </div>
+    <?php endif; ?>
+<?php endif; ?>
 
     <!-- Statistics Dashboard -->
     <div class="row mt-4">
@@ -1931,8 +1952,6 @@ $assemblies = getAssemblies($pdo);
         </div>
     </div>
     
-                                    <!-- CÓDIGO PARA OS BOTÕES (POP-UP) -->
-
     <!-- Modal para detalhes do componente -->
     <div class="modal fade" id="componentDetailsModal" tabindex="-1" aria-labelledby="componentDetailsModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg">
@@ -2611,28 +2630,6 @@ $assemblies = getAssemblies($pdo);
   </div>
 </div>
 
-<!-- Modal para ver associações de uma Assembly -->
-<div class="modal fade" id="associatedAssemblyModal" tabindex="-1" aria-labelledby="associatedAssemblyModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="associatedAssemblyModalLabel">Associações da Assembly</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body" id="associatedAssemblyContent">
-                <div class="text-center">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Carregando...</span>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
-            </div>
-        </div>
-    </div>
-</div>
-
 
 <!-- Link to assemblyLoader.js -->
 
@@ -2643,7 +2640,6 @@ $assemblies = getAssemblies($pdo);
 <script>
     const selectedPrototype = <?= json_encode($_GET['prototype_id'] ?? '') ?>;
 </script>
-
 <!-- Link to CSS and JS -->
 <link rel="stylesheet" href="tabs/bomlist/bomlist.css">
 <script src="tabs/bomlist/assemblyLoader.js"></script>

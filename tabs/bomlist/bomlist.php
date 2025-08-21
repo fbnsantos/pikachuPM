@@ -575,11 +575,6 @@ $assemblies = getAssemblies($pdo);
                                             - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
                                         </option>
                                     <?php endforeach; ?>
-                                    <?php foreach ($prototypes as $prototype): ?>
-                                        <option value="<?= $prototype['Prototype_ID'] ?> prototype">
-                                            <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
-                                        </option>
-                                    <?php endforeach; ?>
                                 </select>
 
                                 <!-- Campos para associação que iniciam ocultos -->
@@ -931,14 +926,8 @@ $assemblies = getAssemblies($pdo);
 
 
                         $totalBOMPrice = 0;
-
-
                         foreach ($bomSummary as $item): 
-
-
                             $itemTotal = $item['Price'] ? $item['Price'] * $item['Total_Quantity'] : 0;
-
-
                             $totalBOMPrice += $itemTotal;
 
 
@@ -1870,7 +1859,7 @@ $assemblies = getAssemblies($pdo);
                             <select class="form-select" name="area" id="area">
                                 <option value="components" <?= (isset($GLOBALS['search_area']) && $GLOBALS['search_area'] === 'components') ? 'selected' : '' ?>>Componentes</option>
                                 <option value="prototypes" <?= (isset($GLOBALS['search_area']) && $GLOBALS['search_area'] === 'prototypes') ? 'selected' : '' ?>>Protótipos</option>
-                                <option value="assemblies" <?= (isset($GLOBALS['search_area']) && $GLOBALS['search_area'] === 'assemblies') ? 'selected' : '' ?>>Montagens</option>
+                                <option value="assemblies" <?= (isset($GLOBALS['search_area']) && $GLOBALS['search_area'] === 'assemblies') ? 'selected' : '' ?>>Assemblies</option>
                                 <option value="manufacturers" <?= (isset($GLOBALS['search_area']) && $GLOBALS['search_area'] === 'manufacturers') ? 'selected' : '' ?>>Fabricantes</option>
                                 <option value="suppliers" <?= (isset($GLOBALS['search_area']) && $GLOBALS['search_area'] === 'suppliers') ? 'selected' : '' ?>>Fornecedores</option>
                             </select>
@@ -1912,6 +1901,20 @@ $assemblies = getAssemblies($pdo);
                                     <button type='button' class='btn btn-outline-info btn-sm' onclick='showComponentDetails(<?= htmlspecialchars($row['Component_ID']) ?>)'>
                                         <i class='bi bi-info-circle'></i> Ver Detalhes
                                     </button>
+                                <?php elseif ($GLOBALS['search_area'] === 'assemblies'): ?>
+                                    <h6><?= htmlspecialchars($row['Assembly_Designation']) ?> <small class="text-muted">(<?= htmlspecialchars($row['Assembly_Reference']) ?>)</small></h6>
+                                    <button type='button' class='btn btn-outline-info btn-sm' onclick="showAssemblyAssociations(<?= $row['Assembly_ID'] ?>)">
+                                        <i class='bi bi-info-circle'></i> Ver Detalhes
+                                    </button>
+                                <?php elseif ($GLOBALS['search_area'] === 'suppliers' || $GLOBALS['search_area'] === 'manufacturers'): ?>
+                                    <h6><?= htmlspecialchars($row['Denomination']) ?></h6>
+                                    <p class="mb-0"><?= htmlspecialchars($row['Address'] ?? '') ?></p>
+                                    <p class="text-muted"><?= htmlspecialchars($row['Origin_Country'] ?? '') ?></p>
+                                    <?php if (!empty($row['Website'])): ?>
+                                        <a href="<?= htmlspecialchars($row['Website']) ?>" target="_blank" class="btn btn-sm btn-outline-secondary mt-1">
+                                            <i class="bi bi-globe"></i> Website
+                                        </a>
+                                    <?php endif; ?>
                                 <?php else: ?>
                                     <h6><?= htmlspecialchars($row['Denomination'] ?? $row['Name'] ?? $row['Assembly_Designation']) ?></h6>
                                     <p class="mb-0"><?= htmlspecialchars($row['Notes'] ?? $row['Description'] ?? '') ?></p>

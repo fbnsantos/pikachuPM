@@ -702,6 +702,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         <td>${selectedComponent.Component_ID}</td>
                     </tr>
                     <tr>
+                        <th>Referência</th>
+                        <td>${selectedComponent.Reference || '-'}</td>
+                    </tr>
+                    <tr>
                         <th>Denominação</th>
                         <td>${selectedComponent.Denomination}</td>
                     </tr>

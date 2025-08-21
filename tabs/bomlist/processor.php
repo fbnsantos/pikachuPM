@@ -500,13 +500,8 @@ function processCRUD($pdo, $entity , $action){
                            OR c.Component_ID LIKE ?
                     ");
                     $stmt->execute([
-                        "%$query%",  // Component denomination
-                        "%$query%",  // Component reference
-                        "%$query%",  // Manufacturer reference
-                        "%$query%",  // Supplier reference
-                        "%$query%",  // Manufacturer denomination
-                        "%$query%",  // Supplier denomination
-                        "%$query%"   // Component ID
+                        "%$query%", "%$query%", "%$query%", "%$query%", 
+                        "%$query%", "%$query%", "%$query%"
                     ]);
                     $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     break;
@@ -536,45 +531,10 @@ function processCRUD($pdo, $entity , $action){
                     break;
             }
             
-            // Display search results
-            if (!empty($results)) {
-                echo "<div class='row mt-4'>";
-                echo "<div class='col-12'>";
-                echo "<div class='card'>";
-                echo "<div class='card-header'>";
-                echo "<h5><i class='bi bi-search'></i> Resultados da Pesquisa (" . count($results) . ")</h5>";
-                echo "</div>";
-                echo "<div class='card-body'>";
-                
-                foreach ($results as $row) {
-                    echo "<div class='border-bottom pb-2 mb-2'>";
-                    
-                    if ($area === 'components') {
-                        echo "<h6>" . htmlspecialchars($row['Denomination']) . " <small class='text-muted'>(" . htmlspecialchars($row['Reference']) . ")</small></h6>";
-                        if (!empty($row['Manufacturer_Name'])) {
-                            echo "<small class='text-muted'>Fabricante: " . htmlspecialchars($row['Manufacturer_Name']) . "</small><br>";
-                        }
-                        if (!empty($row['Supplier_Name'])) {
-                            echo "<small class='text-muted'>Fornecedor: " . htmlspecialchars($row['Supplier_Name']) . "</small><br>";
-                        }
-                        echo "<p class='mb-0'>" . htmlspecialchars($row['Notes_Description'] ?? '') . "</p>";
-                    } else {
-                        echo "<h6>" . htmlspecialchars($row['Denomination'] ?? $row['Name'] ?? $row['Assembly_Designation']) . "</h6>";
-                        echo "<p class='mb-0'>" . htmlspecialchars($row['Notes'] ?? $row['Description'] ?? '') . "</p>";
-                    }
-                    
-                    echo "</div>";
-                }
-                
-                echo "</div>";
-                echo "</div>";
-                echo "</div>";
-                echo "</div>";
-            } else {
-                echo "<div class='alert alert-info mt-4'>";
-                echo "<i class='bi bi-info-circle'></i> Nenhum resultado encontrado para '<strong>" . htmlspecialchars($query) . "</strong>' em " . ucfirst($area) . ".";
-                echo "</div>";
-            }
+            // Store results globally instead of echoing
+            $GLOBALS['search_results'] = $results ?? [];
+            $GLOBALS['search_query'] = $query;
+            $GLOBALS['search_area'] = $area;
         }
         break;
 

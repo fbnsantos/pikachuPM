@@ -707,29 +707,30 @@ $assemblies = getAssemblies($pdo);
                     <?php
                     if (isset($_GET['prototype_id']) && $_GET['prototype_id']) {
                         // Filtrar as assemblies para o protótipo selecionado
-                        $filteredAssemblies = array_filter($assemblies, function($asm) {
-                            return $asm['Prototype_ID'] == $_GET['prototype_id'];
+                        $filteredAssemblies = array_filter($assemblies, function($assembly) {
+                            return $assembly['Prototype_ID'] == $_GET['prototype_id'];
                         });
-
+                        
                         $ids = array_column($filteredAssemblies, 'Assembly_ID');
-
+                        
+                        if (count($ids) > 0) {
+                            $stmt = $pdo->prepare(
+                                "SELECT * FROM T_Assembly_Assembly WHERE Parent_Assembly_ID IN (" .
+                                implode(',', array_fill(0, count($ids), '?')) . ")"
+                            );
+                            $stmt->execute($ids);
+                            $assocAssems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        } else {
+                            $assocAssems = [];
+                        }
+                        
                         $assocComps = getAssemblyComponentsByIds($pdo, $ids);
-
-                        // carregar associações de sub‐assemblies
-                        $stmt = $pdo->prepare(
-                        "SELECT * FROM T_Assembly_Assembly WHERE Parent_Assembly_ID IN (" .
-                        implode(',', array_fill(0, count($ids), '?')) . ")"
-                        );
-                        $stmt->execute($ids);
-                        $assocAssems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        
                         $tree = getAssemblyTreeFromList($filteredAssemblies, $assocComps, $assocAssems);
-
+                        
                         echo '<div id="assembly-tree">';
                         echo renderAssemblyTreeMixed($tree);  
                         echo '</div>';
-
-                        
-                        
                     } else {
                         echo "<p>Selecione um protótipo para visualizar a árvore de assembly.</p>";
                     }

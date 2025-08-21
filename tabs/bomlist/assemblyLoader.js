@@ -1,4 +1,3 @@
-
 function showAssociationFields(value) {
     const associationFields = document.getElementById('association-fields');
     associationFields.style.display = value ? 'block' : 'none';
@@ -12,6 +11,101 @@ function showAssemblyFields() {
 function showComponentFields() {
     document.getElementById('assembly-association-fields').style.display = 'none';
     document.getElementById('component-association-fields').style.display = 'block';
+}
+
+// Função que carrega os dados de associações de assemblies via AJAX
+
+
+function loadAllAssociations() {
+    return fetch('tabs/bomlist/assemblyAssociations.php')
+        .then(response => response.json())
+        .catch(error => {
+            console.error("Erro ao carregar as associações:", error);
+            return { components: [], assemblies: [] };
+        });
+}
+
+
+
+
+
+// Função para mostrar associações de uma assembly (filtrando os registros conforme o assemblyId)
+
+
+// Função para mostrar associações de uma assembly (filtrando os registros conforme o assemblyId)
+
+
+function showAssemblyAssociations(assemblyId) {
+    if (!assemblyId) return;
+
+    // Exibe spinner enquanto carrega
+    const modalBody = document.getElementById('associatedAssemblyContent');
+
+    modalBody.innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Carregando...</span>
+            </div>
+        </div>`;
+    loadAllAssociations().then(data => {
+        // Filtra os registros que pertencem ao assembly selecionado
+        const compAssoc = data.components.filter(item => item.Assembly_ID == assemblyId);
+        const assemAssoc = data.assemblies.filter(item => item.Parent_Assembly_ID == assemblyId);
+        // Monta o HTML para os componentes associados
+        let compHtml = compAssoc.length
+            ? `<table class="table table-bordered table-fixed">
+                   <thead>
+                       <tr>
+                           <th class="col-id">ID</th>
+                           <th class="col-designacao">Designação</th>
+                           <th class="col-quantidade">Quantidade</th>
+                       </tr>
+                   </thead>
+                   <tbody>`
+            : '<div class="alert alert-info">Nenhum componente associado.</div>';
+
+
+        compAssoc.forEach(item => {
+            compHtml += `<tr>
+                            <td class="col-id">${item.Component_ID}</td>
+                            <td class="col-designacao">${item.Denomination || '-'}</td>
+                            <td class="col-quantidade">${item.Quantity}</td>
+                         </tr>`;
+        });
+
+
+        if (compAssoc.length) compHtml += '</tbody></table>';
+        // Monta o HTML para as assemblies associadas
+        let assemHtml = assemAssoc.length
+            ? `<table class="table table-bordered table-fixed">
+                   <thead>
+                       <tr>
+                           <th class="col-id">ID</th>
+                           <th class="col-designacao">Designação</th>
+                           <th class="col-quantidade">Quantidade</th>
+                       </tr>
+                   </thead>
+                   <tbody>`
+            : '<div class="alert alert-info">Nenhuma assembly associada.</div>';
+
+
+        assemAssoc.forEach(item => {
+            assemHtml += `<tr>
+                            <td class="col-id">${item.Child_Assembly_ID}</td>
+                            <td class="col-designacao">${item.Assembly_Designation || '-'}</td>
+                            <td class="col-quantidade">${item.Quantity}</td>
+                         </tr>`;
+        });
+
+
+        if(assemAssoc.length) assemHtml += '</tbody></table>';
+        // Junta as seções e atualiza o modal
+        const html = `<h6>Componentes Associados</h6>${compHtml}<hr>
+                      <h6>Assemblies Associadas</h6>${assemHtml}`;
+        modalBody.innerHTML = html;
+        const modal = new bootstrap.Modal(document.getElementById('associatedAssemblyModal'));
+        modal.show();
+    });
 }
 
 

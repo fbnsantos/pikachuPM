@@ -143,24 +143,50 @@ function getSubassemblies(array $assemblies, $parentAssemblyId) {
     return $children;
 }
 
-
 /**
  * Retorna uma lista (planificada) dos IDs da assembly e todas as subassemblies,
- * seguindo as relações definidas na tabela T_Assembly_Assembly.
+ * seguindo as relações definidas em Assembly_Father_ID e Assembly_Child_ID.
  *
- * @param array $assocAssems Lista de relações (cada item com Parent_Assembly_ID e Child_Assembly_ID).
- * @param int   $parentAssemblyId ID da assembly pai (ponto de partida).
- * @return array Lista de Assembly_IDs (incluindo o próprio $parentAssemblyId).
+ * @param array $assemblies Array com todas as assemblies.
+ * @param array $assembly Assembly atual.
+ * @return array Lista de Assembly_IDs.
  */
-function getAllSubAssemblyIDs(array $assocAssems, int $parentAssemblyId): array {
-    $list = [$parentAssemblyId];
-    foreach ($assocAssems as $assoc) {
-        if ((int)$assoc['Parent_Assembly_ID'] === $parentAssemblyId) {
-            $childId = (int)$assoc['Child_Assembly_ID'];
-            // Chamada recursiva para obter os IDs da subassembly e de todas as suas subassemblies
-            $list = array_merge($list, getAllSubAssemblyIDs($assocAssems, $childId));
+function getAllSubAssemblyIDs(array $assemblies, array $assembly) {
+    // Base: se não há relação nem para Father nem para Child, retorna só o próprio ID.
+    if (empty($assembly['Assembly_Father_ID']) && empty($assembly['Assembly_Child_ID'])) {
+        return [$assembly['Assembly_ID']];
+    }
+    
+    // Inicia a lista com o ID da assembly atual
+    $list = [$assembly['Assembly_ID']];
+    
+    // Se Assembly_Father_ID não está definido, pega a relação de Child
+    if (empty($assembly['Assembly_Father_ID']) && !empty($assembly['Assembly_Child_ID'])) {
+        $child = findAssemblyById($assemblies, $assembly['Assembly_Child_ID']);
+        if ($child) {
+            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $child));
         }
     }
+    // Se Assembly_Child_ID não está definido, pega a relação de Father
+    elseif (empty($assembly['Assembly_Child_ID']) && !empty($assembly['Assembly_Father_ID'])) {
+        $father = findAssemblyById($assemblies, $assembly['Assembly_Father_ID']);
+        if ($father) {
+            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $father));
+        }
+    }
+    // Se ambos estão definidos, faz para os dois
+    elseif (!empty($assembly['Assembly_Father_ID']) && !empty($assembly['Assembly_Child_ID'])) {
+        $father = findAssemblyById($assemblies, $assembly['Assembly_Father_ID']);
+        $child = findAssemblyById($assemblies, $assembly['Assembly_Child_ID']);
+        
+        if ($father) {
+            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $father));
+        }
+        if ($child) {
+            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $child));
+        }
+    }
+
     return $list;
 }
 
@@ -223,25 +249,7 @@ function getComponentByReference(array $components, string $reference): ?array {
     return null;
 }
 
-function getAssemblyComponentsByIds(PDO $pdo, array $assemblyIds): array {
-    if (empty($assemblyIds)) {
-        return [];
-    }
-    $placeholders = implode(',', array_fill(0, count($assemblyIds), '?'));
-    $sql = "
-        SELECT ac.Assembly_ID,
-               ac.Component_ID,
-               ac.Quantity,
-               c.Denomination,
-               c.Price
-        FROM T_Assembly_Component ac
-        JOIN T_Component c ON ac.Component_ID = c.Component_ID
-        WHERE ac.Assembly_ID IN ($placeholders)
-    ";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($assemblyIds);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
+
 
 
 /**
@@ -250,7 +258,6 @@ function getAssemblyComponentsByIds(PDO $pdo, array $assemblyIds): array {
  * @param array $assemblies Árvore hierárquica (com 'children' e 'depth').
  * @return string HTML gerado.
  */
-/*
 function renderAssemblyTree(array $assemblies): string {
     $html = '<ul>';
     foreach ($assemblies as $assembly) {
@@ -270,7 +277,7 @@ function renderAssemblyTree(array $assemblies): string {
     }
     $html .= '</ul>';
     return $html;
-}*/
+}
 
 /**
  * Função auxiliar recursiva para construir a árvore de assemblies 
@@ -442,28 +449,22 @@ function getAssemblyTreeMixed(array $assemblies, array $components): array {
 function renderAssemblyTreeMixed(array $nodes): string {
     $html = '<ul>';
     foreach ($nodes as $node) {
-        $indent = str_repeat('&nbsp;&nbsp;&nbsp;', $node['depth'] ?? 0);
-        $branch = ($node['depth'] ?? 0) > 0 ? '└─ ' : '';
+        $indent = str_repeat('&nbsp;&nbsp;&nbsp;', $node['depth']);
+        $branch = $node['depth'] > 0 ? '└─ ' : '';
         $html .= '<li>';
-
-        // Se for componente, usa Denomination
-        if (!empty($node['node_type']) && $node['node_type'] === 'component') {
-            $label = $node['Denomination'] ?? '[sem denominação]';
-            $price = isset($node['Price']) ? ' - '.number_format($node['Price'],2).'€' : '';
-            $html .= "{$indent}{$branch}<span class=\"assembly-component\">".htmlspecialchars($label)."</span>{$price}";
+        if (isset($node['node_type']) && $node['node_type'] === 'component') {
+            // Exibe o componente e o seu preço
+            $html .= $indent . $branch . '<span class="assembly-component">' . htmlspecialchars($node['Denomination']) . '</span>';
+            if (isset($node['Price'])) {
+                $html .= ' - <span class="assembly-price">' . number_format($node['Price'], 2) . '€</span>';
+            }
+        } else {
+            // Nó assembly
+            $html .= $indent . $branch . '<strong>' . htmlspecialchars($node['Assembly_Designation']) . '</strong>';
+            if (isset($node['Price'])) {
+                $html .= ' - <span class="assembly-price">' . number_format($node['Price'], 2) . '€</span>';
+            }
         }
-        // Senão, só acede a Assembly_Designation se existir
-        elseif (isset($node['Assembly_Designation'])) {
-            $label = $node['Assembly_Designation'];
-            $price = isset($node['Price']) ? ' - '.number_format($node['Price'],2).'€' : '';
-            $html .= "{$indent}{$branch}<strong>".htmlspecialchars($label)."</strong>{$price}";
-        }
-        else {
-            // nó estranho sem designação
-            $html .= "{$indent}{$branch}[sem designação]";
-        }
-
-        // filhos, se houver
         if (!empty($node['children'])) {
             $html .= renderAssemblyTreeMixed($node['children']);
         }
@@ -472,156 +473,6 @@ function renderAssemblyTreeMixed(array $nodes): string {
     $html .= '</ul>';
     return $html;
 }
-
-
-function buildAssemblyTree($pdo, $assemblyId) {
-    // Obter os dados da assembly principal (você pode criar uma função getAssemblyById)
-    $stmt = $pdo->prepare("SELECT * FROM T_Assembly WHERE Assembly_ID = ?");
-    $stmt->execute([$assemblyId]);
-    $assembly = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$assembly) {
-        return null;
-    }
-    
-    // Obter os componentes associados a essa assembly
-    $components = getAssemblyComponents($pdo, $assemblyId);
-    
-    // Obter as assemblies filhas associadas à assembly principal
-    $childAssemblies = getAssemblyAssemblies($pdo, $assemblyId);
-    $assemblies = [];
-    foreach ($childAssemblies as $child) {
-        // Supondo que o Child_Assembly_ID identifica a assembly filha
-        $childTree = buildAssemblyTree($pdo, $child['Assembly_ID'] ?? $child['Child_Assembly_ID']);
-        if ($childTree) {
-            // Você pode incluir a quantity se precisar
-            $childTree['association_quantity'] = $child['Quantity'];
-            $assemblies[] = $childTree;
-        }
-    }
-    
-    // Montar o nó com todas as informações
-    $tree = $assembly;
-    $tree['components'] = $components;
-    $tree['assemblies'] = $assemblies;
-    
-    return $tree;
-}
-
-function buildTreeFromList(
-    array $assemblies,
-    array $assocComps,
-    array $assocAssems,
-    int $parentId,
-    int $depth = 0,
-    array $visited = []
-): array {
-    // Se já estivermos aqui, ciclo detectado — retorna sem filhos
-    if (in_array($parentId, $visited, true)) {
-        return [];
-    }
-    // marca este nó como visitado
-    $visited[] = $parentId;
-
-    // Busca o próprio nó
-    $node = [];
-    foreach ($assemblies as $asm) {
-        if ((int)$asm['Assembly_ID'] === $parentId) {
-            $node = $asm;
-            break;
-        }
-    }
-    if (empty($node)) {
-        return [];
-    }
-    $node['depth']     = $depth;
-    $node['node_type'] = 'assembly';
-
-    // Monta filhos
-    $children = [];
-
-    // Componentes
-    foreach ($assocComps as $ac) {
-        if ((int)$ac['Assembly_ID'] === $parentId) {
-            $children[] = [
-                'depth'      => $depth + 1,
-                'node_type'  => 'component',
-                'Component_ID'  => $ac['Component_ID'],
-                'Quantity'      => $ac['Quantity'],
-                'Denomination'  => $ac['Denomination'],
-                'Price'         => $ac['Price'],
-            ];
-        }
-    }
-
-    // Sub-assemblies
-    foreach ($assocAssems as $aa) {
-        if ((int)$aa['Parent_Assembly_ID'] === $parentId) {
-            $subTree = buildTreeFromList(
-                $assemblies,
-                $assocComps,
-                $assocAssems,
-                (int)$aa['Child_Assembly_ID'],
-                $depth + 1,
-                $visited      // passa o histórico adiante
-            );
-            if (!empty($subTree)) {
-                $subTree['association_quantity'] = $aa['Quantity'];
-                $children[] = $subTree;
-            }
-        }
-    }
-
-    $node['children'] = $children;
-    return $node;
-}
-
-/**
- * Identifica raízes e dispara a montagem da árvore.
- */
-function getAssemblyTreeFromList(array $assemblies, array $assocComps, array $assocAssems): array {
-    $childIds = array_map('intval', array_column($assocAssems, 'Child_Assembly_ID'));
-    $tree = [];
-    foreach ($assemblies as $asm) {
-        $id = (int)$asm['Assembly_ID'];
-        if (!in_array($id, $childIds, true)) {
-            // passe vazio como visited na raiz
-            $tree[] = buildTreeFromList($assemblies, $assocComps, $assocAssems, $id, 0, []);
-        }
-    }
-    return $tree;
-}
-
-
-/**
- * Renderiza a árvore de assemblies em HTML usando indentação baseada na propriedade 'depth'.
- *
- * @param array $assemblies Árvore hierárquica (cada nó tem, por exemplo, 'Assembly_Designation', 'Price', 'depth' e possivelmente 'children').
- * @return string HTML gerado.
- */
-function renderAssemblyTree(array $assemblies): string {
-    $html = '<ul>';
-    foreach ($assemblies as $assembly) {
-        // Cria a indentação: aqui usamos 3 espaços não quebráveis para cada nível de profundidade.
-        $indent = str_repeat('&nbsp;&nbsp;&nbsp;', $assembly['depth']);
-        // Se não for nó raiz (depth > 0), pode-se adicionar um símbolo para indicar a hierarquia, ex: "└─"
-        $branch = $assembly['depth'] > 0 ? '└─ ' : '';
-        $html .= '<li>';
-        // Exibe a designação da assembly com indentação e o símbolo do ramo.
-        $html .= $indent . $branch . '<strong>' . htmlspecialchars($assembly['Assembly_Designation']) . '</strong>';
-        // Se existir preço, exibe (formatado) ao lado.
-        if (isset($assembly['Price'])) {
-            $html .= ' - ' . number_format($assembly['Price'], 2) . '€';
-        }
-        // Se o nó tiver filhos, chama recursivamente a função para renderizá-los.
-        if (!empty($assembly['children'])) {
-            $html .= renderAssemblyTree($assembly['children']);
-        }
-        $html .= '</li>';
-    }
-    $html .= '</ul>';
-    return $html;
-}
-
 
 
 /**
@@ -668,5 +519,108 @@ function getComponentsBySupplier(PDO $pdo, int $supplierId): array {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+function getAssemblyComponentsByIds(PDO $pdo, array $assemblyIds): array {
+    if (empty($assemblyIds)) {
+        return [];
+    }
+    $placeholders = implode(',', array_fill(0, count($assemblyIds), '?'));
+    $sql = "
+        SELECT ac.Assembly_ID,
+               ac.Component_ID,
+               ac.Quantity,
+               c.Denomination,
+               c.Price
+        FROM T_Assembly_Component ac
+        JOIN T_Component c ON ac.Component_ID = c.Component_ID
+        WHERE ac.Assembly_ID IN ($placeholders)
+    ";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($assemblyIds);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function buildTreeFromList(
+    array $assemblies,
+    array $assocComps,
+    array $assocAssems,
+    int $parentId,
+    int $depth = 0,
+    array $visited = []
+): array {
+    // Se já estivermos aqui, ciclo detectado — retorna sem filhos
+    if (in_array($parentId, $visited, true)) {
+        return [];
+    }
+    // marca este nó como visitado
+    $visited[] = $parentId;
+ 
+    // Busca o próprio nó
+    $node = [];
+    foreach ($assemblies as $asm) {
+        if ((int)$asm['Assembly_ID'] === $parentId) {
+            $node = $asm;
+            break;
+        }
+    }
+    if (empty($node)) {
+        return [];
+    }
+    $node['depth']     = $depth;
+    $node['node_type'] = 'assembly';
+ 
+    // Monta filhos
+    $children = [];
+ 
+    // Componentes
+    foreach ($assocComps as $ac) {
+        if ((int)$ac['Assembly_ID'] === $parentId) {
+            $children[] = [
+                'depth'      => $depth + 1,
+                'node_type'  => 'component',
+                'Component_ID'  => $ac['Component_ID'],
+                'Quantity'      => $ac['Quantity'],
+                'Denomination'  => $ac['Denomination'],
+                'Price'         => $ac['Price'],
+            ];
+        }
+    }
+ 
+    // Sub-assemblies
+    foreach ($assocAssems as $aa) {
+        if ((int)$aa['Parent_Assembly_ID'] === $parentId) {
+            $subTree = buildTreeFromList(
+                $assemblies,
+                $assocComps,
+                $assocAssems,
+                (int)$aa['Child_Assembly_ID'],
+                $depth + 1,
+                $visited      // passa o histórico adiante
+            );
+            if (!empty($subTree)) {
+                $subTree['association_quantity'] = $aa['Quantity'];
+                $children[] = $subTree;
+            }
+        }
+    }
+ 
+    $node['children'] = $children;
+    return $node;
+}
+
+/**
+ * Identifica raízes e dispara a montagem da árvore.
+ */
+function getAssemblyTreeFromList(array $assemblies, array $assocComps, array $assocAssems): array {
+    $childIds = array_map('intval', array_column($assocAssems, 'Child_Assembly_ID'));
+    $tree = [];
+    foreach ($assemblies as $asm) {
+        $id = (int)$asm['Assembly_ID'];
+        if (!in_array($id, $childIds, true)) {
+            // passe vazio como visited na raiz
+            $tree[] = buildTreeFromList($assemblies, $assocComps, $assocAssems, $id, 0, []);
+        }
+    }
+    return $tree;
+}
 
 ?>

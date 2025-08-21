@@ -823,82 +823,87 @@ $assemblies = getAssemblies($pdo);
                         </div>
                         
                         <?php if (isset($_GET['prototype_id']) && $_GET['prototype_id']): ?>
-                            <!-- BOM Summary para o protótipo selecionado -->
-                            <div class="mt-4">
-                                <h6><i class="bi bi-list-check"></i> Resumo da BOM</h6>
-                                <?php
-                                // Calcular total de componentes necessários
-                                $stmt = $pdo->prepare("
-                                    SELECT cc.Component_ID, cc.Denomination, cc.General_Type, cc.Price,
-                                           SUM(a.Component_Father_Quantity + a.Component_Child_Quantity) as Total_Quantity,
-                                           cc.Stock_Quantity,
-                                           m.Denomination as Manufacturer_Name,
-                                           s.Denomination as Supplier_Name
-                                    FROM T_Assembly a
-                                    JOIN T_Component cc ON a.Component_Child_ID = cc.Component_ID
-                                    LEFT JOIN T_Manufacturer m ON cc.Manufacturer_ID = m.Manufacturer_ID
-                                    LEFT JOIN T_Supplier s ON cc.Supplier_ID = s.Supplier_ID
-                                    WHERE a.Prototype_ID = ?
-                                    GROUP BY cc.Component_ID
-                                    ORDER BY cc.Denomination
-                                ");
-                                $stmt->execute([$_GET['prototype_id']]);
-                                $bomSummary = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                                
-                                if ($bomSummary):
-                                ?>
-                                    <div class="table-responsive">
-                                        <table class="table table-sm table-bordered">
-                                            <thead class="table-secondary">
-                                                <tr>
-                                                    <th>Componente</th>
-                                                    <th>Tipo</th>
-                                                    <th>Fabricante/Fornecedor</th>
-                                                    <th>Qtd Necessária</th>
-                                                    <th>Stock</th>
-                                                    <th>Preço Unit.</th>
-                                                    <th>Preço Total</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <?php 
-                                                $totalBOMPrice = 0;
-                                                foreach ($bomSummary as $item): 
-                                                    $itemTotal = $item['Price'] ? $item['Price'] * $item['Total_Quantity'] : 0;
-                                                    $totalBOMPrice += $itemTotal;
-                                                    $stockStatus = $item['Stock_Quantity'] >= $item['Total_Quantity'] ? 'success' : 'danger';
-                                                ?>
-                                                    <tr>
-                                                        <td><strong><?= htmlspecialchars($item['Denomination']) ?></strong></td>
-                                                        <td><?= htmlspecialchars($item['General_Type']) ?></td>
-                                                        <td>
-                                                            <?= htmlspecialchars($item['Manufacturer_Name']) ?>
-                                                            <?php if ($item['Supplier_Name']): ?>
-                                                                <br><small class="text-muted"><?= htmlspecialchars($item['Supplier_Name']) ?></small>
-                                                            <?php endif; ?>
-                                                        </td>
-                                                        <td><span class="badge bg-primary"><?= $item['Total_Quantity'] ?></span></td>
-                                                        <td><span class="badge bg-<?= $stockStatus ?>"><?= $item['Stock_Quantity'] ?></span></td>
-                                                        <td><?= $item['Price'] ? number_format($item['Price'], 2) . '€' : '-' ?></td>
-                                                        <td><strong><?= $itemTotal ? number_format($itemTotal, 2) . '€' : '-' ?></strong></td>
-                                                    </tr>
-                                                <?php endforeach; ?>
-                                            </tbody>
-                                            <tfoot class="table-info">
-                                                <tr>
-                                                    <th colspan="6">Total da BOM:</th>
-                                                    <th><?= number_format($totalBOMPrice, 2) ?>€</th>
-                                                </tr>
-                                            </tfoot>
-                                        </table>
-                                    </div>
-                                <?php else: ?>
-                                    <div class="alert alert-info">
-                                        <i class="bi bi-info-circle"></i> Nenhum componente definido para este protótipo.
-                                    </div>
-                                <?php endif; ?>
-                            </div>
-                        <?php endif; ?>
+    <!-- BOM Summary para o protótipo selecionado -->
+    <div class="mt-4">
+        <h6><i class="bi bi-list-check"></i> Resumo da BOM</h6>
+        <?php
+        // Calcular total de componentes necessários usando a nova tabela de junção
+        $stmt = $pdo->prepare("
+            SELECT 
+                c.Component_ID,
+                c.Denomination,
+                c.General_Type,
+                c.Price,
+                SUM(ac.Quantity) as Total_Quantity,
+                c.Stock_Quantity,
+                m.Denomination as Manufacturer_Name,
+                s.Denomination as Supplier_Name
+            FROM T_Assembly_Component ac
+            JOIN T_Assembly a ON ac.Assembly_ID = a.Assembly_ID
+            JOIN T_Component c ON ac.Component_ID = c.Component_ID
+            LEFT JOIN T_Manufacturer m ON c.Manufacturer_ID = m.Manufacturer_ID
+            LEFT JOIN T_Supplier s ON c.Supplier_ID = s.Supplier_ID
+            WHERE a.Prototype_ID = ?
+            GROUP BY c.Component_ID
+            ORDER BY c.Denomination
+        ");
+        $stmt->execute([$_GET['prototype_id']]);
+        $bomSummary = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        if ($bomSummary):
+        ?>
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered">
+                    <thead class="table-secondary">
+                        <tr>
+                            <th>Componente</th>
+                            <th>Tipo</th>
+                            <th>Fabricante/Fornecedor</th>
+                            <th>Qtd Necessária</th>
+                            <th>Stock</th>
+                            <th>Preço Unit.</th>
+                            <th>Preço Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php 
+                        $totalBOMPrice = 0;
+                        foreach ($bomSummary as $item): 
+                            $itemTotal = $item['Price'] ? $item['Price'] * $item['Total_Quantity'] : 0;
+                            $totalBOMPrice += $itemTotal;
+                            $stockStatus = $item['Stock_Quantity'] >= $item['Total_Quantity'] ? 'success' : 'danger';
+                        ?>
+                            <tr>
+                                <td><strong><?= htmlspecialchars($item['Denomination']) ?></strong></td>
+                                <td><?= htmlspecialchars($item['General_Type']) ?></td>
+                                <td>
+                                    <?= htmlspecialchars($item['Manufacturer_Name']) ?>
+                                    <?php if ($item['Supplier_Name']): ?>
+                                        <br><small class="text-muted"><?= htmlspecialchars($item['Supplier_Name']) ?></small>
+                                    <?php endif; ?>
+                                </td>
+                                <td><span class="badge bg-primary"><?= $item['Total_Quantity'] ?></span></td>
+                                <td><span class="badge bg-<?= $stockStatus ?>"><?= $item['Stock_Quantity'] ?></span></td>
+                                <td><?= $item['Price'] ? number_format($item['Price'], 2) . '€' : '-' ?></td>
+                                <td><strong><?= $itemTotal ? number_format($itemTotal, 2) . '€' : '-' ?></strong></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                    <tfoot class="table-info">
+                        <tr>
+                            <th colspan="6">Total da BOM:</th>
+                            <th><?= number_format($totalBOMPrice, 2) ?>€</th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        <?php else: ?>
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> Nenhum componente definido para este protótipo.
+            </div>
+        <?php endif; ?>
+    </div>
+<?php endif; ?>
                     </div>
                 </div>
                 <?php

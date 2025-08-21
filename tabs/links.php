@@ -1,6 +1,8 @@
 <?php
 // links.php — Gestão de links com edição, filtro, exportação, importação, ordenação e destaque visual
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 $db_path = __DIR__ . '/../links2.sqlite';
 $nova_base = !file_exists($db_path);

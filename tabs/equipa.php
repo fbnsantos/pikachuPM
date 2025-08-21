@@ -1,6 +1,8 @@
 <?php
 // tabs/equipa.php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 include_once __DIR__ . '/../config.php';
 
 // Verificar e criar base de dados SQLite e tabelas, se necessário

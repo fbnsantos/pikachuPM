@@ -659,27 +659,7 @@ $assemblies = getAssemblies($pdo);
                     </div>
                 </div>
 
-                <!-- Filtro de protótipo -->
-                <div class="card mt-3">
-                    <div class="card-header">
-                        <h6><i class="bi bi-funnel"></i> Filtrar por Protótipo</h6>
-                    </div>
-                    <div class="card-body">
-                        <form method="GET">
-                            <input type="hidden" name="tab" value="bomlist/bomlist">
-                            <input type="hidden" name="entity" value="assembly">
-                            <select class="form-select" name="prototype_id" onchange="this.form.submit()">
-                                <option value="">Todos os protótipos</option>
-                                <?php foreach ($prototypes as $prototype): ?>
-                                    <option value="<?= $prototype['Prototype_ID'] ?>" 
-                                            <?= (isset($_GET['prototype_id']) && $_GET['prototype_id'] == $prototype['Prototype_ID']) ? 'selected' : '' ?>>
-                                        <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </form>
-                    </div>
-                </div>
+
             </div>
             
             <div class="col-md-8">

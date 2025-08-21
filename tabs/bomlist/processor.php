@@ -252,11 +252,7 @@ function processCRUD($pdo, $entity , $action){
         $compQty = trim($_POST['component_quantity'] ?? 0);
         $assemFatherQty = trim($_POST['assembly_quantity'] ?? 0);
 
-        // Print debug information
-        error_log("Valores recebidos: ");
-        error_log("Component_Father_ID: " . $compFather);
 
-        error_log("assembly_id: " . $assemFather);
 
 
         if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -278,29 +274,7 @@ function processCRUD($pdo, $entity , $action){
             error_log("Assembly criada. Nível definido como: " . $assemblyLevel);
 
             
-            // Obter todos os IDs recursivamente para as relações existentes
-            $allSubIDs = [];
-
-            // Se houver assembly pai, obtém suas subassemblies
-            if (!empty($assemFather)) {
-                $fatherAssembly = findAssemblyById($assemblies, $assemFather);
-                if ($fatherAssembly) {
-                    $allSubIDs = array_merge($allSubIDs, getAllSubAssemblyIDs($assemblies, $fatherAssembly));
-                }
-            }
-
-            // Se houver assembly filho, obtém suas subassemblies
-            if (!empty($assemChild)) {
-                $childAssembly = findAssemblyById($assemblies, $assemChild);
-                if ($childAssembly) {
-                    $allSubIDs = array_merge($allSubIDs, getAllSubAssemblyIDs($assemblies, $childAssembly));
-                }
-            }
-            error_log("IDs das assemblies recursivas: " . print_r($allSubIDs, true));
-
-            
             error_log("Assembly_Price: " . $assemblyPrice);
-            $valid = false;
 
             $stmt = $pdo->prepare("
                 INSERT INTO T_Assembly (
@@ -328,61 +302,17 @@ function processCRUD($pdo, $entity , $action){
                 $_POST['notes']
             ]);
 
-            // Preparar a query para selecionar os dados da subassembly original
-            $stmtSelect = $pdo->prepare("SELECT * FROM T_Assembly WHERE Assembly_ID = ?");
 
-            // Preparar a query para inserir a nova subassembly duplicada com o novo Prototype_ID
-            $stmtInsert = $pdo->prepare("
-                INSERT INTO T_Assembly (
-                Prototype_ID, 
-                Assembly_Designation,
-                Assembly_Reference,
-                Assembly_Level,
-                Price,
-                Notes,
-                Created_Date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ");
-
-            // Novo Prototype_ID para o qual você quer associar as subassemblies
-            $newPrototypeID = $_POST['prototype_id'];
-
-            if (!empty($allSubIDs)) {
-                foreach ($allSubIDs as $subAssemblyID) {
-                    // Buscar registro da subassembly original
-                    $stmtSelect->execute([$subAssemblyID]);
-                    $subAssembly = $stmtSelect->fetch(PDO::FETCH_ASSOC);
-                        if ($subAssembly) {
-                            // Verificar se o Prototype_ID da subassembly é diferente do novoPrototypeID
-                            if ((int)$newPrototypeID !== (int)$subAssembly['Prototype_ID']) {
-                                // Inserir o registro duplicado com o novo Prototype_ID
-                                $stmtInsert->execute([
-                                    $newPrototypeID,
-                                    $subAssembly['Assembly_Designation'],
-                                    $subAssembly['Component_Father_ID'],
-                                    $subAssembly['Component_Father_Quantity'],
-                                    $subAssembly['Component_Child_ID'],
-                                    $subAssembly['Component_Child_Quantity'],
-                                    $subAssembly['assembly_id'],
-                                    $subAssembly['Assembly_Father_Quantity'],
-                                    $subAssembly['Assembly_Child_ID'],
-                                    $subAssembly['Assembly_Child_Quantity'],
-                                    $subAssembly['Assembly_Level'],
-                                    $subAssembly['Price'],
-                                    $subAssembly['Notes']
-                                ]);
-                            } else {
-                                error_log("Prototype_ID da subassembly " . $subAssembly['Assembly_ID'] . " já é igual ao novo Prototype_ID.");
-                            }
-                        }
-                }
-            }
-
-            $message = "Montagem criada/atualizada com sucesso!";
+            $message = "Montagem criada com sucesso!";
             header("Location: ?tab=bomlist/bomlist&entity=assembly");
             exit;
 
         } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+
+            // Print debug information
+            error_log("Valores recebidos: ");
+            error_log("Component_Father_ID: " . $compFather);
+            error_log("assembly_id: " . $assemFather);
 
             $parentAssemblyId = (int) $_POST['assembly_id']; // assembly principal (já existente)
             $stmtSelect = $pdo->prepare("SELECT Price FROM T_Assembly WHERE Assembly_ID = ?");
@@ -414,6 +344,7 @@ function processCRUD($pdo, $entity , $action){
                 $childAssemblyId  = (int) $_POST['associated_assembly'];     // assembly filha
                 $quantity = $_POST['assembly_quantity'] ?: 1;
 
+
                 if (checkInfRecursion($pdo, $childAssemblyId, $parentAssemblyId)) {
                     $message = "Adição Inválida: Recursividade Infinita";
                 } else {
@@ -437,13 +368,46 @@ function processCRUD($pdo, $entity , $action){
                         if ($result) {
                             $childAssemblyId = (int)$result['Assembly_ID'];
                             error_log("ID da assembly com o maior nível associado ao protótipo (childAssemblyId): " . $childAssemblyId);
+
                         } else {
                             error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $childAssemblyId);
                             $childAssemblyId = null; // Caso não encontre nenhuma assembly
                         }
                     }
+
+                    // Obter todos os IDs recursivamente para as relações existentes
+
+                    $assemblyAssemblies = getAssemblyAssemblies($pdo, $childAssemblyId);
+                    // Se houver assembly filho, obtém suas subassemblies
+                    if (!empty($childAssemblyId)) {
+                        $childAssembly = findAssemblyById($assemblies, $childAssemblyId);
+                        if ($childAssembly) {
+                            $allSubIDs = getAllSubAssemblyIDs($assemblyAssemblies, (int)$childAssembly['Assembly_ID']);
+                        }
+                    }
+                    
+                    error_log("IDs das assemblies recursivas: " . print_r($allSubIDs, true));
+
+                    // Novo Prototype_ID para associar as subassemblies
+                    $stmt = $pdo->prepare("SELECT Prototype_ID FROM T_Assembly WHERE Assembly_ID = ?");
+                    $stmt->execute([$parentAssemblyId]);
+                    $newPrototypeId = $stmt->fetchColumn();
+
+                    //  Prototype_ID da assembly filha (a que será duplicada)
+                    $stmt = $pdo->prepare("SELECT Prototype_ID FROM T_Assembly WHERE Assembly_ID = ?");
+                    $stmt->execute([$childAssemblyId]);
+                    $childPrototypeId = $stmt->fetchColumn();
+
+                    // Se os Prototype_IDs forem diferentes, duplicamos; caso contrário, não duplicamos.
+                    if ((int)$newPrototypeId !== (int)$childPrototypeId) {
+                        $childAssemblyId = duplicateAssemblyTree($pdo, $childAssemblyId, (int)$newPrototypeId);
+                    } else {
+                        error_log("Prototype_ID da subassembly " . $childPrototypeId . " já é igual ao novo Prototype_ID: " . $newPrototypeId);
+                    }
+
                     $priceAssemFather = ($childAssemblyId !== '' && !is_null($childAssemblyId)) ? getAssemblyPrice(findAssemblyById($assemblies, $childAssemblyId)) * $quantity : 0;
                     $assemblyPrice += $priceAssemFather;
+
                     $stmt = $pdo->prepare("
                         INSERT INTO T_Assembly_Assembly (Parent_Assembly_ID, Child_Assembly_ID, Quantity)
                         VALUES (?, ?, ?)

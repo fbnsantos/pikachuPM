@@ -143,50 +143,24 @@ function getSubassemblies(array $assemblies, $parentAssemblyId) {
     return $children;
 }
 
+
 /**
  * Retorna uma lista (planificada) dos IDs da assembly e todas as subassemblies,
- * seguindo as relações definidas em Assembly_Father_ID e Assembly_Child_ID.
+ * seguindo as relações definidas na tabela T_Assembly_Assembly.
  *
- * @param array $assemblies Array com todas as assemblies.
- * @param array $assembly Assembly atual.
- * @return array Lista de Assembly_IDs.
+ * @param array $assocAssems Lista de relações (cada item com Parent_Assembly_ID e Child_Assembly_ID).
+ * @param int   $parentAssemblyId ID da assembly pai (ponto de partida).
+ * @return array Lista de Assembly_IDs (incluindo o próprio $parentAssemblyId).
  */
-function getAllSubAssemblyIDs(array $assemblies, array $assembly) {
-    // Base: se não há relação nem para Father nem para Child, retorna só o próprio ID.
-    if (empty($assembly['Assembly_Father_ID']) && empty($assembly['Assembly_Child_ID'])) {
-        return [$assembly['Assembly_ID']];
-    }
-    
-    // Inicia a lista com o ID da assembly atual
-    $list = [$assembly['Assembly_ID']];
-    
-    // Se Assembly_Father_ID não está definido, pega a relação de Child
-    if (empty($assembly['Assembly_Father_ID']) && !empty($assembly['Assembly_Child_ID'])) {
-        $child = findAssemblyById($assemblies, $assembly['Assembly_Child_ID']);
-        if ($child) {
-            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $child));
+function getAllSubAssemblyIDs(array $assocAssems, int $parentAssemblyId): array {
+    $list = [$parentAssemblyId];
+    foreach ($assocAssems as $assoc) {
+        if ((int)$assoc['Parent_Assembly_ID'] === $parentAssemblyId) {
+            $childId = (int)$assoc['Child_Assembly_ID'];
+            // Chamada recursiva para obter os IDs da subassembly e de todas as suas subassemblies
+            $list = array_merge($list, getAllSubAssemblyIDs($assocAssems, $childId));
         }
     }
-    // Se Assembly_Child_ID não está definido, pega a relação de Father
-    elseif (empty($assembly['Assembly_Child_ID']) && !empty($assembly['Assembly_Father_ID'])) {
-        $father = findAssemblyById($assemblies, $assembly['Assembly_Father_ID']);
-        if ($father) {
-            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $father));
-        }
-    }
-    // Se ambos estão definidos, faz para os dois
-    elseif (!empty($assembly['Assembly_Father_ID']) && !empty($assembly['Assembly_Child_ID'])) {
-        $father = findAssemblyById($assemblies, $assembly['Assembly_Father_ID']);
-        $child = findAssemblyById($assemblies, $assembly['Assembly_Child_ID']);
-        
-        if ($father) {
-            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $father));
-        }
-        if ($child) {
-            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $child));
-        }
-    }
-
     return $list;
 }
 

@@ -270,7 +270,7 @@ function processCRUD($pdo, $entity , $action){
             }
                 
             // Definir o nível da nova assembly como o maior nível + 1
-            //$assemblyLevel = $maxLevel + 1;
+            $assemblyLevel = $maxLevel + 1;
             error_log("Assembly criada. Nível definido como: " . $assemblyLevel);
 
             
@@ -303,8 +303,14 @@ function processCRUD($pdo, $entity , $action){
             ]);
 
 
-            $message = "Montagem criada com sucesso!";
-            header("Location: ?tab=bomlist/bomlist&entity=assembly");
+            $message = "Assembly criada com sucesso!";
+            $status = 'ok';
+            header(
+                "Location: ?tab=bomlist/bomlist"
+                . "&entity=assembly"
+                . "&msg="   . urlencode($message)
+                . "&status=". urlencode($status)
+                );
             exit;
 
         } elseif ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -346,7 +352,22 @@ function processCRUD($pdo, $entity , $action){
 
 
                 if (checkInfRecursion($pdo, $childAssemblyId, $parentAssemblyId)) {
-                    $message = "Adição Inválida: Recursividade Infinita";
+                    $childAssemb = findAssemblyById($assemblies, $childAssemblyId);
+                    $fatherAssemb = findAssemblyById($assemblies, $parentAssemblyId);
+
+                    $childName  = htmlspecialchars($childAssemb['Assembly_Designation'], ENT_QUOTES, 'UTF-8');
+                    $parentName = htmlspecialchars($fatherAssemb['Assembly_Designation'], ENT_QUOTES, 'UTF-8');
+
+                    $message = "Adição inválida [Ciclo infinito]: “{$parentName}” é sub-assembly de “{$childName}”.";
+                
+                    $status  = "error";   // força a classe alert-danger
+                    header(
+                        "Location: ?tab=bomlist/bomlist"
+                        ."&entity=assembly"
+                        ."&msg="   . urlencode($message)
+                        ."&status=". urlencode($status)
+                    );
+                    exit;
                 } else {
                     // Verifica se o ID da assembly pai é um protótipo
                     if (strpos($childAssemblyId, 'prototype') !== false) {
@@ -381,12 +402,8 @@ function processCRUD($pdo, $entity , $action){
                     // Se houver assembly filho, obtém suas subassemblies
                     if (!empty($childAssemblyId)) {
                         $childAssembly = findAssemblyById($assemblies, $childAssemblyId);
-                        if ($childAssembly) {
-                            $allSubIDs = getAllSubAssemblyIDs($assemblyAssemblies, (int)$childAssembly['Assembly_ID']);
-                        }
+                        error_log("childAssembly: " . print_r($childAssembly, true));
                     }
-                    
-                    error_log("IDs das assemblies recursivas: " . print_r($allSubIDs, true));
 
                     // Novo Prototype_ID para associar as subassemblies
                     $stmt = $pdo->prepare("SELECT Prototype_ID FROM T_Assembly WHERE Assembly_ID = ?");
@@ -405,7 +422,7 @@ function processCRUD($pdo, $entity , $action){
                         error_log("Prototype_ID da subassembly " . $childPrototypeId . " já é igual ao novo Prototype_ID: " . $newPrototypeId);
                     }
 
-                    $priceAssemFather = ($childAssemblyId !== '' && !is_null($childAssemblyId)) ? getAssemblyPrice(findAssemblyById($assemblies, $childAssemblyId)) * $quantity : 0;
+                    $priceAssemFather = ($childAssemblyId !== '' && !is_null($childAssemblyId)) ? getAssemblyPrice($childAssembly) * $quantity : 0;
                     $assemblyPrice += $priceAssemFather;
 
                     $stmt = $pdo->prepare("

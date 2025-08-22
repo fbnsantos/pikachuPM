@@ -151,16 +151,23 @@ function getSubassemblies(array $assemblies, $parentAssemblyId) {
  * @param int   $parentAssemblyId ID da assembly pai (ponto de partida).
  * @return array Lista de Assembly_IDs (incluindo o próprio $parentAssemblyId).
  */
-function getAllSubAssemblyIDs(array $assocAssems, int $parentAssemblyId): array {
-    $list = [$parentAssemblyId];
-    foreach ($assocAssems as $assoc) {
-        if ((int)$assoc['Parent_Assembly_ID'] === $parentAssemblyId) {
-            $childId = (int)$assoc['Child_Assembly_ID'];
-            // Chamada recursiva para obter os IDs da subassembly e de todas as suas subassemblies
-            $list = array_merge($list, getAllSubAssemblyIDs($assocAssems, $childId));
+function getAllSubAssemblyIDs(array $records, int $parentId): array {
+    $ids = [];
+    foreach ($records as $rec) {
+        // só prossegue se existir Parent_Assembly_ID e for igual ao pai
+        if (isset($rec['Parent_Assembly_ID']) 
+            && (int)$rec['Parent_Assembly_ID'] === $parentId 
+            && !empty($rec['Child_Assembly_ID'])
+        ) {
+            $child = (int)$rec['Child_Assembly_ID'];
+            if (!in_array($child, $ids, true)) {
+                $ids[] = $child;
+                // recursão protegida
+                $ids = array_merge($ids, getAllSubAssemblyIDs($records, $child));
+            }
         }
     }
-    return $list;
+    return $ids;
 }
 
 /**
@@ -196,6 +203,9 @@ function findComponentById(array $components, $id) {
  * @return float Preço.
  */
 function getAssemblyPrice(array $assembly) {
+    if (empty($assembly) || !isset($assembly['Price'])) {
+        return 0.0;
+    }
     return (float) ($assembly['Price'] ?? 0);
 }
 
@@ -251,73 +261,6 @@ function renderAssemblyTree(array $assemblies): string {
     $html .= '</ul>';
     return $html;
 }
-
-/**
- * Função auxiliar recursiva para construir a árvore de assemblies 
- *
- * @param array $assemblies Lista completa de assemblies.
- * @param array $parent Assembly pai.
- * @return array Assembly pai com os filhos preenchidos em 'children'.
- */
-/*function buildAssemblyTreeDual(array $assemblies, array $parent): array {
-    $children = [];
-
-    // Se existir uma subassembly 1 (Assembly_Father_ID)
-    if (!empty($parent['Assembly_Father_ID'])) {
-        $child1 = findAssemblyById($assemblies, $parent['Assembly_Father_ID']);
-        if ($child1) {
-            $child1['depth'] = $parent['depth'] + 1;
-            $child1 = buildAssemblyTreeDual($assemblies, $child1);
-            $children[] = $child1;
-        }
-    }
-
-    // Se existir uma subassembly 2 (Assembly_Child_ID)
-    if (!empty($parent['Assembly_Child_ID'])) {
-        $child2 = findAssemblyById($assemblies, $parent['Assembly_Child_ID']);
-        if ($child2) {
-            $child2['depth'] = $parent['depth'] + 1;
-            $child2 = buildAssemblyTreeDual($assemblies, $child2);
-            $children[] = $child2;
-        }
-    }
-
-    $parent['children'] = $children;
-    return $parent;
-}*/
-
-/**
- * Constrói a árvore completa de assemblies usando a relação dual: 
- * - Assembly_Father_ID representa a subassembly 1
- * - Assembly_Child_ID representa a subassembly 2
- *
- * Os registros que não aparecem em nenhum desses campos serão considerados nós raiz.
- *
- * @param array $assemblies Lista plana de assemblies.
- * @return array Árvore hierárquica de assemblies.
- */
-/*function getAssemblyTreeDual(array $assemblies): array {
-    // Primeiro, reúna todos os IDs que aparecem nos campos de subassemblies
-    $childIDs = [];
-    foreach ($assemblies as $asm) {
-        if (!empty($asm['Assembly_Father_ID'])) {
-            $childIDs[] = trim($asm['Assembly_Father_ID']);
-        }
-        if (!empty($asm['Assembly_Child_ID'])) {
-            $childIDs[] = trim($asm['Assembly_Child_ID']);
-        }
-    }
-    // Os nós raiz são os que não aparecem como subassembly em lado nenhum
-    $tree = [];
-    foreach ($assemblies as $asm) {
-        if (!in_array($asm['Assembly_ID'], $childIDs)) {
-            $asm['depth'] = 0;
-            $tree[] = buildAssemblyTreeDual($assemblies, $asm);
-        }
-    }
-    return $tree;
-}
-*/
 
 /**
  * Constrói recursivamente a árvore mista de uma assembly.

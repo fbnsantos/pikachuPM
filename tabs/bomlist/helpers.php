@@ -284,3 +284,37 @@ function duplicateAssemblyTree(PDO $pdo, int $sourceAssemblyId, int $newPrototyp
     
     return $newAssemblyId;
 }
+
+/**
+ * Retorna o maior Assembly_Level de todos os descendentes de uma assembly.
+ *
+ * @param PDO $pdo
+ * @param int $parentId
+ * @return int
+ */
+function getMaxAssemblyLevelUnder(PDO $pdo, int $parentId): int {
+    // busca filhos diretos
+    $stmt = $pdo->prepare("
+        SELECT Child_Assembly_ID
+        FROM T_Assembly_Assembly
+        WHERE Parent_Assembly_ID = ?
+    ");
+    $stmt->execute([$parentId]);
+    $childIds = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+
+    $max = 0;
+    foreach ($childIds as $childId) {
+        // nível da própria child
+        $stmt2 = $pdo->prepare("
+            SELECT Assembly_Level
+            FROM T_Assembly
+            WHERE Assembly_ID = ?
+        ");
+        $stmt2->execute([(int)$childId]);
+        $lvl = (int)$stmt2->fetchColumn();
+        // recursivamente busca níveis abaixo
+        $subMax = getMaxAssemblyLevelUnder($pdo, (int)$childId);
+        $max = max($max, $lvl, $subMax);
+    }
+    return $max;
+}

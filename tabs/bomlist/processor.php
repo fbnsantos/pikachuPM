@@ -270,7 +270,7 @@ function processCRUD($pdo, $entity , $action){
             }
                 
             // Definir o nível da nova assembly como o maior nível + 1
-            $assemblyLevel = $maxLevel + 1;
+            //$assemblyLevel = $maxLevel + 1;
             error_log("Assembly criada. Nível definido como: " . $assemblyLevel);
 
             
@@ -347,10 +347,40 @@ function processCRUD($pdo, $entity , $action){
             {
                 // Associação com outra assembly:
                
-                $childAssemblyId  = (int) $_POST['associated_assembly'];     // assembly filha
+                $raw = $_POST['associated_assembly'];     // assembly filha
                 $quantity = $_POST['assembly_quantity'] ?: 1;
 
+                // Verifica se o ID da assembly pai é um protótipo
+                if (strpos($raw, 'prototype') !== false) {
+                    // Remove a string " prototype" e converte para inteiro
+                    $childAssemblyId = (int) str_replace(' prototype', '', $raw);
 
+                    // Busca o ID da assembly com o maior nível associado ao protótipo recebido
+                    $stmt = $pdo->prepare("
+                        SELECT a.Assembly_ID
+                        FROM T_Assembly a
+                        INNER JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
+                        WHERE p.Prototype_ID = ?
+                        ORDER BY a.Assembly_Level DESC
+                        LIMIT 1
+                    ");
+                    $stmt->execute([(int)$childAssemblyId]);
+                    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($result) {
+                        $childAssemblyId = (int)$result['Assembly_ID'];
+                        error_log("ID da assembly com o maior nível associado ao protótipo (childAssemblyId): " . $childAssemblyId);
+
+                    } else {
+                        error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $childAssemblyId);
+                        $childAssemblyId = null; // Caso não encontre nenhuma assembly
+                    }
+                } else {
+                    // se nao for prototype, só converte para inteiro
+                    $childAssemblyId = (int) $raw;
+                }
+
+                // para verificar se não há recursividade infinita
                 if (checkInfRecursion($pdo, $childAssemblyId, $parentAssemblyId)) {
                     $childAssemb = findAssemblyById($assemblies, $childAssemblyId);
                     $fatherAssemb = findAssemblyById($assemblies, $parentAssemblyId);
@@ -369,32 +399,7 @@ function processCRUD($pdo, $entity , $action){
                     );
                     exit;
                 } else {
-                    // Verifica se o ID da assembly pai é um protótipo
-                    if (strpos($childAssemblyId, 'prototype') !== false) {
-                        // Remove a string " prototype" e converte para inteiro
-                        $childAssemblyId = str_replace(' prototype', '', $childAssemblyId);
-
-                        // Busca o ID da assembly com o maior nível associado ao protótipo recebido
-                        $stmt = $pdo->prepare("
-                            SELECT a.Assembly_ID
-                            FROM T_Assembly a
-                            INNER JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-                            WHERE p.Prototype_ID = ?
-                            ORDER BY a.Assembly_Level DESC
-                            LIMIT 1
-                        ");
-                        $stmt->execute([(int)$childAssemblyId]);
-                        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                        if ($result) {
-                            $childAssemblyId = (int)$result['Assembly_ID'];
-                            error_log("ID da assembly com o maior nível associado ao protótipo (childAssemblyId): " . $childAssemblyId);
-
-                        } else {
-                            error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $childAssemblyId);
-                            $childAssemblyId = null; // Caso não encontre nenhuma assembly
-                        }
-                    }
+                    
 
                     // Obter todos os IDs recursivamente para as relações existentes
 
@@ -431,6 +436,31 @@ function processCRUD($pdo, $entity , $action){
                     ");
                     $stmt->execute([$parentAssemblyId, $childAssemblyId, $quantity]);
                     $message = "Associação de Assembly criada com sucesso!";
+
+                     // ─── Recalcular e atualizar o nível do assembly pai ───
+                    // Busca nível atual do pai
+                    $stmtLvl = $pdo->prepare("SELECT Assembly_Level FROM T_Assembly WHERE Assembly_ID = ?");
+                    $stmtLvl->execute([$parentAssemblyId]);
+                    $parentLevel = (int)$stmtLvl->fetchColumn();
+
+                    // procura direta na BD
+                    $stmtLvlChild = $pdo->prepare(
+                        "SELECT Assembly_Level FROM T_Assembly WHERE Assembly_ID = ?"
+                        );
+                    $stmtLvlChild->execute([$childAssemblyId]);
+                    $childLevel = (int)$stmtLvlChild->fetchColumn();
+
+                    // Novo nível do pai = max(nível atual do pai, nível do filho + 1)
+                    $newParentLevel = max($parentLevel, $childLevel + 1);
+
+                    if ($newParentLevel !== $parentLevel) {
+                        $stmtUpd = $pdo->prepare("
+                            UPDATE T_Assembly
+                            SET Assembly_Level = ?
+                            WHERE Assembly_ID = ?
+                        ");
+                        $stmtUpd->execute([$newParentLevel, $parentAssemblyId]);
+                    }
                 }
             } else {
                 $message = "Nenhuma associação foi especificada.";

@@ -1,4 +1,8 @@
 <?php
+
+require_once 'database/database.php';
+
+
 // Função para buscar todos os fabricantes
 function getManufacturers($pdo) {
     $stmt = $pdo->query("SELECT * FROM T_Manufacturer ORDER BY Denomination");
@@ -538,5 +542,42 @@ function getAssemblyTreeFromList(array $assemblies, array $assocComps, array $as
     }
     return $tree;
 }
+
+
+// functions and code to help with component and assembly removal
+
+function getAssociatedComps($pdo , int $assemblyID): array{
+    $stmt = $pdo->prepare("SELECT T_Component.Component_ID , Denomination , Reference FROM T_Assembly_Component JOIN T_Component ON T_Assembly_Component.Component_ID = T_Component.Component_ID WHERE Assembly_ID = ?");
+    $stmt->execute([$assemblyID]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function getAssociatedAssems($pdo , int $assemblyID): array{
+    $stmt = $pdo->prepare("SELECT a.Assembly_ID , a.Assembly_Designation , a.Assembly_Reference FROM T_Assembly_Assembly JOIN T_Assembly a ON T_Assembly_Assembly.Child_Assembly_ID = a.Assembly_ID WHERE Parent_Assembly_ID = ?");
+    $stmt->execute([$assemblyID]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+
+$pdo = connectDB();
+
+    $json_data = file_get_contents('php://input');
+    $input = json_decode($json_data, true);
+if ($input['action'] === 'getAssociatedComps' && isset($input['assemblyID'])) {
+    $assemblyID = (int)$input['assemblyID'];
+    $associatedComps = getAssociatedComps($pdo , $assemblyID);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($associatedComps);
+    exit;
+}
+else if ($input['action'] === 'getAssociatedAssemblies' && isset($input['assemblyID'])) {
+    $assemblyID = (int)$input['assemblyID'];
+    $associatedAssems = getAssociatedAssems($pdo , $assemblyID);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($associatedAssems);
+    exit;
+}
+
+
 
 ?>

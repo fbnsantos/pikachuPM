@@ -325,8 +325,22 @@ function processCRUD($pdo, $entity , $action){
             $stmtSelect->execute([$parentAssemblyId]);
             $assemblyPrice = (float) $stmtSelect->fetchColumn();
             
-            // Verifica se a associação é de componente ou de assembly
-            if (!empty($_POST['component_father_id'])) {
+            // Verifica se a associação é de componente ou de assembly ou delete
+            $message = $_POST['remove_type'] ?? '';
+            if(!empty($_POST['remove_type'])){
+                if ($_POST['remove_type'] === 'component' && !empty($_POST['remove_component_id'])) {
+                    // Remover associação de componente
+                    $stmt = $pdo->prepare("DELETE FROM T_Assembly_Component WHERE Assembly_ID = ? AND Component_ID = ?");
+                    $stmt->execute([$parentAssemblyId, $_POST['remove_component_id']]);
+                    $message = "Associação de Componente removida com sucesso!";
+                } elseif ($_POST['remove_type'] === 'assembly' && !empty($_POST['remove_assembly_id'])) {
+                    // Remover associação de assembly
+                    $stmt = $pdo->prepare("DELETE FROM T_Assembly_Assembly WHERE Parent_Assembly_ID = ? AND Child_Assembly_ID = ?");
+                    $stmt->execute([$parentAssemblyId, $_POST['remove_assembly_id']]);
+                    $message = "Associação de Assembly e Assembly removida com sucesso!";
+                }
+            }
+            else if (!empty($_POST['component_father_id'])) {
                 // Associação com componente:
                 $compFatherRecord = findComponentById($components, $compFather);
                 $assemblyId = $_POST['assembly_id']; // assembly principal (já existente)

@@ -588,6 +588,9 @@ $assemblies = getAssemblies($pdo);
                                         <button type="button" class="btn btn-outline-success btn-sm" onclick="showComponentFields()">
                                             <i class="bi bi-cpu"></i> Associar Componente
                                         </button>
+                                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="showRemoveFields()">
+                                            <i class="bi bi-x-circle"></i> Remover Associação
+                                        </button>
                                     </div>
 
                                     <!-- Campos para Assembly -->
@@ -643,6 +646,23 @@ $assemblies = getAssemblies($pdo);
                                             <input type="number" class="form-control" name="component_quantity" min="1" value="1">
                                         </div>
                                     </div>
+                                </div>
+                                <!-- Campos para remoção de associação -->
+                                 <div id="remove-association-fields" style="display:none;" class="mt-3">
+                                    <div class="mb-3">
+                                        <label for="remove_type" class="form-label">Tipo de Associação a Remover</label>
+                                        <select class="form-select" name="remove_type" id="remove_type" onchange="showRemoveOptions(this.value)">
+                                            <option value="">Selecionar...</option>
+                                            <option value="assembly">Assembly</option>
+                                            <option value="component">Componente</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3" id="remove_assembly_div" style="display:none;">
+                                     <!-- Loaded dynamically from js -->
+                                    </div>
+                                    <div class="mb-3" id="remove_component_div" style="display:none;">
+                                     <!-- Loaded dynamically from js -->
+                                    </div>              
                                 </div>
 
 

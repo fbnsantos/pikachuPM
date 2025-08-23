@@ -4,11 +4,13 @@ function showAssociationFields(value) {
 }
 
 function showAssemblyFields() {
+    document.getElementById('remove-association-fields').style.display = 'none';
     document.getElementById('assembly-association-fields').style.display = 'block';
     document.getElementById('component-association-fields').style.display = 'none';
 }
 
 function showComponentFields() {
+    document.getElementById('remove-association-fields').style.display = 'none';
     document.getElementById('assembly-association-fields').style.display = 'none';
     document.getElementById('component-association-fields').style.display = 'block';
 }
@@ -741,5 +743,68 @@ document.addEventListener('DOMContentLoaded', function() {
             // Abrir o modal
             const modal = new bootstrap.Modal(document.getElementById('componentDetailsModal'));
             modal.show();
+        }
+    }
+
+    function showRemoveFields(){
+        const mainDisplay = document.getElementById('remove-association-fields');
+        mainDisplay.style.display = 'block';
+        document.getElementById('assembly-association-fields').style.display = 'none';
+        document.getElementById('component-association-fields').style.display = 'none';
+    }
+
+    function showRemoveOptions(value){
+        if (value === 'component'){
+            document.getElementById('remove_assembly_div').style.display = 'none';
+            const mainDisplay = document.getElementById('remove_component_div');
+            const assemblyID = document.getElementById('assembly_name').value;
+            // get the list of components that are connected to this assembly ID
+            fetch('tabs/bomlist/getters.php',{
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // enviar assemblyID como query parameter
+                body: JSON.stringify({
+                assemblyID : assemblyID,
+                action: "getAssociatedComps" 
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                let options = '<select class="form-select" name="remove_component_id"><option value="">Selecionar...</option>';
+                data.forEach(item => {
+                        options += `<option value="${item.Component_ID}">${item.Denomination} ( ${item.Reference})</option>`;
+                });
+                options += '</select>';
+                mainDisplay.innerHTML = options;
+            });
+
+            document.getElementById('remove_component_div').style.display = 'block';
+        } else if (value === 'assembly'){
+            document.getElementById('remove_component_div').style.display = 'none';
+            mainDisplay = document.getElementById('remove_assembly_div');
+            const assemblyID = document.getElementById('assembly_name').value;
+            // get the list of assemblies that are connected to this assembly ID
+            fetch('tabs/bomlist/getters.php',{
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // enviar assemblyID como query parameter
+                body: JSON.stringify({
+                assemblyID : assemblyID,
+                action: "getAssociatedAssemblies"
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                let options = '<select class="form-select" name= "remove_assembly_id"><option value="">Selecionar...</option>';
+                data.forEach(item => {
+                        options += `<option value="${item.Assembly_ID}">${item.Assembly_Designation} ( ${item.Assembly_Reference})</option>`;
+                });
+                options += '</select>';
+                mainDisplay.innerHTML = options;
+            });
+            document.getElementById('remove_assembly_div').style.display = 'block';
+        } else {
+            document.getElementById('remove_component-div').style.display = 'none';
+            document.getElementById('remove_assembly_div').style.display = 'none';
         }
     }

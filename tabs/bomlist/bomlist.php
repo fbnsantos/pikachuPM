@@ -287,7 +287,7 @@ $assemblies = getAssemblies($pdo);
                             <table class="table table-striped table-hover">
                                 <thead class="table-dark">
                                     <tr>
-                                        <th>ID</th>
+                                        <th>Referência</th>
                                         <th>Denominação</th>
                                         <th>Tipo</th>
                                         <th>Fabricante</th>
@@ -300,7 +300,7 @@ $assemblies = getAssemblies($pdo);
                                 <tbody>
                                     <?php foreach ($components as $component): ?>
                                         <tr class="<?= ($component['Stock_Quantity'] <= $component['Min_Stock']) ? 'table-warning' : '' ?>">
-                                            <td><?= $component['Component_ID'] ?></td>
+                                            <td><?= $component['Reference'] ?></td>
                                             <td>
                                                 <strong><?= htmlspecialchars($component['Denomination']) ?></strong>
                                                 <?php if ($component['Notes_Description']): ?>
@@ -738,6 +738,7 @@ $assemblies = getAssemblies($pdo);
                             <table class="table table-striped table-hover">
                                 <thead class="table-dark">
                                     <tr>
+                                        <th>Referência</th>
                                         <th>Designação</th>
                                         <th>Protótipo</th>
                                         <th>Preço</th>
@@ -748,6 +749,7 @@ $assemblies = getAssemblies($pdo);
                                 <tbody>
                                     <?php foreach ($filteredAssemblies as $assembly): ?>
                                         <tr>
+                                            <td><?= $assembly['Assembly_Reference'] ?></td>
                                             <td class = "assembly-designation" data-assembly-id="<?= $assembly['Assembly_ID'] ?>">
                                                 <?= $assembly['Assembly_Designation'] ?? '-' ?>
                                                 <button 

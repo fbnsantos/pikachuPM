@@ -333,26 +333,19 @@ function processCRUD($pdo, $entity , $action){
                     $stmt = $pdo->prepare("DELETE FROM T_Assembly_Component WHERE Assembly_ID = ? AND Component_ID = ?");
                     $stmt->execute([$parentAssemblyId, $_POST['remove_component_id']]);
                     $message = "Associação de Componente removida com sucesso!";
-                } elseif ($_POST['remove_type'] === 'assembly') {
-                    // buscar filhos diretos do pai
+                } elseif ($_POST['remove_type'] === 'assembly' && !empty($_POST['remove_assembly_id'])) {
+                        $toRemoveId = (int) $_POST['remove_assembly_id'];
+
+                    // 1) Apagar recursivamente a sub-árvore seleccionada
+                    deleteAssemblySubtree($pdo, $toRemoveId);
+
+                    // 2) Apagar a associação pai→filho específica
                     $stmt = $pdo->prepare("
-                        SELECT Child_Assembly_ID
-                        FROM T_Assembly_Assembly
-                        WHERE Parent_Assembly_ID = ?
+                    DELETE FROM T_Assembly_Assembly
+                    WHERE Parent_Assembly_ID = ?
+                        AND Child_Assembly_ID  = ?
                     ");
-                    $stmt->execute([$parentAssemblyId]);
-                    $childIds = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
-
-                    // deletar cada subtree
-                    foreach ($childIds as $childId) {
-                        deleteAssemblySubtree($pdo, (int)$childId);
-                    }
-
-                    // remover por segurança quaisquer associações restantes do pai
-                    $pdo->prepare("
-                        DELETE FROM T_Assembly_Assembly
-                        WHERE Parent_Assembly_ID = ?
-                    ")->execute([$parentAssemblyId]);
+                    $stmt->execute([$parentAssemblyId, $toRemoveId]);
 
                     $message = "Todas as sub-assemblies e suas associações foram removidas com sucesso!";
                 }

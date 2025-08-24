@@ -513,11 +513,11 @@ function processCRUD($pdo, $entity , $action){
                 $status  = "error";
                 header(
                     "Location: ?tab=bomlist/bomlist"
-                . "&entity=assembly"
-                . "&msg="   . urlencode($message)
-                . "&status=". urlencode($status)
+                    . "&entity=assembly"
+                    . "&msg="   . urlencode($message)
+                    . "&status=". urlencode($status)
                 );
-                
+                exit;
             }
             
             error_log("Assembly_Price: " . $assemblyPrice);

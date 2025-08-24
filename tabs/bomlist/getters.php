@@ -558,6 +558,26 @@ function getAssociatedAssems($pdo , int $assemblyID): array{
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+/**
+ * Retorna todos os Assembly_IDs de um protótipo num nível específico.
+ *
+ * @param PDO $pdo
+ * @param int $prototypeId
+ * @param int $level
+ * @return int[]
+ */
+function getAssembliesByPrototypeAndLevel(PDO $pdo, int $prototypeId, int $level): array {
+    $sql = "
+      SELECT Assembly_ID
+      FROM T_Assembly
+      WHERE Prototype_ID   = ?
+        AND Assembly_Level = ?
+    ";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$prototypeId, $level]);
+    return $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+}
+
 
 $pdo = connectDB();
 

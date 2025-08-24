@@ -250,11 +250,14 @@ function duplicateAssemblyTree(PDO $pdo, int $sourceAssemblyId, int $newPrototyp
             Created_Date
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
     ");
+
+    $newLevel = max(1, (int)$source['Assembly_Level'] + 1);
+
     $stmtInsert->execute([
         $newPrototypeId,
         $source['Assembly_Designation'],
         $newRef,
-        $source['Assembly_Level'], // Pode recalcular se necessário
+        $newLevel,
         $source['Price'],
         $source['Notes'],
         $createdDate

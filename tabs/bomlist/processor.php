@@ -367,113 +367,93 @@ function processCRUD($pdo, $entity , $action){
                 // Verifica se o ID da assembly pai é um protótipo
                 if (strpos($raw, 'prototype') !== false) {
                     // Remove a string " prototype" e converte para inteiro
-                    $childAssemblyId = (int) str_replace(' prototype', '', $raw);
+                    $protoId = (int) str_replace(' prototype', '', $raw);
 
-                    // Busca o ID da assembly com o maior nível associado ao protótipo recebido
-                    $stmt = $pdo->prepare("
-                        SELECT a.Assembly_ID
-                        FROM T_Assembly a
-                        INNER JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-                        WHERE p.Prototype_ID = ?
-                        ORDER BY a.Assembly_Level DESC
-                        LIMIT 1
-                    ");
-                    $stmt->execute([(int)$childAssemblyId]);
-                    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+                    // traz todas as assemblies de nível 0 (raízes) desse protótipo
+                    $childAssemblyIds = getAssembliesByPrototypeAndLevel(
+                        $pdo,
+                        $protoId,
+                        0
+                    );
 
-                    if ($result) {
-                        $childAssemblyId = (int)$result['Assembly_ID'];
-                        error_log("ID da assembly com o maior nível associado ao protótipo (childAssemblyId): " . $childAssemblyId);
-
-                    } else {
-                        error_log("Nenhuma assembly encontrada para o protótipo com ID: " . $childAssemblyId);
-                        $childAssemblyId = null; // Caso não encontre nenhuma assembly
+                    if(empty($childAssemblyIds)){
+                        throw new RuntimeException("Não existem assemblies para o protótipo $protoId");
                     }
-                } else {
-                    // se nao for prototype, só converte para inteiro
-                    $childAssemblyId = (int) $raw;
+
+                    error_log("IDs de assemblies no nível {$parentLevel}: " . implode(', ', $childAssemblyIds));
+                }
+                else{
+                    $childAssemblyIds = [ (int)$raw ];
                 }
 
-                // para verificar se não há recursividade infinita
-                if (checkInfRecursion($pdo, $childAssemblyId, $parentAssemblyId)) {
-                    $childAssemb = findAssemblyById($assemblies, $childAssemblyId);
-                    $fatherAssemb = findAssemblyById($assemblies, $parentAssemblyId);
+                foreach($childAssemblyIds as $childAssemblyId){
+                    // para verificar se não há recursividade infinita
+                    if (checkInfRecursion($pdo, $childAssemblyId, $parentAssemblyId)) {
+                        $childAssemb = findAssemblyById($assemblies, $childAssemblyId);
+                        $fatherAssemb = findAssemblyById($assemblies, $parentAssemblyId);
 
-                    $childName  = htmlspecialchars($childAssemb['Assembly_Designation'], ENT_QUOTES, 'UTF-8');
-                    $parentName = htmlspecialchars($fatherAssemb['Assembly_Designation'], ENT_QUOTES, 'UTF-8');
+                        $childName  = htmlspecialchars($childAssemb['Assembly_Designation'], ENT_QUOTES, 'UTF-8');
+                        $parentName = htmlspecialchars($fatherAssemb['Assembly_Designation'], ENT_QUOTES, 'UTF-8');
 
-                    $message = "Adição inválida [Ciclo infinito]: “{$parentName}” é sub-assembly de “{$childName}”.";
-                
-                    $status  = "error";   // força a classe alert-danger
-                    header(
-                        "Location: ?tab=bomlist/bomlist"
-                        ."&entity=assembly"
-                        ."&msg="   . urlencode($message)
-                        ."&status=". urlencode($status)
-                    );
-                    exit;
-                } else {
+                        $message = "Adição inválida [Ciclo infinito]: “{$parentName}” é sub-assembly de “{$childName}”.";
                     
-
-                    // Obter todos os IDs recursivamente para as relações existentes
-
-                    $assemblyAssemblies = getAssemblyAssemblies($pdo, $childAssemblyId);
-                    // Se houver assembly filho, obtém suas subassemblies
-                    if (!empty($childAssemblyId)) {
-                        $childAssembly = findAssemblyById($assemblies, $childAssemblyId);
-                        error_log("childAssembly: " . print_r($childAssembly, true));
-                    }
-
-                    // Novo Prototype_ID para associar as subassemblies
-                    $stmt = $pdo->prepare("SELECT Prototype_ID FROM T_Assembly WHERE Assembly_ID = ?");
-                    $stmt->execute([$parentAssemblyId]);
-                    $newPrototypeId = $stmt->fetchColumn();
-
-                    //  Prototype_ID da assembly filha (a que será duplicada)
-                    $stmt = $pdo->prepare("SELECT Prototype_ID FROM T_Assembly WHERE Assembly_ID = ?");
-                    $stmt->execute([$childAssemblyId]);
-                    $childPrototypeId = $stmt->fetchColumn();
-
-                    // Se os Prototype_IDs forem diferentes, duplicamos; caso contrário, não duplicamos.
-                    if ((int)$newPrototypeId !== (int)$childPrototypeId) {
-                        $childAssemblyId = duplicateAssemblyTree($pdo, $childAssemblyId, (int)$newPrototypeId);
-                    } else {
-                        error_log("Prototype_ID da subassembly " . $childPrototypeId . " já é igual ao novo Prototype_ID: " . $newPrototypeId);
-                    }
-
-                    $priceAssemFather = ($childAssemblyId !== '' && !is_null($childAssemblyId)) ? getAssemblyPrice($childAssembly) * $quantity : 0;
-                    $assemblyPrice += $priceAssemFather;
-
-                    $stmt = $pdo->prepare("
-                        INSERT INTO T_Assembly_Assembly (Parent_Assembly_ID, Child_Assembly_ID, Quantity)
-                        VALUES (?, ?, ?)
-                    ");
-                    $stmt->execute([$parentAssemblyId, $childAssemblyId, $quantity]);
-                    $message = "Associação de Assembly criada com sucesso!";
-
-                     // ─── Recalcular e atualizar o nível do assembly pai ───
-                    // Busca nível atual do pai
-                    $stmtLvl = $pdo->prepare("SELECT Assembly_Level FROM T_Assembly WHERE Assembly_ID = ?");
-                    $stmtLvl->execute([$parentAssemblyId]);
-                    $parentLevel = (int)$stmtLvl->fetchColumn();
-
-                    // procura direta na BD
-                    $stmtLvlChild = $pdo->prepare(
-                        "SELECT Assembly_Level FROM T_Assembly WHERE Assembly_ID = ?"
+                        $status  = "error";   // força a classe alert-danger
+                        header(
+                            "Location: ?tab=bomlist/bomlist"
+                            ."&entity=assembly"
+                            ."&msg="   . urlencode($message)
+                            ."&status=". urlencode($status)
                         );
-                    $stmtLvlChild->execute([$childAssemblyId]);
-                    $childLevel = (int)$stmtLvlChild->fetchColumn();
+                        exit;
+                    } else {
+                        // Obter todos os IDs recursivamente para as relações existentes
 
-                    // Novo nível do pai = max(nível atual do pai, nível do filho + 1)
-                    $newParentLevel = max($parentLevel, $childLevel + 1);
+                        $assemblyAssemblies = getAssemblyAssemblies($pdo, $childAssemblyId);
+                        // Se houver assembly filho, obtém suas subassemblies
+                        if (!empty($childAssemblyId)) {
+                            $childAssembly = findAssemblyById($assemblies, $childAssemblyId);
+                            error_log("childAssembly: " . print_r($childAssembly, true));
+                        }
 
-                    if ($newParentLevel !== $parentLevel) {
-                        $stmtUpd = $pdo->prepare("
-                            UPDATE T_Assembly
-                            SET Assembly_Level = ?
-                            WHERE Assembly_ID = ?
+                        // Novo Prototype_ID para associar as subassemblies
+                        $stmt = $pdo->prepare("SELECT Prototype_ID FROM T_Assembly WHERE Assembly_ID = ?");
+                        $stmt->execute([$parentAssemblyId]);
+                        $newPrototypeId = $stmt->fetchColumn();
+
+                        //  Prototype_ID da assembly filha (a que será duplicada)
+                        $stmt = $pdo->prepare("SELECT Prototype_ID FROM T_Assembly WHERE Assembly_ID = ?");
+                        $stmt->execute([$childAssemblyId]);
+                        $childPrototypeId = $stmt->fetchColumn();
+
+                        // Se os Prototype_IDs forem diferentes, duplicamos; caso contrário, não duplicamos.
+                        if ((int)$newPrototypeId !== (int)$childPrototypeId) {
+                            $childAssemblyId = duplicateAssemblyTree($pdo, $childAssemblyId, (int)$newPrototypeId);
+                        } else {
+                            error_log("Prototype_ID da subassembly " . $childPrototypeId . " já é igual ao novo Prototype_ID: " . $newPrototypeId);
+                        }
+
+                        $priceAssemFather = ($childAssemblyId !== '' && !is_null($childAssemblyId)) ? getAssemblyPrice($childAssembly) * $quantity : 0;
+                        $assemblyPrice += $priceAssemFather;
+
+                        $stmt = $pdo->prepare("
+                            INSERT INTO T_Assembly_Assembly (Parent_Assembly_ID, Child_Assembly_ID, Quantity)
+                            VALUES (?, ?, ?)
                         ");
-                        $stmtUpd->execute([$newParentLevel, $parentAssemblyId]);
+                        $stmt->execute([$parentAssemblyId, $childAssemblyId, $quantity]);
+
+                        // ─── aqui definimos o nível da filha ───
+                        // 1) encontrar nível do pai
+                        $st1 = $pdo->prepare("SELECT Assembly_Level FROM T_Assembly WHERE Assembly_ID = ?");
+                        $st1->execute([$parentAssemblyId]);
+                        $parentLevel = (int)$st1->fetchColumn();
+                        // 2) childLevel = parentLevel + 1
+                        $childLevel = $parentLevel + 1;
+                        // 3) grava na tabela
+                        $st2 = $pdo->prepare("UPDATE T_Assembly SET Assembly_Level = ? WHERE Assembly_ID = ?");
+                        $st2->execute([$childLevel, $childAssemblyId]);
+
+                        $message = "Associação de Assembly criada com sucesso!";
+                        // ─── Recalcular e atualizar o nível do assembly pai ───
                     }
                 }
             } else {

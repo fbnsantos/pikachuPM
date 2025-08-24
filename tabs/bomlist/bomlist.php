@@ -608,46 +608,46 @@ $assemblies = getAssemblies($pdo);
                                     </div>
 
                                     <!-- Campos para Assembly -->   
-<div id="assembly-association-fields" style="display:none;">
-  <div class="mb-3">
-    <label for="associated_assembly" class="form-label">Selecionar Assembly:</label>
-    <select class="form-select" name="associated_assembly" id="associated_assembly">
-      <option value="">Selecionar assembly...</option>
-      <?php foreach ($assemblies as $assembly): ?>
-        <option value="<?= $assembly['Assembly_ID'] ?>">
-          <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
-          – <?= $assembly['Assembly_Designation'] ?: 'Nível raiz' ?>
-        </option>
-      <?php endforeach; ?>
-      <?php foreach ($prototypes as $prototype): ?>
-        <option value="<?= $prototype['Prototype_ID'] ?> prototype">
-          <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
-        </option>
-      <?php endforeach; ?>
-    </select>
-  </div>
+                                    <div id="assembly-association-fields" style="display:none;">
+                                    <div class="mb-3">
+                                        <label for="associated_assembly" class="form-label">Selecionar Assembly:</label>
+                                        <select class="form-select" name="associated_assembly" id="associated_assembly">
+                                        <option value="">Selecionar assembly...</option>
+                                        <?php foreach ($assemblies as $assembly): ?>
+                                            <option value="<?= $assembly['Assembly_ID'] ?>">
+                                            <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
+                                            – <?= $assembly['Assembly_Designation'] ?: 'Nível raiz' ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                        <?php foreach ($prototypes as $prototype): ?>
+                                            <option value="<?= $prototype['Prototype_ID'] ?> prototype">
+                                            <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                        </select>
+                                    </div>
 
-  <div class="mb-3">
-    <div class="input-group">
-      <input type="text"
-             class="form-control"
-             id="assembly_ref_assoc"
-             name="assembly_father_custom_ref"
-             placeholder="Referência">
-      <button type="button"
-              id="assemblyDetailsBtnAssoc"
-              class="btn btn-outline-info"
-              disabled>
-        <i class="bi bi-info-circle"></i> Ver Detalhes
-      </button>
-    </div>
-  </div>
+                                    <div class="mb-3">
+                                        <div class="input-group">
+                                        <input type="text"
+                                                class="form-control"
+                                                id="assembly_ref_assoc"
+                                                name="assembly_father_custom_ref"
+                                                placeholder="Referência">
+                                        <button type="button"
+                                                id="assemblyDetailsBtnAssoc"
+                                                class="btn btn-outline-info"
+                                                disabled>
+                                            <i class="bi bi-info-circle"></i> Ver Detalhes
+                                        </button>
+                                        </div>
+                                    </div>
 
-  <div class="mb-3">
-    <label for="assembly_quantity" class="form-label">Quantidade</label>
-    <input type="number" class="form-control" name="assembly_quantity" min="1" value="1">
-  </div>
-</div>
+                                    <div class="mb-3">
+                                        <label for="assembly_quantity" class="form-label">Quantidade</label>
+                                        <input type="number" class="form-control" name="assembly_quantity" min="1" value="1">
+                                    </div>
+                                    </div>
 
                                     <!-- Campos para Componente -->
                                     <div id="component-association-fields" style="display:none;">

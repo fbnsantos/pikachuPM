@@ -321,3 +321,44 @@ function getMaxAssemblyLevelUnder(PDO $pdo, int $parentId): int {
     }
     return $max;
 }
+
+/**
+ * Deleta recursivamente uma assembly e tudo que houver debaixo dela.
+ *
+ * @param PDO $pdo
+ * @param int $assemblyId
+ */
+function deleteAssemblySubtree(PDO $pdo, int $assemblyId): void {
+    // 1) buscar filhos diretos
+    $stmt = $pdo->prepare(
+        "SELECT Child_Assembly_ID 
+           FROM T_Assembly_Assembly 
+          WHERE Parent_Assembly_ID = ?"
+    );
+    $stmt->execute([$assemblyId]);
+    $childIds = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+
+    // 2) deletar recursivamente cada filho
+    foreach ($childIds as $cid) {
+        deleteAssemblySubtree($pdo, (int)$cid);
+    }
+
+    // 3) apagar associações de componente dessa assembly
+    $pdo->prepare(
+        "DELETE FROM T_Assembly_Component 
+          WHERE Assembly_ID = ?"
+    )->execute([$assemblyId]);
+
+    // 4) apagar todas as associações pai→filho envolvendo esta assembly
+    $pdo->prepare(
+        "DELETE FROM T_Assembly_Assembly 
+          WHERE Parent_Assembly_ID = ? 
+             OR Child_Assembly_ID  = ?"
+    )->execute([$assemblyId, $assemblyId]);
+
+    // 5) finalmente, apagar a própria assembly
+    $pdo->prepare(
+        "DELETE FROM T_Assembly 
+          WHERE Assembly_ID = ?"
+    )->execute([$assemblyId]);
+}

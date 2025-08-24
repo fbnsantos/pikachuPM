@@ -333,14 +333,35 @@ function processCRUD($pdo, $entity , $action){
                     $stmt = $pdo->prepare("DELETE FROM T_Assembly_Component WHERE Assembly_ID = ? AND Component_ID = ?");
                     $stmt->execute([$parentAssemblyId, $_POST['remove_component_id']]);
                     $message = "Associação de Componente removida com sucesso!";
-                } elseif ($_POST['remove_type'] === 'assembly' && !empty($_POST['remove_assembly_id'])) {
-                    // Remover associação de assembly
-                    $stmt = $pdo->prepare("DELETE FROM T_Assembly_Assembly WHERE Parent_Assembly_ID = ? AND Child_Assembly_ID = ?");
-                    $stmt->execute([$parentAssemblyId, $_POST['remove_assembly_id']]);
-                    $message = "Associação de Assembly e Assembly removida com sucesso!";
+                } elseif ($_POST['remove_type'] === 'assembly') {
+                    // buscar filhos diretos do pai
+                    $stmt = $pdo->prepare("
+                        SELECT Child_Assembly_ID
+                        FROM T_Assembly_Assembly
+                        WHERE Parent_Assembly_ID = ?
+                    ");
+                    $stmt->execute([$parentAssemblyId]);
+                    $childIds = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+
+                    // deletar cada subtree
+                    foreach ($childIds as $childId) {
+                        deleteAssemblySubtree($pdo, (int)$childId);
+                    }
+
+                    // remover por segurança quaisquer associações restantes do pai
+                    $pdo->prepare("
+                        DELETE FROM T_Assembly_Assembly
+                        WHERE Parent_Assembly_ID = ?
+                    ")->execute([$parentAssemblyId]);
+
+                    $message = "Todas as sub-assemblies e suas associações foram removidas com sucesso!";
                 }
-            }
-            else if (!empty($_POST['component_father_id'])) {
+                else {
+                    $url = "?tab=bomlist/bomlist&entity=assembly";
+                    $status = "error";
+                    $message = "Erro: Tipo de remoção inválido ou ID ausente.";
+                }
+            } elseif (!empty($_POST['component_father_id'])) {
                 // Associação com componente:
                 $compFatherRecord = findComponentById($components, $compFather);
                 $assemblyId = $_POST['assembly_id']; // assembly principal (já existente)
@@ -369,6 +390,24 @@ function processCRUD($pdo, $entity , $action){
                     // Remove a string " prototype" e converte para inteiro
                     $protoId = (int) str_replace(' prototype', '', $raw);
 
+                    // procurar o protótipo pai
+                    $st = $pdo->prepare("SELECT Prototype_ID FROM T_Assembly WHERE Assembly_ID = ?");
+                    $st->execute([$parentAssemblyId]);
+                    $parentProtoId = (int)$st->fetchColumn();
+                    
+                    // se forem iguais, não deixa adicionar 
+                    if ($parentProtoId === $protoId) {
+                        $message = "Associação inválida: Não é possível associar um protótipo à sua própria assembly.";
+                        $status  = "error";
+                        header(
+                            "Location: ?tab=bomlist/bomlist"
+                        . "&entity=assembly"
+                        . "&msg="   . urlencode($message)
+                        . "&status=". urlencode($status)
+                        );
+                        exit;
+                    }
+
                     // traz todas as assemblies de nível 0 (raízes) desse protótipo
                     $childAssemblyIds = getAssembliesByPrototypeAndLevel(
                         $pdo,
@@ -387,6 +426,19 @@ function processCRUD($pdo, $entity , $action){
                 }
 
                 foreach($childAssemblyIds as $childAssemblyId){
+                    // para não deixar associar à própria assembly
+                    if ($childAssemblyId === $parentAssemblyId) {
+                        $message = "Associação inválida: não é possível associar uma assembly a si própria.";
+                        $status  = "error";
+                        header(
+                            "Location: ?tab=bomlist/bomlist"
+                        . "&entity=assembly"
+                        . "&msg="   . urlencode($message)
+                        . "&status=". urlencode($status)
+                        );
+                        exit;
+                    }
+
                     // para verificar se não há recursividade infinita
                     if (checkInfRecursion($pdo, $childAssemblyId, $parentAssemblyId)) {
                         $childAssemb = findAssemblyById($assemblies, $childAssemblyId);
@@ -457,7 +509,15 @@ function processCRUD($pdo, $entity , $action){
                     }
                 }
             } else {
-                $message = "Nenhuma associação foi especificada.";
+                $message = "Nenhuma associação foi selecionada.";
+                $status  = "error";
+                header(
+                    "Location: ?tab=bomlist/bomlist"
+                . "&entity=assembly"
+                . "&msg="   . urlencode($message)
+                . "&status=". urlencode($status)
+                );
+                
             }
             
             error_log("Assembly_Price: " . $assemblyPrice);
@@ -476,8 +536,10 @@ function processCRUD($pdo, $entity , $action){
         elseif ($action === 'delete' && isset($_GET['id'])) {
             $stmt = $pdo->prepare("DELETE FROM T_Assembly WHERE Assembly_ID=?");
             $stmt->execute([$_GET['id']]);
-            $message = "Montagem eliminada com sucesso!";
-            header("Location: ?tab=bomlist/bomlist&entity=assembly");
+            $message = "Assembly eliminada com sucesso!";
+            header("Location: ?tab=bomlist/bomlist&entity=assembly"
+            ."&msg="   . urlencode($message)
+            ."&status=". urlencode($status));
             exit;
         }
         break;
@@ -545,6 +607,13 @@ function processCRUD($pdo, $entity , $action){
 
     default:
             $message = "Ação não reconhecida.";
+            $status  = "error";
+            header(
+                "Location: ?tab=bomlist/bomlist"
+              . "&entity=component"
+              . "&msg="   . urlencode($message)
+              . "&status=". urlencode($status)
+            );
             break;
     }
     } catch (Exception $e) {

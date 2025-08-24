@@ -322,6 +322,32 @@ function getMaxAssemblyLevelUnder(PDO $pdo, int $parentId): int {
     return $max;
 }
 
+function updateAllAssemblyPrices(PDO $pdo, int $assemblyId , $newPrice){
+    // Obter o preço atual da montagem
+    $stmt = $pdo->prepare("SELECT Price FROM T_Assembly WHERE Assembly_ID = ?");
+    $stmt->execute([$assemblyId]);
+    $currentPrice = (float)$stmt->fetchColumn();
+    // Aumentar todas as assemblies acima na hierarquia
+    while (true){
+        $stmt = $pdo->prepare("
+            SELECT Parent_Assembly_ID 
+            FROM T_Assembly_Assembly 
+            WHERE Child_Assembly_ID = ?
+        ");
+        $stmt->execute([$assemblyId]);
+        $parentId = $stmt->fetchColumn();
+        if ($parentId === false) {
+            break; // Sem mais pais
+        }
+        // Atualizar o preço do pai
+        $stmtUpdate = $pdo->prepare("UPDATE T_Assembly SET Price = Price + ? WHERE Assembly_ID = ?");
+        $stmtUpdate->execute([$newPrice , $parentId]);
+        // Subir na hierarquia
+        $assemblyId = $parentId;
+    }
+    $msg = "Preços atualizados com sucesso!";
+    return $msg;
+}
 /**
  * Deleta recursivamente uma assembly e tudo que houver debaixo dela.
  *
@@ -362,3 +388,4 @@ function deleteAssemblySubtree(PDO $pdo, int $assemblyId): void {
           WHERE Assembly_ID = ?"
     )->execute([$assemblyId]);
 }
+

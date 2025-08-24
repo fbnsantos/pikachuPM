@@ -332,9 +332,14 @@ function processCRUD($pdo, $entity , $action){
                     // Remover associação de componente
                     $stmt = $pdo->prepare("DELETE FROM T_Assembly_Component WHERE Assembly_ID = ? AND Component_ID = ?");
                     $stmt->execute([$parentAssemblyId, $_POST['remove_component_id']]);
-                    $message = "Associação de Componente removida com sucesso!";
+                    $stmt2 = $pdo->prepare("SELECT Price FROM T_Component WHERE Component_ID = ?");
+                    $stmt2->execute([$_POST['remove_component_id']]);
+                    $compPrice = (float) $stmt2->fetchColumn();
+                    $assemblyPrice -= $compPrice;
+                    updateAllAssemblyPrices($pdo, $parentAssemblyId , -$compPrice);
+                    $message = "Associação de Assembly e Componente removida com sucesso!";
                 } elseif ($_POST['remove_type'] === 'assembly' && !empty($_POST['remove_assembly_id'])) {
-                        $toRemoveId = (int) $_POST['remove_assembly_id'];
+                    $toRemoveId = (int) $_POST['remove_assembly_id'];
 
                     // 1) Apagar recursivamente a sub-árvore seleccionada
                     deleteAssemblySubtree($pdo, $toRemoveId);
@@ -346,6 +351,11 @@ function processCRUD($pdo, $entity , $action){
                         AND Child_Assembly_ID  = ?
                     ");
                     $stmt->execute([$parentAssemblyId, $toRemoveId]);
+                                      $stmt2 = $pdo->prepare("SELECT Price FROM T_Assembly WHERE Assembly_ID = ?");
+                    $stmt2->execute([$_POST['remove_assembly_id']]);
+                    $assemPrice = (float) $stmt2->fetchColumn();
+                    $assemblyPrice -= $assemPrice;
+                    updateAllAssemblyPrices($pdo, $parentAssemblyId , -$assemPrice);
 
                     $message = "Todas as sub-assemblies e suas associações foram removidas com sucesso!";
                 }
@@ -363,6 +373,8 @@ function processCRUD($pdo, $entity , $action){
 
                 $priceCompFather = ($compFatherRecord !== null) ? getComponentPrice($compFatherRecord) * $compQty : 0;
                 $assemblyPrice += $priceCompFather;
+                // now we update all parent assemblies prices too
+                updateAllAssemblyPrices($pdo, $assemblyId , $priceCompFather);
 
                 $stmt = $pdo->prepare("
                     INSERT INTO T_Assembly_Component (Assembly_ID, Component_ID, Quantity)
@@ -479,6 +491,7 @@ function processCRUD($pdo, $entity , $action){
 
                         $priceAssemFather = ($childAssemblyId !== '' && !is_null($childAssemblyId)) ? getAssemblyPrice($childAssembly) * $quantity : 0;
                         $assemblyPrice += $priceAssemFather;
+                        updateAllAssemblyPrices($pdo, $parentAssemblyId , $priceAssemFather);
 
                         $stmt = $pdo->prepare("
                             INSERT INTO T_Assembly_Assembly (Parent_Assembly_ID, Child_Assembly_ID, Quantity)

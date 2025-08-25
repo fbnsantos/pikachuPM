@@ -287,7 +287,7 @@ $assemblies = getAssemblies($pdo);
                             <table class="table table-striped table-hover">
                                 <thead class="table-dark">
                                     <tr>
-                                        <th>ID</th>
+                                        <th>Referência</th>
                                         <th>Denominação</th>
                                         <th>Tipo</th>
                                         <th>Fabricante</th>
@@ -300,7 +300,7 @@ $assemblies = getAssemblies($pdo);
                                 <tbody>
                                     <?php foreach ($components as $component): ?>
                                         <tr class="<?= ($component['Stock_Quantity'] <= $component['Min_Stock']) ? 'table-warning' : '' ?>">
-                                            <td><?= $component['Component_ID'] ?></td>
+                                            <td><?= $component['Reference'] ?></td>
                                             <td>
                                                 <strong><?= htmlspecialchars($component['Denomination']) ?></strong>
                                                 <?php if ($component['Notes_Description']): ?>
@@ -567,16 +567,30 @@ $assemblies = getAssemblies($pdo);
                             <input type="hidden" name="action" value="update">
                             <div class="mb-3">
                                 <label for="assembly_name" class="form-label">Assembly</label>
-                                <select id="assembly_name" name="assembly_id" class="form-select" onchange="showAssociationFields(this.value)">
-                                    <option value="">Selecionar assembly...</option>
-                                    <?php foreach ($assemblies as $assembly): ?>
-                                        <option value="<?= $assembly['Assembly_ID'] ?>">
-                                            <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
-                                            - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
+                                <select id="assembly_name" name="assembly_id" class="form-select"
+                                    onchange="showAssociationFields(this.value)">
+                                <option value="">Selecionar assembly...</option>
+                                <?php foreach ($assemblies as $assembly): ?>
+                                    <option value="<?= $assembly['Assembly_ID'] ?>">
+                                        <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
+                                        – <?= $assembly['Assembly_Designation'] ?: 'Nível raiz' ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
 
+                            <!-- Campo de referência ao lado do select -->
+                            <div class="input-group mt-2">
+                                <input type="text"
+                                    class="form-control"
+                                    name="assembly_father_custom_ref"
+                                    placeholder="Referência">
+                                <button type="button"
+                                        id="assemblyDetailsBtn"
+                                        class="btn btn-outline-info"
+                                        disabled>
+                                    <i class="bi bi-info-circle"></i> Ver Detalhes
+                                </button>
+                            </div>
                                 <!-- Campos para associação que iniciam ocultos -->
                                 <div id="association-fields" style="display:none;" class="mt-3">
                                     <h6>Opções de Associação</h6>
@@ -588,31 +602,51 @@ $assemblies = getAssemblies($pdo);
                                         <button type="button" class="btn btn-outline-success btn-sm" onclick="showComponentFields()">
                                             <i class="bi bi-cpu"></i> Associar Componente
                                         </button>
+                                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="showRemoveFields()">
+                                            <i class="bi bi-x-circle"></i> Remover Associação
+                                        </button>
                                     </div>
 
-                                    <!-- Campos para Assembly -->
+                                    <!-- Campos para Assembly -->   
                                     <div id="assembly-association-fields" style="display:none;">
-                                        <div class="mb-3">
-                                            <label for="associated_assembly" class="form-label">Selecionar Assembly:</label>
-                                            <select class="form-select" name="associated_assembly" id="associated_assembly">
-                                                <option value="">Selecionar assembly...</option>
-                                                    <?php foreach ($assemblies as $assembly): ?>
-                                                        <option value="<?= $assembly['Assembly_ID'] ?>">
-                                                            <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
-                                                            - <?= $assembly['Assembly_Designation'] ? htmlspecialchars($assembly['Assembly_Designation']) : 'Nível raiz' ?>
-                                                        </option>
-                                                    <?php endforeach; ?>
-                                                    <?php foreach ($prototypes as $prototype): ?>
-                                                        <option value="<?= $prototype['Prototype_ID'] ?> prototype">
-                                                            <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
-                                                        </option>
-                                                    <?php endforeach; ?>
-                                            </select>
+                                    <div class="mb-3">
+                                        <label for="associated_assembly" class="form-label">Selecionar Assembly:</label>
+                                        <select class="form-select" name="associated_assembly" id="associated_assembly">
+                                        <option value="">Selecionar assembly...</option>
+                                        <?php foreach ($assemblies as $assembly): ?>
+                                            <option value="<?= $assembly['Assembly_ID'] ?>">
+                                            <?= htmlspecialchars($assembly['Prototype_Name']) ?> v<?= $assembly['Prototype_Version'] ?>
+                                            – <?= $assembly['Assembly_Designation'] ?: 'Nível raiz' ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                        <?php foreach ($prototypes as $prototype): ?>
+                                            <option value="<?= $prototype['Prototype_ID'] ?> prototype">
+                                            <?= htmlspecialchars($prototype['Name']) ?> v<?= $prototype['Version'] ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                        </select>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <div class="input-group">
+                                        <input type="text"
+                                                class="form-control"
+                                                id="assembly_ref_assoc"
+                                                name="assembly_father_custom_ref"
+                                                placeholder="Referência">
+                                        <button type="button"
+                                                id="assemblyDetailsBtnAssoc"
+                                                class="btn btn-outline-info"
+                                                disabled>
+                                            <i class="bi bi-info-circle"></i> Ver Detalhes
+                                        </button>
                                         </div>
-                                        <div class="mb-3">
-                                            <label for="assembly_quantity" class="form-label">Quantidade</label>
-                                            <input type="number" class="form-control" name="assembly_quantity" min="1" value="1">
-                                        </div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="assembly_quantity" class="form-label">Quantidade</label>
+                                        <input type="number" class="form-control" name="assembly_quantity" min="1" value="1">
+                                    </div>
                                     </div>
 
                                     <!-- Campos para Componente -->
@@ -643,6 +677,23 @@ $assemblies = getAssemblies($pdo);
                                             <input type="number" class="form-control" name="component_quantity" min="1" value="1">
                                         </div>
                                     </div>
+                                </div>
+                                <!-- Campos para remoção de associação -->
+                                 <div id="remove-association-fields" style="display:none;" class="mt-3">
+                                    <div class="mb-3">
+                                        <label for="remove_type" class="form-label">Tipo de Associação a Remover</label>
+                                        <select class="form-select" name="remove_type" id="remove_type" onchange="showRemoveOptions(this.value)">
+                                            <option value="">Selecionar...</option>
+                                            <option value="assembly">Assembly</option>
+                                            <option value="component">Componente</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3" id="remove_assembly_div" style="display:none;">
+                                     <!-- Loaded dynamically from js -->
+                                    </div>
+                                    <div class="mb-3" id="remove_component_div" style="display:none;">
+                                     <!-- Loaded dynamically from js -->
+                                    </div>              
                                 </div>
 
 
@@ -738,6 +789,7 @@ $assemblies = getAssemblies($pdo);
                             <table class="table table-striped table-hover">
                                 <thead class="table-dark">
                                     <tr>
+                                        <th>Referência</th>
                                         <th>Designação</th>
                                         <th>Protótipo</th>
                                         <th>Preço</th>
@@ -748,6 +800,7 @@ $assemblies = getAssemblies($pdo);
                                 <tbody>
                                     <?php foreach ($filteredAssemblies as $assembly): ?>
                                         <tr>
+                                            <td><?= $assembly['Assembly_Reference'] ?></td>
                                             <td class = "assembly-designation" data-assembly-id="<?= $assembly['Assembly_ID'] ?>">
                                                 <?= $assembly['Assembly_Designation'] ?? '-' ?>
                                                 <button 
@@ -794,146 +847,53 @@ $assemblies = getAssemblies($pdo);
                         
                         <?php if (isset($_GET['prototype_id']) && $_GET['prototype_id']): ?>
     <!-- BOM Summary para o protótipo selecionado -->
-
-
     <div class="mt-4">
-
-
         <h6><i class="bi bi-list-check"></i> Resumo da BOM</h6>
-
-
         <?php
-
-
         // Calcular total de componentes necessários usando a nova tabela de junção
-
-
         $stmt = $pdo->prepare("
-
-
             SELECT 
-
-
                 c.Component_ID,
-
-
                 c.Denomination,
-
-
                 c.General_Type,
-
-
                 c.Price,
-
-
                 SUM(ac.Quantity) as Total_Quantity,
-
-
                 c.Stock_Quantity,
-
-
                 m.Denomination as Manufacturer_Name,
-
-
                 s.Denomination as Supplier_Name
-
-
             FROM T_Assembly_Component ac
-
-
             JOIN T_Assembly a ON ac.Assembly_ID = a.Assembly_ID
-
-
             JOIN T_Component c ON ac.Component_ID = c.Component_ID
-
-
             LEFT JOIN T_Manufacturer m ON c.Manufacturer_ID = m.Manufacturer_ID
-
-
             LEFT JOIN T_Supplier s ON c.Supplier_ID = s.Supplier_ID
-
-
             WHERE a.Prototype_ID = ?
-
-
             GROUP BY c.Component_ID
-
-
             ORDER BY c.Denomination
-
-
         ");
-
-
         $stmt->execute([$_GET['prototype_id']]);
-
-
         $bomSummary = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-
-        
-
-
         if ($bomSummary):
-
-
         ?>
-
-
             <div class="table-responsive">
-
-
                 <table class="table table-sm table-bordered">
-
-
                     <thead class="table-secondary">
-
-
                         <tr>
-
-
                             <th>Componente</th>
-
-
                             <th>Tipo</th>
-
-
                             <th>Fabricante/Fornecedor</th>
-
-
                             <th>Qtd Necessária</th>
-
-
                             <th>Stock</th>
-
-
                             <th>Preço Unit.</th>
-
-
                             <th>Preço Total</th>
-
-
                         </tr>
-
-
                     </thead>
-
-
                     <tbody>
-
-
                         <?php 
-
-
                         $totalBOMPrice = 0;
                         foreach ($bomSummary as $item): 
                             $itemTotal = $item['Price'] ? $item['Price'] * $item['Total_Quantity'] : 0;
                             $totalBOMPrice += $itemTotal;
-
-
                             $stockStatus = $item['Stock_Quantity'] >= $item['Total_Quantity'] ? 'success' : 'danger';
-
-
                         ?>
                             <tr>
                                 <td><strong><?= htmlspecialchars($item['Denomination']) ?></strong></td>
@@ -2129,6 +2089,28 @@ $assemblies = getAssemblies($pdo);
         </div>
     </div>
 
+    <!-- Modal para detalhes da Assembly -->
+    <div class="modal fade" id="assemblyDetailsModal" tabindex="-1" aria-labelledby="assemblyDetailsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="assemblyDetailsModalLabel">Detalhes da Assembly</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body" id="assemblyDetailsContent">
+                <div class="text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Carregando...</span>
+                </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal para ver Componentes associados a um Fabricante -->
     <div class="modal fade" id="associatedComponentsModal" tabindex="-1" aria-labelledby="associatedComponentsModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg">
@@ -2814,6 +2796,7 @@ $assemblies = getAssemblies($pdo);
 <script>
     const components = <?= json_encode($components) ?>;
     const prototypes = <?= json_encode($prototypes) ?>;
+    window.assemblies = <?= json_encode($assemblies, JSON_HEX_TAG) ?>;
 </script>
 <script>
     const selectedPrototype = <?= json_encode($_GET['prototype_id'] ?? '') ?>;

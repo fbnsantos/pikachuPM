@@ -250,11 +250,14 @@ function duplicateAssemblyTree(PDO $pdo, int $sourceAssemblyId, int $newPrototyp
             Created_Date
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
     ");
+
+    $newLevel = max(1, (int)$source['Assembly_Level'] + 1);
+
     $stmtInsert->execute([
         $newPrototypeId,
         $source['Assembly_Designation'],
         $newRef,
-        $source['Assembly_Level'], // Pode recalcular se necessário
+        $newLevel,
         $source['Price'],
         $source['Notes'],
         $createdDate
@@ -284,3 +287,105 @@ function duplicateAssemblyTree(PDO $pdo, int $sourceAssemblyId, int $newPrototyp
     
     return $newAssemblyId;
 }
+
+/**
+ * Retorna o maior Assembly_Level de todos os descendentes de uma assembly.
+ *
+ * @param PDO $pdo
+ * @param int $parentId
+ * @return int
+ */
+function getMaxAssemblyLevelUnder(PDO $pdo, int $parentId): int {
+    // busca filhos diretos
+    $stmt = $pdo->prepare("
+        SELECT Child_Assembly_ID
+        FROM T_Assembly_Assembly
+        WHERE Parent_Assembly_ID = ?
+    ");
+    $stmt->execute([$parentId]);
+    $childIds = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+
+    $max = 0;
+    foreach ($childIds as $childId) {
+        // nível da própria child
+        $stmt2 = $pdo->prepare("
+            SELECT Assembly_Level
+            FROM T_Assembly
+            WHERE Assembly_ID = ?
+        ");
+        $stmt2->execute([(int)$childId]);
+        $lvl = (int)$stmt2->fetchColumn();
+        // recursivamente busca níveis abaixo
+        $subMax = getMaxAssemblyLevelUnder($pdo, (int)$childId);
+        $max = max($max, $lvl, $subMax);
+    }
+    return $max;
+}
+
+function updateAllAssemblyPrices(PDO $pdo, int $assemblyId , $newPrice){
+    // Obter o preço atual da montagem
+    $stmt = $pdo->prepare("SELECT Price FROM T_Assembly WHERE Assembly_ID = ?");
+    $stmt->execute([$assemblyId]);
+    $currentPrice = (float)$stmt->fetchColumn();
+    // Aumentar todas as assemblies acima na hierarquia
+    while (true){
+        $stmt = $pdo->prepare("
+            SELECT Parent_Assembly_ID 
+            FROM T_Assembly_Assembly 
+            WHERE Child_Assembly_ID = ?
+        ");
+        $stmt->execute([$assemblyId]);
+        $parentId = $stmt->fetchColumn();
+        if ($parentId === false) {
+            break; // Sem mais pais
+        }
+        // Atualizar o preço do pai
+        $stmtUpdate = $pdo->prepare("UPDATE T_Assembly SET Price = Price + ? WHERE Assembly_ID = ?");
+        $stmtUpdate->execute([$newPrice , $parentId]);
+        // Subir na hierarquia
+        $assemblyId = $parentId;
+    }
+    $msg = "Preços atualizados com sucesso!";
+    return $msg;
+}
+/**
+ * Deleta recursivamente uma assembly e tudo que houver debaixo dela.
+ *
+ * @param PDO $pdo
+ * @param int $assemblyId
+ */
+function deleteAssemblySubtree(PDO $pdo, int $assemblyId): void {
+    // 1) buscar filhos diretos
+    $stmt = $pdo->prepare(
+        "SELECT Child_Assembly_ID 
+           FROM T_Assembly_Assembly 
+          WHERE Parent_Assembly_ID = ?"
+    );
+    $stmt->execute([$assemblyId]);
+    $childIds = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+
+    // 2) deletar recursivamente cada filho
+    foreach ($childIds as $cid) {
+        deleteAssemblySubtree($pdo, (int)$cid);
+    }
+
+    // 3) apagar associações de componente dessa assembly
+    $pdo->prepare(
+        "DELETE FROM T_Assembly_Component 
+          WHERE Assembly_ID = ?"
+    )->execute([$assemblyId]);
+
+    // 4) apagar todas as associações pai→filho envolvendo esta assembly
+    $pdo->prepare(
+        "DELETE FROM T_Assembly_Assembly 
+          WHERE Parent_Assembly_ID = ? 
+             OR Child_Assembly_ID  = ?"
+    )->execute([$assemblyId, $assemblyId]);
+
+    // 5) finalmente, apagar a própria assembly
+    $pdo->prepare(
+        "DELETE FROM T_Assembly 
+          WHERE Assembly_ID = ?"
+    )->execute([$assemblyId]);
+}
+

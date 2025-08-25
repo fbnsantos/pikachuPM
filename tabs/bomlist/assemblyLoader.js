@@ -4,11 +4,13 @@ function showAssociationFields(value) {
 }
 
 function showAssemblyFields() {
+    document.getElementById('remove-association-fields').style.display = 'none';
     document.getElementById('assembly-association-fields').style.display = 'block';
     document.getElementById('component-association-fields').style.display = 'none';
 }
 
 function showComponentFields() {
+    document.getElementById('remove-association-fields').style.display = 'none';
     document.getElementById('assembly-association-fields').style.display = 'none';
     document.getElementById('component-association-fields').style.display = 'block';
 }
@@ -116,6 +118,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // Referência dos componentes
     const customFatherRefInput = document.querySelector('[name="component_father_custom_ref"]');
     const customChildRefInput = document.querySelector('[name="component_child_custom_ref"]');
+
+    // ### custom ref + botão para Assembly ###
+    const customAssemblyRefInput = document.querySelector('[name="assembly_father_custom_ref"]');
+    const assemblySelect         = document.getElementById('assembly_name');
+    const assemblyDetailsBtn     = document.getElementById('assemblyDetailsBtn');
+
+    const assocRef   = document.getElementById('assembly_ref_assoc');
+    const assocSel   = document.getElementById('associated_assembly');
+    const assocBtn   = document.getElementById('assemblyDetailsBtnAssoc');
 
     // Para componente pai
     const componentFatherSelect = document.getElementById('component_father_id');
@@ -227,6 +238,66 @@ document.addEventListener('DOMContentLoaded', function() {
             showComponentDetails(componentId);
         });
     }
+
+    // Para a referência da assembly
+    if (customAssemblyRefInput && assemblySelect && typeof assemblies !== 'undefined') {
+        // ao digitar na referência, tenta casar com Assembly_Reference e atualizar o select
+        customAssemblyRefInput.addEventListener('input', function() {
+        const v = this.value.trim();
+        const found = assemblies.find(a=>a.Assembly_Reference===v);
+        if (found) {
+            assemblySelect.value      = found.Assembly_ID;
+            assemblyDetailsBtn.disabled = false;
+            // ─── aqui ───
+            showAssociationFields(found.Assembly_ID);
+            // ────────────
+        } else {
+            assemblySelect.value        = '';
+            assemblyDetailsBtn.disabled = true;
+        }
+    });
+
+        // ao mudar o select, atualiza o input e o estado do botão
+        assemblySelect.addEventListener('change', function() {
+            const sel = this.value;
+            if (sel) {
+            const f = assemblies.find(a=>a.Assembly_ID==sel);
+            customAssemblyRefInput.value = f ? f.Assembly_Reference : '';
+            assemblyDetailsBtn.disabled = false;
+            // ─── e também aqui ───
+            showAssociationFields(sel);
+            // ──────────────────────
+            } else {
+            customAssemblyRefInput.value = '';
+            assemblyDetailsBtn.disabled = true;
+            }
+        });
+    }
+    // quando clicares em “Ver Detalhes” chama o teu modal
+    if (assemblyDetailsBtn) {
+        assemblyDetailsBtn.addEventListener('click', function() {
+            const id = assemblySelect.value;
+            if (id) showAssemblyDetails(id);
+        });
+    }
+
+      if (assocRef && assocSel && assocBtn && window.assemblies) {
+        assocRef.addEventListener('input', ()=>{
+        const v = assocRef.value.trim();
+        const found = assemblies.find(a=>a.Assembly_Reference===v);
+        assocSel.value    = found? found.Assembly_ID : '';
+        assocBtn.disabled = !found;
+        });
+        assocSel.addEventListener('change', ()=>{
+        const f = assemblies.find(a=>a.Assembly_ID==assocSel.value);
+        assocRef.value    = f? f.Assembly_Reference : '';
+        assocBtn.disabled = !f;
+        });
+        assocBtn.addEventListener('click', ()=>{
+        if (assocSel.value) showAssemblyDetails(assocSel.value);
+        });
+    }
+    
 
     window.showManufacturerComponents = function(manufacturerId) {
         if (!manufacturerId) return;
@@ -741,5 +812,105 @@ document.addEventListener('DOMContentLoaded', function() {
             // Abrir o modal
             const modal = new bootstrap.Modal(document.getElementById('componentDetailsModal'));
             modal.show();
+        }
+    }
+    /**
+     * Exibe num modal os detalhes da assembly selecionada.
+     * Depende de haver um array global `assemblies` com chaves:
+     *   Assembly_ID, Assembly_Designation, Assembly_Reference,
+     *   Assembly_Level, Price, Notes, Prototype_Name, Prototype_Version
+     */
+    function showAssemblyDetails(assemblyId) {
+        if (!assemblyId) return;
+        const selected = assemblies.find(a => a.Assembly_ID == assemblyId);
+        if (!selected) return;
+
+        // Prepara o HTML
+        let html = `
+        <table class="table table-bordered">
+            <tr><th>ID</th><td>${selected.Assembly_ID}</td></tr>
+            <tr><th>Designação</th><td>${selected.Assembly_Designation}</td></tr>
+            <tr><th>Referência</th><td>${selected.Assembly_Reference}</td></tr>
+            <tr><th>Protótipo</th>
+            <td>${selected.Prototype_Name} v${selected.Prototype_Version}</td>
+            </tr>
+            <tr><th>Preço</th>
+            <td>${selected.Price ? selected.Price.toFixed(2) + ' €' : '-'}</td>
+            </tr>
+            <tr><th>Notas</th><td>${selected.Notes || '-'}</td></tr>
+        </table>
+        `;
+
+        // Aqui sim atribuis o html ao modal
+        const modalContent = document.getElementById('assemblyDetailsContent');
+        modalContent.innerHTML = html;
+
+        // E finalmente abres o modal
+        const modal = new bootstrap.Modal(
+        document.getElementById('assemblyDetailsModal')
+        );
+        modal.show();
+}
+
+    function showRemoveFields(){
+        const mainDisplay = document.getElementById('remove-association-fields');
+        mainDisplay.style.display = 'block';
+        document.getElementById('assembly-association-fields').style.display = 'none';
+        document.getElementById('component-association-fields').style.display = 'none';
+    }
+
+    function showRemoveOptions(value){
+        if (value === 'component'){
+            document.getElementById('remove_assembly_div').style.display = 'none';
+            const mainDisplay = document.getElementById('remove_component_div');
+            const assemblyID = document.getElementById('assembly_name').value;
+            // get the list of components that are connected to this assembly ID
+            fetch('tabs/bomlist/getters.php',{
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // enviar assemblyID como query parameter
+                body: JSON.stringify({
+                assemblyID : assemblyID,
+                action: "getAssociatedComps" 
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                let options = '<select class="form-select" name="remove_component_id"><option value="">Selecionar...</option>';
+                data.forEach(item => {
+                        options += `<option value="${item.Component_ID}">${item.Denomination} ( ${item.Reference})</option>`;
+                });
+                options += '</select>';
+                mainDisplay.innerHTML = options;
+            });
+
+            document.getElementById('remove_component_div').style.display = 'block';
+        } else if (value === 'assembly'){
+            document.getElementById('remove_component_div').style.display = 'none';
+            mainDisplay = document.getElementById('remove_assembly_div');
+            const assemblyID = document.getElementById('assembly_name').value;
+            // get the list of assemblies that are connected to this assembly ID
+            fetch('tabs/bomlist/getters.php',{
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // enviar assemblyID como query parameter
+                body: JSON.stringify({
+                assemblyID : assemblyID,
+                action: "getAssociatedAssemblies"
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                let options = '<select class="form-select" name= "remove_assembly_id"><option value="">Selecionar...</option>';
+                data.forEach(item => {
+                        options += `<option value="${item.Assembly_ID}">${item.Assembly_Designation} ( ${item.Assembly_Reference})</option>`;
+                });
+                options += '</select>';
+                mainDisplay.innerHTML = options;
+            });
+            document.getElementById('remove_assembly_div').style.display = 'block';
+        } else {
+            document.getElementById('remove_component-div').style.display = 'none';
+            document.getElementById('remove_assembly_div').style.display = 'none';
         }
     }

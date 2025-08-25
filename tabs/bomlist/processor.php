@@ -341,7 +341,13 @@ function processCRUD($pdo, $entity , $action){
                 } elseif ($_POST['remove_type'] === 'assembly' && !empty($_POST['remove_assembly_id'])) {
                     $toRemoveId = (int) $_POST['remove_assembly_id'];
 
+                    // ir buscar o preço da assembly q vai ser apagada
+                    $stmt2 = $pdo->prepare("SELECT Price FROM T_Assembly WHERE Assembly_ID = ?");
+                    $stmt2->execute([$_POST['remove_assembly_id']]);
+                    $assemPrice = (float) $stmt2->fetchColumn();
+                    $assemblyPrice -= $assemPrice;
                     // 1) Apagar recursivamente a sub-árvore seleccionada
+
                     deleteAssemblySubtree($pdo, $toRemoveId);
 
                     // 2) Apagar a associação pai→filho específica
@@ -351,12 +357,7 @@ function processCRUD($pdo, $entity , $action){
                         AND Child_Assembly_ID  = ?
                     ");
                     $stmt->execute([$parentAssemblyId, $toRemoveId]);
-                                      $stmt2 = $pdo->prepare("SELECT Price FROM T_Assembly WHERE Assembly_ID = ?");
-                    $stmt2->execute([$_POST['remove_assembly_id']]);
-                    $assemPrice = (float) $stmt2->fetchColumn();
-                    $assemblyPrice -= $assemPrice;
                     updateAllAssemblyPrices($pdo, $parentAssemblyId , -$assemPrice);
-
                     $message = "Todas as sub-assemblies e suas associações foram removidas com sucesso!";
                 }
                 else {

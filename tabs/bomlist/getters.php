@@ -1,4 +1,8 @@
 <?php
+
+require_once 'database/database.php';
+
+
 // Função para buscar todos os fabricantes
 function getManufacturers($pdo) {
     $stmt = $pdo->query("SELECT * FROM T_Manufacturer ORDER BY Denomination");
@@ -31,24 +35,56 @@ function getComponents($pdo) {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// Função para buscar todas as montagens
+/**
+ * Busca todas as assemblies (montagens) com informações do protótipo
+ */
 function getAssemblies($pdo) {
     $stmt = $pdo->query("
         SELECT a.*, 
                p.Name AS Prototype_Name,
-               p.Version AS Prototype_Version,
-               cf.Denomination AS Component_Father_Designation,
-               cc.Denomination AS Component_Child_Designation,
-               af.Assembly_Designation AS Assembly_Father_Designation,
-               ac.Assembly_Designation AS Assembly_Child_Designation
+               p.Version AS Prototype_Version
         FROM T_Assembly a
         JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
-        LEFT JOIN T_Component cf ON a.Component_Father_ID = cf.Component_ID
-        LEFT JOIN T_Component cc ON a.Component_Child_ID = cc.Component_ID
-        LEFT JOIN T_Assembly af ON a.Assembly_Father_ID = af.Assembly_ID
-        LEFT JOIN T_Assembly ac ON a.Assembly_Child_ID = ac.Assembly_ID
         ORDER BY p.Name, p.Version
     ");
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Busca os componentes associados a uma assembly a partir da tabela de junção T_Assembly_Component
+ */
+function getAssemblyComponents($pdo, $assemblyID) {
+    $stmt = $pdo->prepare("
+        SELECT ac.Quantity, c.*,
+               m.Denomination AS Manufacturer_Name,
+               s.Denomination AS Supplier_Name
+        FROM T_Assembly_Component ac
+        JOIN T_Component c ON ac.Component_ID = c.Component_ID
+        LEFT JOIN T_Manufacturer m ON c.Manufacturer_ID = m.Manufacturer_ID
+        LEFT JOIN T_Supplier s ON c.Supplier_ID = s.Supplier_ID
+        WHERE ac.Assembly_ID = ?
+        ORDER BY c.Denomination
+    ");
+    $stmt->execute([$assemblyID]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Busca as subassemblies (ou assemblies relacionadas) associadas a uma dada assembly
+ * utilizando a tabela T_Assembly_Assembly.
+ */
+function getAssemblyAssemblies($pdo, $parentAssemblyID) {
+    $stmt = $pdo->prepare("
+        SELECT aa.Quantity, a.*,
+               p.Name AS Prototype_Name,
+               p.Version AS Prototype_Version
+        FROM T_Assembly_Assembly aa
+        JOIN T_Assembly a ON aa.Child_Assembly_ID = a.Assembly_ID
+        JOIN T_Prototype p ON a.Prototype_ID = p.Prototype_ID
+        WHERE aa.Parent_Assembly_ID = ?
+        ORDER BY a.Assembly_Designation
+    ");
+    $stmt->execute([$parentAssemblyID]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -113,49 +149,29 @@ function getSubassemblies(array $assemblies, $parentAssemblyId) {
 
 /**
  * Retorna uma lista (planificada) dos IDs da assembly e todas as subassemblies,
- * seguindo as relações definidas em Assembly_Father_ID e Assembly_Child_ID.
+ * seguindo as relações definidas na tabela T_Assembly_Assembly.
  *
- * @param array $assemblies Array com todas as assemblies.
- * @param array $assembly Assembly atual.
- * @return array Lista de Assembly_IDs.
+ * @param array $assocAssems Lista de relações (cada item com Parent_Assembly_ID e Child_Assembly_ID).
+ * @param int   $parentAssemblyId ID da assembly pai (ponto de partida).
+ * @return array Lista de Assembly_IDs (incluindo o próprio $parentAssemblyId).
  */
-function getAllSubAssemblyIDs(array $assemblies, array $assembly) {
-    // Base: se não há relação nem para Father nem para Child, retorna só o próprio ID.
-    if (empty($assembly['Assembly_Father_ID']) && empty($assembly['Assembly_Child_ID'])) {
-        return [$assembly['Assembly_ID']];
-    }
-    
-    // Inicia a lista com o ID da assembly atual
-    $list = [$assembly['Assembly_ID']];
-    
-    // Se Assembly_Father_ID não está definido, pega a relação de Child
-    if (empty($assembly['Assembly_Father_ID']) && !empty($assembly['Assembly_Child_ID'])) {
-        $child = findAssemblyById($assemblies, $assembly['Assembly_Child_ID']);
-        if ($child) {
-            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $child));
+function getAllSubAssemblyIDs(array $records, int $parentId): array {
+    $ids = [];
+    foreach ($records as $rec) {
+        // só prossegue se existir Parent_Assembly_ID e for igual ao pai
+        if (isset($rec['Parent_Assembly_ID']) 
+            && (int)$rec['Parent_Assembly_ID'] === $parentId 
+            && !empty($rec['Child_Assembly_ID'])
+        ) {
+            $child = (int)$rec['Child_Assembly_ID'];
+            if (!in_array($child, $ids, true)) {
+                $ids[] = $child;
+                // recursão protegida
+                $ids = array_merge($ids, getAllSubAssemblyIDs($records, $child));
+            }
         }
     }
-    // Se Assembly_Child_ID não está definido, pega a relação de Father
-    elseif (empty($assembly['Assembly_Child_ID']) && !empty($assembly['Assembly_Father_ID'])) {
-        $father = findAssemblyById($assemblies, $assembly['Assembly_Father_ID']);
-        if ($father) {
-            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $father));
-        }
-    }
-    // Se ambos estão definidos, faz para os dois
-    elseif (!empty($assembly['Assembly_Father_ID']) && !empty($assembly['Assembly_Child_ID'])) {
-        $father = findAssemblyById($assemblies, $assembly['Assembly_Father_ID']);
-        $child = findAssemblyById($assemblies, $assembly['Assembly_Child_ID']);
-        
-        if ($father) {
-            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $father));
-        }
-        if ($child) {
-            $list = array_merge($list, getAllSubAssemblyIDs($assemblies, $child));
-        }
-    }
-
-    return $list;
+    return $ids;
 }
 
 /**
@@ -191,10 +207,16 @@ function findComponentById(array $components, $id) {
  * @return float Preço.
  */
 function getAssemblyPrice(array $assembly) {
+    if (empty($assembly) || !isset($assembly['Price'])) {
+        return 0.0;
+    }
     return (float) ($assembly['Price'] ?? 0);
 }
 
-function getComponentPrice(array $component) {
+function getComponentPrice(array $component = null): float {
+    if (!$component) {
+        return 0; 
+    }
     return (float) ($component['Price'] ?? 0);
 }
 
@@ -243,73 +265,6 @@ function renderAssemblyTree(array $assemblies): string {
     $html .= '</ul>';
     return $html;
 }
-
-/**
- * Função auxiliar recursiva para construir a árvore de assemblies 
- *
- * @param array $assemblies Lista completa de assemblies.
- * @param array $parent Assembly pai.
- * @return array Assembly pai com os filhos preenchidos em 'children'.
- */
-/*function buildAssemblyTreeDual(array $assemblies, array $parent): array {
-    $children = [];
-
-    // Se existir uma subassembly 1 (Assembly_Father_ID)
-    if (!empty($parent['Assembly_Father_ID'])) {
-        $child1 = findAssemblyById($assemblies, $parent['Assembly_Father_ID']);
-        if ($child1) {
-            $child1['depth'] = $parent['depth'] + 1;
-            $child1 = buildAssemblyTreeDual($assemblies, $child1);
-            $children[] = $child1;
-        }
-    }
-
-    // Se existir uma subassembly 2 (Assembly_Child_ID)
-    if (!empty($parent['Assembly_Child_ID'])) {
-        $child2 = findAssemblyById($assemblies, $parent['Assembly_Child_ID']);
-        if ($child2) {
-            $child2['depth'] = $parent['depth'] + 1;
-            $child2 = buildAssemblyTreeDual($assemblies, $child2);
-            $children[] = $child2;
-        }
-    }
-
-    $parent['children'] = $children;
-    return $parent;
-}*/
-
-/**
- * Constrói a árvore completa de assemblies usando a relação dual: 
- * - Assembly_Father_ID representa a subassembly 1
- * - Assembly_Child_ID representa a subassembly 2
- *
- * Os registros que não aparecem em nenhum desses campos serão considerados nós raiz.
- *
- * @param array $assemblies Lista plana de assemblies.
- * @return array Árvore hierárquica de assemblies.
- */
-/*function getAssemblyTreeDual(array $assemblies): array {
-    // Primeiro, reúna todos os IDs que aparecem nos campos de subassemblies
-    $childIDs = [];
-    foreach ($assemblies as $asm) {
-        if (!empty($asm['Assembly_Father_ID'])) {
-            $childIDs[] = trim($asm['Assembly_Father_ID']);
-        }
-        if (!empty($asm['Assembly_Child_ID'])) {
-            $childIDs[] = trim($asm['Assembly_Child_ID']);
-        }
-    }
-    // Os nós raiz são os que não aparecem como subassembly em lado nenhum
-    $tree = [];
-    foreach ($assemblies as $asm) {
-        if (!in_array($asm['Assembly_ID'], $childIDs)) {
-            $asm['depth'] = 0;
-            $tree[] = buildAssemblyTreeDual($assemblies, $asm);
-        }
-    }
-    return $tree;
-}
-*/
 
 /**
  * Constrói recursivamente a árvore mista de uma assembly.
@@ -483,6 +438,166 @@ function getComponentsBySupplier(PDO $pdo, int $supplierId): array {
     $stmt->execute([$supplierId]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
+
+function getAssemblyComponentsByIds(PDO $pdo, array $assemblyIds): array {
+    if (empty($assemblyIds)) {
+        return [];
+    }
+    $placeholders = implode(',', array_fill(0, count($assemblyIds), '?'));
+    $sql = "
+        SELECT ac.Assembly_ID,
+               ac.Component_ID,
+               ac.Quantity,
+               c.Denomination,
+               c.Price
+        FROM T_Assembly_Component ac
+        JOIN T_Component c ON ac.Component_ID = c.Component_ID
+        WHERE ac.Assembly_ID IN ($placeholders)
+    ";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($assemblyIds);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function buildTreeFromList(
+    array $assemblies,
+    array $assocComps,
+    array $assocAssems,
+    int $parentId,
+    int $depth = 0,
+    array $visited = []
+): array {
+    // Se já estivermos aqui, ciclo detectado — retorna sem filhos
+    if (in_array($parentId, $visited, true)) {
+        return [];
+    }
+    // marca este nó como visitado
+    $visited[] = $parentId;
+ 
+    // Busca o próprio nó
+    $node = [];
+    foreach ($assemblies as $asm) {
+        if ((int)$asm['Assembly_ID'] === $parentId) {
+            $node = $asm;
+            break;
+        }
+    }
+    if (empty($node)) {
+        return [];
+    }
+    $node['depth']     = $depth;
+    $node['node_type'] = 'assembly';
+ 
+    // Monta filhos
+    $children = [];
+ 
+    // Componentes
+    foreach ($assocComps as $ac) {
+        if ((int)$ac['Assembly_ID'] === $parentId) {
+            $children[] = [
+                'depth'      => $depth + 1,
+                'node_type'  => 'component',
+                'Component_ID'  => $ac['Component_ID'],
+                'Quantity'      => $ac['Quantity'],
+                'Denomination'  => $ac['Denomination'],
+                'Price'         => $ac['Price'],
+            ];
+        }
+    }
+ 
+    // Sub-assemblies
+    foreach ($assocAssems as $aa) {
+        if ((int)$aa['Parent_Assembly_ID'] === $parentId) {
+            $subTree = buildTreeFromList(
+                $assemblies,
+                $assocComps,
+                $assocAssems,
+                (int)$aa['Child_Assembly_ID'],
+                $depth + 1,
+                $visited      // passa o histórico adiante
+            );
+            if (!empty($subTree)) {
+                $subTree['association_quantity'] = $aa['Quantity'];
+                $children[] = $subTree;
+            }
+        }
+    }
+ 
+    $node['children'] = $children;
+    return $node;
+}
+
+/**
+ * Identifica raízes e dispara a montagem da árvore.
+ */
+function getAssemblyTreeFromList(array $assemblies, array $assocComps, array $assocAssems): array {
+    $childIds = array_map('intval', array_column($assocAssems, 'Child_Assembly_ID'));
+    $tree = [];
+    foreach ($assemblies as $asm) {
+        $id = (int)$asm['Assembly_ID'];
+        if (!in_array($id, $childIds, true)) {
+            // passe vazio como visited na raiz
+            $tree[] = buildTreeFromList($assemblies, $assocComps, $assocAssems, $id, 0, []);
+        }
+    }
+    return $tree;
+}
+
+
+// functions and code to help with component and assembly removal
+
+function getAssociatedComps($pdo , int $assemblyID): array{
+    $stmt = $pdo->prepare("SELECT T_Component.Component_ID , Denomination , Reference FROM T_Assembly_Component JOIN T_Component ON T_Assembly_Component.Component_ID = T_Component.Component_ID WHERE Assembly_ID = ?");
+    $stmt->execute([$assemblyID]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function getAssociatedAssems($pdo , int $assemblyID): array{
+    $stmt = $pdo->prepare("SELECT a.Assembly_ID , a.Assembly_Designation , a.Assembly_Reference FROM T_Assembly_Assembly JOIN T_Assembly a ON T_Assembly_Assembly.Child_Assembly_ID = a.Assembly_ID WHERE Parent_Assembly_ID = ?");
+    $stmt->execute([$assemblyID]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Retorna todos os Assembly_IDs de um protótipo num nível específico.
+ *
+ * @param PDO $pdo
+ * @param int $prototypeId
+ * @param int $level
+ * @return int[]
+ */
+function getAssembliesByPrototypeAndLevel(PDO $pdo, int $prototypeId, int $level): array {
+    $sql = "
+      SELECT Assembly_ID
+      FROM T_Assembly
+      WHERE Prototype_ID   = ?
+        AND Assembly_Level = ?
+    ";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$prototypeId, $level]);
+    return $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+}
+
+
+$pdo = connectDB();
+
+    $json_data = file_get_contents('php://input');
+    $input = json_decode($json_data, true);
+if ($input['action'] === 'getAssociatedComps' && isset($input['assemblyID'])) {
+    $assemblyID = (int)$input['assemblyID'];
+    $associatedComps = getAssociatedComps($pdo , $assemblyID);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($associatedComps);
+    exit;
+}
+else if ($input['action'] === 'getAssociatedAssemblies' && isset($input['assemblyID'])) {
+    $assemblyID = (int)$input['assemblyID'];
+    $associatedAssems = getAssociatedAssems($pdo , $assemblyID);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($associatedAssems);
+    exit;
+}
+
 
 
 ?>

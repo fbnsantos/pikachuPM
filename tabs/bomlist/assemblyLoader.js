@@ -1,9 +1,132 @@
+function showAssociationFields(value) {
+    const associationFields = document.getElementById('association-fields');
+    associationFields.style.display = value ? 'block' : 'none';
+}
+
+function showAssemblyFields() {
+    document.getElementById('remove-association-fields').style.display = 'none';
+    document.getElementById('assembly-association-fields').style.display = 'block';
+    document.getElementById('component-association-fields').style.display = 'none';
+}
+
+function showComponentFields() {
+    document.getElementById('remove-association-fields').style.display = 'none';
+    document.getElementById('assembly-association-fields').style.display = 'none';
+    document.getElementById('component-association-fields').style.display = 'block';
+}
+
+// Função que carrega os dados de associações de assemblies via AJAX
+
+
+function loadAllAssociations() {
+    return fetch('tabs/bomlist/assemblyAssociations.php')
+        .then(response => response.json())
+        .catch(error => {
+            console.error("Erro ao carregar as associações:", error);
+            return { components: [], assemblies: [] };
+        });
+}
+
+
+
+
+
+// Função para mostrar associações de uma assembly (filtrando os registros conforme o assemblyId)
+
+
+// Função para mostrar associações de uma assembly (filtrando os registros conforme o assemblyId)
+
+
+function showAssemblyAssociations(assemblyId) {
+    if (!assemblyId) return;
+
+    // Exibe spinner enquanto carrega
+    const modalBody = document.getElementById('associatedAssemblyContent');
+
+    modalBody.innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Carregando...</span>
+            </div>
+        </div>`;
+    loadAllAssociations().then(data => {
+        // Filtra os registros que pertencem ao assembly selecionado
+        const compAssoc = data.components.filter(item => item.Assembly_ID == assemblyId);
+        const assemAssoc = data.assemblies.filter(item => item.Parent_Assembly_ID == assemblyId);
+        // Monta o HTML para os componentes associados
+        let compHtml = compAssoc.length
+            ? `<table class="table table-bordered table-fixed">
+                   <thead>
+                       <tr>
+                           <th class="col-id">ID</th>
+                           <th class="col-designacao">Designação</th>
+                           <th class="col-quantidade">Quantidade</th>
+                       </tr>
+                   </thead>
+                   <tbody>`
+            : '<div class="alert alert-info">Nenhum componente associado.</div>';
+
+
+        compAssoc.forEach(item => {
+            compHtml += `<tr>
+                            <td class="col-id">${item.Component_ID}</td>
+                            <td class="col-designacao">${item.Denomination || '-'}</td>
+                            <td class="col-quantidade">${item.Quantity}</td>
+                         </tr>`;
+        });
+
+
+        if (compAssoc.length) compHtml += '</tbody></table>';
+        // Monta o HTML para as assemblies associadas
+        let assemHtml = assemAssoc.length
+            ? `<table class="table table-bordered table-fixed">
+                   <thead>
+                       <tr>
+                           <th class="col-id">ID</th>
+                           <th class="col-designacao">Designação</th>
+                           <th class="col-quantidade">Quantidade</th>
+                       </tr>
+                   </thead>
+                   <tbody>`
+            : '<div class="alert alert-info">Nenhuma assembly associada.</div>';
+
+
+        assemAssoc.forEach(item => {
+            assemHtml += `<tr>
+                            <td class="col-id">${item.Child_Assembly_ID}</td>
+                            <td class="col-designacao">${item.Assembly_Designation || '-'}</td>
+                            <td class="col-quantidade">${item.Quantity}</td>
+                         </tr>`;
+        });
+
+
+        if(assemAssoc.length) assemHtml += '</tbody></table>';
+        // Junta as seções e atualiza o modal
+        const html = `<h6>Componentes Associados</h6>${compHtml}<hr>
+                      <h6>Assemblies Associadas</h6>${assemHtml}`;
+        modalBody.innerHTML = html;
+        const modal = new bootstrap.Modal(document.getElementById('associatedAssemblyModal'));
+        modal.show();
+    });
+}
+
+
+
 document.addEventListener('DOMContentLoaded', function() {
     const assemblyTypeSelection = document.getElementById('assembly-type-selection');
     
     // Referência dos componentes
     const customFatherRefInput = document.querySelector('[name="component_father_custom_ref"]');
     const customChildRefInput = document.querySelector('[name="component_child_custom_ref"]');
+
+    // ### custom ref + botão para Assembly ###
+    const customAssemblyRefInput = document.querySelector('[name="assembly_father_custom_ref"]');
+    const assemblySelect         = document.getElementById('assembly_name');
+    const assemblyDetailsBtn     = document.getElementById('assemblyDetailsBtn');
+
+    const assocRef   = document.getElementById('assembly_ref_assoc');
+    const assocSel   = document.getElementById('associated_assembly');
+    const assocBtn   = document.getElementById('assemblyDetailsBtnAssoc');
 
     // Para componente pai
     const componentFatherSelect = document.getElementById('component_father_id');
@@ -90,61 +213,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
         // Função para mostrar detalhes do componente
-    function showComponentDetails(componentId) {
-        if (!componentId) return;
-        
-        // Encontrar o componente selecionado nos dados
-        const selectedComponent = components.find(c => c.Component_ID == componentId);
-        
-        if (selectedComponent) {
-            // Atualizar o conteúdo do modal com os detalhes do componente
-            const modalContent = document.getElementById('componentDetailsContent');
-            
-            // Criar tabela HTML com os detalhes do componente
-            let html = `
-                <table class="table table-bordered">
-                    <tr>
-                        <th>ID</th>
-                        <td>${selectedComponent.Component_ID}</td>
-                    </tr>
-                    <tr>
-                        <th>Denominação</th>
-                        <td>${selectedComponent.Denomination}</td>
-                    </tr>
-                    <tr>
-                        <th>Tipo</th>
-                        <td>${selectedComponent.General_Type || '-'}</td>
-                    </tr>
-                    <tr>
-                        <th>Fabricante</th>
-                        <td>${selectedComponent.Manufacturer_Name || '-'}</td>
-                    </tr>
-                    <tr>
-                        <th>Fornecedor</th>
-                        <td>${selectedComponent.Supplier_Name || '-'}</td>
-                    </tr>
-                    <tr>
-                        <th>Preço</th>
-                        <td>${selectedComponent.Price ? selectedComponent.Price + ' €' : '-'}</td>
-                    </tr>
-                    <tr>
-                        <th>Stock</th>
-                        <td>${selectedComponent.Stock_Quantity}</td>
-                    </tr>
-                    <tr>
-                        <th>Notas/Descrição</th>
-                        <td>${selectedComponent.Notes_Description || '-'}</td>
-                    </tr>
-                </table>
-            `;
-            
-            modalContent.innerHTML = html;
-            
-            // Abrir o modal
-            const modal = new bootstrap.Modal(document.getElementById('componentDetailsModal'));
-            modal.show();
-        }
-    }
+
     
     // Configurar eventos para o componente pai
     if (componentFatherSelect && componentDetailsBtn) {
@@ -169,6 +238,66 @@ document.addEventListener('DOMContentLoaded', function() {
             showComponentDetails(componentId);
         });
     }
+
+    // Para a referência da assembly
+    if (customAssemblyRefInput && assemblySelect && typeof assemblies !== 'undefined') {
+        // ao digitar na referência, tenta casar com Assembly_Reference e atualizar o select
+        customAssemblyRefInput.addEventListener('input', function() {
+        const v = this.value.trim();
+        const found = assemblies.find(a=>a.Assembly_Reference===v);
+        if (found) {
+            assemblySelect.value      = found.Assembly_ID;
+            assemblyDetailsBtn.disabled = false;
+            // ─── aqui ───
+            showAssociationFields(found.Assembly_ID);
+            // ────────────
+        } else {
+            assemblySelect.value        = '';
+            assemblyDetailsBtn.disabled = true;
+        }
+    });
+
+        // ao mudar o select, atualiza o input e o estado do botão
+        assemblySelect.addEventListener('change', function() {
+            const sel = this.value;
+            if (sel) {
+            const f = assemblies.find(a=>a.Assembly_ID==sel);
+            customAssemblyRefInput.value = f ? f.Assembly_Reference : '';
+            assemblyDetailsBtn.disabled = false;
+            // ─── e também aqui ───
+            showAssociationFields(sel);
+            // ──────────────────────
+            } else {
+            customAssemblyRefInput.value = '';
+            assemblyDetailsBtn.disabled = true;
+            }
+        });
+    }
+    // quando clicares em “Ver Detalhes” chama o teu modal
+    if (assemblyDetailsBtn) {
+        assemblyDetailsBtn.addEventListener('click', function() {
+            const id = assemblySelect.value;
+            if (id) showAssemblyDetails(id);
+        });
+    }
+
+      if (assocRef && assocSel && assocBtn && window.assemblies) {
+        assocRef.addEventListener('input', ()=>{
+        const v = assocRef.value.trim();
+        const found = assemblies.find(a=>a.Assembly_Reference===v);
+        assocSel.value    = found? found.Assembly_ID : '';
+        assocBtn.disabled = !found;
+        });
+        assocSel.addEventListener('change', ()=>{
+        const f = assemblies.find(a=>a.Assembly_ID==assocSel.value);
+        assocRef.value    = f? f.Assembly_Reference : '';
+        assocBtn.disabled = !f;
+        });
+        assocBtn.addEventListener('click', ()=>{
+        if (assocSel.value) showAssemblyDetails(assocSel.value);
+        });
+    }
+    
 
     window.showManufacturerComponents = function(manufacturerId) {
         if (!manufacturerId) return;
@@ -262,6 +391,7 @@ document.addEventListener('DOMContentLoaded', function() {
         modal.show();
     };
 
+    
 
 
     if (assemblyTypeSelection) {    
@@ -306,6 +436,26 @@ document.addEventListener('DOMContentLoaded', function() {
             document.querySelector('[name="assembly_child_id"]').removeAttribute('required');
             document.querySelector('[name="assembly_child_quantity"]').removeAttribute('required');
         }
+
+
+        // Atribuir eventos aos botões
+        document.addEventListener('DOMContentLoaded', function() {
+            const btnComponent = document.getElementById('btn-add-component');
+            const btnAssembly = document.getElementById('btn-add-assembly');
+            
+            if (btnComponent) {
+                btnComponent.addEventListener('click', function() {
+                    // Por exemplo, para "Adicionar Componente" usamos o tipo component_component
+                    showAssemblyFields('component_component');
+                });
+            }
+            if (btnAssembly) {
+                btnAssembly.addEventListener('click', function() {
+                    // Se desejar "Adicionar Assembly" use outro valor, aqui 'component_assembly' ou 'assembly_assembly'
+                    showAssemblyFields('component_assembly');
+                });
+            }
+        });
         
         // Initialize by showing component-component fields (default)
         hideAndClearAllFields();
@@ -604,3 +754,163 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // --- fim AJAX helpers ---
+
+    function showComponentDetails(componentId) {
+        if (!componentId) return;
+        
+        // Encontrar o componente selecionado nos dados
+        const selectedComponent = components.find(c => c.Component_ID == componentId);
+        
+        if (selectedComponent) {
+            // Atualizar o conteúdo do modal com os detalhes do componente
+            const modalContent = document.getElementById('componentDetailsContent');
+            
+            // Criar tabela HTML com os detalhes do componente
+            let html = `
+                <table class="table table-bordered">
+                    <tr>
+                        <th>ID</th>
+                        <td>${selectedComponent.Component_ID}</td>
+                    </tr>
+                    <tr>
+                        <th>Referência</th>
+                        <td>${selectedComponent.Reference || '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Denominação</th>
+                        <td>${selectedComponent.Denomination}</td>
+                    </tr>
+                    <tr>
+                        <th>Tipo</th>
+                        <td>${selectedComponent.General_Type || '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Fabricante</th>
+                        <td>${selectedComponent.Manufacturer_Name || '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Fornecedor</th>
+                        <td>${selectedComponent.Supplier_Name || '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Preço</th>
+                        <td>${selectedComponent.Price ? selectedComponent.Price + ' €' : '-'}</td>
+                    </tr>
+                    <tr>
+                        <th>Stock</th>
+                        <td>${selectedComponent.Stock_Quantity}</td>
+                    </tr>
+                    <tr>
+                        <th>Notas/Descrição</th>
+                        <td>${selectedComponent.Notes_Description || '-'}</td>
+                    </tr>
+                </table>
+            `;
+            
+            modalContent.innerHTML = html;
+            
+            // Abrir o modal
+            const modal = new bootstrap.Modal(document.getElementById('componentDetailsModal'));
+            modal.show();
+        }
+    }
+    /**
+     * Exibe num modal os detalhes da assembly selecionada.
+     * Depende de haver um array global `assemblies` com chaves:
+     *   Assembly_ID, Assembly_Designation, Assembly_Reference,
+     *   Assembly_Level, Price, Notes, Prototype_Name, Prototype_Version
+     */
+    function showAssemblyDetails(assemblyId) {
+        if (!assemblyId) return;
+        const selected = assemblies.find(a => a.Assembly_ID == assemblyId);
+        if (!selected) return;
+
+        // Prepara o HTML
+        let html = `
+        <table class="table table-bordered">
+            <tr><th>ID</th><td>${selected.Assembly_ID}</td></tr>
+            <tr><th>Designação</th><td>${selected.Assembly_Designation}</td></tr>
+            <tr><th>Referência</th><td>${selected.Assembly_Reference}</td></tr>
+            <tr><th>Protótipo</th>
+            <td>${selected.Prototype_Name} v${selected.Prototype_Version}</td>
+            </tr>
+            <tr><th>Preço</th>
+            <td>${selected.Price ? selected.Price.toFixed(2) + ' €' : '-'}</td>
+            </tr>
+            <tr><th>Notas</th><td>${selected.Notes || '-'}</td></tr>
+        </table>
+        `;
+
+        // Aqui sim atribuis o html ao modal
+        const modalContent = document.getElementById('assemblyDetailsContent');
+        modalContent.innerHTML = html;
+
+        // E finalmente abres o modal
+        const modal = new bootstrap.Modal(
+        document.getElementById('assemblyDetailsModal')
+        );
+        modal.show();
+}
+
+    function showRemoveFields(){
+        const mainDisplay = document.getElementById('remove-association-fields');
+        mainDisplay.style.display = 'block';
+        document.getElementById('assembly-association-fields').style.display = 'none';
+        document.getElementById('component-association-fields').style.display = 'none';
+    }
+
+    function showRemoveOptions(value){
+        if (value === 'component'){
+            document.getElementById('remove_assembly_div').style.display = 'none';
+            const mainDisplay = document.getElementById('remove_component_div');
+            const assemblyID = document.getElementById('assembly_name').value;
+            // get the list of components that are connected to this assembly ID
+            fetch('tabs/bomlist/getters.php',{
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // enviar assemblyID como query parameter
+                body: JSON.stringify({
+                assemblyID : assemblyID,
+                action: "getAssociatedComps" 
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                let options = '<select class="form-select" name="remove_component_id"><option value="">Selecionar...</option>';
+                data.forEach(item => {
+                        options += `<option value="${item.Component_ID}">${item.Denomination} ( ${item.Reference})</option>`;
+                });
+                options += '</select>';
+                mainDisplay.innerHTML = options;
+            });
+
+            document.getElementById('remove_component_div').style.display = 'block';
+        } else if (value === 'assembly'){
+            document.getElementById('remove_component_div').style.display = 'none';
+            mainDisplay = document.getElementById('remove_assembly_div');
+            const assemblyID = document.getElementById('assembly_name').value;
+            // get the list of assemblies that are connected to this assembly ID
+            fetch('tabs/bomlist/getters.php',{
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // enviar assemblyID como query parameter
+                body: JSON.stringify({
+                assemblyID : assemblyID,
+                action: "getAssociatedAssemblies"
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                let options = '<select class="form-select" name= "remove_assembly_id"><option value="">Selecionar...</option>';
+                data.forEach(item => {
+                        options += `<option value="${item.Assembly_ID}">${item.Assembly_Designation} ( ${item.Assembly_Reference})</option>`;
+                });
+                options += '</select>';
+                mainDisplay.innerHTML = options;
+            });
+            document.getElementById('remove_assembly_div').style.display = 'block';
+        } else {
+            document.getElementById('remove_component-div').style.display = 'none';
+            document.getElementById('remove_assembly_div').style.display = 'none';
+        }
+    }

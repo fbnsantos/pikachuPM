@@ -200,3 +200,22 @@
     height: 1.6rem !important;
     line-height: 1 !important;
 }
+
+/* Força o layout fixo para controle consistente das colunas */
+.table-fixed {
+    table-layout: fixed;
+    width: 100%;
+}
+
+/* Defina larguras para cada coluna */
+.col-id {
+    width: 20%;
+}
+
+.col-designacao {
+    width: 50%;
+}
+
+.col-quantidade {
+    width: 30%;
+}

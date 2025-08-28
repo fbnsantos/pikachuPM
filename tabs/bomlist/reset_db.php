@@ -5,7 +5,7 @@ include_once __DIR__ . '/../../config.php';
 echo "<h2>Database Reset Debug</h2>";
 echo "<strong>Config values:</strong><br>";
 echo "Host: $db_host<br>";
-echo "Database:  $db_name_boom<br>";
+echo "Database: $db_name_boom<br>";
 echo "User: $db_user<br>";
 echo "Password: " . ($db_pass ? '[SET]' : '[EMPTY]') . "<br><br>";
 
@@ -31,7 +31,6 @@ try {
     echo "Creating new database...<br>";
     $result = $pdo->exec("CREATE DATABASE `$db_name_boom`");
     echo "Create result: $result<br>";
-    
     $result = $pdo->exec("USE `$db_name_boom`");
     echo "Use database result: $result<br><br>";
     

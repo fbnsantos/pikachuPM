@@ -9,6 +9,7 @@ function connectDB(){
     //$db_user = 'pkmt_user';
     //$db_pass = 'pikachu123'; 
    // $db_name_boom = 'pkmt_boomlist';
+
     
     $sqlFile = __DIR__ . '/database.sql';
     $sql = file_get_contents($sqlFile);

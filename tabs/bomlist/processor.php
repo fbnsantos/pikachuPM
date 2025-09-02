@@ -330,13 +330,16 @@ function processCRUD($pdo, $entity , $action){
             if(!empty($_POST['remove_type'])){
                 if ($_POST['remove_type'] === 'component' && !empty($_POST['remove_component_id'])) {
                     // Remover associação de componente
+                    $stmt3 = pdo->prepare("Select Quantity FROM T_Assembly_Component WHERE Assembly_ID = ? AND Component_ID = ?");
+                    $stmt3->execute([$parentAssemblyId, $_POST['remove_component_id']]);
+                    $quantity = (int) $stmt3->fetchColumn();
                     $stmt = $pdo->prepare("DELETE FROM T_Assembly_Component WHERE Assembly_ID = ? AND Component_ID = ?");
                     $stmt->execute([$parentAssemblyId, $_POST['remove_component_id']]);
                     $stmt2 = $pdo->prepare("SELECT Price FROM T_Component WHERE Component_ID = ?");
                     $stmt2->execute([$_POST['remove_component_id']]);
                     $compPrice = (float) $stmt2->fetchColumn();
-                    $assemblyPrice -= $compPrice;
-                    updateAllAssemblyPrices($pdo, $parentAssemblyId , -$compPrice);
+                    $assemblyPrice -= ($compPrice * quantity);
+                    updateAllAssemblyPrices($pdo, $parentAssemblyId , -($compPrice*quantity));
                     $message = "Associação de Assembly e Componente removida com sucesso!";
                 } elseif ($_POST['remove_type'] === 'assembly' && !empty($_POST['remove_assembly_id'])) {
                     $toRemoveId = (int) $_POST['remove_assembly_id'];
@@ -345,11 +348,14 @@ function processCRUD($pdo, $entity , $action){
                     $stmt2 = $pdo->prepare("SELECT Price FROM T_Assembly WHERE Assembly_ID = ?");
                     $stmt2->execute([$_POST['remove_assembly_id']]);
                     $assemPrice = (float) $stmt2->fetchColumn();
-                    $assemblyPrice -= $assemPrice;
+
                     // 1) Apagar recursivamente a sub-árvore seleccionada
 
                     deleteAssemblySubtree($pdo, $toRemoveId);
-
+                    $stmt3 = $pdo->prepare("SELECT Quantity FROM T_Assembly_Assembly WHERE Parent_Assembly_ID = ? AND Child_Assembly_ID = ?");
+                    $stmt3->execute([$parentAssemblyID, $toRemoveId]);
+                    $quantity = (int) $stmt3->fetchColumn();
+                    $assemblyPrice -= ($assemPrice*quantity);
                     // 2) Apagar a associação pai→filho específica
                     $stmt = $pdo->prepare("
                     DELETE FROM T_Assembly_Assembly
@@ -357,7 +363,7 @@ function processCRUD($pdo, $entity , $action){
                         AND Child_Assembly_ID  = ?
                     ");
                     $stmt->execute([$parentAssemblyId, $toRemoveId]);
-                    updateAllAssemblyPrices($pdo, $parentAssemblyId , -$assemPrice);
+                    updateAllAssemblyPrices($pdo, $parentAssemblyId , -($assemPrice * quantity));
                     $message = "Todas as sub-assemblies e suas associações foram removidas com sucesso!";
                 }
                 else {

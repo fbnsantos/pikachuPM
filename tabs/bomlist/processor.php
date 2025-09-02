@@ -633,6 +633,7 @@ function processCRUD($pdo, $entity , $action){
         // log server-side e devolve mensagem genérica
         error_log("processor error: " . $e->getMessage());
         $message = "Erro no processamento: " . $e->getMessage();
+        $status = "error";
     }
     return $message;
 

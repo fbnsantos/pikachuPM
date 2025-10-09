@@ -1,7 +1,27 @@
 <?php
 // tabs/todos.php - Gestão de ToDos (VERSÃO COMPLETA E CORRIGIDA)
 
-// Verificar se o utilizador está autenticado
+// ============================================================================
+// VALIDAÇÃO DE AUTENTICAÇÃO PARA REQUISIÇÕES AJAX (DEVE VIR PRIMEIRO!)
+// ============================================================================
+if (isset($_GET['get_task_details']) || 
+    (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && 
+     strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')) {
+    
+    // Se for requisição AJAX e não está autenticado, retornar erro JSON
+    if (!isset($_SESSION['user_id'])) {
+        header('Content-Type: application/json');
+        http_response_code(401);
+        echo json_encode([
+            'success' => false, 
+            'error' => 'Sessão expirada. Por favor, faça login novamente.',
+            'redirect' => 'login.php'
+        ]);
+        exit;
+    }
+}
+
+// Verificar se o utilizador está autenticado (para requisições normais)
 if (!isset($_SESSION['user_id'])) {
     echo '<div class="alert alert-danger">Acesso não autorizado. Por favor, faça login.</div>';
     exit;
@@ -50,6 +70,18 @@ try {
     )');
     
 } catch (Exception $e) {
+    // Se for requisição AJAX, retornar erro em JSON
+    if (isset($_GET['get_task_details']) || 
+        (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && 
+         strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')) {
+        header('Content-Type: application/json');
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Erro ao conectar à base de dados: ' . $e->getMessage()
+        ]);
+        exit;
+    }
     die("Erro ao conectar à base de dados: " . $e->getMessage());
 }
 
@@ -108,6 +140,7 @@ if (isset($_GET['get_task_details']) && is_numeric($_GET['get_task_details'])) {
         echo json_encode(['success' => true, 'task' => $task]);
     } else {
         header('Content-Type: application/json');
+        http_response_code(404);
         echo json_encode(['success' => false, 'message' => 'Tarefa não encontrada ou sem permissão']);
     }
     
@@ -115,6 +148,8 @@ if (isset($_GET['get_task_details']) && is_numeric($_GET['get_task_details'])) {
     $db->close();
     exit;
 }
+
+
 
 // ===========================================================================
 // PROCESSAMENTO DE FORMULÁRIOS

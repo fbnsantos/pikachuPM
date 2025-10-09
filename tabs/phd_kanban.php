@@ -150,18 +150,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         
         if ($stmt->execute()) {
             if (isset($_POST['ajax'])) {
+                header('Content-Type: application/json');
                 echo json_encode(['success' => true]);
+                $stmt->close();
+                $db->close();
                 exit;
             }
             $success_message = "Estágio atualizado com sucesso!";
         } else {
             if (isset($_POST['ajax'])) {
+                header('Content-Type: application/json');
                 echo json_encode(['success' => false, 'error' => $stmt->error]);
+                $stmt->close();
+                $db->close();
                 exit;
             }
             $error_message = "Erro ao atualizar estágio: " . $stmt->error;
         }
         $stmt->close();
+    } else {
+        if (isset($_POST['ajax'])) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'Estágio inválido']);
+            $db->close();
+            exit;
+        }
+        $error_message = "Estágio inválido";
     }
 }
 
@@ -965,6 +979,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (draggedElement && draggedElement !== this) {
             const taskId = draggedElement.dataset.taskId;
             const newStage = this.dataset.stage;
+            const oldColumn = draggedElement.closest('.kanban-column');
+            
+            // Mostrar indicador de loading
+            draggedElement.style.opacity = '0.5';
             
             // Atualizar via AJAX
             const formData = new FormData();
@@ -977,18 +995,55 @@ document.addEventListener('DOMContentLoaded', function() {
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
+            .then(response => {
+                // Verificar se a resposta é JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Resposta não é JSON. A tarefa foi atualizada mas houve um problema na resposta.');
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.success) {
-                    // Recarregar página para atualizar contadores
-                    location.reload();
+                    // Mostrar mensagem de sucesso temporária
+                    const toast = document.createElement('div');
+                    toast.className = 'alert alert-success position-fixed top-0 start-50 translate-middle-x mt-3';
+                    toast.style.zIndex = '9999';
+                    toast.innerHTML = '<i class="bi bi-check-circle"></i> Tarefa movida com sucesso!';
+                    document.body.appendChild(toast);
+                    
+                    setTimeout(() => {
+                        toast.remove();
+                    }, 2000);
+                    
+                    // Recarregar página após pequeno delay para mostrar o feedback
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1000);
                 } else {
-                    alert('Erro ao atualizar estágio: ' + data.error);
+                    draggedElement.style.opacity = '1';
+                    alert('Erro ao atualizar estágio: ' + (data.error || 'Erro desconhecido'));
+                    // Mesmo com erro, recarregar para verificar estado real
+                    setTimeout(() => {
+                        location.reload();
+                    }, 500);
                 }
             })
             .catch(error => {
-                console.error('Erro:', error);
-                alert('Erro ao atualizar estágio');
+                console.error('Erro completo:', error);
+                draggedElement.style.opacity = '1';
+                
+                // Mostrar notificação que a tarefa pode ter sido atualizada
+                const toast = document.createElement('div');
+                toast.className = 'alert alert-warning position-fixed top-0 start-50 translate-middle-x mt-3';
+                toast.style.zIndex = '9999';
+                toast.innerHTML = '<i class="bi bi-info-circle"></i> A verificar alteração... A recarregar.';
+                document.body.appendChild(toast);
+                
+                // Recarregar para verificar o estado real
+                setTimeout(() => {
+                    location.reload();
+                }, 1500);
             });
         }
         

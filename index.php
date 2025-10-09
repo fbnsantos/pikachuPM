@@ -25,6 +25,7 @@ $tabs = [
     'links' => 'Links',
     'search' => 'Search',
     'todos' => 'ToDo',
+    'phd_kanban' => 'Doutoramento',
     'bomlist/bomlist'  => 'BOM_LIST',
     'admin' => 'Administration',
 ];

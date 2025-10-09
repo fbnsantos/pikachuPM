@@ -105,51 +105,6 @@ if (!$user_token) {
     $user_token = ['token' => $token];
 }
 
-// ===========================================================================
-// ENDPOINT AJAX: Buscar detalhes de tarefa (DEVE VIR ANTES DE QUALQUER HTML)
-// ===========================================================================
-if (isset($_GET['get_task_details']) && is_numeric($_GET['get_task_details'])) {
-    $task_id = (int)$_GET['get_task_details'];
-    
-    $stmt = $db->prepare('
-        SELECT t.*, 
-               autor.username as autor_nome, 
-               resp.username as responsavel_nome
-        FROM todos t
-        LEFT JOIN user_tokens autor ON t.autor = autor.user_id
-        LEFT JOIN user_tokens resp ON t.responsavel = resp.user_id
-        WHERE t.id = ? AND (t.autor = ? OR t.responsavel = ?)
-    ');
-    $stmt->bind_param('iii', $task_id, $user_id, $user_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    if ($result->num_rows > 0) {
-        $task = $result->fetch_assoc();
-        
-        // Garantir que campos NULL são convertidos para strings vazias
-        $task['descritivo'] = $task['descritivo'] ?? '';
-        $task['data_limite'] = $task['data_limite'] ?? '';
-        $task['todo_issue'] = $task['todo_issue'] ?? '';
-        $task['task_id'] = $task['task_id'] ?? '';
-        $task['milestone_id'] = $task['milestone_id'] ?? '';
-        $task['projeto_id'] = $task['projeto_id'] ?? '';
-        $task['responsavel'] = $task['responsavel'] ?? '';
-        
-        header('Content-Type: application/json');
-        echo json_encode(['success' => true, 'task' => $task]);
-    } else {
-        header('Content-Type: application/json');
-        http_response_code(404);
-        echo json_encode(['success' => false, 'message' => 'Tarefa não encontrada ou sem permissão']);
-    }
-    
-    $stmt->close();
-    $db->close();
-    exit;
-}
-
-
 
 // ===========================================================================
 // PROCESSAMENTO DE FORMULÁRIOS
@@ -256,38 +211,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
     
-    // ATUALIZAR ESTADO (DRAG AND DROP) - COM CORREÇÃO DE AJAX
-    elseif ($_POST['action'] === 'drag_update_status') {
-        $todo_id = (int)$_POST['todo_id'];
-        $new_estado = trim($_POST['new_estado']);
-        
-        $valid_estados = ['aberta', 'em execução', 'suspensa', 'concluída'];
-        
-        if (in_array($new_estado, $valid_estados)) {
-            $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ? AND (autor = ? OR responsavel = ?)');
-            $stmt->bind_param('siii', $new_estado, $todo_id, $user_id, $user_id);
-            
-            if ($stmt->execute()) {
-                // CORREÇÃO: Sempre retornar JSON para AJAX
-                header('Content-Type: application/json');
-                echo json_encode(['success' => true, 'message' => 'Estado atualizado com sucesso']);
-                $stmt->close();
-                $db->close();
-                exit; // CRÍTICO
-            } else {
-                header('Content-Type: application/json');
-                echo json_encode(['success' => false, 'message' => 'Erro ao atualizar: ' . $db->error]);
-                $stmt->close();
-                $db->close();
-                exit;
-            }
-        } else {
-            header('Content-Type: application/json');
-            echo json_encode(['success' => false, 'message' => 'Estado inválido']);
-            $db->close();
-            exit;
-        }
-    }
+
     
     // ATUALIZAR ESTADO (FORM TRADICIONAL)
     elseif ($_POST['action'] === 'update_status') {
@@ -883,40 +807,17 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Função para atualizar estado via AJAX
     function updateTaskStatus(todoId, newStatus) {
-        const formData = new FormData();
-        formData.append('action', 'drag_update_status');
-        formData.append('todo_id', todoId);
-        formData.append('new_estado', newStatus);
-        
-        fetch(window.location.href, {
+        fetch('ajax_handler.php?action=update_task_status', {
             method: 'POST',
-            body: formData,
             headers: {
+                'Content-Type': 'application/json',
                 'X-Requested-With': 'XMLHttpRequest'
-            }
+            },
+            body: JSON.stringify({
+                todo_id: todoId,
+                new_estado: newStatus
+            })
         })
-        .then(response => {
-            const contentType = response.headers.get('content-type');
-            if (!contentType || !contentType.includes('application/json')) {
-                throw new Error('Resposta não é JSON');
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.success) {
-                showToast('✓ Estado atualizado!', 'success');
-                setTimeout(() => location.reload(), 1000);
-            } else {
-                showToast('✗ ' + data.message, 'danger');
-                setTimeout(() => location.reload(), 1500);
-            }
-        })
-        .catch(error => {
-            console.error('Erro:', error);
-            showToast('⚠ A verificar alteração...', 'warning');
-            setTimeout(() => location.reload(), 1500);
-        });
-    }
     
     // ========================================================================
     // EDITAR TAREFAS
@@ -933,7 +834,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Mostrar loading
             showToast('A carregar...', 'info');
             
-            fetch(`?tab=todos&get_task_details=${taskId}`, {
+            fetch(`ajax_handler.php?action=get_task_details&id=${taskId}`, {
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
             })
             .then(response => {

@@ -38,8 +38,17 @@ try {
         LEFT JOIN user_tokens resp ON t.responsavel = resp.user_id
         WHERE t.id = ?
     ');
+    
+    if (!$stmt) {
+        throw new Exception("Erro ao preparar query: " . $db->error);
+    }
+    
     $stmt->bind_param('i', $task_id);
-    $stmt->execute();
+    
+    if (!$stmt->execute()) {
+        throw new Exception("Erro ao executar query: " . $stmt->error);
+    }
+    
     $result = $stmt->get_result();
     
     if ($result->num_rows === 0) {
@@ -48,6 +57,7 @@ try {
     
     $task = $result->fetch_assoc();
     $stmt->close();
+    $db->close();
     
     header('Content-Type: application/json');
     echo json_encode([
@@ -62,6 +72,4 @@ try {
         'error' => $e->getMessage()
     ]);
 }
-
-$db->close();
 ?>

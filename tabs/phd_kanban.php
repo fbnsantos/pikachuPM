@@ -929,9 +929,27 @@ document.addEventListener('DOMContentLoaded', function() {
         btn.addEventListener('click', function() {
             const taskId = this.dataset.taskId;
             
+            // Mostrar modal primeiro
+            const modal = new bootstrap.Modal(document.getElementById('viewTaskModal'));
+            modal.show();
+            
+            // Resetar conteúdo
+            document.getElementById('taskDetailsContent').innerHTML = `
+                <div class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">A carregar...</span>
+                    </div>
+                </div>
+            `;
+            
             // Buscar detalhes da tarefa via AJAX
             fetch(`get_task_details.php?id=${taskId}`)
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.success) {
                         const task = data.task;
@@ -958,40 +976,42 @@ document.addEventListener('DOMContentLoaded', function() {
                         const content = `
                             <div class="task-details">
                                 <h4>${task.titulo}</h4>
-                                ${task.descritivo ? `<p class="text-muted">${task.descritivo}</p>` : ''}
+                                ${task.descritivo ? `<p class="text-muted">${task.descritivo.replace(/\n/g, '<br>')}</p>` : ''}
                                 <hr>
                                 <div class="row">
                                     <div class="col-md-6">
                                         <p><strong>Autor:</strong> ${task.autor_nome || 'N/A'}</p>
                                         <p><strong>Responsável:</strong> ${task.responsavel_nome || 'N/A'}</p>
-                                        <p><strong>Estágio:</strong> <span class="badge bg-info">${task.estagio}</span></p>
+                                        <p><strong>Estágio:</strong> <span class="badge bg-info">${task.estagio || 'N/A'}</span></p>
                                     </div>
                                     <div class="col-md-6">
                                         <p><strong>Data Limite:</strong> ${task.data_limite ? new Date(task.data_limite).toLocaleDateString('pt-PT') : 'N/A'} ${diasInfo}</p>
-                                        <p><strong>Estado:</strong> <span class="badge bg-secondary">${task.estado}</span></p>
+                                        <p><strong>Estado:</strong> <span class="badge bg-secondary">${task.estado || 'N/A'}</span></p>
                                     </div>
                                 </div>
                                 <hr>
                                 <p class="small text-muted">
-                                    <strong>Criada em:</strong> ${new Date(task.created_at).toLocaleString('pt-PT')}<br>
-                                    <strong>Última atualização:</strong> ${new Date(task.updated_at).toLocaleString('pt-PT')}
+                                    <strong>Criada em:</strong> ${task.created_at ? new Date(task.created_at).toLocaleString('pt-PT') : 'N/A'}<br>
+                                    <strong>Última atualização:</strong> ${task.updated_at ? new Date(task.updated_at).toLocaleString('pt-PT') : 'N/A'}
                                 </p>
                             </div>
                         `;
                         document.getElementById('taskDetailsContent').innerHTML = content;
                     } else {
                         document.getElementById('taskDetailsContent').innerHTML = 
-                            '<div class="alert alert-danger">Erro ao carregar detalhes da tarefa.</div>';
+                            `<div class="alert alert-danger">
+                                <strong>Erro:</strong> ${data.error || 'Erro desconhecido ao carregar detalhes da tarefa.'}
+                            </div>`;
                     }
                 })
                 .catch(error => {
-                    console.error('Erro:', error);
+                    console.error('Erro completo:', error);
                     document.getElementById('taskDetailsContent').innerHTML = 
-                        '<div class="alert alert-danger">Erro ao carregar detalhes da tarefa.</div>';
+                        `<div class="alert alert-danger">
+                            <strong>Erro de conexão:</strong> ${error.message}<br>
+                            <small class="text-muted">Verifique se o ficheiro get_task_details.php existe e está acessível.</small>
+                        </div>`;
                 });
-            
-            const modal = new bootstrap.Modal(document.getElementById('viewTaskModal'));
-            modal.show();
         });
     });
 });

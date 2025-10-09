@@ -46,12 +46,12 @@ if (isset($_GET['action'])) {
         
         case 'get_task_details':
             // Buscar detalhes de uma tarefa
-           // if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
-           //     header('Content-Type: application/json');
-           //     http_response_code(400);
-           //     echo json_encode(['success' => false, 'error' => 'ID inválido']);
-            //    exit;
-           // }
+            if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
+                header('Content-Type: application/json');
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'ID inválido']);
+                exit;
+            }
             
             $task_id = (int)$_GET['id'];
             

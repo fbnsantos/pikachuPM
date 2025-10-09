@@ -13,6 +13,21 @@ include_once __DIR__ . '/../config.php';
 // ID do projeto de doutoramento
 define('PHD_PROJECT_ID', 9999);
 
+// Mapeamento entre estágios Kanban e estados Todo
+$stage_to_estado_map = [
+    'pensada' => 'aberta',
+    'execucao' => 'em execução',
+    'espera' => 'suspensa',
+    'concluida' => 'concluída'
+];
+
+$estado_to_stage_map = [
+    'aberta' => 'pensada',
+    'em execução' => 'execucao',
+    'suspensa' => 'espera',
+    'concluída' => 'concluida'
+];
+
 // Conectar ao banco de dados MySQL
 try {
     $db = new mysqli($db_host, $db_user, $db_pass, $db_name);
@@ -77,16 +92,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $data_limite = !empty($_POST['data_limite']) ? $_POST['data_limite'] : null;
     $responsavel = !empty($_POST['responsavel']) ? intval($_POST['responsavel']) : null;
     $estagio = isset($_POST['estagio']) ? $_POST['estagio'] : 'pensada';
+    $estado = $stage_to_estado_map[$estagio];
     
     if (!empty($titulo)) {
-        $stmt = $db->prepare('INSERT INTO todos (titulo, descritivo, data_limite, autor, responsavel, estagio, estado, projeto_id) VALUES (?, ?, ?, ?, ?, ?, "aberta", ?)');
+        $stmt = $db->prepare('INSERT INTO todos (titulo, descritivo, data_limite, autor, responsavel, estagio, estado, projeto_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
         $projeto_id = PHD_PROJECT_ID;
-        $stmt->bind_param('sssissi', $titulo, $descritivo, $data_limite, $user_id, $responsavel, $estagio, $projeto_id);
+        $stmt->bind_param('sssiissi', $titulo, $descritivo, $data_limite, $user_id, $responsavel, $estagio, $estado, $projeto_id);
         
         if ($stmt->execute()) {
             $success_message = "Tarefa adicionada com sucesso!";
         } else {
             $error_message = "Erro ao adicionar tarefa: " . $stmt->error;
+        }
+        $stmt->close();
+    } else {
+        $error_message = "O título da tarefa é obrigatório.";
+    }
+}
+
+// Editar tarefa
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_task') {
+    $task_id = intval($_POST['task_id']);
+    $titulo = trim($_POST['titulo_edit']);
+    $descritivo = trim($_POST['descritivo_edit']);
+    $data_limite = !empty($_POST['data_limite_edit']) ? $_POST['data_limite_edit'] : null;
+    $responsavel = !empty($_POST['responsavel_edit']) ? intval($_POST['responsavel_edit']) : null;
+    $estagio = $_POST['estagio_edit'];
+    $estado = $stage_to_estado_map[$estagio];
+    
+    if (!empty($titulo)) {
+        $stmt = $db->prepare('UPDATE todos SET titulo = ?, descritivo = ?, data_limite = ?, responsavel = ?, estagio = ?, estado = ? WHERE id = ? AND projeto_id = ?');
+        $projeto_id = PHD_PROJECT_ID;
+        $stmt->bind_param('sssssiii', $titulo, $descritivo, $data_limite, $responsavel, $estagio, $estado, $task_id, $projeto_id);
+        
+        if ($stmt->execute()) {
+            $success_message = "Tarefa atualizada com sucesso!";
+        } else {
+            $error_message = "Erro ao atualizar tarefa: " . $stmt->error;
         }
         $stmt->close();
     } else {
@@ -101,9 +143,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     
     $valid_stages = ['pensada', 'execucao', 'espera', 'concluida'];
     if (in_array($new_stage, $valid_stages)) {
-        $stmt = $db->prepare('UPDATE todos SET estagio = ? WHERE id = ? AND projeto_id = ?');
+        $new_estado = $stage_to_estado_map[$new_stage];
+        $stmt = $db->prepare('UPDATE todos SET estagio = ?, estado = ? WHERE id = ? AND projeto_id = ?');
         $projeto_id = PHD_PROJECT_ID;
-        $stmt->bind_param('sii', $new_stage, $task_id, $projeto_id);
+        $stmt->bind_param('ssii', $new_stage, $new_estado, $task_id, $projeto_id);
         
         if ($stmt->execute()) {
             if (isset($_POST['ajax'])) {
@@ -214,10 +257,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 // Obter utilizador selecionado do dropdown (padrão: utilizador logado)
 $selected_user = isset($_GET['user_id']) ? intval($_GET['user_id']) : $user_id;
 
-// Obter todos os utilizadores para o dropdown
-$users_query = "SELECT DISTINCT ut.user_id, ut.username 
+// Obter todos os utilizadores com prioridade para quem tem info de doutoramento
+$users_query = "SELECT DISTINCT ut.user_id, ut.username,
+                CASE WHEN pi.id IS NOT NULL THEN 1 ELSE 0 END as has_phd_info
                 FROM user_tokens ut 
-                ORDER BY ut.username";
+                LEFT JOIN phd_info pi ON ut.user_id = pi.user_id
+                ORDER BY has_phd_info DESC, ut.username ASC";
 $users_result = $db->query($users_query);
 $all_users = [];
 while ($row = $users_result->fetch_assoc()) {
@@ -243,7 +288,7 @@ while ($row = $artigos_result->fetch_assoc()) {
 }
 $stmt->close();
 
-// Obter tarefas do utilizador selecionado agrupadas por estágio (apenas projeto_id = 9999)
+// Obter tarefas APENAS do utilizador selecionado agrupadas por estágio (apenas projeto_id = 9999)
 $stages = ['pensada', 'execucao', 'espera', 'concluida'];
 $tasks_by_stage = [];
 
@@ -320,6 +365,7 @@ function get_deadline_badge_class($dias) {
             <?php foreach ($all_users as $u): ?>
                 <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $selected_user ? 'selected' : '' ?>>
                     <?= htmlspecialchars($u['username']) ?>
+                    <?= $u['has_phd_info'] ? ' ⭐' : '' ?>
                 </option>
             <?php endforeach; ?>
         </select>
@@ -541,6 +587,11 @@ function get_deadline_badge_class($dias) {
                                     <?php endif; ?>
                                     
                                     <div class="btn-group btn-group-sm">
+                                        <button type="button" class="btn btn-outline-primary btn-sm edit-task-btn" 
+                                                data-task-id="<?= $task['id'] ?>"
+                                                title="Editar">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
                                         <button type="button" class="btn btn-outline-info btn-sm view-task-btn" 
                                                 data-task-id="<?= $task['id'] ?>"
                                                 title="Ver detalhes">
@@ -591,7 +642,7 @@ function get_deadline_badge_class($dias) {
                         <select class="form-select" id="responsavel" name="responsavel">
                             <option value="">Nenhum</option>
                             <?php foreach ($all_users as $u): ?>
-                                <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $user_id ? 'selected' : '' ?>>
+                                <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $selected_user ? 'selected' : '' ?>>
                                     <?= htmlspecialchars($u['username']) ?>
                                 </option>
                             <?php endforeach; ?>
@@ -610,6 +661,60 @@ function get_deadline_badge_class($dias) {
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-primary">Adicionar Tarefa</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para editar tarefa -->
+<div class="modal fade" id="editTaskModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST">
+                <input type="hidden" name="action" value="edit_task">
+                <input type="hidden" name="task_id" id="edit_task_id">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-pencil"></i> Editar Tarefa</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="titulo_edit" class="form-label">Título *</label>
+                        <input type="text" class="form-control" id="titulo_edit" name="titulo_edit" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="descritivo_edit" class="form-label">Descrição</label>
+                        <textarea class="form-control" id="descritivo_edit" name="descritivo_edit" rows="3"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="data_limite_edit" class="form-label">Data Limite</label>
+                        <input type="date" class="form-control" id="data_limite_edit" name="data_limite_edit">
+                    </div>
+                    <div class="mb-3">
+                        <label for="responsavel_edit" class="form-label">Responsável</label>
+                        <select class="form-select" id="responsavel_edit" name="responsavel_edit">
+                            <option value="">Nenhum</option>
+                            <?php foreach ($all_users as $u): ?>
+                                <option value="<?= $u['user_id'] ?>">
+                                    <?= htmlspecialchars($u['username']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="estagio_edit" class="form-label">Estágio</label>
+                        <select class="form-select" id="estagio_edit" name="estagio_edit">
+                            <option value="pensada">Pensada</option>
+                            <option value="execucao">Em Execução</option>
+                            <option value="espera">Em Espera</option>
+                            <option value="concluida">Concluída</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar Alterações</button>
                 </div>
             </form>
         </div>
@@ -890,6 +995,40 @@ document.addEventListener('DOMContentLoaded', function() {
         return false;
     }
     
+    // Botões de editar tarefa
+    document.querySelectorAll('.edit-task-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const taskId = this.dataset.taskId;
+            
+            // Buscar detalhes da tarefa via AJAX
+            fetch(`get_task_details.php?id=${taskId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const task = data.task;
+                        
+                        // Preencher o formulário de edição
+                        document.getElementById('edit_task_id').value = task.id;
+                        document.getElementById('titulo_edit').value = task.titulo;
+                        document.getElementById('descritivo_edit').value = task.descritivo || '';
+                        document.getElementById('data_limite_edit').value = task.data_limite || '';
+                        document.getElementById('responsavel_edit').value = task.responsavel || '';
+                        document.getElementById('estagio_edit').value = task.estagio || 'pensada';
+                        
+                        // Mostrar o modal
+                        const modal = new bootstrap.Modal(document.getElementById('editTaskModal'));
+                        modal.show();
+                    } else {
+                        alert('Erro ao carregar dados da tarefa: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro:', error);
+                    alert('Erro ao carregar dados da tarefa');
+                });
+        });
+    });
+    
     // Botões de eliminar tarefa
     document.querySelectorAll('.delete-task-btn').forEach(btn => {
         btn.addEventListener('click', function() {
@@ -983,10 +1122,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                         <p><strong>Autor:</strong> ${task.autor_nome || 'N/A'}</p>
                                         <p><strong>Responsável:</strong> ${task.responsavel_nome || 'N/A'}</p>
                                         <p><strong>Estágio:</strong> <span class="badge bg-info">${task.estagio || 'N/A'}</span></p>
+                                        <p><strong>Estado (Todo):</strong> <span class="badge bg-secondary">${task.estado || 'N/A'}</span></p>
                                     </div>
                                     <div class="col-md-6">
                                         <p><strong>Data Limite:</strong> ${task.data_limite ? new Date(task.data_limite).toLocaleDateString('pt-PT') : 'N/A'} ${diasInfo}</p>
-                                        <p><strong>Estado:</strong> <span class="badge bg-secondary">${task.estado || 'N/A'}</span></p>
+                                        <p><strong>Projeto ID:</strong> ${task.projeto_id || 'N/A'}</p>
                                     </div>
                                 </div>
                                 <hr>

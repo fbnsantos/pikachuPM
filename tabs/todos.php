@@ -94,11 +94,21 @@ if (isset($_GET['get_task_details']) && is_numeric($_GET['get_task_details'])) {
     
     if ($result->num_rows > 0) {
         $task = $result->fetch_assoc();
+        
+        // Garantir que campos NULL são convertidos para strings vazias
+        $task['descritivo'] = $task['descritivo'] ?? '';
+        $task['data_limite'] = $task['data_limite'] ?? '';
+        $task['todo_issue'] = $task['todo_issue'] ?? '';
+        $task['task_id'] = $task['task_id'] ?? '';
+        $task['milestone_id'] = $task['milestone_id'] ?? '';
+        $task['projeto_id'] = $task['projeto_id'] ?? '';
+        $task['responsavel'] = $task['responsavel'] ?? '';
+        
         header('Content-Type: application/json');
         echo json_encode(['success' => true, 'task' => $task]);
     } else {
         header('Content-Type: application/json');
-        echo json_encode(['success' => false, 'message' => 'Tarefa não encontrada']);
+        echo json_encode(['success' => false, 'message' => 'Tarefa não encontrada ou sem permissão']);
     }
     
     $stmt->close();
@@ -878,32 +888,63 @@ document.addEventListener('DOMContentLoaded', function() {
     // ========================================================================
     
     document.querySelectorAll('.edit-task-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
             const taskId = this.dataset.taskId;
+            console.log('Carregando tarefa ID:', taskId);
+            
+            // Mostrar loading
+            showToast('A carregar...', 'info');
             
             fetch(`?tab=todos&get_task_details=${taskId}`, {
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
             })
-            .then(response => response.json())
+            .then(response => {
+                console.log('Response status:', response.status);
+                console.log('Content-Type:', response.headers.get('content-type'));
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                // Verificar se é JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    return response.text().then(text => {
+                        console.error('Resposta não é JSON:', text.substring(0, 200));
+                        throw new Error('Resposta não é JSON válido');
+                    });
+                }
+                
+                return response.json();
+            })
             .then(data => {
+                console.log('Dados recebidos:', data);
+                
                 if (data.success && data.task) {
                     const task = data.task;
-                    document.getElementById('edit_todo_id').value = task.id;
+                    
+                    // Preencher formulário com tratamento de valores NULL
+                    document.getElementById('edit_todo_id').value = task.id || '';
                     document.getElementById('edit_titulo').value = task.titulo || '';
                     document.getElementById('edit_descritivo').value = task.descritivo || '';
                     document.getElementById('edit_data_limite').value = task.data_limite || '';
                     document.getElementById('edit_estado').value = task.estado || 'aberta';
                     document.getElementById('edit_responsavel').value = task.responsavel || '';
                     
+                    // Abrir modal
                     const modal = new bootstrap.Modal(document.getElementById('editTaskModal'));
                     modal.show();
                 } else {
-                    showToast('Erro ao carregar tarefa', 'danger');
+                    console.error('Resposta sem sucesso:', data);
+                    showToast('Erro: ' + (data.message || 'Dados inválidos'), 'danger');
                 }
             })
             .catch(error => {
-                console.error('Erro:', error);
-                showToast('Erro ao carregar tarefa', 'danger');
+                console.error('Erro completo:', error);
+                showToast('Erro ao carregar tarefa: ' + error.message, 'danger');
             });
         });
     });

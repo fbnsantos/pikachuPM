@@ -1,5 +1,5 @@
 <?php
-// tabs/todos.php - Gestão de ToDos
+// tabs/todos.php - Gestão de ToDos (VERSÃO COMPLETA E CORRIGIDA)
 
 // Verificar se o utilizador está autenticado
 if (!isset($_SESSION['user_id'])) {
@@ -13,15 +13,12 @@ include __DIR__ . '/todos_milestones.php';
 
 // Conectar ao banco de dados MySQL
 try {
-    // Usar as variáveis de configuração do arquivo config.php
     $db = new mysqli($db_host, $db_user, $db_pass, $db_name);
     
-    // Verificar conexão
     if ($db->connect_error) {
         throw new Exception("Falha na conexão: " . $db->connect_error);
     }
     
-    // Definir conjunto de caracteres para UTF-8
     $db->set_charset("utf8mb4");
     
     // Criar tabela de tokens se não existir
@@ -52,1197 +49,576 @@ try {
         FOREIGN KEY (responsavel) REFERENCES user_tokens(user_id)
     )');
     
+} catch (Exception $e) {
+    die("Erro ao conectar à base de dados: " . $e->getMessage());
+}
 
+// Verificar e gerar token do usuário
+$user_id = $_SESSION['user_id'];
+$username = $_SESSION['username'];
 
+$stmt = $db->prepare('SELECT token FROM user_tokens WHERE user_id = ?');
+$stmt->bind_param('i', $user_id);
+$stmt->execute();
+$result = $stmt->get_result();
+$user_token = $result->fetch_assoc();
+$stmt->close();
 
-    // Verificar se o usuário atual já tem um token
-    $user_id = $_SESSION['user_id'];
-    $username = $_SESSION['username'];
+if (!$user_token) {
+    $token = bin2hex(random_bytes(16));
+    $stmt = $db->prepare('INSERT INTO user_tokens (user_id, username, token) VALUES (?, ?, ?)');
+    $stmt->bind_param('iss', $user_id, $username, $token);
+    $stmt->execute();
+    $stmt->close();
+    $user_token = ['token' => $token];
+}
+
+// ===========================================================================
+// ENDPOINT AJAX: Buscar detalhes de tarefa (DEVE VIR ANTES DE QUALQUER HTML)
+// ===========================================================================
+if (isset($_GET['get_task_details']) && is_numeric($_GET['get_task_details'])) {
+    $task_id = (int)$_GET['get_task_details'];
     
-    $stmt = $db->prepare('SELECT token FROM user_tokens WHERE user_id = ?');
-    $stmt->bind_param('i', $user_id);
+    $stmt = $db->prepare('
+        SELECT t.*, 
+               autor.username as autor_nome, 
+               resp.username as responsavel_nome
+        FROM todos t
+        LEFT JOIN user_tokens autor ON t.autor = autor.user_id
+        LEFT JOIN user_tokens resp ON t.responsavel = resp.user_id
+        WHERE t.id = ? AND (t.autor = ? OR t.responsavel = ?)
+    ');
+    $stmt->bind_param('iii', $task_id, $user_id, $user_id);
     $stmt->execute();
     $result = $stmt->get_result();
-    $user_token = $result->fetch_assoc();
-    $stmt->close();
     
-    // Se não tiver token, gerar um novo
-    if (!$user_token) {
-        $token = bin2hex(random_bytes(16)); // Gera um token hexadecimal de 32 caracteres
-        
-        $stmt = $db->prepare('INSERT INTO user_tokens (user_id, username, token) VALUES (?, ?, ?)');
-        $stmt->bind_param('iss', $user_id, $username, $token);
-        $stmt->execute();
-        $stmt->close();
-        
-        $user_token = ['token' => $token];
+    if ($result->num_rows > 0) {
+        $task = $result->fetch_assoc();
+        header('Content-Type: application/json');
+        echo json_encode(['success' => true, 'task' => $task]);
+    } else {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'message' => 'Tarefa não encontrada']);
     }
+    
+    $stmt->close();
+    $db->close();
+    exit;
+}
 
-    // Processamento do formulário de adição/edição de tarefas
-    $success_message = '';
-    $error_message = '';
+// ===========================================================================
+// PROCESSAMENTO DE FORMULÁRIOS
+// ===========================================================================
+$success_message = '';
+$error_message = '';
+$current_tab = isset($_GET['tab']) ? $_GET['tab'] : '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     
-    // Obter o parâmetro "tab" para redirecionar corretamente após as ações
-    $current_tab = isset($_GET['tab']) ? $_GET['tab'] : '';
+    // ADICIONAR NOVA TAREFA
+    if ($_POST['action'] === 'add') {
+        $titulo = trim($_POST['titulo'] ?? '');
+        $descritivo = trim($_POST['descritivo'] ?? '');
+        $data_limite = !empty($_POST['data_limite']) ? trim($_POST['data_limite']) : null;
+        $responsavel = !empty($_POST['responsavel']) ? (int)$_POST['responsavel'] : $user_id;
+        $task_id = !empty($_POST['task_id']) ? (int)$_POST['task_id'] : null;
+        $todo_issue = trim($_POST['todo_issue'] ?? '');
+        $milestone_id = !empty($_POST['milestone_id']) ? (int)$_POST['milestone_id'] : null;
+        $projeto_id = !empty($_POST['projeto_id']) ? (int)$_POST['projeto_id'] : null;
+        $estado = trim($_POST['estado'] ?? 'aberta');
+        
+        if (empty($titulo)) {
+            $error_message = 'O título da tarefa é obrigatório.';
+        } else {
+            $query = 'INSERT INTO todos (
+                titulo, descritivo, data_limite, autor, responsavel, 
+                task_id, todo_issue, milestone_id, projeto_id, estado
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            
+            $stmt = $db->prepare($query);
+            $stmt->bind_param(
+                'sssiiisiis', 
+                $titulo, $descritivo, $data_limite, $user_id, $responsavel, 
+                $task_id, $todo_issue, $milestone_id, $projeto_id, $estado
+            );
+            
+            if ($stmt->execute()) {
+                $success_message = 'Tarefa adicionada com sucesso!';
+                $stmt->close();
+                if (!empty($current_tab)) {
+                    header('Location: ?tab=' . urlencode($current_tab));
+                    exit;
+                }
+            } else {
+                $error_message = 'Erro ao adicionar tarefa: ' . $db->error;
+                $stmt->close();
+            }
+        }
+    }
     
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        if (isset($_POST['action'])) {
-            // Adicionar nova tarefa
-            if ($_POST['action'] === 'add') {
-                $titulo = trim($_POST['titulo'] ?? '');
-                $descritivo = trim($_POST['descritivo'] ?? '');
-                $data_limite = trim($_POST['data_limite'] ?? '');
-                $responsavel = (int)($_POST['responsavel'] ?? $user_id);
-                $task_id = (int)($_POST['task_id'] ?? 0);
-                $todo_issue = trim($_POST['todo_issue'] ?? '');
-                $milestone_id = (int)($_POST['milestone_id'] ?? 0);
-                $projeto_id = (int)($_POST['projeto_id'] ?? 0);
-                $estado = trim($_POST['estado'] ?? 'aberta');
+    // EDITAR TAREFA EXISTENTE
+    elseif ($_POST['action'] === 'edit_task') {
+        $todo_id = (int)$_POST['todo_id'];
+        $titulo = trim($_POST['titulo'] ?? '');
+        $descritivo = trim($_POST['descritivo'] ?? '');
+        $data_limite = !empty($_POST['data_limite']) ? trim($_POST['data_limite']) : null;
+        $responsavel = !empty($_POST['responsavel']) ? (int)$_POST['responsavel'] : null;
+        $task_id = !empty($_POST['task_id']) ? (int)$_POST['task_id'] : null;
+        $todo_issue = trim($_POST['todo_issue'] ?? '');
+        $milestone_id = !empty($_POST['milestone_id']) ? (int)$_POST['milestone_id'] : null;
+        $projeto_id = !empty($_POST['projeto_id']) ? (int)$_POST['projeto_id'] : null;
+        $estado = trim($_POST['estado'] ?? 'aberta');
+        
+        if (empty($titulo)) {
+            $error_message = 'O título da tarefa é obrigatório.';
+        } else {
+            // Verificar permissão
+            $stmt = $db->prepare('SELECT id FROM todos WHERE id = ? AND (autor = ? OR responsavel = ?)');
+            $stmt->bind_param('iii', $todo_id, $user_id, $user_id);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            
+            if ($result->num_rows > 0) {
+                $stmt->close();
                 
-                // Validação básica
-                if (empty($titulo)) {
-                    $error_message = 'O título da tarefa é obrigatório.';
-                } else {
-                    // Preparar a consulta SQL - observe que usamos ? em vez de :nome como no SQLite
-                    $query = 'INSERT INTO todos (
-                        titulo, descritivo, data_limite, autor, responsavel, 
-                        task_id, todo_issue, milestone_id, projeto_id, estado
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
-                    
-                    $stmt = $db->prepare($query);
-                    
-                    // Tratar valores nulos adequadamente
-                    $task_id_param = ($task_id > 0) ? $task_id : NULL;
-                    $milestone_id_param = ($milestone_id > 0) ? $milestone_id : NULL;
-                    $projeto_id_param = ($projeto_id > 0) ? $projeto_id : NULL;
-                    
-                    // Bind params - o primeiro parâmetro define os tipos (s=string, i=inteiro, d=double, b=blob)
-                    $stmt->bind_param(
-                        'sssiiisiis', 
-                        $titulo, 
-                        $descritivo, 
-                        $data_limite, 
-                        $user_id, 
-                        $responsavel, 
-                        $task_id_param, 
-                        $todo_issue, 
-                        $milestone_id_param, 
-                        $projeto_id_param, 
-                        $estado
-                    );
-                    
-                    // Executar e verificar resultado
-                    if ($stmt->execute()) {
-                        $success_message = 'Tarefa adicionada com sucesso!';
-                        // Redirecionar para manter o parâmetro tab=todos
-                        if (!empty($current_tab)) {
-                            header('Location: ?tab=' . urlencode($current_tab));
-                            exit;
-                        }
-                    } else {
-                        $error_message = 'Erro ao adicionar tarefa: ' . $db->error;
-                    }
-                    
-                    // Fechar o statement - importante no MySQL
-                    $stmt->close();
-                }
-            }
-            // Editar tarefa existente
-            elseif ($_POST['action'] === 'edit_task') {
-                $todo_id = (int)$_POST['todo_id'];
-                $titulo = trim($_POST['titulo'] ?? '');
-                $descritivo = trim($_POST['descritivo'] ?? '');
-                $data_limite = trim($_POST['data_limite'] ?? '');
-                $responsavel = (int)($_POST['responsavel'] ?? $user_id);
-                $task_id = (int)($_POST['task_id'] ?? 0);
-                $todo_issue = trim($_POST['todo_issue'] ?? '');
-                $milestone_id = (int)($_POST['milestone_id'] ?? 0);
-                $projeto_id = (int)($_POST['projeto_id'] ?? 0);
-                $estado = trim($_POST['estado'] ?? 'aberta');
+                $query = 'UPDATE todos SET 
+                    titulo = ?, descritivo = ?, data_limite = ?, responsavel = ?, 
+                    task_id = ?, todo_issue = ?, milestone_id = ?, projeto_id = ?, estado = ?
+                    WHERE id = ?';
                 
-                // Validação básica
-                if (empty($titulo)) {
-                    $error_message = 'O título da tarefa é obrigatório.';
-                } else {
-                    // Preparar a consulta SQL para atualização
-                    $query = 'UPDATE todos SET 
-                        titulo = ?, 
-                        descritivo = ?, 
-                        data_limite = ?, 
-                        responsavel = ?, 
-                        task_id = ?, 
-                        todo_issue = ?, 
-                        milestone_id = ?, 
-                        projeto_id = ?, 
-                        estado = ?
-                        WHERE id = ? AND (autor = ? OR responsavel = ?)';
-                    
-                    $stmt = $db->prepare($query);
-                    
-                    // Tratar valores nulos adequadamente
-                    $task_id_param = ($task_id > 0) ? $task_id : NULL;
-                    $milestone_id_param = ($milestone_id > 0) ? $milestone_id : NULL;
-                    $projeto_id_param = ($projeto_id > 0) ? $projeto_id : NULL;
-                    
-                    // Bind params com os tipos corretos
-                    $stmt->bind_param(
-                        'sssiisiisiii', 
-                        $titulo, 
-                        $descritivo, 
-                        $data_limite, 
-                        $responsavel, 
-                        $task_id_param, 
-                        $todo_issue, 
-                        $milestone_id_param, 
-                        $projeto_id_param, 
-                        $estado,
-                        $todo_id,
-                        $user_id,
-                        $user_id
-                    );
-                    
-                    // Executar e verificar resultado
-                    if ($stmt->execute()) {
-                        $success_message = 'Tarefa atualizada com sucesso!';
-                        // Redirecionar para manter o parâmetro tab=todos
-                        if (!empty($current_tab)) {
-                            header('Location: ?tab=' . urlencode($current_tab));
-                            exit;
-                        }
-                    } else {
-                        $error_message = 'Erro ao atualizar tarefa: ' . $db->error;
-                    }
-                    
-                    // Fechar o statement
-                    $stmt->close();
-                }
-            }
-            // Atualizar estado da tarefa
-            elseif ($_POST['action'] === 'update_status') {
-                $todo_id = (int)$_POST['todo_id'];
-                $new_estado = trim($_POST['new_estado']);
-                
-                $valid_estados = ['aberta', 'em execução', 'suspensa', 'completada'];
-                
-                if (in_array($new_estado, $valid_estados)) {
-                    $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ?');
-                    $stmt->bind_param('si', $new_estado, $todo_id);
-                    
-                    if ($stmt->execute()) {
-                        $success_message = 'Estado da tarefa atualizado com sucesso!';
-                        // Redirecionar para manter o parâmetro tab=todos
-                        if (!empty($current_tab)) {
-                            header('Location: ?tab=' . urlencode($current_tab));
-                            exit;
-                        }
-                    } else {
-                        $error_message = 'Erro ao atualizar estado: ' . $db->error;
-                    }
-                    $stmt->close();
-                } else {
-                    $error_message = 'Estado inválido.';
-                }
-            }
-            // Excluir tarefa
-            elseif ($_POST['action'] === 'delete') {
-                $todo_id = (int)$_POST['todo_id'];
-                
-                $stmt = $db->prepare('DELETE FROM todos WHERE id = ? AND (autor = ? OR responsavel = ?)');
-                $stmt->bind_param('iii', $todo_id, $user_id, $user_id);
+                $stmt = $db->prepare($query);
+                $stmt->bind_param(
+                    'sssiiisisi', 
+                    $titulo, $descritivo, $data_limite, $responsavel, 
+                    $task_id, $todo_issue, $milestone_id, $projeto_id, $estado, $todo_id
+                );
                 
                 if ($stmt->execute()) {
-                    $success_message = 'Tarefa excluída com sucesso!';
-                    // Redirecionar para manter o parâmetro tab=todos
+                    $success_message = 'Tarefa atualizada com sucesso!';
+                    $stmt->close();
                     if (!empty($current_tab)) {
                         header('Location: ?tab=' . urlencode($current_tab));
                         exit;
                     }
                 } else {
-                    $error_message = 'Erro ao excluir tarefa: ' . $db->error;
+                    $error_message = 'Erro ao atualizar tarefa: ' . $db->error;
+                    $stmt->close();
                 }
+            } else {
+                $stmt->close();
+                $error_message = 'Não tem permissão para editar esta tarefa.';
+            }
+        }
+    }
+    
+    // ATUALIZAR ESTADO (DRAG AND DROP) - COM CORREÇÃO DE AJAX
+    elseif ($_POST['action'] === 'drag_update_status') {
+        $todo_id = (int)$_POST['todo_id'];
+        $new_estado = trim($_POST['new_estado']);
+        
+        $valid_estados = ['aberta', 'em execução', 'suspensa', 'concluída'];
+        
+        if (in_array($new_estado, $valid_estados)) {
+            $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ? AND (autor = ? OR responsavel = ?)');
+            $stmt->bind_param('siii', $new_estado, $todo_id, $user_id, $user_id);
+            
+            if ($stmt->execute()) {
+                // CORREÇÃO: Sempre retornar JSON para AJAX
+                header('Content-Type: application/json');
+                echo json_encode(['success' => true, 'message' => 'Estado atualizado com sucesso']);
+                $stmt->close();
+                $db->close();
+                exit; // CRÍTICO
+            } else {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => 'Erro ao atualizar: ' . $db->error]);
+                $stmt->close();
+                $db->close();
+                exit;
+            }
+        } else {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Estado inválido']);
+            $db->close();
+            exit;
+        }
+    }
+    
+    // ATUALIZAR ESTADO (FORM TRADICIONAL)
+    elseif ($_POST['action'] === 'update_status') {
+        $todo_id = (int)$_POST['todo_id'];
+        $new_estado = trim($_POST['new_estado']);
+        
+        $valid_estados = ['aberta', 'em execução', 'suspensa', 'concluída'];
+        
+        if (in_array($new_estado, $valid_estados)) {
+            $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ?');
+            $stmt->bind_param('si', $new_estado, $todo_id);
+            
+            if ($stmt->execute()) {
+                $success_message = 'Estado atualizado com sucesso!';
+                $stmt->close();
+                if (!empty($current_tab)) {
+                    header('Location: ?tab=' . urlencode($current_tab));
+                    exit;
+                }
+            } else {
+                $error_message = 'Erro ao atualizar estado: ' . $db->error;
                 $stmt->close();
             }
-            // Atualizar estado via AJAX (para drag and drop)
-            elseif ($_POST['action'] === 'drag_update_status') {
-                $todo_id = (int)$_POST['todo_id'];
-                $new_estado = trim($_POST['new_estado']);
-                
-                $valid_estados = ['aberta', 'em execução', 'suspensa', 'completada'];
-                
-                if (in_array($new_estado, $valid_estados)) {
-                    $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ?');
-                    $stmt->bind_param('si', $new_estado, $todo_id);
-                    
-                    if ($stmt->execute()) {
-                        // Responder com JSON para requisições AJAX
-                        if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
-                            header('Content-Type: application/json');
-                            echo json_encode(['success' => true, 'message' => 'Estado atualizado com sucesso']);
-                            exit;
-                        }
-                        $success_message = 'Estado da tarefa atualizado com sucesso!';
-                        // Redirecionar para manter o parâmetro tab=todos
-                        if (!empty($current_tab)) {
-                            header('Location: ?tab=' . urlencode($current_tab));
-                            exit;
-                        }
-                    } else {
-                        if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
-                            header('Content-Type: application/json');
-                            echo json_encode(['success' => false, 'message' => 'Erro ao atualizar estado']);
-                            exit;
-                        }
-                        $error_message = 'Erro ao atualizar estado: ' . $db->error;
-                    }
-                    $stmt->close();
-                } else {
-                    if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
-                        header('Content-Type: application/json');
-                        echo json_encode(['success' => false, 'message' => 'Estado inválido']);
-                        exit;
-                    }
-                    $error_message = 'Estado inválido.';
-                }
-            }
-        }
-    }
-    
-    // Verificar se há parâmetro de edição
-    $edit_mode = false;
-    $task_to_edit = null;
-    if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
-        $edit_task_id = (int)$_GET['edit'];
-        
-        // Buscar os dados da tarefa
-        $stmt = $db->prepare('SELECT * FROM todos WHERE id = ? AND (autor = ? OR responsavel = ?)');
-        $stmt->bind_param('iii', $edit_task_id, $user_id, $user_id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $task_to_edit = $result->fetch_assoc();
-        $stmt->close();
-        
-        // Se a tarefa for encontrada, mostrar formulário de edição
-        if ($task_to_edit) {
-            $edit_mode = true;
-        }
-    }
-    
-    // Verificar se estão sendo solicitados detalhes de uma tarefa via AJAX
-    if (isset($_GET['get_task_details']) && is_numeric($_GET['get_task_details'])) {
-        $task_id = (int)$_GET['get_task_details'];
-        
-        // Buscar os detalhes da tarefa
-        $stmt = $db->prepare('SELECT * FROM todos WHERE id = ? AND (autor = ? OR responsavel = ?)');
-        $stmt->bind_param('iii', $task_id, $user_id, $user_id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $task = $result->fetch_assoc();
-        $stmt->close();
-        
-        if ($task) {
-            // Retornar os dados como JSON
-            header('Content-Type: application/json');
-            echo json_encode($task);
-            exit;
         } else {
-            // Retornar erro se a tarefa não for encontrada
-            header('Content-Type: application/json');
-            header('HTTP/1.1 404 Not Found');
-            echo json_encode(['error' => 'Tarefa não encontrada ou sem permissão de acesso']);
-            exit;
+            $error_message = 'Estado inválido.';
         }
     }
     
-    // Obter filtro de responsável (se existir)
-    $filter_responsavel = isset($_GET['responsavel']) ? (int)$_GET['responsavel'] : null;
-    
-    // Verificar se devemos mostrar tarefas completadas
-    $show_completed = isset($_GET['show_completed']) && $_GET['show_completed'] == '1';
-    
-    // Construir a consulta SQL com base nos filtros
-    $sql = '
-        SELECT t.*, 
-               autor_user.username as autor_nome,
-               resp_user.username as responsavel_nome
-        FROM todos t
-        LEFT JOIN user_tokens autor_user ON t.autor = autor_user.user_id
-        LEFT JOIN user_tokens resp_user ON t.responsavel = resp_user.user_id
-        WHERE 1=1';
-    
-    $params = [];
-    $types = '';
-    
-    // Filtrar por responsável se especificado
-    if ($filter_responsavel) {
-        $sql .= ' AND t.responsavel = ?';
-        $params[] = $filter_responsavel;
-        $types .= 'i';
-    } else {
-        // Se não houver filtro, mostrar apenas tarefas do usuário
-        $sql .= ' AND (t.autor = ? OR t.responsavel = ?)';
-        $params[] = $user_id;
-        $params[] = $user_id;
-        $types .= 'ii';
+    // EXCLUIR TAREFA
+    elseif ($_POST['action'] === 'delete') {
+        $todo_id = (int)$_POST['todo_id'];
+        
+        $stmt = $db->prepare('DELETE FROM todos WHERE id = ? AND (autor = ? OR responsavel = ?)');
+        $stmt->bind_param('iii', $todo_id, $user_id, $user_id);
+        
+        if ($stmt->execute()) {
+            $success_message = 'Tarefa excluída com sucesso!';
+            $stmt->close();
+            if (!empty($current_tab)) {
+                header('Location: ?tab=' . urlencode($current_tab));
+                exit;
+            }
+        } else {
+            $error_message = 'Erro ao excluir tarefa: ' . $db->error;
+            $stmt->close();
+        }
     }
-    
-    // Filtrar tarefas completadas, se necessário
-    if (!$show_completed) {
-        $sql .= ' AND t.estado != "completada"';
-    }
-    
-    // Ordenação
-    $sql .= ' ORDER BY 
-            CASE 
-                WHEN t.estado = "em execução" THEN 1
-                WHEN t.estado = "aberta" THEN 2
-                WHEN t.estado = "suspensa" THEN 3
-                WHEN t.estado = "completada" THEN 4
-                ELSE 5
-            END,
-            CASE 
-                WHEN t.data_limite IS NULL THEN 1
-                ELSE 0
-            END,
-            t.data_limite ASC,
-            t.created_at DESC';
-    
-    $stmt = $db->prepare($sql);
-    
-    if (!empty($params)) {
-        $stmt->bind_param($types, ...$params);
-    }
-    
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    // Organizar tarefas por estado
-    $tarefas_por_estado = [
-        'aberta' => [],
-        'em execução' => [],
-        'suspensa' => [],
-        'completada' => []
-    ];
-    
-    while ($row = $result->fetch_assoc()) {
-        $tarefas_por_estado[$row['estado']][] = $row;
-    }
-    $stmt->close();
-    
-    // Obter todos os usuários para o select de responsável
-    $stmt = $db->prepare('SELECT user_id, username FROM user_tokens ORDER BY username');
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $users = [];
-    while ($row = $result->fetch_assoc()) {
-        $users[] = $row;
-    }
-    $stmt->close();
-    
-} catch (Exception $e) {
-    echo '<div class="alert alert-danger">Erro ao conectar ao banco de dados: ' . $e->getMessage() . '</div>';
-    exit;
 }
 
+// ===========================================================================
+// BUSCAR TAREFAS
+// ===========================================================================
+$filter_responsavel = isset($_GET['responsavel']) ? (int)$_GET['responsavel'] : null;
+$show_completed = isset($_GET['show_completed']) && $_GET['show_completed'] === '1';
+
+$query = '
+    SELECT t.*, 
+           autor.username as autor_nome, 
+           resp.username as responsavel_nome
+    FROM todos t
+    LEFT JOIN user_tokens autor ON t.autor = autor.user_id
+    LEFT JOIN user_tokens resp ON t.responsavel = resp.user_id
+    WHERE (t.autor = ? OR t.responsavel = ?)
+';
+
+$types = 'ii';
+$params = [$user_id, $user_id];
+
+if ($filter_responsavel) {
+    $query .= ' AND t.responsavel = ?';
+    $types .= 'i';
+    $params[] = $filter_responsavel;
+}
+
+if (!$show_completed) {
+    $query .= ' AND t.estado != "concluída"';
+}
+
+$query .= ' ORDER BY 
+    CASE 
+        WHEN t.estado = "em execução" THEN 1
+        WHEN t.estado = "aberta" THEN 2
+        WHEN t.estado = "suspensa" THEN 3
+        WHEN t.estado = "concluída" THEN 4
+        ELSE 5
+    END,
+    t.data_limite ASC,
+    t.created_at DESC
+';
+
+$stmt = $db->prepare($query);
+$stmt->bind_param($types, ...$params);
+$stmt->execute();
+$result = $stmt->get_result();
+
+$tarefas = [];
+while ($row = $result->fetch_assoc()) {
+    $tarefas[] = $row;
+}
+$stmt->close();
+
+// Buscar lista de utilizadores para dropdown
+$users_query = "SELECT user_id, username FROM user_tokens ORDER BY username";
+$users_result = $db->query($users_query);
+$all_users = [];
+while ($user_row = $users_result->fetch_assoc()) {
+    $all_users[] = $user_row;
+}
 
 ?>
 
+<!-- HTML PRINCIPAL -->
 <div class="container-fluid">
-    <div class="row mb-4">
-        <div class="col-md-6">
-            <h2><i class="bi bi-check2-square"></i> Gestão de ToDos</h2>
-        </div>
-        <div class="col-md-6 text-end">
-            <div class="d-flex justify-content-end align-items-center">
-                <div class="me-3">
-                    <form method="get" action="" class="d-flex align-items-center" id="filter-form">
-                        <!-- Manter o parâmetro tab -->
-                        <input type="hidden" name="tab" value="todos">
-                        <select class="form-select form-select-sm me-2" name="responsavel" id="filter-responsavel">
-                            <option value="">Minhas tarefas</option>
-                            <?php foreach ($users as $u): ?>
-                                <?php if ($u['user_id'] != $user_id): ?>
-                                <option value="<?= $u['user_id'] ?>" <?= $filter_responsavel == $u['user_id'] ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($u['username']) ?>
-                                </option>
-                                <?php endif; ?>
-                            <?php endforeach; ?>
-                        </select>
-                        <div class="form-check form-switch ms-2">
-                            <input class="form-check-input" type="checkbox" id="show-completed" name="show_completed" value="1" <?= $show_completed ? 'checked' : '' ?>>
-                            <label class="form-check-label" for="show-completed">Mostrar completadas</label>
-                        </div>
-                    </form>
-                </div>
-                <button type="button" class="btn btn-primary" id="new-task-btn">
-                    <i class="bi bi-plus-circle"></i> Nova Tarefa
-                </button>
-            </div>
-            <p class="mb-0 mt-2 small">Seu Token API: <code><?= htmlspecialchars($user_token['token']) ?></code></p>
-        </div>
-    </div>
     
+    <!-- Mensagens -->
     <?php if ($success_message): ?>
-    <div class="alert alert-success alert-dismissible fade show" role="alert">
-        <?= htmlspecialchars($success_message) ?>
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    </div>
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle"></i> <?= htmlspecialchars($success_message) ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
     <?php endif; ?>
-    
+
     <?php if ($error_message): ?>
-    <div class="alert alert-danger alert-dismissible fade show" role="alert">
-        <?= htmlspecialchars($error_message) ?>
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    </div>
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle"></i> <?= htmlspecialchars($error_message) ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
     <?php endif; ?>
-    
-    <!-- Formulário de nova tarefa (inicialmente escondido) -->
-    <div class="row mb-4" id="new-task-form-container" style="display: none;">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header bg-primary text-white">
-                    <h5 class="card-title mb-0"><i class="bi bi-plus-circle"></i> Nova Tarefa</h5>
+
+    <!-- Cabeçalho -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-check2-square"></i> Minhas Tarefas</h2>
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTaskModal">
+            <i class="bi bi-plus-circle"></i> Nova Tarefa
+        </button>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="GET" class="row g-3">
+                <input type="hidden" name="tab" value="todos">
+                <div class="col-md-4">
+                    <label class="form-label">Responsável</label>
+                    <select name="responsavel" class="form-select" onchange="this.form.submit()">
+                        <option value="">Todos</option>
+                        <?php foreach ($all_users as $u): ?>
+                            <option value="<?= $u['user_id'] ?>" <?= $filter_responsavel == $u['user_id'] ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($u['username']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
-                <div class="card-body">
-                    <form method="post" action="" id="new-task-form">
-                        <input type="hidden" name="action" value="add">
-                        
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label for="titulo" class="form-label">Título da Tarefa*</label>
-                                    <input type="text" class="form-control" id="titulo" name="titulo" required>
-                                </div>
-                                
-                                <div class="mb-3">
-                                    <label for="descritivo" class="form-label">Descrição</label>
-                                    <textarea class="form-control" id="descritivo" name="descritivo" rows="3"></textarea>
-                                </div>
-                                
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <div class="mb-3">
-                                            <label for="data_limite" class="form-label">Data Limite</label>
-                                            <input type="date" class="form-control" id="data_limite" name="data_limite">
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <div class="mb-3">
-                                            <label for="estado" class="form-label">Estado</label>
-                                            <select class="form-select" id="estado" name="estado">
-                                                <option value="aberta" selected>Aberta</option>
-                                                <option value="em execução">Em Execução</option>
-                                                <option value="suspensa">Suspensa</option>
-                                                <option value="completada">Completada</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
+                <div class="col-md-4">
+                    <label class="form-label">&nbsp;</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="show_completed" value="1" 
+                               <?= $show_completed ? 'checked' : '' ?> onchange="this.form.submit()">
+                        <label class="form-check-label">Mostrar concluídas</label>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Lista de Tarefas -->
+    <div class="row">
+        <?php if (empty($tarefas)): ?>
+            <div class="col-12">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> Nenhuma tarefa encontrada.
+                </div>
+            </div>
+        <?php else: ?>
+            <?php foreach ($tarefas as $tarefa): ?>
+                <div class="col-md-4 mb-3">
+                    <div class="card h-100">
+                        <div class="card-header bg-<?= $tarefa['estado'] === 'concluída' ? 'success' : ($tarefa['estado'] === 'em execução' ? 'primary' : 'secondary') ?> text-white">
+                            <h6 class="mb-0"><?= htmlspecialchars($tarefa['titulo']) ?></h6>
+                        </div>
+                        <div class="card-body">
+                            <?php if ($tarefa['descritivo']): ?>
+                                <p class="card-text"><?= nl2br(htmlspecialchars(substr($tarefa['descritivo'], 0, 150))) ?></p>
+                            <?php endif; ?>
+                            
+                            <div class="mb-2">
+                                <span class="badge bg-secondary"><?= htmlspecialchars(ucfirst($tarefa['estado'])) ?></span>
+                                <?php if ($tarefa['data_limite']): ?>
+                                    <span class="badge bg-info"><?= date('d/m/Y', strtotime($tarefa['data_limite'])) ?></span>
+                                <?php endif; ?>
                             </div>
                             
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label for="responsavel" class="form-label">Responsável</label>
-                                    <select class="form-select" id="responsavel" name="responsavel">
-                                        <?php foreach ($users as $u): ?>
-                                        <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $user_id ? 'selected' : '' ?>>
-                                            <?= htmlspecialchars($u['username']) ?>
-                                        </option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
-                                
-                                <div class="mb-3">
-                                    <label class="form-label">Informações do Redmine (Opcional)</label>
-                                    <div class="row g-2">
-                                        <div class="col-md-6">
-                                            <input type="number" class="form-control" id="task_id" name="task_id" placeholder="ID da Tarefa">
-                                        </div>
-                                        <div class="col-md-6">
-                                            <input type="text" class="form-control" id="todo_issue" name="todo_issue" placeholder="ToDo do Issue">
-                                        </div>
-                                    </div>
-                                    <div class="row g-2 mt-2">
-                                        <div class="col-md-6">
-                                            <input type="number" class="form-control" id="milestone_id" name="milestone_id" placeholder="ID do Milestone">
-                                        </div>
-                                        <div class="col-md-6">
-                                            <input type="number" class="form-control" id="projeto_id" name="projeto_id" placeholder="ID do Projeto">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                            <?php if ($tarefa['responsavel_nome']): ?>
+                                <small class="text-muted">
+                                    <i class="bi bi-person"></i> <?= htmlspecialchars($tarefa['responsavel_nome']) ?>
+                                </small>
+                            <?php endif; ?>
                         </div>
-                        
-                        <div class="row mt-3">
-                            <div class="col-12 d-flex justify-content-end">
-                                <button type="button" class="btn btn-secondary me-2" id="cancel-new-task">
-                                    Cancelar
+                        <div class="card-footer">
+                            <div class="btn-group btn-group-sm w-100">
+                                <button type="button" class="btn btn-outline-primary edit-task-btn" 
+                                        data-task-id="<?= $tarefa['id'] ?>">
+                                    <i class="bi bi-pencil"></i> Editar
                                 </button>
-                                <button type="submit" class="btn btn-primary">
-                                    <i class="bi bi-plus-circle"></i> Adicionar Tarefa
+                                <button type="button" class="btn btn-outline-danger" 
+                                        onclick="confirmarExclusao(<?= $tarefa['id'] ?>, '<?= htmlspecialchars($tarefa['titulo'], ENT_QUOTES) ?>')">
+                                    <i class="bi bi-trash"></i>
                                 </button>
                             </div>
                         </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Painéis kanban de tarefas por estado -->
-    <div class="row">
-        <div class="col-12">
-            <div class="card mb-4">
-                <div class="card-header bg-dark text-white">
-                    <h5 class="card-title mb-0"><i class="bi bi-kanban"></i> Quadro de Tarefas</h5>
-                </div>
-                <div class="card-body">
-                    <div class="row g-3">
-                        <!-- Coluna: Aberta -->
-                        <div class="col-md-<?= $show_completed ? '3' : '4' ?>">
-                            <div class="card h-100 border-primary">
-                                <div class="card-header bg-primary text-white">
-                                    <h6 class="card-title mb-0">
-                                        <i class="bi bi-circle"></i> Abertas
-                                        <span class="badge bg-light text-dark ms-1"><?= count($tarefas_por_estado['aberta']) ?></span>
-                                    </h6>
-                                </div>
-                                <div class="card-body p-2">
-                                    <div class="todo-container" id="aberta-container" data-estado="aberta">
-                                        <?php if (empty($tarefas_por_estado['aberta'])): ?>
-                                            <div class="text-center p-3 text-muted">
-                                                <i class="bi bi-inbox"></i> Sem tarefas abertas
-                                            </div>
-                                        <?php else: ?>
-                                            <?php foreach ($tarefas_por_estado['aberta'] as $tarefa): ?>
-                                                <div class="card mb-2 task-card" draggable="true" data-task-id="<?= $tarefa['id'] ?>">
-                                                    <div class="card-body p-2">
-                                                        <h6 class="card-title mb-1"><?= htmlspecialchars($tarefa['titulo']) ?></h6>
-                                                        <p class="card-text small mb-1">
-                                                            <?php if (!empty($tarefa['descritivo'])): ?>
-                                                                <span class="d-inline-block text-truncate" style="max-width: 150px;" data-bs-toggle="tooltip" title="<?= htmlspecialchars($tarefa['descritivo']) ?>">
-                                                                    <?= htmlspecialchars($tarefa['descritivo']) ?>
-                                                                </span>
-                                                            <?php endif; ?>
-                                                        </p>
-                                                        <div class="d-flex justify-content-between align-items-center">
-                                                            <span class="badge bg-info text-dark"><?= htmlspecialchars($tarefa['responsavel_nome']) ?></span>
-                                                            <?php if (!empty($tarefa['data_limite'])): ?>
-                                                                <?php 
-                                                                $data_limite = new DateTime($tarefa['data_limite']);
-                                                                $hoje = new DateTime();
-                                                                $vencida = $hoje > $data_limite;
-                                                                ?>
-                                                                <span class="badge <?= $vencida ? 'bg-danger' : 'bg-secondary' ?>">
-                                                                    <?= $data_limite->format('d/m/Y') ?>
-                                                                </span>
-                                                            <?php endif; ?>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Coluna: Em Execução -->
-                        <div class="col-md-<?= $show_completed ? '3' : '4' ?>">
-                            <div class="card h-100 border-info">
-                                <div class="card-header bg-info text-dark">
-                                    <h6 class="card-title mb-0">
-                                        <i class="bi bi-play-circle"></i> Em Execução
-                                        <span class="badge bg-light text-dark ms-1"><?= count($tarefas_por_estado['em execução']) ?></span>
-                                    </h6>
-                                </div>
-                                <div class="card-body p-2">
-                                    <div class="todo-container" id="em-execucao-container" data-estado="em execução">
-                                        <?php if (empty($tarefas_por_estado['em execução'])): ?>
-                                            <div class="text-center p-3 text-muted">
-                                                <i class="bi bi-inbox"></i> Sem tarefas em execução
-                                            </div>
-                                        <?php else: ?>
-                                            <?php foreach ($tarefas_por_estado['em execução'] as $tarefa): ?>
-                                                <div class="card mb-2 task-card" draggable="true" data-task-id="<?= $tarefa['id'] ?>">
-                                                    <div class="card-body p-2">
-                                                        <h6 class="card-title mb-1"><?= htmlspecialchars($tarefa['titulo']) ?></h6>
-                                                        <p class="card-text small mb-1">
-                                                            <?php if (!empty($tarefa['descritivo'])): ?>
-                                                                <span class="d-inline-block text-truncate" style="max-width: 150px;" data-bs-toggle="tooltip" title="<?= htmlspecialchars($tarefa['descritivo']) ?>">
-                                                                    <?= htmlspecialchars($tarefa['descritivo']) ?>
-                                                                </span>
-                                                            <?php endif; ?>
-                                                        </p>
-                                                        <div class="d-flex justify-content-between align-items-center">
-                                                            <span class="badge bg-info text-dark"><?= htmlspecialchars($tarefa['responsavel_nome']) ?></span>
-                                                            <?php if (!empty($tarefa['data_limite'])): ?>
-                                                                <?php 
-                                                                $data_limite = new DateTime($tarefa['data_limite']);
-                                                                $hoje = new DateTime();
-                                                                $vencida = $hoje > $data_limite;
-                                                                ?>
-                                                                <span class="badge <?= $vencida ? 'bg-danger' : 'bg-secondary' ?>">
-                                                                    <?= $data_limite->format('d/m/Y') ?>
-                                                                </span>
-                                                            <?php endif; ?>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Coluna: Suspensa -->
-                        <div class="col-md-<?= $show_completed ? '3' : '4' ?>">
-                            <div class="card h-100 border-warning">
-                                <div class="card-header bg-warning text-dark">
-                                    <h6 class="card-title mb-0">
-                                        <i class="bi bi-pause-circle"></i> Suspensas
-                                        <span class="badge bg-light text-dark ms-1"><?= count($tarefas_por_estado['suspensa']) ?></span>
-                                    </h6>
-                                </div>
-                                <div class="card-body p-2">
-                                    <div class="todo-container" id="suspensa-container" data-estado="suspensa">
-                                        <?php if (empty($tarefas_por_estado['suspensa'])): ?>
-                                            <div class="text-center p-3 text-muted">
-                                                <i class="bi bi-inbox"></i> Sem tarefas suspensas
-                                            </div>
-                                        <?php else: ?>
-                                            <?php foreach ($tarefas_por_estado['suspensa'] as $tarefa): ?>
-                                                <div class="card mb-2 task-card" draggable="true" data-task-id="<?= $tarefa['id'] ?>">
-                                                    <div class="card-body p-2">
-                                                        <h6 class="card-title mb-1"><?= htmlspecialchars($tarefa['titulo']) ?></h6>
-                                                        <p class="card-text small mb-1">
-                                                            <?php if (!empty($tarefa['descritivo'])): ?>
-                                                                <span class="d-inline-block text-truncate" style="max-width: 150px;" data-bs-toggle="tooltip" title="<?= htmlspecialchars($tarefa['descritivo']) ?>">
-                                                                    <?= htmlspecialchars($tarefa['descritivo']) ?>
-                                                                </span>
-                                                            <?php endif; ?>
-                                                        </p>
-                                                        <div class="d-flex justify-content-between align-items-center">
-                                                            <span class="badge bg-info text-dark"><?= htmlspecialchars($tarefa['responsavel_nome']) ?></span>
-                                                            <?php if (!empty($tarefa['data_limite'])): ?>
-                                                                <?php 
-                                                                $data_limite = new DateTime($tarefa['data_limite']);
-                                                                $hoje = new DateTime();
-                                                                $vencida = $hoje > $data_limite;
-                                                                ?>
-                                                                <span class="badge <?= $vencida ? 'bg-danger' : 'bg-secondary' ?>">
-                                                                    <?= $data_limite->format('d/m/Y') ?>
-                                                                </span>
-                                                            <?php endif; ?>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Coluna: Completada (só visível se show_completed=1) -->
-                        <div class="col-md-3" id="completada-column" <?= $show_completed ? '' : 'style="display: none;"' ?>>
-                            <div class="card h-100 border-success">
-                                <div class="card-header bg-success text-white">
-                                    <h6 class="card-title mb-0">
-                                        <i class="bi bi-check-circle"></i> Completadas
-                                        <span class="badge bg-light text-dark ms-1"><?= count($tarefas_por_estado['completada']) ?></span>
-                                    </h6>
-                                </div>
-                                <div class="card-body p-2">
-                                    <div class="todo-container" id="completada-container" data-estado="completada">
-                                        <?php if (empty($tarefas_por_estado['completada'])): ?>
-                                            <div class="text-center p-3 text-muted">
-                                                <i class="bi bi-inbox"></i> Sem tarefas completadas
-                                            </div>
-                                        <?php else: ?>
-                                            <?php foreach ($tarefas_por_estado['completada'] as $tarefa): ?>
-                                                <div class="card mb-2 task-card" draggable="true" data-task-id="<?= $tarefa['id'] ?>">
-                                                    <div class="card-body p-2">
-                                                        <h6 class="card-title mb-1"><?= htmlspecialchars($tarefa['titulo']) ?></h6>
-                                                        <p class="card-text small mb-1">
-                                                            <?php if (!empty($tarefa['descritivo'])): ?>
-                                                                <span class="d-inline-block text-truncate" style="max-width: 150px;" data-bs-toggle="tooltip" title="<?= htmlspecialchars($tarefa['descritivo']) ?>">
-                                                                    <?= htmlspecialchars($tarefa['descritivo']) ?>
-                                                                </span>
-                                                            <?php endif; ?>
-                                                        </p>
-                                                        <div class="d-flex justify-content-between align-items-center">
-                                                            <span class="badge bg-info text-dark"><?= htmlspecialchars($tarefa['responsavel_nome']) ?></span>
-                                                            <?php if (!empty($tarefa['data_limite'])): ?>
-                                                                <?php 
-                                                                $data_limite = new DateTime($tarefa['data_limite']);
-                                                                $hoje = new DateTime();
-                                                                $vencida = $hoje > $data_limite;
-                                                                ?>
-                                                                <span class="badge <?= $vencida ? 'bg-danger' : 'bg-secondary' ?>">
-                                                                    <?= $data_limite->format('d/m/Y') ?>
-                                                                </span>
-                                                            <?php endif; ?>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Tabela de todas as tarefas -->
-    <div class="row">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header bg-secondary text-white">
-                    <h5 class="card-title mb-0"><i class="bi bi-list-check"></i> Lista de Tarefas</h5>
-                </div>
-                <div class="card-body p-0">
-                    <?php
-                    $total_tarefas = count($tarefas_por_estado['aberta']) + 
-                                    count($tarefas_por_estado['em execução']) + 
-                                    count($tarefas_por_estado['suspensa']) + 
-                                    count($tarefas_por_estado['completada']);
-                    
-                    if ($total_tarefas > 0):
-                    ?>
-                    <div class="table-responsive">
-                        <table class="table table-hover table-striped mb-0">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th width="25%">Título</th>
-                                    <th>Responsável</th>
-                                    <th>Data Limite</th>
-                                    <th>Estado</th>
-                                    <th>Task ID</th>
-                                    <th>Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php 
-                                $estados_ordem = ['aberta', 'em execução', 'suspensa'];
-                                // Adicionar 'completada' apenas se show_completed estiver ativado
-                                if ($show_completed) {
-                                    $estados_ordem[] = 'completada';
-                                }
-                                
-                                foreach ($estados_ordem as $estado):
-                                    foreach ($tarefas_por_estado[$estado] as $tarefa): 
-                                ?>
-                                <tr class="<?= $tarefa['estado'] === 'completada' ? 'table-success' : ($tarefa['estado'] === 'suspensa' ? 'table-warning' : '') ?>">
-                                    <td><?= $tarefa['id'] ?></td>
-                                    <td>
-                                        <strong><?= htmlspecialchars($tarefa['titulo']) ?></strong>
-                                        <?php if (!empty($tarefa['descritivo'])): ?>
-                                        <span class="d-inline-block" tabindex="0" data-bs-toggle="tooltip" title="<?= htmlspecialchars($tarefa['descritivo']) ?>">
-                                            <i class="bi bi-info-circle-fill text-primary"></i>
-                                        </span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td><?= htmlspecialchars($tarefa['responsavel_nome']) ?></td>
-                                    <td>
-                                        <?php 
-                                        if (!empty($tarefa['data_limite'])) {
-                                            $data_limite = new DateTime($tarefa['data_limite']);
-                                            $hoje = new DateTime();
-                                            $diff = $hoje->diff($data_limite);
-                                            $vencida = $hoje > $data_limite && $tarefa['estado'] !== 'completada';
-                                            
-                                            echo '<span class="' . ($vencida ? 'text-danger fw-bold' : '') . '">';
-                                            echo htmlspecialchars($data_limite->format('d/m/Y'));
-                                            echo '</span>';
-                                            
-                                            if ($vencida) {
-                                                echo ' <span class="badge bg-danger">Vencida</span>';
-                                            } elseif ($diff->days <= 2 && $tarefa['estado'] !== 'completada') {
-                                                echo ' <span class="badge bg-warning text-dark">Em breve</span>';
-                                            }
-                                        } else {
-                                            echo '<span class="text-muted">Não definida</span>';
-                                        }
-                                        ?>
-                                    </td>
-                                    <td>
-                                        <span class="badge <?= 
-                                            $tarefa['estado'] === 'aberta' ? 'bg-primary' : 
-                                            ($tarefa['estado'] === 'em execução' ? 'bg-info text-dark' : 
-                                            ($tarefa['estado'] === 'suspensa' ? 'bg-warning text-dark' : 
-                                            'bg-success')) ?>">
-                                            <?= htmlspecialchars(ucfirst($tarefa['estado'])) ?>
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <?php if (!empty($tarefa['task_id'])): ?>
-                                        <a href="https://redmine.example.com/issues/<?= $tarefa['task_id'] ?>" target="_blank" class="text-decoration-none">
-                                            #<?= $tarefa['task_id'] ?>
-                                            <i class="bi bi-box-arrow-up-right"></i>
-                                        </a>
-                                        <?php else: ?>
-                                        <span class="text-muted">N/A</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <div class="btn-group">
-                                            <button type="button" class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                                                Ações
-                                            </button>
-                                            <ul class="dropdown-menu dropdown-menu-end">
-                                                <!-- Opções de mudança de estado -->
-                                                <li><h6 class="dropdown-header">Mudar Estado</h6></li>
-                                                <?php if ($tarefa['estado'] !== 'aberta'): ?>
-                                                <li>
-                                                    <button class="dropdown-item change-state-btn" data-task-id="<?= $tarefa['id'] ?>" data-state="aberta">
-                                                        <i class="bi bi-circle text-primary"></i> Marcar como Aberta
-                                                    </button>
-                                                </li>
-                                                <?php endif; ?>
-                                                
-                                                <?php if ($tarefa['estado'] !== 'em execução'): ?>
-                                                <li>
-                                                    <button class="dropdown-item change-state-btn" data-task-id="<?= $tarefa['id'] ?>" data-state="em execução">
-                                                        <i class="bi bi-play-circle text-info"></i> Marcar como Em Execução
-                                                    </button>
-                                                </li>
-                                                <?php endif; ?>
-                                                
-                                                <?php if ($tarefa['estado'] !== 'suspensa'): ?>
-                                                <li>
-                                                    <button class="dropdown-item change-state-btn" data-task-id="<?= $tarefa['id'] ?>" data-state="suspensa">
-                                                        <i class="bi bi-pause-circle text-warning"></i> Marcar como Suspensa
-                                                    </button>
-                                                </li>
-                                                <?php endif; ?>
-                                                
-                                                <?php if ($tarefa['estado'] !== 'completada'): ?>
-                                                <li>
-                                                    <button class="dropdown-item change-state-btn" data-task-id="<?= $tarefa['id'] ?>" data-state="completada">
-                                                        <i class="bi bi-check-circle text-success"></i> Marcar como Completada
-                                                    </button>
-                                                </li>
-                                                <?php endif; ?>
-                                                
-                                                <li><hr class="dropdown-divider"></li>
-                                                
-                                                <!-- Opção de excluir -->
-                                                <?php if ($tarefa['autor'] == $user_id): ?>
-                                                <li>
-                                                    <button type="button" class="dropdown-item text-danger delete-todo" data-id="<?= $tarefa['id'] ?>" data-title="<?= htmlspecialchars($tarefa['titulo']) ?>">
-                                                        <i class="bi bi-trash"></i> Excluir
-                                                    </button>
-                                                </li>
-                                                <?php endif; ?>
-                                            </ul>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <?php 
-                                    endforeach; 
-                                endforeach;
-                                ?>
-                            </tbody>
-                        </table>
-                    </div>
-                    <?php else: ?>
-                    <div class="text-center p-4">
-                        <i class="bi bi-clipboard-check" style="font-size: 3rem;"></i>
-                        <p class="mt-3">Você ainda não tem tarefas. Crie uma nova tarefa para começar!</p>
-                    </div>
-                    <?php endif; ?>
-                </div>
-            </div>
-        </div>
+            <?php endforeach; ?>
+        <?php endif; ?>
     </div>
 </div>
 
-<!-- Modal de Confirmação de Exclusão -->
-<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
+<!-- Modal: Nova Tarefa -->
+<div class="modal fade" id="addTaskModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title" id="deleteModalLabel">Confirmar Exclusão</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <p>Tem certeza que deseja excluir a tarefa <strong id="delete-task-title"></strong>?</p>
-                <p class="text-danger">Esta ação não pode ser desfeita.</p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <form method="post" action="" id="delete-form">
-                    <input type="hidden" name="action" value="delete">
-                    <input type="hidden" name="todo_id" id="delete-todo-id">
-                    <button type="submit" class="btn btn-danger">Excluir Permanentemente</button>
-                </form>
-            </div>
+            <form method="POST">
+                <input type="hidden" name="action" value="add">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Nova Tarefa</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Título *</label>
+                        <input type="text" class="form-control" name="titulo" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Descrição</label>
+                        <textarea class="form-control" name="descritivo" rows="3"></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Data Limite</label>
+                            <input type="date" class="form-control" name="data_limite">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Responsável</label>
+                            <select class="form-select" name="responsavel">
+                                <?php foreach ($all_users as $u): ?>
+                                    <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $user_id ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($u['username']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Adicionar</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
 
-<!-- Formulário oculto para atualização de estados -->
-<form id="update-state-form" method="post" style="display: none;">
-    <input type="hidden" name="action" value="update_status">
-    <input type="hidden" name="todo_id" id="update-todo-id">
-    <input type="hidden" name="new_estado" id="update-new-estado">
+<!-- Modal: Editar Tarefa -->
+<div class="modal fade" id="editTaskModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form method="POST">
+                <input type="hidden" name="action" value="edit_task">
+                <input type="hidden" name="todo_id" id="edit_todo_id">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="bi bi-pencil-square"></i> Editar Tarefa</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Título *</label>
+                        <input type="text" class="form-control" id="edit_titulo" name="titulo" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Descrição</label>
+                        <textarea class="form-control" id="edit_descritivo" name="descritivo" rows="3"></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Data Limite</label>
+                            <input type="date" class="form-control" id="edit_data_limite" name="data_limite">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Estado</label>
+                            <select class="form-select" id="edit_estado" name="estado">
+                                <option value="aberta">Aberta</option>
+                                <option value="em execução">Em Execução</option>
+                                <option value="suspensa">Suspensa</option>
+                                <option value="concluída">Concluída</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Responsável</label>
+                        <select class="form-select" id="edit_responsavel" name="responsavel">
+                            <?php foreach ($all_users as $u): ?>
+                                <option value="<?= $u['user_id'] ?>">
+                                    <?= htmlspecialchars($u['username']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Form oculto para excluir -->
+<form id="delete-form" method="POST" style="display:none;">
+    <input type="hidden" name="action" value="delete">
+    <input type="hidden" name="todo_id" id="delete-todo-id">
 </form>
 
-<?php 
-
-echo "OLLLLLLLLLLLLL";
-$milestones = getMilestonesByUser($user_id);
-if (!isset($milestones['error'])) {
-    foreach ($milestones as $milestone) {
-        echo "- " . htmlspecialchars($milestone['subject']) . "<br>";
-    }
-} else {
-    echo "Erro: " . $milestones['error'];
-}
-
-
-?>
-
+<!-- JavaScript -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Inicializar tooltips
-    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl)
-    });
     
-    // Toggle do formulário de nova tarefa
-    const newTaskBtn = document.getElementById('new-task-btn');
-    const newTaskFormContainer = document.getElementById('new-task-form-container');
-    const cancelNewTaskBtn = document.getElementById('cancel-new-task');
-    
-    newTaskBtn.addEventListener('click', function() {
-        newTaskFormContainer.style.display = 'block';
-        newTaskBtn.style.display = 'none';
-        document.getElementById('titulo').focus();
-    });
-    
-    cancelNewTaskBtn.addEventListener('click', function() {
-        newTaskFormContainer.style.display = 'none';
-        newTaskBtn.style.display = 'inline-block';
-    });
-    
-    // Garantir que o parâmetro tab seja mantido nos formulários
-    function ensureFormHasTabParam(form) {
-        // Verificar se a URL atual tem o parâmetro tab
-        const urlParams = new URLSearchParams(window.location.search);
-        const tabParam = urlParams.get('tab');
-        
-        if (tabParam && !form.querySelector('input[name="tab"]')) {
-            const tabInput = document.createElement('input');
-            tabInput.type = 'hidden';
-            tabInput.name = 'tab';
-            tabInput.value = tabParam;
-            form.appendChild(tabInput);
-        }
+    // Função para mostrar notificações
+    function showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `alert alert-${type} position-fixed top-0 start-50 translate-middle-x mt-3`;
+        toast.style.zIndex = '9999';
+        toast.style.minWidth = '300px';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
     }
     
-    // Adicionar parâmetro tab a todos os formulários na página
-    document.querySelectorAll('form').forEach(form => {
-        ensureFormHasTabParam(form);
-    });
-    
-    // Filtro de responsável e mostrar completadas
-    const filterResponsavel = document.getElementById('filter-responsavel');
-    const showCompletedCheckbox = document.getElementById('show-completed');
-    const filterForm = document.getElementById('filter-form');
-    
-    // Garantir que o formulário de filtro tenha o parâmetro tab
-    ensureFormHasTabParam(filterForm);
-    
-    filterResponsavel.addEventListener('change', function() {
-        filterForm.submit();
-    });
-    
-    showCompletedCheckbox.addEventListener('change', function() {
-        filterForm.submit();
-    });
-    
-    // Manipular cliques no botão de excluir
-    document.querySelectorAll('.delete-todo').forEach(function(button) {
-        button.addEventListener('click', function() {
-            var todoId = this.getAttribute('data-id');
-            var todoTitle = this.getAttribute('data-title');
+    // Editar tarefa
+    document.querySelectorAll('.edit-task-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const taskId = this.dataset.taskId;
             
-            document.getElementById('delete-todo-id').value = todoId;
-            document.getElementById('delete-task-title').textContent = todoTitle;
-            
-            var deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
-            deleteModal.show();
+            fetch(`?tab=todos&get_task_details=${taskId}`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.task) {
+                    const task = data.task;
+                    document.getElementById('edit_todo_id').value = task.id;
+                    document.getElementById('edit_titulo').value = task.titulo || '';
+                    document.getElementById('edit_descritivo').value = task.descritivo || '';
+                    document.getElementById('edit_data_limite').value = task.data_limite || '';
+                    document.getElementById('edit_estado').value = task.estado || 'aberta';
+                    document.getElementById('edit_responsavel').value = task.responsavel || '';
+                    
+                    const modal = new bootstrap.Modal(document.getElementById('editTaskModal'));
+                    modal.show();
+                } else {
+                    showToast('Erro ao carregar tarefa', 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Erro:', error);
+                showToast('Erro ao carregar tarefa', 'danger');
+            });
         });
     });
-    
-    // Manipular mudança de estado via botões
-    document.querySelectorAll('.change-state-btn').forEach(function(button) {
-        button.addEventListener('click', function() {
-            var taskId = this.getAttribute('data-task-id');
-            var newState = this.getAttribute('data-state');
-            
-            document.getElementById('update-todo-id').value = taskId;
-            document.getElementById('update-new-estado').value = newState;
-            document.getElementById('update-state-form').submit();
-        });
-    });
-    
-        // Implementação de Drag and Drop melhorada
-    let dragSrcEl = null;
-    let draggingTask = false;
-    
-    function handleDragStart(e) {
-        this.classList.add('dragging');
-        dragSrcEl = this;
-        draggingTask = true;
-        
-        // Para compatibilidade com Firefox
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/html', this.outerHTML);
-        
-        // Adicionar um efeito visual
-        setTimeout(() => {
-            this.style.opacity = '0.4';
-        }, 0);
-    }
-    
-    function handleDragEnd(e) {
-        this.classList.remove('dragging');
-        draggingTask = false;
-        
-        document.querySelectorAll('.todo-container').forEach(container => {
-            container.classList.remove('drag-over');
-        });
-        
-        this.style.opacity = '1';
-    }
-    
-    function handleDragOver(e) {
-        if (e.preventDefault) {
-            e.preventDefault(); // Necessário para permitir o drop
-        }
-        
-        e.dataTransfer.dropEffect = 'move';
-        this.classList.add('drag-over');
-        
-        return false;
-    }
-    
-    function handleDragEnter(e) {
-        this.classList.add('drag-over');
-    }
-    
-    function handleDragLeave(e) {
-        this.classList.remove('drag-over');
-    }
-    
-    function handleDrop(e) {
-        e.stopPropagation(); // Evita redirecionamento no Firefox
-        e.preventDefault();
-        
-        this.classList.remove('drag-over');
-        
-        // Só prosseguir se estamos soltando em um container diferente
-        if (dragSrcEl && this !== dragSrcEl.parentNode) {
-            const newState = this.getAttribute('data-estado');
-            const taskId = dragSrcEl.getAttribute('data-task-id');
-            
-            // Adiciona a tarefa ao novo container visualmente
-            this.appendChild(dragSrcEl);
-            
-            // Atualiza o estado no servidor
-            updateTaskStatus(taskId, newState);
-        }
-        
-        return false;
-    }
-    
-    function updateTaskStatus(taskId, newState) {
-        const formData = new FormData();
-        formData.append('action', 'drag_update_status');
-        formData.append('todo_id', taskId);
-        formData.append('new_estado', newState);
-        
-        // Manter o parâmetro tab=todos na URL
-        let url = window.location.href;
-        if (!url.includes('tab=todos')) {
-            url += (url.includes('?') ? '&' : '?') + 'tab=todos';
-        }
-        
-        fetch(url, {
-            method: 'POST',
-            body: formData,
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                console.log('Estado atualizado com sucesso');
-            } else {
-                console.error('Erro ao atualizar estado:', data.message);
-                alert('Erro ao atualizar estado: ' + data.message);
-            }
-        })
-        .catch(error => {
-            console.error('Erro na requisição AJAX:', error);
-            alert('Erro na requisição. Por favor, tente novamente.');
-        });
-    }
-    
-    function initDragAndDrop() {
-        // Adicionar estilos CSS necessários para o drag and drop
-        const style = document.createElement('style');
-        style.textContent = `
-            .task-card { cursor: move; }
-            .dragging { opacity: 0.4; }
-            .drag-over { background-color: rgba(0, 0, 0, 0.05); }
-            .todo-container { min-height: 100px; }
-        `;
-        document.head.appendChild(style);
-        
-        // Configurar cada cartão de tarefa como arrastável
-        const taskCards = document.querySelectorAll('.task-card');
-        taskCards.forEach(taskCard => {
-            taskCard.setAttribute('draggable', 'true');
-            
-            // Remover eventos antigos para evitar duplicação
-            taskCard.removeEventListener('dragstart', handleDragStart);
-            taskCard.removeEventListener('dragend', handleDragEnd);
-            
-            // Adicionar novos event listeners
-            taskCard.addEventListener('dragstart', handleDragStart);
-            taskCard.addEventListener('dragend', handleDragEnd);
-        });
-        
-        // Configurar containers como áreas de soltar
-        const containers = document.querySelectorAll('.todo-container');
-        containers.forEach(container => {
-            // Remover eventos antigos para evitar duplicação
-            container.removeEventListener('dragover', handleDragOver);
-            container.removeEventListener('dragenter', handleDragEnter);
-            container.removeEventListener('dragleave', handleDragLeave);
-            container.removeEventListener('drop', handleDrop);
-            
-            // Adicionar novos event listeners
-            container.addEventListener('dragover', handleDragOver);
-            container.addEventListener('dragenter', handleDragEnter);
-            container.addEventListener('dragleave', handleDragLeave);
-            container.addEventListener('drop', handleDrop);
-        });
-    }
-    
-    // Inicializar drag and drop
-    initDragAndDrop();
 });
+
+// Confirmar exclusão
+function confirmarExclusao(id, titulo) {
+    if (confirm(`Tem certeza que deseja excluir: "${titulo}"?`)) {
+        document.getElementById('delete-todo-id').value = id;
+        document.getElementById('delete-form').submit();
+    }
+}
 </script>

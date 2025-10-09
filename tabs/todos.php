@@ -1,27 +1,7 @@
 <?php
-// tabs/todos.php - Gestão de ToDos (VERSÃO COMPLETA E CORRIGIDA)
+// tabs/todos.php - Gestão de ToDos (VERSÃO CORRIGIDA - USA ajax_handler.php)
 
-// ============================================================================
-// VALIDAÇÃO DE AUTENTICAÇÃO PARA REQUISIÇÕES AJAX (DEVE VIR PRIMEIRO!)
-// ============================================================================
-if (isset($_GET['get_task_details']) || 
-    (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && 
-     strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')) {
-    
-    // Se for requisição AJAX e não está autenticado, retornar erro JSON
-    if (!isset($_SESSION['user_id'])) {
-        header('Content-Type: application/json');
-        http_response_code(401);
-        echo json_encode([
-            'success' => false, 
-            'error' => 'Sessão expirada. Por favor, faça login novamente.',
-            'redirect' => 'login.php'
-        ]);
-        exit;
-    }
-}
-
-// Verificar se o utilizador está autenticado (para requisições normais)
+// Verificar se o utilizador está autenticado
 if (!isset($_SESSION['user_id'])) {
     echo '<div class="alert alert-danger">Acesso não autorizado. Por favor, faça login.</div>';
     exit;
@@ -70,18 +50,6 @@ try {
     )');
     
 } catch (Exception $e) {
-    // Se for requisição AJAX, retornar erro em JSON
-    if (isset($_GET['get_task_details']) || 
-        (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && 
-         strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')) {
-        header('Content-Type: application/json');
-        http_response_code(500);
-        echo json_encode([
-            'success' => false,
-            'error' => 'Erro ao conectar à base de dados: ' . $e->getMessage()
-        ]);
-        exit;
-    }
     die("Erro ao conectar à base de dados: " . $e->getMessage());
 }
 
@@ -104,7 +72,6 @@ if (!$user_token) {
     $stmt->close();
     $user_token = ['token' => $token];
 }
-
 
 // ===========================================================================
 // PROCESSAMENTO DE FORMULÁRIOS
@@ -210,8 +177,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
     }
-    
-
     
     // ATUALIZAR ESTADO (FORM TRADICIONAL)
     elseif ($_POST['action'] === 'update_status') {
@@ -805,7 +770,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return false;
     }
     
-    // Função para atualizar estado via AJAX
+    // Função para atualizar estado via AJAX (USANDO ajax_handler.php)
     function updateTaskStatus(todoId, newStatus) {
         fetch('ajax_handler.php?action=update_task_status', {
             method: 'POST',
@@ -818,9 +783,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 new_estado: newStatus
             })
         })
+        .then(response => {
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                throw new Error('Resposta não é JSON');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                showToast('✓ Estado atualizado!', 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showToast('✗ ' + data.message, 'danger');
+                setTimeout(() => location.reload(), 1500);
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            showToast('⚠ A verificar alteração...', 'warning');
+            setTimeout(() => location.reload(), 1500);
+        });
+    }
     
     // ========================================================================
-    // EDITAR TAREFAS
+    // EDITAR TAREFAS (USANDO ajax_handler.php)
     // ========================================================================
     
     document.querySelectorAll('.edit-task-btn').forEach(btn => {
@@ -834,6 +821,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Mostrar loading
             showToast('A carregar...', 'info');
             
+            // FETCH MODIFICADO PARA USAR ajax_handler.php
             fetch(`ajax_handler.php?action=get_task_details&id=${taskId}`, {
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
             })
@@ -875,7 +863,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     modal.show();
                 } else {
                     console.error('Resposta sem sucesso:', data);
-                    showToast('Erro: ' + (data.message || 'Dados inválidos'), 'danger');
+                    showToast('Erro: ' + (data.message || data.error || 'Dados inválidos'), 'danger');
                 }
             })
             .catch(error => {

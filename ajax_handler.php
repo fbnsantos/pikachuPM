@@ -45,6 +45,7 @@ if (isset($_GET['action'])) {
     switch ($_GET['action']) {
         
         case 'get_task_details':
+            // Buscar detalhes de uma tarefa
             if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
                 header('Content-Type: application/json');
                 http_response_code(400);

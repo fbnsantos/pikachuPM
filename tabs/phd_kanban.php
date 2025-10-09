@@ -624,7 +624,7 @@ function get_deadline_badge_class($dias) {
                 <input type="hidden" name="action" value="save_phd_info">
                 <input type="hidden" name="selected_user" value="<?= $selected_user ?>">
                 <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-pencil"></i> Informações do Doutoramento</h5>
+                    <h5 class="modal-title"><i class="bi bi-mortarboard-fill"></i> Informações do Doutoramento</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
@@ -640,12 +640,6 @@ function get_deadline_badge_class($dias) {
                                    value="<?= htmlspecialchars($phd_info['instituicao'] ?? '') ?>">
                         </div>
                     </div>
-                    
-                    <div class="mb-3">
-                        <label for="titulo_doutoramento" class="form-label">Título do Doutoramento</label>
-                        <textarea class="form-control" id="titulo_doutoramento" name="titulo_doutoramento" rows="2"><?= htmlspecialchars($phd_info['titulo_doutoramento'] ?? '') ?></textarea>
-                    </div>
-                    
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label for="orientador" class="form-label">Orientador</label>
@@ -658,20 +652,21 @@ function get_deadline_badge_class($dias) {
                                    value="<?= htmlspecialchars($phd_info['coorientador'] ?? '') ?>">
                         </div>
                     </div>
-                    
                     <div class="mb-3">
                         <label for="departamento" class="form-label">Departamento</label>
                         <input type="text" class="form-control" id="departamento" name="departamento" 
                                value="<?= htmlspecialchars($phd_info['departamento'] ?? '') ?>">
                     </div>
-                    
                     <div class="mb-3">
-                        <label for="link_tese" class="form-label">Link para a Tese (Overleaf, Google Docs, etc.)</label>
+                        <label for="titulo_doutoramento" class="form-label">Título do Doutoramento</label>
+                        <textarea class="form-control" id="titulo_doutoramento" name="titulo_doutoramento" rows="3"><?= htmlspecialchars($phd_info['titulo_doutoramento'] ?? '') ?></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="link_tese" class="form-label">Link para a Tese</label>
                         <input type="url" class="form-control" id="link_tese" name="link_tese" 
                                value="<?= htmlspecialchars($phd_info['link_tese'] ?? '') ?>" 
                                placeholder="https://...">
                     </div>
-                    
                     <div class="mb-3">
                         <label for="notas" class="form-label">Notas Adicionais</label>
                         <textarea class="form-control" id="notas" name="notas" rows="4"><?= htmlspecialchars($phd_info['notas'] ?? '') ?></textarea>
@@ -694,7 +689,7 @@ function get_deadline_badge_class($dias) {
                 <input type="hidden" name="action" value="add_artigo">
                 <input type="hidden" name="selected_user" value="<?= $selected_user ?>">
                 <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Adicionar Artigo</h5>
+                    <h5 class="modal-title"><i class="bi bi-file-earmark-plus"></i> Adicionar Artigo</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
@@ -702,25 +697,22 @@ function get_deadline_badge_class($dias) {
                         <label for="titulo_artigo" class="form-label">Título do Artigo *</label>
                         <input type="text" class="form-control" id="titulo_artigo" name="titulo_artigo" required>
                     </div>
-                    
                     <div class="mb-3">
                         <label for="autores" class="form-label">Autores *</label>
                         <input type="text" class="form-control" id="autores" name="autores" 
-                               placeholder="Ex: Silva, J.; Santos, M.; Oliveira, P." required>
+                               placeholder="Ex: Silva, J.; Santos, M.; Costa, P." required>
                     </div>
-                    
                     <div class="row">
                         <div class="col-md-8 mb-3">
                             <label for="revista_conferencia" class="form-label">Revista/Conferência *</label>
                             <input type="text" class="form-control" id="revista_conferencia" name="revista_conferencia" required>
                         </div>
                         <div class="col-md-4 mb-3">
-                            <label for="ano" class="form-label">Ano</label>
+                            <label for="ano" class="form-label">Ano *</label>
                             <input type="number" class="form-control" id="ano" name="ano" 
-                                   min="2000" max="2100" value="<?= date('Y') ?>">
+                                   min="2000" max="2099" value="<?= date('Y') ?>" required>
                         </div>
                     </div>
-                    
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label for="tipo_artigo" class="form-label">Tipo</label>
@@ -742,9 +734,8 @@ function get_deadline_badge_class($dias) {
                             </select>
                         </div>
                     </div>
-                    
                     <div class="mb-3">
-                        <label for="link_artigo" class="form-label">Link (DOI, arXiv, etc.)</label>
+                        <label for="link_artigo" class="form-label">Link (DOI, URL, etc.)</label>
                         <input type="url" class="form-control" id="link_artigo" name="link_artigo" 
                                placeholder="https://...">
                     </div>
@@ -944,38 +935,39 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(data => {
                     if (data.success) {
                         const task = data.task;
-                        const diasRestantes = calcularDiasRestantes(task.data_limite);
-                        const badgeClass = getDeadlineBadgeClass(diasRestantes);
                         
-                        let deadlineInfo = '';
+                        // Calcular dias restantes
+                        let diasInfo = '';
                         if (task.data_limite) {
-                            const dataFormatada = new Date(task.data_limite).toLocaleDateString('pt-PT');
-                            let diasTexto = '';
-                            if (diasRestantes !== null) {
-                                if (diasRestantes < 0) {
-                                    diasTexto = `<span class="badge bg-danger">Atrasada (${Math.abs(diasRestantes)} dias)</span>`;
-                                } else if (diasRestantes === 0) {
-                                    diasTexto = `<span class="badge bg-warning text-dark">Hoje!</span>`;
-                                } else {
-                                    diasTexto = `<span class="badge ${badgeClass}">${diasRestantes} dias restantes</span>`;
-                                }
-                            }
-                            deadlineInfo = `<p><strong>Data Limite:</strong> ${dataFormatada} ${diasTexto}</p>`;
+                            const hoje = new Date();
+                            const limite = new Date(task.data_limite);
+                            const diffTime = limite - hoje;
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            
+                            let badgeClass = 'secondary';
+                            if (diffDays < 0) badgeClass = 'danger';
+                            else if (diffDays <= 3) badgeClass = 'warning';
+                            else if (diffDays <= 7) badgeClass = 'info';
+                            else badgeClass = 'success';
+                            
+                            diasInfo = `<span class="badge bg-${badgeClass}">
+                                ${diffDays >= 0 ? diffDays + ' dias restantes' : 'Atrasada'}
+                            </span>`;
                         }
                         
                         const content = `
                             <div class="task-details">
                                 <h4>${task.titulo}</h4>
-                                ${task.descritivo ? `<p class="text-muted">${task.descritivo.replace(/\n/g, '<br>')}</p>` : ''}
+                                ${task.descritivo ? `<p class="text-muted">${task.descritivo}</p>` : ''}
                                 <hr>
                                 <div class="row">
                                     <div class="col-md-6">
                                         <p><strong>Autor:</strong> ${task.autor_nome || 'N/A'}</p>
                                         <p><strong>Responsável:</strong> ${task.responsavel_nome || 'N/A'}</p>
-                                        ${deadlineInfo}
+                                        <p><strong>Estágio:</strong> <span class="badge bg-info">${task.estagio}</span></p>
                                     </div>
                                     <div class="col-md-6">
-                                        <p><strong>Estágio:</strong> <span class="badge bg-info">${formatStage(task.estagio)}</span></p>
+                                        <p><strong>Data Limite:</strong> ${task.data_limite ? new Date(task.data_limite).toLocaleDateString('pt-PT') : 'N/A'} ${diasInfo}</p>
                                         <p><strong>Estado:</strong> <span class="badge bg-secondary">${task.estado}</span></p>
                                     </div>
                                 </div>
@@ -1002,38 +994,5 @@ document.addEventListener('DOMContentLoaded', function() {
             modal.show();
         });
     });
-    
-    // Funções auxiliares
-    function calcularDiasRestantes(dataLimite) {
-        if (!dataLimite) return null;
-        
-        const hoje = new Date();
-        hoje.setHours(0, 0, 0, 0);
-        const limite = new Date(dataLimite);
-        limite.setHours(0, 0, 0, 0);
-        
-        const diffTime = limite - hoje;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
-        return diffDays;
-    }
-    
-    function getDeadlineBadgeClass(dias) {
-        if (dias === null) return 'bg-secondary';
-        if (dias < 0) return 'bg-danger';
-        if (dias <= 3) return 'bg-warning text-dark';
-        if (dias <= 7) return 'bg-info';
-        return 'bg-success';
-    }
-    
-    function formatStage(stage) {
-        const stages = {
-            'pensada': 'Pensada',
-            'execucao': 'Em Execução',
-            'espera': 'Em Espera',
-            'concluida': 'Concluída'
-        };
-        return stages[stage] || stage;
-    }
 });
 </script>

@@ -239,16 +239,23 @@ $query = '
     FROM todos t
     LEFT JOIN user_tokens autor ON t.autor = autor.user_id
     LEFT JOIN user_tokens resp ON t.responsavel = resp.user_id
-    WHERE (t.autor = ? OR t.responsavel = ?)
+    WHERE 1=1
 ';
 
-$types = 'ii';
-$params = [$user_id, $user_id];
+$types = '';
+$params = [];
 
+// Se há filtro de responsável, mostrar TODAS as tarefas desse responsável
 if ($filter_responsavel) {
     $query .= ' AND t.responsavel = ?';
     $types .= 'i';
     $params[] = $filter_responsavel;
+} else {
+    // Se NÃO há filtro, mostrar apenas as tarefas do usuário logado (autor OU responsável)
+    $query .= ' AND (t.autor = ? OR t.responsavel = ?)';
+    $types .= 'ii';
+    $params[] = $user_id;
+    $params[] = $user_id;
 }
 
 if (!$show_completed) {

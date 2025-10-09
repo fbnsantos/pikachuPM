@@ -17,16 +17,16 @@ $HORA_TRANSICAO_CALENDARIO = "12:00"; // formato HH:MM - Hora para transição p
 $tabs = [
     'dashboard' => 'Painel Principal',
     'prototypes' => 'Prototypes',
+    'bomlist/bomlist'  => 'BOM_LIST',
     'projecto' => 'Projects',
     'milestone' => 'Milestones',
-    'oportunidades' => 'Leads',
-    'calendar' => 'Calendário',
-    'equipa' => 'Reunião Diária',
-    'links' => 'Links',
-    'search' => 'Search',
     'todos' => 'ToDo',
     'phd_kanban' => 'Doutoramento',
-    'bomlist/bomlist'  => 'BOM_LIST',
+    'equipa' => 'Reunião Diária',
+    'calendar' => 'Calendário',
+    'oportunidades' => 'Leads',
+    'search' => 'Search',
+    'links' => 'Links',
     'admin' => 'Administration',
 ];
 

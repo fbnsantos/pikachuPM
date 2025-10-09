@@ -77,57 +77,177 @@ function getUtilizadoresRedmine() {
     return $data['users'] ?? [];
 }
 
-function getAtividadesUtilizador($id) {
-    global $API_KEY, $BASE_URL;
+function getAtividadesUtilizador($user_id) {
+    global $db_host, $db_user, $db_pass, $db_name;
     
-    return null;
-
-    $url = "$BASE_URL/issues.json?status_id=*&sort=updated_on:desc&limit=20";
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "X-Redmine-API-Key: $API_KEY",
-        "Accept: application/json"
-    ]);
-    $resp = curl_exec($ch);
-    curl_close($ch);
-
-    $data = json_decode($resp, true);
-    $atividades = [];
-
-    foreach ($data['issues'] ?? [] as $issue) {
-        $issue_id = $issue['id'];
-        $issue_url = "$BASE_URL/issues/$issue_id.json?include=journals";
-
-        $ch2 = curl_init($issue_url);
-        curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch2, CURLOPT_HTTPHEADER, [
-            "X-Redmine-API-Key: $API_KEY",
-            "Accept: application/json"
-        ]);
-        $resp2 = curl_exec($ch2);
-        curl_close($ch2);
-
-        $detalhe = json_decode($resp2, true);
-
-        foreach ($detalhe['issue']['journals'] ?? [] as $journal) {
-            if ($journal['user']['id'] == $id) {
-                $atividades[] = [
-                    'issue_id' => $issue_id,
-                    'subject' => $detalhe['issue']['subject'],
-                    'updated_on' => $journal['created_on'],
-                    'url' => "$BASE_URL/issues/$issue_id"
-                ];
-            }
+    try {
+        // Conectar à base de dados MySQL
+        $db = new mysqli($db_host, $db_user, $db_pass, $db_name);
+        
+        if ($db->connect_error) {
+            error_log("Erro de conexão ao buscar atividades: " . $db->connect_error);
+            return [];
         }
+        
+        $db->set_charset("utf8mb4");
+        
+        // Buscar tarefas do utilizador ordenadas pela última atualização
+        $stmt = $db->prepare('
+            SELECT 
+                t.id,
+                t.titulo,
+                t.descritivo,
+                t.estado,
+                t.estagio,
+                t.data_limite,
+                t.updated_at,
+                t.created_at,
+                t.projeto_id,
+                t.task_id,
+                autor.username as autor_nome,
+                resp.username as responsavel_nome
+            FROM todos t
+            LEFT JOIN user_tokens autor ON t.autor = autor.user_id
+            LEFT JOIN user_tokens resp ON t.responsavel = resp.user_id
+            WHERE t.autor = ? OR t.responsavel = ?
+            ORDER BY t.updated_at DESC
+            LIMIT 10
+        ');
+        
+        if (!$stmt) {
+            error_log("Erro ao preparar query de atividades: " . $db->error);
+            $db->close();
+            return [];
+        }
+        
+        $stmt->bind_param('ii', $user_id, $user_id);
+        
+        if (!$stmt->execute()) {
+            error_log("Erro ao executar query de atividades: " . $stmt->error);
+            $stmt->close();
+            $db->close();
+            return [];
+        }
+        
+        $result = $stmt->get_result();
+        $atividades = [];
+        
+        while ($row = $result->fetch_assoc()) {
+            // Calcular tempo decorrido
+            $updated = new DateTime($row['updated_at']);
+            $now = new DateTime();
+            $diff = $updated->diff($now);
+            
+            if ($diff->days > 0) {
+                $tempo_decorrido = $diff->days . ' dia(s) atrás';
+            } elseif ($diff->h > 0) {
+                $tempo_decorrido = $diff->h . ' hora(s) atrás';
+            } elseif ($diff->i > 0) {
+                $tempo_decorrido = $diff->i . ' minuto(s) atrás';
+            } else {
+                $tempo_decorrido = 'Agora mesmo';
+            }
+            
+            // Determinar o link
+            if ($row['projeto_id'] == 9999) {
+                $url = 'index.php?tab=phd_kanban&user_id=' . $user_id;
+            } elseif (!empty($row['task_id'])) {
+                global $BASE_URL;
+                $url = $BASE_URL . '/issues/' . $row['task_id'];
+            } else {
+                $url = 'index.php?tab=todos#task-' . $row['id'];
+            }
+            
+            // Badges de estado
+            $estado_badge = '';
+            switch ($row['estado']) {
+                case 'aberta':
+                    $estado_badge = '<span class="badge bg-secondary">Aberta</span>';
+                    break;
+                case 'em execução':
+                case 'em execucao':
+                    $estado_badge = '<span class="badge bg-primary">Em Execução</span>';
+                    break;
+                case 'suspensa':
+                    $estado_badge = '<span class="badge bg-warning text-dark">Suspensa</span>';
+                    break;
+                case 'concluída':
+                case 'concluida':
+                    $estado_badge = '<span class="badge bg-success">Concluída</span>';
+                    break;
+                default:
+                    $estado_badge = '<span class="badge bg-secondary">' . htmlspecialchars(ucfirst($row['estado'])) . '</span>';
+            }
+            
+            // Badge de estágio
+            $estagio_badge = '';
+            if (!empty($row['estagio'])) {
+                switch ($row['estagio']) {
+                    case 'pensada':
+                        $estagio_badge = ' <span class="badge bg-light text-dark">Pensada</span>';
+                        break;
+                    case 'execucao':
+                        $estagio_badge = ' <span class="badge bg-info">Em Execução</span>';
+                        break;
+                    case 'espera':
+                        $estagio_badge = ' <span class="badge bg-warning text-dark">Em Espera</span>';
+                        break;
+                    case 'concluida':
+                        $estagio_badge = ' <span class="badge bg-success">Concluída</span>';
+                        break;
+                }
+            }
+            
+            // Badge de projeto
+            $projeto_badge = '';
+            if ($row['projeto_id'] == 9999) {
+                $projeto_badge = ' <span class="badge bg-info"><i class="bi bi-mortarboard-fill"></i> Doutoramento</span>';
+            }
+            
+            // Deadline info
+            $deadline_info = '';
+            if (!empty($row['data_limite'])) {
+                $deadline = new DateTime($row['data_limite']);
+                $dias_diff = $now->diff($deadline);
+                $dias_restantes = $dias_diff->days;
+                
+                if ($now > $deadline) {
+                    $deadline_info = ' <span class="badge bg-danger"><i class="bi bi-exclamation-triangle"></i> Atrasada</span>';
+                } elseif ($dias_restantes <= 3) {
+                    $deadline_info = ' <span class="badge bg-warning text-dark"><i class="bi bi-calendar"></i> ' . $dias_restantes . ' dias</span>';
+                } elseif ($dias_restantes <= 7) {
+                    $deadline_info = ' <span class="badge bg-info"><i class="bi bi-calendar"></i> ' . $dias_restantes . ' dias</span>';
+                }
+            }
+            
+            $atividades[] = [
+                'id' => $row['id'],
+                'titulo' => $row['titulo'],
+                'descritivo' => $row['descritivo'],
+                'estado' => $row['estado'],
+                'estado_badge' => $estado_badge,
+                'estagio_badge' => $estagio_badge,
+                'projeto_badge' => $projeto_badge,
+                'deadline_info' => $deadline_info,
+                'updated_at' => $row['updated_at'],
+                'tempo_decorrido' => $tempo_decorrido,
+                'url' => $url,
+                'autor_nome' => $row['autor_nome'],
+                'responsavel_nome' => $row['responsavel_nome'],
+                'projeto_id' => $row['projeto_id'],
+                'task_id' => $row['task_id']
+            ];
+        }
+        
+        $stmt->close();
+        $db->close();
+        
+        return $atividades;
+        
+    } catch (Exception $e) {
+        error_log("Erro ao buscar atividades do utilizador: " . $e->getMessage());
+        return [];
     }
-
-    // Ordenar por data (descendente)
-    usort($atividades, function ($a, $b) {
-        return strtotime($b['updated_on']) - strtotime($a['updated_on']);
-    });
-
-    return array_slice($atividades, 0, 5);
 }
 
 function getNomeUtilizador($id, $lista) {
@@ -624,6 +744,14 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
     <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.1.0/github-markdown.min.css">
     <style>
+        .hover-highlight:hover {
+         background-color: #f8f9fa;
+       transition: background-color 0.2s ease;
+      }
+
+        .hover-highlight a:hover {
+                color: #0d6efd !important;
+     }
         .reuniao-card {
             border-left: 5px solid #0d6efd;
         }
@@ -802,25 +930,60 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                                     $atividades = getAtividadesUtilizador($oradorId);
                                                     if (empty($atividades)):
                                                     ?>
-                                                        <li class="list-group-item text-muted">
-                                                            <i class="bi bi-info-circle"></i> Nenhuma atividade recente encontrada.
+                                                        <li class="list-group-item text-muted text-center py-4">
+                                                            <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                                                            <p class="mb-0 mt-2">Nenhuma atividade recente encontrada.</p>
                                                         </li>
                                                     <?php else: ?>
                                                         <?php foreach ($atividades as $act): ?>
-                                                            <li class="list-group-item">
-                                                                <a href="<?= htmlspecialchars($act['url']) ?>" target="_blank" class="text-decoration-none">
-                                                                    <strong class="text-primary">#<?= $act['issue_id'] ?></strong> 
-                                                                    <?= htmlspecialchars($act['subject']) ?>
-                                                                </a>
-                                                                <br>
-                                                                <small class="text-muted">
-                                                                    <i class="bi bi-clock-history"></i> 
-                                                                    <?= date('d/m/Y H:i', strtotime($act['updated_on'])) ?>
-                                                                </small>
+                                                            <li class="list-group-item hover-highlight">
+                                                                <div class="d-flex justify-content-between align-items-start mb-1">
+                                                                    <div class="flex-grow-1">
+                                                                        <a href="<?= htmlspecialchars($act['url']) ?>" 
+                                                                        class="text-decoration-none fw-bold text-dark"
+                                                                        <?= strpos($act['url'], 'http') === 0 ? 'target="_blank"' : '' ?>>
+                                                                            <?= htmlspecialchars($act['titulo']) ?>
+                                                                            <?php if (strpos($act['url'], 'http') === 0): ?>
+                                                                                <i class="bi bi-box-arrow-up-right small"></i>
+                                                                            <?php endif; ?>
+                                                                        </a>
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                <?php if (!empty($act['descritivo'])): ?>
+                                                                    <p class="text-muted small mb-2">
+                                                                        <?= htmlspecialchars(substr($act['descritivo'], 0, 80)) ?>
+                                                                        <?= strlen($act['descritivo']) > 80 ? '...' : '' ?>
+                                                                    </p>
+                                                                <?php endif; ?>
+                                                                
+                                                                <div class="d-flex flex-wrap gap-1 mb-2">
+                                                                    <?= $act['estado_badge'] ?>
+                                                                    <?= $act['estagio_badge'] ?>
+                                                                    <?= $act['projeto_badge'] ?>
+                                                                    <?= $act['deadline_info'] ?>
+                                                                </div>
+                                                                
+                                                                <div class="d-flex justify-content-between align-items-center">
+                                                                    <small class="text-muted">
+                                                                        <i class="bi bi-clock-history"></i> 
+                                                                        <?= $act['tempo_decorrido'] ?>
+                                                                    </small>
+                                                                    <?php if ($act['responsavel_nome'] && $act['responsavel_nome'] != getNomeUtilizador($oradorId, getUtilizadoresRedmine())): ?>
+                                                                        <small class="text-muted">
+                                                                            <i class="bi bi-person"></i> 
+                                                                            <?= htmlspecialchars($act['responsavel_nome']) ?>
+                                                                        </small>
+                                                                    <?php endif; ?>
+                                                                </div>
                                                             </li>
                                                         <?php endforeach; ?>
                                                     <?php endif; ?>
                                                 </ul>
+
+
+
+
                                             </div>
                                         </div>
                                     </div>

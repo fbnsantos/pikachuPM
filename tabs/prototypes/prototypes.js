@@ -1,5 +1,10 @@
+/**
+ * PIKACHUPM - PROTOTYPES MODULE
+ * Complete JavaScript file with correct function order
+ */
 
-// ===== UTILITY =====
+// ===== FUNÇÕES AUXILIARES (DEVEM VIR PRIMEIRO!) =====
+
 function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
@@ -7,8 +12,6 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-
-// ===== MAKE LINKS CLICKABLE =====
 function makeLinksClickable(text) {
     if (!text) return '';
     
@@ -21,53 +24,37 @@ function makeLinksClickable(text) {
     });
 }
 
-// Função auxiliar para converter quebras de linha em <br> e tornar links clicáveis
 function formatTextWithLinks(text) {
     if (!text) return '';
     return makeLinksClickable(escapeHtml(text)).replace(/\n/g, '<br>');
 }
 
-// prototypes.js
+// ===== GLOBAL VARIABLES =====
+const API_PATH = 'tabs/prototypes/prototypes_api.php';
 let currentPrototype = null;
 let currentStory = null;
-let prototypes = [];
 let stories = [];
+let participants = [];
 
-// Caminho da API (definido no HTML ou usar padrão)
-const API_PATH = window.PROTOTYPES_API_PATH || 'prototypes_api.php';
-
-// Inicialização
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('Prototypes JS loaded. API Path:', API_PATH);
+// ===== INITIALIZATION =====
+document.addEventListener('DOMContentLoaded', function() {
     loadPrototypes();
-    
-    document.getElementById('searchInput').addEventListener('input', (e) => {
-        loadPrototypes(e.target.value);
-    });
 });
 
-
 // ===== PROTOTYPES =====
-async function loadPrototypes(search = '') {
+
+async function loadPrototypes() {
     try {
-        const url = `${API_PATH}?action=get_prototypes${search ? `&search=${encodeURIComponent(search)}` : ''}`;
-        console.log('Loading prototypes from:', url);
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        prototypes = await response.json();
-        console.log('Prototypes loaded:', prototypes);
+        const response = await fetch(`${API_PATH}?action=get_prototypes`);
+        const prototypes = await response.json();
         
         const listEl = document.getElementById('prototypesList');
         
         if (prototypes.length === 0) {
             listEl.innerHTML = `
                 <div class="empty-state">
-                    <h3>No prototypes found</h3>
-                    <p>Create your first prototype to get started</p>
+                    <h3>No prototypes yet</h3>
+                    <p>Create your first prototype</p>
                 </div>
             `;
             return;
@@ -75,28 +62,13 @@ async function loadPrototypes(search = '') {
         
         listEl.innerHTML = prototypes.map(p => `
             <div class="prototype-item ${currentPrototype?.id === p.id ? 'active' : ''}" 
-                 onclick="selectPrototype(${p.id})">
+                 onclick="selectPrototype(${p.id}, event)">
                 <h3>${escapeHtml(p.short_name)}</h3>
                 <p>${escapeHtml(p.title)}</p>
             </div>
         `).join('');
     } catch (error) {
         console.error('Error loading prototypes:', error);
-    }
-}
-
-// ===== PARTICIPANTS MANAGEMENT =====
-let participants = [];
-
-async function loadParticipants() {
-    if (!currentPrototype) return;
-    
-    try {
-        const response = await fetch(`${API_PATH}?action=get_participants&prototype_id=${currentPrototype.id}`);
-        participants = await response.json();
-        renderParticipantsTable();
-    } catch (error) {
-        console.error('Error loading participants:', error);
     }
 }
 
@@ -109,19 +81,29 @@ async function selectPrototype(id, event = null) {
         
         renderPrototypeDetail();
         loadStories();
-        loadParticipants(); // ⬅️ ADICIONAR ESTA LINHA
+        loadParticipants();
         
         // Update active state
         document.querySelectorAll('.prototype-item').forEach(item => {
             item.classList.remove('active');
         });
-        event.currentTarget?.classList.add('active');
+        
+        // Se o evento foi passado, adiciona classe active ao item clicado
+        if (event && event.currentTarget) {
+            event.currentTarget.classList.add('active');
+        } else {
+            // Senão, procura pelo ID e adiciona active
+            const items = document.querySelectorAll('.prototype-item');
+            items.forEach(item => {
+                if (item.onclick && item.onclick.toString().includes(`selectPrototype(${id}`)) {
+                    item.classList.add('active');
+                }
+            });
+        }
     } catch (error) {
         console.error('Error loading prototype:', error);
     }
 }
-
-// Adicionar ao prototypes.js - substituir a função renderPrototypeDetail()
 
 function renderPrototypeDetail() {
     const panel = document.getElementById('detailPanel');
@@ -135,7 +117,7 @@ function renderPrototypeDetail() {
                 <div class="info-item">
                     <div class="info-label">Short Name</div>
                     <div class="info-value" id="view-shortName">${escapeHtml(currentPrototype.short_name || 'Not defined')}</div>
-                    <button class="edit-btn" onclick="editField('shortName', 'text')" title="Edit">✏️</button>
+                    <button class="edit-btn" onclick="editField('short_name', 'text')" title="Edit">✏️</button>
                 </div>
                 <div class="info-item">
                     <div class="info-label">Title</div>
@@ -144,7 +126,7 @@ function renderPrototypeDetail() {
                 </div>
             </div>
             
-            <!-- NOVA SECÇÃO: Team Participants -->
+            <!-- Team Participants -->
             <div style="margin-top: 30px;">
                 <div class="section-header">
                     <h4 style="font-size: 16px; color: #4a5568; margin: 0;">👥 Team Participants</h4>
@@ -254,8 +236,294 @@ function renderPrototypeDetail() {
     loadParticipants();
 }
 
+// ===== INLINE EDITING =====
 
+async function editField(fieldName, inputType) {
+    const viewElement = document.getElementById(`view-${fieldName}`);
+    if (!viewElement) return;
+    
+    const currentValue = currentPrototype[fieldName] || '';
+    const parent = viewElement.parentElement;
+    
+    // Salvar o conteúdo original
+    const originalContent = viewElement.innerHTML;
+    
+    // Criar input
+    let inputElement;
+    if (inputType === 'textarea') {
+        inputElement = document.createElement('textarea');
+        inputElement.style.minHeight = '100px';
+        inputElement.style.width = '100%';
+        inputElement.style.padding = '10px';
+        inputElement.style.border = '2px solid #3b82f6';
+        inputElement.style.borderRadius = '6px';
+        inputElement.style.fontFamily = 'inherit';
+        inputElement.style.fontSize = '14px';
+    } else {
+        inputElement = document.createElement('input');
+        inputElement.type = 'text';
+        inputElement.style.width = '100%';
+        inputElement.style.padding = '10px';
+        inputElement.style.border = '2px solid #3b82f6';
+        inputElement.style.borderRadius = '6px';
+        inputElement.style.fontSize = '14px';
+    }
+    
+    inputElement.value = currentValue;
+    inputElement.id = `edit-${fieldName}`;
+    
+    // Substituir o elemento de visualização
+    viewElement.replaceWith(inputElement);
+    inputElement.focus();
+    
+    // Criar botões de ação
+    const actionDiv = document.createElement('div');
+    actionDiv.style.marginTop = '10px';
+    actionDiv.style.display = 'flex';
+    actionDiv.style.gap = '10px';
+    actionDiv.innerHTML = `
+        <button class="btn btn-primary btn-small" onclick="saveFieldEdit('${fieldName}', '${inputType}')">💾 Save</button>
+        <button class="btn btn-secondary btn-small" onclick="cancelFieldEdit('${fieldName}', '${inputType}', \`${originalContent.replace(/`/g, '\\`')}\`)">❌ Cancel</button>
+    `;
+    
+    inputElement.after(actionDiv);
+    
+    // Ocultar botão de editar
+    const editBtn = parent.querySelector('.edit-btn');
+    if (editBtn) editBtn.style.display = 'none';
+}
 
+async function saveFieldEdit(fieldName, inputType) {
+    const inputElement = document.getElementById(`edit-${fieldName}`);
+    if (!inputElement) return;
+    
+    const newValue = inputElement.value;
+    
+    try {
+        const data = {
+            action: 'update_prototype',
+            id: currentPrototype.id,
+            [fieldName]: newValue
+        };
+        
+        // Incluir todos os campos obrigatórios
+        const requiredFields = ['short_name', 'title', 'vision', 'target_group', 'needs', 
+                                'product_description', 'business_goals', 'sentence', 
+                                'repo_links', 'documentation_links'];
+        
+        requiredFields.forEach(field => {
+            if (field !== fieldName) {
+                data[field] = currentPrototype[field] || '';
+            }
+        });
+        
+        const response = await fetch(API_PATH, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            currentPrototype[fieldName] = newValue;
+            cancelFieldEdit(fieldName, inputType, formatTextWithLinks(newValue || 'Not defined'));
+        } else {
+            alert('Error saving changes');
+        }
+    } catch (error) {
+        console.error('Error saving field:', error);
+        alert('Error saving changes');
+    }
+}
+
+function cancelFieldEdit(fieldName, inputType, originalContent) {
+    const inputElement = document.getElementById(`edit-${fieldName}`);
+    if (!inputElement) return;
+    
+    // Remover botões de ação
+    const actionDiv = inputElement.nextElementSibling;
+    if (actionDiv) actionDiv.remove();
+    
+    // Restaurar elemento de visualização
+    const viewElement = document.createElement('div');
+    viewElement.className = inputType === 'textarea' ? 'vision-content' : 'info-value';
+    viewElement.id = `view-${fieldName}`;
+    viewElement.innerHTML = originalContent;
+    
+    inputElement.replaceWith(viewElement);
+    
+    // Mostrar botão de editar novamente
+    const parent = viewElement.parentElement;
+    const editBtn = parent.querySelector('.edit-btn');
+    if (editBtn) editBtn.style.display = 'block';
+}
+
+function openPrototypeModal(prototypeId = null) {
+    currentPrototype = prototypeId ? currentPrototype : null;
+    
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>${currentPrototype ? 'Edit Prototype' : 'New Prototype'}</h3>
+                <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
+            </div>
+            <form onsubmit="savePrototype(event)">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Short Name *</label>
+                        <input type="text" id="protoShortName" value="${escapeHtml(currentPrototype?.short_name || '')}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Title *</label>
+                        <input type="text" id="protoTitle" value="${escapeHtml(currentPrototype?.title || '')}" required>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Vision</label>
+                    <textarea id="protoVision">${escapeHtml(currentPrototype?.vision || '')}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Product Statement</label>
+                    <textarea id="protoSentence">${escapeHtml(currentPrototype?.sentence || '')}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Target Group</label>
+                    <textarea id="protoTargetGroup">${escapeHtml(currentPrototype?.target_group || '')}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Needs</label>
+                    <textarea id="protoNeeds">${escapeHtml(currentPrototype?.needs || '')}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Product Description</label>
+                    <textarea id="protoProductDescription">${escapeHtml(currentPrototype?.product_description || '')}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Business Goals</label>
+                    <textarea id="protoBusinessGoals">${escapeHtml(currentPrototype?.business_goals || '')}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Repository Links</label>
+                    <textarea id="protoRepoLinks">${escapeHtml(currentPrototype?.repo_links || '')}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Documentation Links</label>
+                    <textarea id="protoDocumentationLinks">${escapeHtml(currentPrototype?.documentation_links || '')}</textarea>
+                </div>
+                
+                <div class="action-bar">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+async function savePrototype(event) {
+    event.preventDefault();
+    
+    const data = {
+        short_name: document.getElementById('protoShortName').value,
+        title: document.getElementById('protoTitle').value,
+        vision: document.getElementById('protoVision').value,
+        sentence: document.getElementById('protoSentence').value,
+        target_group: document.getElementById('protoTargetGroup').value,
+        needs: document.getElementById('protoNeeds').value,
+        product_description: document.getElementById('protoProductDescription').value,
+        business_goals: document.getElementById('protoBusinessGoals').value,
+        repo_links: document.getElementById('protoRepoLinks').value,
+        documentation_links: document.getElementById('protoDocumentationLinks').value
+    };
+    
+    if (currentPrototype) {
+        data.id = currentPrototype.id;
+        data.action = 'update_prototype';
+    } else {
+        data.action = 'create_prototype';
+    }
+    
+    try {
+        const response = await fetch(API_PATH, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            document.querySelector('.modal').remove();
+            loadPrototypes();
+            if (result.id) {
+                selectPrototype(result.id);
+            } else if (currentPrototype) {
+                selectPrototype(currentPrototype.id);
+            }
+        }
+    } catch (error) {
+        console.error('Error saving prototype:', error);
+        alert('Error saving prototype');
+    }
+}
+
+async function deletePrototype() {
+    if (!currentPrototype) return;
+    
+    if (!confirm(`Delete prototype "${currentPrototype.short_name}"?\n\nThis will also delete all associated user stories.`)) {
+        return;
+    }
+    
+    try {
+        const formData = new FormData();
+        formData.append('action', 'delete_prototype');
+        formData.append('id', currentPrototype.id);
+        
+        const response = await fetch(`${API_PATH}`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            currentPrototype = null;
+            document.getElementById('detailPanel').innerHTML = `
+                <div class="empty-state">
+                    <h3>Select a prototype</h3>
+                    <p>Choose a prototype from the list to view details</p>
+                </div>
+            `;
+            loadPrototypes();
+        }
+    } catch (error) {
+        console.error('Error deleting prototype:', error);
+        alert('Error deleting prototype');
+    }
+}
+
+// ===== PARTICIPANTS MANAGEMENT =====
+
+async function loadParticipants() {
+    if (!currentPrototype) return;
+    
+    try {
+        const response = await fetch(`${API_PATH}?action=get_participants&prototype_id=${currentPrototype.id}`);
+        participants = await response.json();
+        renderParticipantsTable();
+    } catch (error) {
+        console.error('Error loading participants:', error);
+    }
+}
 
 function renderParticipantsTable() {
     const container = document.getElementById('participantsTable');
@@ -429,271 +697,8 @@ async function removeParticipant(participantId) {
     }
 }
 
-// Função para formatar texto com quebras de linha
-function formatText(text) {
-    if (!text) return '';
-    return text.split('\n').map(line => {
-        line = escapeHtml(line.trim());
-        if (line.startsWith('-') || line.startsWith('•')) {
-            return `<div class="list-item">${line}</div>`;
-        }
-        return line ? `<p>${line}</p>` : '';
-    }).join('');
-}
-
-// Função para formatar e tornar links clicáveis
-function formatLinks(linksText) {
-    if (!linksText) return '';
-    
-    const lines = linksText.split('\n').filter(line => line.trim());
-    if (lines.length === 0) return '';
-    
-    return lines.map(link => {
-        link = link.trim();
-        // Detectar URLs
-        const urlMatch = link.match(/(https?:\/\/[^\s]+)/);
-        if (urlMatch) {
-            const url = urlMatch[1];
-            const label = link.replace(url, '').trim() || url;
-            return `
-                <div class="link-item">
-                    <span class="link-icon">🔗</span>
-                    <a href="${url}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>
-                    <span class="external-icon">↗</span>
-                </div>
-            `;
-        }
-        return `<div class="link-item"><span class="link-icon">📄</span>${escapeHtml(link)}</div>`;
-    }).join('');
-}
-
-// Função para editar campo
-let editingField = null;
-
-function editField(fieldName, inputType) {
-    // Se já está editando, cancelar edição anterior
-    if (editingField) {
-        cancelEdit();
-    }
-    
-    editingField = fieldName;
-    const viewElement = document.getElementById(`view-${fieldName}`);
-    const currentValue = getCurrentFieldValue(fieldName);
-    
-    let editHTML;
-    if (inputType === 'textarea') {
-        editHTML = `
-            <div class="edit-container">
-                <textarea class="edit-input" id="edit-${fieldName}" rows="6">${escapeHtml(currentValue || '')}</textarea>
-                <div class="edit-actions">
-                    <button class="btn btn-small btn-success" onclick="saveField('${fieldName}')">💾 Save</button>
-                    <button class="btn btn-small btn-secondary" onclick="cancelEdit()">✖ Cancel</button>
-                </div>
-            </div>
-        `;
-    } else {
-        editHTML = `
-            <div class="edit-container">
-                <input type="text" class="edit-input" id="edit-${fieldName}" value="${escapeHtml(currentValue || '')}">
-                <div class="edit-actions">
-                    <button class="btn btn-small btn-success" onclick="saveField('${fieldName}')">💾 Save</button>
-                    <button class="btn btn-small btn-secondary" onclick="cancelEdit()">✖ Cancel</button>
-                </div>
-            </div>
-        `;
-    }
-    
-    viewElement.innerHTML = editHTML;
-    document.getElementById(`edit-${fieldName}`).focus();
-}
-
-function getCurrentFieldValue(fieldName) {
-    const fieldMap = {
-        'shortName': 'short_name',
-        'title': 'title',
-        'vision': 'vision',
-        'targetGroup': 'target_group',
-        'needs': 'needs',
-        'productDescription': 'product_description',
-        'businessGoals': 'business_goals',
-        'sentence': 'sentence',
-        'repoLinks': 'repo_links',
-        'documentationLinks': 'documentation_links'
-    };
-    
-    return currentPrototype[fieldMap[fieldName]] || '';
-}
-
-async function saveField(fieldName) {
-    const inputElement = document.getElementById(`edit-${fieldName}`);
-    const newValue = inputElement.value;
-    
-    // Mapear nome do campo para nome da coluna no BD
-    const fieldMap = {
-        'shortName': 'short_name',
-        'title': 'title',
-        'vision': 'vision',
-        'targetGroup': 'target_group',
-        'needs': 'needs',
-        'productDescription': 'product_description',
-        'businessGoals': 'business_goals',
-        'sentence': 'sentence',
-        'repoLinks': 'repo_links',
-        'documentationLinks': 'documentation_links'
-    };
-    
-    // Atualizar objeto local
-    currentPrototype[fieldMap[fieldName]] = newValue;
-    
-    // Salvar no servidor
-    try {
-        const response = await fetch(`${API_PATH}?action=update_prototype`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(currentPrototype)
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            // Atualizar visualização
-            editingField = null;
-            renderPrototypeDetail();
-            loadStories(); // Recarregar para manter as histórias
-        } else {
-            alert('Error saving: ' + (result.error || 'Unknown error'));
-        }
-    } catch (error) {
-        console.error('Error saving field:', error);
-        alert('Error saving changes');
-    }
-}
-
-function cancelEdit() {
-    editingField = null;
-    renderPrototypeDetail();
-    loadStories(); // Recarregar para manter as histórias
-}
-
-async function updatePrototype() {
-    if (!currentPrototype) return;
-    
-    const data = {
-        id: currentPrototype.id,
-        short_name: document.getElementById('shortName').value,
-        title: document.getElementById('title').value,
-        vision: document.getElementById('vision').value,
-        target_group: document.getElementById('targetGroup').value,
-        needs: document.getElementById('needs').value,
-        product_description: document.getElementById('productDescription').value,
-        business_goals: document.getElementById('businessGoals').value,
-        sentence: document.getElementById('sentence').value,
-        repo_links: document.getElementById('repoLinks').value,
-        documentation_links: document.getElementById('documentationLinks').value
-    };
-    
-    try {
-        const response = await fetch(`${API_PATH}?action=update_prototype`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            currentPrototype = { ...currentPrototype, ...data };
-            loadPrototypes();
-        }
-    } catch (error) {
-        console.error('Error updating prototype:', error);
-        alert('Error updating prototype');
-    }
-}
-
-function createNewPrototype() {
-    const shortName = prompt('Enter short name for new prototype:');
-    if (!shortName) return;
-    
-    const title = prompt('Enter title:');
-    if (!title) return;
-    
-    const data = {
-        short_name: shortName,
-        title: title,
-        vision: '',
-        target_group: '',
-        needs: '',
-        product_description: '',
-        business_goals: '',
-        sentence: '',
-        repo_links: '',
-        documentation_links: ''
-    };
-    
-    console.log('Creating prototype:', data);
-    console.log('API Path:', API_PATH);
-    
-    fetch(`${API_PATH}?action=create_prototype`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    })
-    .then(response => {
-        console.log('Response status:', response.status);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(result => {
-        console.log('Create result:', result);
-        if (result.success) {
-            loadPrototypes();
-            selectPrototype(result.id);
-        } else {
-            alert('Error: ' + (result.error || 'Unknown error'));
-        }
-    })
-    .catch(error => {
-        console.error('Error creating prototype:', error);
-        alert('Error creating prototype: ' + error.message + '\nCheck console for details');
-    });
-}
-
-async function deletePrototype() {
-    if (!currentPrototype) return;
-    
-    if (!confirm(`Are you sure you want to delete "${currentPrototype.short_name}"? This will also delete all associated user stories.`)) {
-        return;
-    }
-    
-    try {
-        const formData = new FormData();
-        formData.append('action', 'delete_prototype');
-        formData.append('id', currentPrototype.id);
-        
-        const response = await fetch(`${API_PATH}`, {
-            method: 'POST',
-            body: formData
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            currentPrototype = null;
-            document.getElementById('detailPanel').innerHTML = `
-                <div class="empty-state">
-                    <h3>Select a prototype</h3>
-                    <p>Choose a prototype from the list to view details</p>
-                </div>
-            `;
-            loadPrototypes();
-        }
-    } catch (error) {
-        console.error('Error deleting prototype:', error);
-        alert('Error deleting prototype');
-    }
-}
-
 // ===== USER STORIES =====
+
 async function loadStories() {
     if (!currentPrototype) return;
     
@@ -737,52 +742,70 @@ async function loadStories() {
 function openStoryModal(storyId = null) {
     currentStory = storyId ? stories.find(s => s.id === storyId) : null;
     
-    document.getElementById('storyModalTitle').textContent = currentStory ? 'Edit User Story' : 'New User Story';
-    document.getElementById('storyText').value = currentStory?.story_text || '';
-    document.getElementById('storyPriority').value = currentStory?.moscow_priority || 'Should';
-    
-    document.getElementById('storyModal').classList.add('active');
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>${currentStory ? 'Edit User Story' : 'New User Story'}</h3>
+                <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
+            </div>
+            <form onsubmit="saveStory(event)">
+                <div class="form-group">
+                    <label>Story Text *</label>
+                    <textarea id="storyText" required placeholder="As a [user type], I want [goal] so that [benefit]">${escapeHtml(currentStory?.story_text || '')}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>MoSCoW Priority *</label>
+                    <select id="storyPriority" required>
+                        <option value="Must" ${currentStory?.moscow_priority === 'Must' ? 'selected' : ''}>Must Have</option>
+                        <option value="Should" ${currentStory?.moscow_priority === 'Should' ? 'selected' : ''}>Should Have</option>
+                        <option value="Could" ${currentStory?.moscow_priority === 'Could' ? 'selected' : ''}>Could Have</option>
+                        <option value="Won't" ${currentStory?.moscow_priority === "Won't" ? 'selected' : ''}>Won't Have</option>
+                    </select>
+                </div>
+                
+                <div class="action-bar">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    `;
+    document.body.appendChild(modal);
 }
 
-function closeStoryModal() {
-    document.getElementById('storyModal').classList.remove('active');
-    currentStory = null;
+function editStory(storyId) {
+    openStoryModal(storyId);
 }
 
-function editStory(id) {
-    openStoryModal(id);
-}
-
-async function saveStory() {
-    const storyText = document.getElementById('storyText').value.trim();
-    const priority = document.getElementById('storyPriority').value;
-    
-    if (!storyText) {
-        alert('Please enter story text');
-        return;
-    }
+async function saveStory(event) {
+    event.preventDefault();
     
     const data = {
         prototype_id: currentPrototype.id,
-        story_text: storyText,
-        moscow_priority: priority
+        story_text: document.getElementById('storyText').value,
+        moscow_priority: document.getElementById('storyPriority').value
     };
     
+    if (currentStory) {
+        data.id = currentStory.id;
+        data.action = 'update_story';
+    } else {
+        data.action = 'create_story';
+    }
+    
     try {
-        const action = currentStory ? 'update_story' : 'create_story';
-        if (currentStory) {
-            data.id = currentStory.id;
-        }
-        
-        const response = await fetch(`${API_PATH}?action=${action}`, {
+        const response = await fetch(API_PATH, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(data)
         });
         
         const result = await response.json();
         if (result.success) {
-            closeStoryModal();
+            document.querySelector('.modal').remove();
             loadStories();
         }
     } catch (error) {
@@ -791,15 +814,15 @@ async function saveStory() {
     }
 }
 
-async function deleteStory(id) {
+async function deleteStory(storyId) {
     if (!confirm('Delete this user story?')) return;
     
     try {
         const formData = new FormData();
         formData.append('action', 'delete_story');
-        formData.append('id', id);
+        formData.append('id', storyId);
         
-        const response = await fetch(`${API_PATH}`, {
+        const response = await fetch(API_PATH, {
             method: 'POST',
             body: formData
         });
@@ -814,7 +837,8 @@ async function deleteStory(id) {
     }
 }
 
-// ===== TASKS =====
+// ===== STORY TASKS =====
+
 async function viewStoryTasks(storyId) {
     currentStory = stories.find(s => s.id === storyId);
     
@@ -822,147 +846,125 @@ async function viewStoryTasks(storyId) {
         const response = await fetch(`${API_PATH}?action=get_story_tasks&story_id=${storyId}`);
         const tasks = await response.json();
         
-        const tasksList = tasks.length > 0 ? tasks.map(task => `
-            <div class="task-item">
-                <div>
-                    <strong>${escapeHtml(task.title || 'Task #' + task.id)}</strong>
-                    <span class="badge badge-info">${escapeHtml(task.status || 'pending')}</span>
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 800px;">
+                <div class="modal-header">
+                    <h3>📋 Tasks for Story #${storyId}</h3>
+                    <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
                 </div>
-                <button class="btn btn-danger btn-small" onclick="unlinkTask(${task.link_id})">Unlink</button>
-            </div>
-        `).join('') : '<p>No tasks linked to this story yet.</p>';
-        
-        const modal = document.getElementById('taskModal');
-        modal.querySelector('.modal-content').innerHTML = `
-            <div class="modal-header">
-                <h3>Tasks for Story #${storyId}</h3>
-                <button class="close-modal" onclick="closeTaskModal()">&times;</button>
-            </div>
-            <div class="task-list">
-                ${tasksList}
-            </div>
-            <div class="action-bar">
-                <button class="btn btn-primary" onclick="openCreateTaskForm(${storyId})">+ Create New Task</button>
-                <button class="btn btn-secondary" onclick="closeTaskModal()">Close</button>
+                
+                <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <p style="margin: 0; color: #64748b; font-size: 14px;">${escapeHtml(currentStory.story_text)}</p>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                    <button class="btn btn-primary" onclick="openLinkTaskModal(${storyId})">🔗 Link Existing Task</button>
+                    <button class="btn btn-primary" onclick="openCreateTaskModal(${storyId})">+ Create New Task</button>
+                </div>
+                
+                <div class="task-list">
+                    ${tasks.length === 0 ? '<p style="text-align: center; color: #64748b;">No tasks linked yet</p>' : ''}
+                    ${tasks.map(task => `
+                        <div class="task-item">
+                            <div>
+                                <strong>${escapeHtml(task.titulo)}</strong>
+                                <span class="badge badge-info">${escapeHtml(task.estado)}</span>
+                            </div>
+                            <button class="btn btn-danger btn-small" onclick="unlinkTask(${task.link_id}, ${storyId})">🔗 Unlink</button>
+                        </div>
+                    `).join('')}
+                </div>
             </div>
         `;
-        modal.classList.add('active');
+        document.body.appendChild(modal);
     } catch (error) {
-        console.error('Error loading tasks:', error);
+        console.error('Error loading story tasks:', error);
+        alert('Error loading tasks');
     }
 }
 
-function openCreateTaskForm(storyId) {
-    const story = stories.find(s => s.id === storyId);
-    
-    if (!story) {
-        alert('Error: Story not found');
-        console.error('Story ID:', storyId, 'Available stories:', stories);
-        return;
+async function openLinkTaskModal(storyId) {
+    try {
+        const response = await fetch(`${API_PATH}?action=get_available_tasks&story_id=${storyId}`);
+        const availableTasks = await response.json();
+        
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Link Existing Task</h3>
+                    <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
+                </div>
+                <form onsubmit="linkTask(event, ${storyId})">
+                    <div class="form-group">
+                        <label>Select Task</label>
+                        <select id="taskToLink" required style="width: 100%; padding: 10px; border: 1px solid #e1e8ed; border-radius: 6px;">
+                            <option value="">-- Select a task --</option>
+                            ${availableTasks.map(t => `
+                                <option value="${t.id}">${escapeHtml(t.titulo)} (${escapeHtml(t.estado)})</option>
+                            `).join('')}
+                        </select>
+                    </div>
+                    <div class="action-bar">
+                        <button type="submit" class="btn btn-primary">Link Task</button>
+                        <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    } catch (error) {
+        console.error('Error loading available tasks:', error);
+        alert('Error loading tasks');
     }
-    
-    currentStory = story;
-    console.log('Opening create task form for story:', currentStory);
-    
-    const modal = document.getElementById('taskModal');
-    modal.querySelector('.modal-content').innerHTML = `
-        <div class="modal-header">
-            <h3>Create Task from Story #${storyId}</h3>
-            <button class="close-modal" onclick="closeTaskModal()">&times;</button>
-        </div>
-        <div class="form-group">
-            <label>Task Title</label>
-            <input type="text" id="taskTitle" placeholder="Task title">
-        </div>
-        <div class="form-group">
-            <label>Description</label>
-            <textarea id="taskDescription" placeholder="Task description"></textarea>
-        </div>
-        <div class="form-group">
-            <label>Priority</label>
-            <select id="taskPriority">
-                <option value="low">Low</option>
-                <option value="medium" selected>Medium</option>
-                <option value="high">High</option>
-            </select>
-        </div>
-        <div class="action-bar">
-            <button class="btn btn-primary" onclick="createTaskFromStory()">Create Task</button>
-            <button class="btn btn-secondary" onclick="viewStoryTasks(${storyId})">← Back</button>
-        </div>
-    `;
-    modal.classList.add('active');
 }
 
-async function createTaskFromStory() {
-    const title = document.getElementById('taskTitle').value.trim();
-    const description = document.getElementById('taskDescription').value.trim();
-    const priority = document.getElementById('taskPriority').value;
+async function linkTask(event, storyId) {
+    event.preventDefault();
     
-    if (!title) {
-        alert('Please enter task title');
-        return;
-    }
-    
-    if (!currentStory || !currentStory.id) {
-        alert('Error: No story selected');
-        console.error('currentStory:', currentStory);
-        return;
-    }
-    
-    const data = {
-        story_id: currentStory.id,
-        title: title,
-        description: description,
-        priority: priority
-    };
-    
-    console.log('Creating task from story:', data);
+    const taskId = document.getElementById('taskToLink').value;
     
     try {
-        const response = await fetch(`${API_PATH}?action=create_task_from_story`, {
+        const response = await fetch(API_PATH, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                action: 'link_task',
+                story_id: storyId,
+                task_id: taskId
+            })
         });
         
-        console.log('Response status:', response.status);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
         const result = await response.json();
-        console.log('Create task result:', result);
-        
         if (result.success) {
-            alert('Task created successfully!');
-            viewStoryTasks(currentStory.id);
-        } else {
-            alert('Error: ' + (result.error || 'Unknown error'));
+            document.querySelector('.modal').remove();
+            viewStoryTasks(storyId);
         }
     } catch (error) {
-        console.error('Error creating task:', error);
-        alert('Error creating task: ' + error.message + '\nCheck console for details');
+        console.error('Error linking task:', error);
+        alert('Error linking task');
     }
 }
 
-async function unlinkTask(linkId) {
-    if (!confirm('Unlink this task from the story?')) return;
+async function unlinkTask(linkId, storyId) {
+    if (!confirm('Unlink this task?')) return;
     
     try {
         const formData = new FormData();
         formData.append('action', 'unlink_task');
         formData.append('id', linkId);
         
-        const response = await fetch(`${API_PATH}`, {
+        const response = await fetch(API_PATH, {
             method: 'POST',
             body: formData
         });
         
         const result = await response.json();
         if (result.success) {
-            viewStoryTasks(currentStory.id);
+            viewStoryTasks(storyId);
         }
     } catch (error) {
         console.error('Error unlinking task:', error);
@@ -970,16 +972,71 @@ async function unlinkTask(linkId) {
     }
 }
 
-function closeTaskModal() {
-    document.getElementById('taskModal').classList.remove('active');
+async function openCreateTaskModal(storyId) {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Create New Task</h3>
+                <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
+            </div>
+            <form onsubmit="createTaskFromStory(event, ${storyId})">
+                <div class="form-group">
+                    <label>Task Title *</label>
+                    <input type="text" id="newTaskTitle" required placeholder="Enter task title">
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="newTaskDescription" placeholder="Enter task description"></textarea>
+                </div>
+                <div class="action-bar">
+                    <button type="submit" class="btn btn-primary">Create & Link Task</button>
+                    <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    `;
+    document.body.appendChild(modal);
 }
 
-
-
-
+async function createTaskFromStory(event, storyId) {
+    event.preventDefault();
+    
+    const title = document.getElementById('newTaskTitle').value;
+    const description = document.getElementById('newTaskDescription').value;
+    
+    try {
+        const response = await fetch(API_PATH, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                action: 'create_task_from_story',
+                story_id: storyId,
+                title: title,
+                description: description
+            })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            document.querySelector('.modal').remove();
+            viewStoryTasks(storyId);
+        } else if (result.error) {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        console.error('Error creating task:', error);
+        alert('Error creating task');
+    }
+}
 
 // ===== EXPORT =====
+
 function exportMarkdown() {
     if (!currentPrototype) return;
     window.location.href = `${API_PATH}?action=export_markdown&id=${currentPrototype.id}`;
 }
+
+// ===== END OF FILE =====
+console.log('Prototypes module loaded successfully');

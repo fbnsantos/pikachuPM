@@ -1,10 +1,6 @@
 <?php
 // prototypes_api.php
 header('Content-Type: application/json');
-if (!isset($_SESSION['user_id'])) {
-    echo '<div class="alert alert-danger">Acesso não autorizado. Por favor, faça login.</div>';
-    exit;
-}
 
 // Incluir configuração do projeto
 include_once __DIR__ . '/../../config.php';

@@ -302,12 +302,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Obter dados
+$showClosed = isset($_GET['show_closed']) && $_GET['show_closed'] == '1';
+
 try {
+    $whereClause = $showClosed ? "" : "WHERE s.estado != 'fechada'";
+    
     $sprints = $pdo->query("
         SELECT s.*, u.username as responsavel_nome 
         FROM sprints s 
         LEFT JOIN user_tokens u ON s.responsavel_id = u.user_id 
-        WHERE s.estado != 'fechada'
+        $whereClause
         ORDER BY 
             CASE s.estado 
                 WHEN 'aberta' THEN 1 
@@ -316,6 +320,65 @@ try {
             END,
             s.data_fim ASC
     ")->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Calcular estatísticas para cada sprint
+    foreach ($sprints as &$sprint) {
+        // Calcular dias para deadline
+        if ($sprint['data_fim']) {
+            $hoje = new DateTime();
+            $deadline = new DateTime($sprint['data_fim']);
+            $diff = $hoje->diff($deadline);
+            
+            if ($hoje > $deadline) {
+                $sprint['dias_restantes'] = -$diff->days; // Negativo se atrasado
+                $sprint['status_deadline'] = 'atrasado';
+            } else {
+                $sprint['dias_restantes'] = $diff->days;
+                if ($diff->days <= 3) {
+                    $sprint['status_deadline'] = 'urgente';
+                } elseif ($diff->days <= 7) {
+                    $sprint['status_deadline'] = 'proximo';
+                } else {
+                    $sprint['status_deadline'] = 'normal';
+                }
+            }
+        } else {
+            $sprint['dias_restantes'] = null;
+            $sprint['status_deadline'] = 'sem_deadline';
+        }
+        
+        // Calcular progresso (tasks completadas / total tasks)
+        if ($checkTodos && tableExists($pdo, 'sprint_tasks')) {
+            try {
+                $stmt = $pdo->prepare("
+                    SELECT 
+                        COUNT(*) as total,
+                        SUM(CASE WHEN t.estado = 'completada' THEN 1 ELSE 0 END) as completadas
+                    FROM sprint_tasks st
+                    JOIN todos t ON st.todo_id = t.id
+                    WHERE st.sprint_id = ?
+                ");
+                $stmt->execute([$sprint['id']]);
+                $stats = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                $sprint['total_tasks'] = $stats['total'] ?? 0;
+                $sprint['tasks_completadas'] = $stats['completadas'] ?? 0;
+                $sprint['percentagem'] = $sprint['total_tasks'] > 0 
+                    ? round(($sprint['tasks_completadas'] / $sprint['total_tasks']) * 100) 
+                    : 0;
+            } catch (PDOException $e) {
+                $sprint['total_tasks'] = 0;
+                $sprint['tasks_completadas'] = 0;
+                $sprint['percentagem'] = 0;
+            }
+        } else {
+            $sprint['total_tasks'] = 0;
+            $sprint['tasks_completadas'] = 0;
+            $sprint['percentagem'] = 0;
+        }
+    }
+    unset($sprint); // Limpar referência
+    
 } catch (PDOException $e) {
     $sprints = [];
     $message = "Erro ao carregar sprints: " . $e->getMessage();
@@ -527,6 +590,65 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
 .sprint-badge.pausa { background: #fef3c7; color: #92400e; }
 .sprint-badge.fechada { background: #f3f4f6; color: #6b7280; }
 
+.sprint-deadline {
+    font-size: 11px;
+    padding: 3px 6px;
+    border-radius: 3px;
+    display: inline-block;
+    margin-top: 5px;
+    font-weight: 600;
+}
+
+.sprint-deadline.normal { background: #dbeafe; color: #1e40af; }
+.sprint-deadline.proximo { background: #fef3c7; color: #92400e; }
+.sprint-deadline.urgente { background: #fee2e2; color: #991b1b; }
+.sprint-deadline.atrasado { background: #fecaca; color: #7f1d1d; }
+
+.sprint-progress {
+    margin-top: 8px;
+}
+
+.progress-bar-sprint {
+    height: 6px;
+    background: #e5e7eb;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #2563eb);
+    transition: width 0.3s ease;
+}
+
+.progress-bar-fill.complete {
+    background: linear-gradient(90deg, #10b981, #059669);
+}
+
+.progress-text {
+    font-size: 10px;
+    color: #6b7280;
+    margin-top: 2px;
+}
+
+.show-closed-container {
+    margin-bottom: 15px;
+    padding: 10px;
+    background: white;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+}
+
+.show-closed-container label {
+    margin: 0;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .sprint-details {
     flex: 1;
     background: white;
@@ -676,35 +798,70 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
     <!-- Sidebar: Lista de Sprints -->
     <div class="sprints-sidebar">
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0"><i class="bi bi-flag"></i> Sprints Abertas</h5>
+            <h5 class="mb-0"><i class="bi bi-flag"></i> Sprints</h5>
             <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createSprintModal">
                 <i class="bi bi-plus-lg"></i>
             </button>
         </div>
         
+        <!-- Checkbox para mostrar fechadas -->
+        <div class="show-closed-container">
+            <label>
+                <input type="checkbox" id="showClosedCheckbox" <?= $showClosed ? 'checked' : '' ?> 
+                       onchange="toggleShowClosed(this.checked)">
+                <span>Mostrar sprints fechadas</span>
+            </label>
+        </div>
+        
         <?php if (empty($sprints)): ?>
             <div class="text-center text-muted py-4">
                 <i class="bi bi-inbox" style="font-size: 32px;"></i>
-                <p class="mt-2">Nenhuma sprint aberta</p>
+                <p class="mt-2">Nenhuma sprint encontrada</p>
             </div>
         <?php else: ?>
             <?php foreach ($sprints as $sprint): ?>
                 <div class="sprint-item <?= $selectedSprint && $selectedSprint['id'] == $sprint['id'] ? 'active' : '' ?>" 
-                     onclick="window.location='?tab=sprints&sprint_id=<?= $sprint['id'] ?>'">
+                     onclick="window.location='?tab=sprints&sprint_id=<?= $sprint['id'] ?><?= $showClosed ? '&show_closed=1' : '' ?>'">
                     <div style="font-weight: 600; margin-bottom: 5px;">
                         <?= htmlspecialchars($sprint['nome']) ?>
                     </div>
-                    <div style="font-size: 12px; color: #6b7280;">
-                        <?php if ($sprint['data_fim']): ?>
-                            📅 <?= date('d/m/Y', strtotime($sprint['data_fim'])) ?>
-                        <?php endif; ?>
+                    
+                    <div style="font-size: 12px; color: #6b7280; margin-bottom: 5px;">
                         <?php if ($sprint['responsavel_nome']): ?>
-                            <br>👤 <?= htmlspecialchars($sprint['responsavel_nome']) ?>
+                            👤 <?= htmlspecialchars($sprint['responsavel_nome']) ?>
                         <?php endif; ?>
                     </div>
+                    
+                    <!-- Deadline info -->
+                    <?php if ($sprint['dias_restantes'] !== null): ?>
+                        <div class="sprint-deadline <?= $sprint['status_deadline'] ?>">
+                            <?php if ($sprint['dias_restantes'] < 0): ?>
+                                ⚠️ Atrasado <?= abs($sprint['dias_restantes']) ?> dias
+                            <?php elseif ($sprint['dias_restantes'] == 0): ?>
+                                🔥 Hoje é o deadline!
+                            <?php elseif ($sprint['dias_restantes'] == 1): ?>
+                                ⏰ Amanhã
+                            <?php else: ?>
+                                📅 <?= $sprint['dias_restantes'] ?> dias restantes
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
+                    
                     <span class="sprint-badge <?= $sprint['estado'] ?>">
                         <?= $sprint['estado'] ?>
                     </span>
+                    
+                    <!-- Progress bar -->
+                    <div class="sprint-progress">
+                        <div class="progress-bar-sprint">
+                            <div class="progress-bar-fill <?= $sprint['percentagem'] == 100 ? 'complete' : '' ?>" 
+                                 style="width: <?= $sprint['percentagem'] ?>%"></div>
+                        </div>
+                        <div class="progress-text">
+                            <?= $sprint['tasks_completadas'] ?>/<?= $sprint['total_tasks'] ?> tasks 
+                            (<?= $sprint['percentagem'] ?>%)
+                        </div>
+                    </div>
                 </div>
             <?php endforeach; ?>
         <?php endif; ?>
@@ -1361,6 +1518,22 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
 <?php endif; ?>
 
 <script>
+function toggleShowClosed(show) {
+    const currentUrl = new URL(window.location.href);
+    if (show) {
+        currentUrl.searchParams.set('show_closed', '1');
+    } else {
+        currentUrl.searchParams.delete('show_closed');
+    }
+    // Manter sprint_id se existir
+    const sprintId = currentUrl.searchParams.get('sprint_id');
+    currentUrl.searchParams.set('tab', 'sprints');
+    if (sprintId) {
+        currentUrl.searchParams.set('sprint_id', sprintId);
+    }
+    window.location.href = currentUrl.toString();
+}
+
 function changeTaskStatus(todoId, newStatus) {
     if (!confirm(`Alterar estado da task para "${newStatus}"?`)) return;
     

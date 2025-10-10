@@ -64,6 +64,7 @@ async function selectPrototype(id) {
         
         renderPrototypeDetail();
         loadStories();
+        loadParticipants(); // ⬅️ ADICIONAR ESTA LINHA
         
         // Update active state
         document.querySelectorAll('.prototype-item').forEach(item => {
@@ -97,126 +98,115 @@ function renderPrototypeDetail() {
                     <button class="edit-btn" onclick="editField('title', 'text')" title="Edit">✏️</button>
                 </div>
             </div>
+            
+            <!-- NOVA SECÇÃO: Team Participants -->
+            <div style="margin-top: 30px;">
+                <div class="section-header">
+                    <h4 style="font-size: 16px; color: #4a5568; margin: 0;">👥 Team Participants</h4>
+                    <button class="btn btn-primary btn-small" onclick="openParticipantModal()">+ Add Participant</button>
+                </div>
+                <div id="participantsTable" style="margin-top: 15px;"></div>
+            </div>
         </div>
 
         <div class="detail-section">
             <div class="section-header">
                 <h3>🎯 Product Vision Board</h3>
             </div>
-            
             <div class="vision-grid">
                 <div class="vision-card">
                     <div class="vision-header">
                         <h4>Vision</h4>
                         <button class="edit-btn" onclick="editField('vision', 'textarea')" title="Edit">✏️</button>
                     </div>
-                    <div class="vision-content" id="view-vision">
-                        ${formatText(currentPrototype.vision) || '<em class="text-muted">Not defined</em>'}
-                    </div>
+                    <div class="vision-content" id="view-vision">${escapeHtml(currentPrototype.vision || 'Not defined')}</div>
                 </div>
-
+                
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Product Statement</h4>
+                        <button class="edit-btn" onclick="editField('sentence', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-sentence">${escapeHtml(currentPrototype.sentence || 'Not defined')}</div>
+                </div>
+                
                 <div class="vision-card">
                     <div class="vision-header">
                         <h4>Target Group</h4>
-                        <button class="edit-btn" onclick="editField('targetGroup', 'textarea')" title="Edit">✏️</button>
+                        <button class="edit-btn" onclick="editField('target_group', 'textarea')" title="Edit">✏️</button>
                     </div>
-                    <div class="vision-content" id="view-targetGroup">
-                        ${formatText(currentPrototype.target_group) || '<em class="text-muted">Not defined</em>'}
-                    </div>
+                    <div class="vision-content" id="view-target_group">${escapeHtml(currentPrototype.target_group || 'Not defined')}</div>
                 </div>
-
+                
                 <div class="vision-card">
                     <div class="vision-header">
-                        <h4>Needs (Problems to Solve)</h4>
+                        <h4>Needs</h4>
                         <button class="edit-btn" onclick="editField('needs', 'textarea')" title="Edit">✏️</button>
                     </div>
-                    <div class="vision-content" id="view-needs">
-                        ${formatText(currentPrototype.needs) || '<em class="text-muted">Not defined</em>'}
-                    </div>
+                    <div class="vision-content" id="view-needs">${escapeHtml(currentPrototype.needs || 'Not defined')}</div>
                 </div>
-
+                
                 <div class="vision-card">
                     <div class="vision-header">
                         <h4>Product Description</h4>
-                        <button class="edit-btn" onclick="editField('productDescription', 'textarea')" title="Edit">✏️</button>
+                        <button class="edit-btn" onclick="editField('product_description', 'textarea')" title="Edit">✏️</button>
                     </div>
-                    <div class="vision-content" id="view-productDescription">
-                        ${formatText(currentPrototype.product_description) || '<em class="text-muted">Not defined</em>'}
-                    </div>
+                    <div class="vision-content" id="view-product_description">${escapeHtml(currentPrototype.product_description || 'Not defined')}</div>
                 </div>
-
+                
                 <div class="vision-card">
                     <div class="vision-header">
                         <h4>Business Goals</h4>
-                        <button class="edit-btn" onclick="editField('businessGoals', 'textarea')" title="Edit">✏️</button>
+                        <button class="edit-btn" onclick="editField('business_goals', 'textarea')" title="Edit">✏️</button>
                     </div>
-                    <div class="vision-content" id="view-businessGoals">
-                        ${formatText(currentPrototype.business_goals) || '<em class="text-muted">Not defined</em>'}
-                    </div>
+                    <div class="vision-content" id="view-business_goals">${escapeHtml(currentPrototype.business_goals || 'Not defined')}</div>
                 </div>
             </div>
         </div>
 
         <div class="detail-section">
             <div class="section-header">
-                <h3>💡 Product Statement</h3>
-                <button class="edit-btn" onclick="editField('sentence', 'textarea')" title="Edit">✏️</button>
+                <h3>🔗 Links & Resources</h3>
             </div>
-            <div class="statement-box" id="view-sentence">
-                ${formatText(currentPrototype.sentence) || '<em class="text-muted">Not defined</em>'}
-            </div>
-            <div class="statement-hint">
-                <small>Template: For [target customer], Who [customer needs], The [product name] Is a [product category] That [benefits]. Unlike [competitor], Our product [difference].</small>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Repository Links</div>
+                    <div class="info-value" id="view-repo_links">${formatTextWithLinks(currentPrototype.repo_links || 'Not defined')}</div>
+                    <button class="edit-btn" onclick="editField('repo_links', 'textarea')" title="Edit">✏️</button>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Documentation Links</div>
+                    <div class="info-value" id="view-documentation_links">${formatTextWithLinks(currentPrototype.documentation_links || 'Not defined')}</div>
+                    <button class="edit-btn" onclick="editField('documentation_links', 'textarea')" title="Edit">✏️</button>
+                </div>
             </div>
         </div>
 
         <div class="detail-section">
             <div class="section-header">
-                <h3>🔗 Resources</h3>
-            </div>
-            <div class="resources-grid">
-                <div class="resource-card">
-                    <div class="resource-header">
-                        <h4>🗂️ Repository Links</h4>
-                        <button class="edit-btn" onclick="editField('repoLinks', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="resource-content" id="view-repoLinks">
-                        ${formatLinks(currentPrototype.repo_links) || '<em class="text-muted">No links added</em>'}
-                    </div>
+                <h3>📝 User Stories</h3>
+                <div style="display: flex; gap: 10px;">
+                    <select id="priorityFilter" onchange="loadStories()" style="padding: 8px; border: 1px solid #e1e8ed; border-radius: 6px;">
+                        <option value="">All Priorities</option>
+                        <option value="Must">Must Have</option>
+                        <option value="Should">Should Have</option>
+                        <option value="Could">Could Have</option>
+                        <option value="Won't">Won't Have</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="openStoryModal()">+ Add Story</button>
                 </div>
-
-                <div class="resource-card">
-                    <div class="resource-header">
-                        <h4>📚 Documentation Links</h4>
-                        <button class="edit-btn" onclick="editField('documentationLinks', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="resource-content" id="view-documentationLinks">
-                        ${formatLinks(currentPrototype.documentation_links) || '<em class="text-muted">No links added</em>'}
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="detail-section">
-            <h3>📝 User Stories</h3>
-            <div class="filter-bar">
-                <select id="priorityFilter" onchange="loadStories()">
-                    <option value="">All Priorities</option>
-                    <option value="Must">Must Have</option>
-                    <option value="Should">Should Have</option>
-                    <option value="Could">Could Have</option>
-                    <option value="Won't">Won't Have</option>
-                </select>
-                <button class="btn btn-primary btn-small" onclick="openStoryModal()">+ Add Story</button>
             </div>
             <div id="storiesList"></div>
         </div>
 
         <div class="action-bar">
-            <button class="btn btn-success" onclick="exportMarkdown()">📄 Export MD</button>
             <button class="btn btn-danger" onclick="deletePrototype()">🗑️ Delete Prototype</button>
+            <button class="btn btn-secondary" onclick="exportMarkdown()">📥 Export Markdown</button>
         </div>
     `;
+    
+    // Carregar participantes após renderizar
+    loadParticipants();
 }
 
 // Função para formatar texto com quebras de linha
@@ -776,4 +766,191 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// ===== PARTICIPANTS MANAGEMENT =====
+let participants = [];
+
+async function loadParticipants() {
+    if (!currentPrototype) return;
+    
+    try {
+        const response = await fetch(`${API_PATH}?action=get_participants&prototype_id=${currentPrototype.id}`);
+        participants = await response.json();
+        renderParticipantsTable();
+    } catch (error) {
+        console.error('Error loading participants:', error);
+    }
+}
+
+function renderParticipantsTable() {
+    const container = document.getElementById('participantsTable');
+    if (!container) return;
+    
+    if (participants.length === 0) {
+        container.innerHTML = `
+            <div style="text-align: center; padding: 20px; color: #64748b;">
+                <p>No participants yet</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = `
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f9fafb; border-bottom: 2px solid #e5e7eb;">
+                    <th style="padding: 12px; text-align: left; font-weight: 600; color: #4a5568;">Username</th>
+                    <th style="padding: 12px; text-align: left; font-weight: 600; color: #4a5568;">Role</th>
+                    <th style="padding: 12px; text-align: center; font-weight: 600; color: #4a5568;">Leader</th>
+                    <th style="padding: 12px; text-align: center; font-weight: 600; color: #4a5568;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${participants.map(p => `
+                    <tr style="border-bottom: 1px solid #e5e7eb;">
+                        <td style="padding: 12px;">
+                            <strong>${escapeHtml(p.username)}</strong>
+                            ${p.is_leader ? '<span style="margin-left: 8px; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">👑 LEADER</span>' : ''}
+                        </td>
+                        <td style="padding: 12px;">${escapeHtml(p.role || 'member')}</td>
+                        <td style="padding: 12px; text-align: center;">
+                            ${p.is_leader 
+                                ? '<span style="color: #f59e0b; font-size: 20px;">👑</span>' 
+                                : `<button class="btn btn-secondary btn-small" onclick="setLeader(${p.id})" title="Make leader">Set Leader</button>`
+                            }
+                        </td>
+                        <td style="padding: 12px; text-align: center;">
+                            <button class="btn btn-danger btn-small" onclick="removeParticipant(${p.id})">🗑️</button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+async function openParticipantModal() {
+    try {
+        const response = await fetch(`${API_PATH}?action=get_available_users&prototype_id=${currentPrototype.id}`);
+        const availableUsers = await response.json();
+        
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Add Participant</h3>
+                    <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
+                </div>
+                <form onsubmit="addParticipant(event)">
+                    <div class="form-group">
+                        <label>Select User</label>
+                        <select id="participantUsername" required style="width: 100%; padding: 10px; border: 1px solid #e1e8ed; border-radius: 6px;">
+                            <option value="">-- Select a user --</option>
+                            ${availableUsers.map(u => `<option value="${escapeHtml(u.username)}">${escapeHtml(u.username)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Role</label>
+                        <input type="text" id="participantRole" value="member" placeholder="e.g., Developer, Designer, PM">
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="participantIsLeader">
+                            <span>Make this user the project leader</span>
+                        </label>
+                    </div>
+                    <div class="action-bar">
+                        <button type="submit" class="btn btn-primary">Add Participant</button>
+                        <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    } catch (error) {
+        console.error('Error loading users:', error);
+        alert('Error loading available users');
+    }
+}
+
+async function addParticipant(event) {
+    event.preventDefault();
+    
+    const username = document.getElementById('participantUsername').value;
+    const role = document.getElementById('participantRole').value;
+    const isLeader = document.getElementById('participantIsLeader').checked;
+    
+    try {
+        const response = await fetch(API_PATH, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                action: 'add_participant',
+                prototype_id: currentPrototype.id,
+                username: username,
+                role: role,
+                is_leader: isLeader
+            })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            document.querySelector('.modal').remove();
+            loadParticipants();
+        } else if (result.error) {
+            alert(result.error);
+        }
+    } catch (error) {
+        console.error('Error adding participant:', error);
+        alert('Error adding participant');
+    }
+}
+
+async function setLeader(participantId) {
+    if (!confirm('Set this user as project leader?')) return;
+    
+    try {
+        const response = await fetch(API_PATH, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                action: 'set_leader',
+                prototype_id: currentPrototype.id,
+                participant_id: participantId
+            })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            loadParticipants();
+        }
+    } catch (error) {
+        console.error('Error setting leader:', error);
+        alert('Error setting leader');
+    }
+}
+
+async function removeParticipant(participantId) {
+    if (!confirm('Remove this participant?')) return;
+    
+    try {
+        const formData = new FormData();
+        formData.append('action', 'remove_participant');
+        formData.append('id', participantId);
+        
+        const response = await fetch(API_PATH, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            loadParticipants();
+        }
+    } catch (error) {
+        console.error('Error removing participant:', error);
+        alert('Error removing participant');
+    }
 }

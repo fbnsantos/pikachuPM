@@ -659,6 +659,63 @@ textarea.edit-input {
         gap: 10px;
     }
 }
+
+/* Edit Button for inline editing */
+.edit-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    color: #94a3b8;
+    transition: color 0.2s;
+    padding: 5px;
+}
+
+.edit-btn:hover {
+    color: #3b82f6;
+}
+
+/* Vision Card Headers */
+.vision-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.vision-header h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #4a5568;
+    margin: 0;
+}
+
+.vision-content {
+    font-size: 14px;
+    color: #1a202c;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+/* Links styling */
+.info-value a {
+    color: #3b82f6;
+    text-decoration: underline;
+    transition: color 0.2s;
+}
+
+.info-value a:hover {
+    color: #2563eb;
+}
+
+/* Button Sizes */
+.btn-small {
+    padding: 6px 12px;
+    font-size: 13px;
+}
     </style>
 </head>
 <body>

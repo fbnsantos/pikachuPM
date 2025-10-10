@@ -31,6 +31,23 @@ try {
 // Só continuar se conseguiu conectar
 if (empty($errors)) {
     try {
+        // ===== OPÇÃO DE REINSTALAÇÃO COMPLETA =====
+        $forceReinstall = isset($_GET['reinstall']) && $_GET['reinstall'] === 'true';
+        
+        if ($forceReinstall) {
+            try {
+                // Drop tables na ordem correta (respeitar foreign keys)
+                $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
+                $pdo->exec("DROP TABLE IF EXISTS user_story_tasks");
+                $pdo->exec("DROP TABLE IF EXISTS user_stories");
+                $pdo->exec("DROP TABLE IF EXISTS prototypes");
+                $pdo->exec("SET FOREIGN_KEY_CHECKS = 1");
+                $success[] = "✓ Tabelas antigas removidas com sucesso!";
+            } catch (PDOException $e) {
+                $errors[] = "Erro ao remover tabelas: " . $e->getMessage();
+            }
+        }
+        
         // Verificar se as tabelas já existem
         $tables = ['prototypes', 'user_stories', 'user_story_tasks'];
         $existingTables = [];
@@ -44,7 +61,7 @@ if (empty($errors)) {
         
         if (!empty($existingTables)) {
             $errors[] = "⚠️ Aviso: As seguintes tabelas já existem: " . implode(', ', $existingTables);
-            $errors[] = "Se pretende reinstalar, elimine estas tabelas manualmente primeiro.";
+            $errors[] = "Para reinstalar, <a href='#' onclick='confirmReinstall(event)' style='color: #dc2626; font-weight: bold; text-decoration: underline;'>clique aqui para REINSTALAR</a> (irá apagar todas as tabelas e dados!)";
         }
         
         // ===== TABELA PROTOTYPES =====
@@ -90,11 +107,11 @@ if (empty($errors)) {
         $success[] = "Tabela 'user_stories' criada com sucesso!";
         
         // ===== TABELA USER_STORY_TASKS =====
-        // Verificar se a tabela tasks existe antes de criar a constraint
-        $result = $pdo->query("SHOW TABLES LIKE 'tasks'");
+        // Verificar se a tabela todos existe antes de criar a constraint
+        $result = $pdo->query("SHOW TABLES LIKE 'todos'");
         
         if ($result->rowCount() > 0) {
-            // Adicionar foreign key se a tabela tasks existe
+            // Adicionar foreign key se a tabela todos existe
             $sql_user_story_tasks = "
             CREATE TABLE IF NOT EXISTS user_story_tasks (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -102,15 +119,15 @@ if (empty($errors)) {
                 task_id INT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (story_id) REFERENCES user_stories(id) ON DELETE CASCADE,
-                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+                FOREIGN KEY (task_id) REFERENCES todos(id) ON DELETE CASCADE,
                 UNIQUE KEY unique_story_task (story_id, task_id),
                 INDEX idx_story (story_id),
                 INDEX idx_task (task_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             ";
-            $success[] = "Tabela 'user_story_tasks' criada com Foreign Key para 'tasks'!";
+            $success[] = "Tabela 'user_story_tasks' criada com Foreign Key para 'todos'!";
         } else {
-            // Criar sem foreign key para tasks
+            // Criar sem foreign key para todos
             $sql_user_story_tasks = "
             CREATE TABLE IF NOT EXISTS user_story_tasks (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -122,7 +139,7 @@ if (empty($errors)) {
                 INDEX idx_task (task_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             ";
-            $errors[] = "⚠️ Aviso: Tabela 'tasks' não encontrada. A tabela 'user_story_tasks' foi criada sem a Foreign Key para tasks.";
+            $errors[] = "⚠️ Aviso: Tabela 'todos' não encontrada. A tabela 'user_story_tasks' foi criada sem a Foreign Key para todos.";
         }
         
         $pdo->exec($sql_user_story_tasks);
@@ -309,6 +326,35 @@ if (empty($errors)) {
             font-size: 13px;
         }
     </style>
+    <script>
+        function confirmReinstall(event) {
+            event.preventDefault();
+            
+            const confirmation = confirm(
+                "⚠️ ATENÇÃO - AÇÃO DESTRUTIVA ⚠️\n\n" +
+                "Tem a certeza que deseja REINSTALAR o módulo?\n\n" +
+                "Esta ação irá:\n" +
+                "• APAGAR todas as tabelas existentes\n" +
+                "• REMOVER todos os protótipos criados\n" +
+                "• ELIMINAR todas as user stories\n" +
+                "• APAGAR todas as ligações com todos\n\n" +
+                "TODOS OS DADOS SERÃO PERDIDOS!\n\n" +
+                "Deseja continuar?"
+            );
+            
+            if (confirmation) {
+                const doubleCheck = prompt(
+                    "Para confirmar, digite 'REINSTALAR' (em maiúsculas):"
+                );
+                
+                if (doubleCheck === 'REINSTALAR') {
+                    window.location.href = '?reinstall=true';
+                } else {
+                    alert('Reinstalação cancelada. Texto incorreto.');
+                }
+            }
+        }
+    </script>
 </head>
 <body>
     <div class="container">
@@ -346,7 +392,7 @@ if (empty($errors)) {
                 <h3>⚠ Avisos:</h3>
                 <ul>
                     <?php foreach ($errors as $error): ?>
-                        <li><?php echo htmlspecialchars($error); ?></li>
+                        <li><?php echo $error; // Já contém HTML do link ?></li>
                     <?php endforeach; ?>
                 </ul>
             </div>
@@ -362,13 +408,15 @@ if (empty($errors)) {
                 </div>
             <?php endif; ?>
             
-            <div class="info-box">
-                <h4>💡 O que fazer:</h4>
-                <p>
-                    Se pretende reinstalar:<br>
-                    1. Aceda ao phpMyAdmin ou MySQL<br>
-                    2. Execute: <code>DROP TABLE user_story_tasks, user_stories, prototypes;</code><br>
-                    3. Execute novamente este instalador
+            <div class="info-box" style="background: #fef3c7; border-color: #fcd34d;">
+                <h4 style="color: #92400e;">⚠️ Atenção - Reinstalação</h4>
+                <p style="color: #78350f;">
+                    <strong>Ao reinstalar, TODOS os dados serão perdidos:</strong><br>
+                    • Todos os protótipos criados<br>
+                    • Todas as user stories<br>
+                    • Todas as ligações com todos<br><br>
+                    <strong>Esta ação é IRREVERSÍVEL!</strong><br>
+                    Certifique-se de fazer backup antes de prosseguir.
                 </p>
             </div>
             

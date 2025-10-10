@@ -3,7 +3,7 @@
 header('Content-Type: application/json');
 
 // Incluir configuração do projeto
-include_once __DIR__ . '../../config.php';
+include_once __DIR__ . '/config.php';
 
 // Criar conexão PDO usando as variáveis do config.php
 try {
@@ -152,7 +152,7 @@ try {
             $storyId = $_GET['story_id'] ?? 0;
             $stmt = $pdo->prepare("
                 SELECT t.*, ust.id as link_id 
-                FROM tasks t
+                FROM todos t
                 JOIN user_story_tasks ust ON t.id = ust.task_id
                 WHERE ust.story_id = ?
             ");

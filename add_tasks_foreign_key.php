@@ -1,9 +1,9 @@
 <?php
 /**
- * Script OPCIONAL para adicionar Foreign Key para tabela tasks
+ * Script OPCIONAL para adicionar Foreign Key para tabela todos
  * Execute este script APENAS se:
- * 1. Já tiver criado a tabela 'tasks' no sistema
- * 2. Quiser estabelecer a relação entre user_story_tasks e tasks
+ * 1. Já tiver criado a tabela 'todos' no sistema
+ * 2. Quiser estabelecer a relação entre user_story_tasks e todos
  */
 
 include_once __DIR__ . '/config.php';
@@ -22,14 +22,14 @@ try {
         ]
     );
     
-    // Verificar se a tabela tasks existe
-    $result = $pdo->query("SHOW TABLES LIKE 'tasks'");
+    // Verificar se a tabela todos existe
+    $result = $pdo->query("SHOW TABLES LIKE 'todos'");
     
     if ($result->rowCount() === 0) {
-        $errors[] = "A tabela 'tasks' ainda não existe no sistema.";
-        $errors[] = "Crie primeiro a tabela 'tasks' antes de executar este script.";
+        $errors[] = "A tabela 'todos' ainda não existe no sistema.";
+        $errors[] = "Crie primeiro a tabela 'todos' antes de executar este script.";
     } else {
-        $success[] = "✓ Tabela 'tasks' encontrada!";
+        $success[] = "✓ Tabela 'todos' encontrada!";
         
         // Verificar se a foreign key já existe
         $stmt = $pdo->query("
@@ -37,21 +37,21 @@ try {
             FROM information_schema.KEY_COLUMN_USAGE 
             WHERE TABLE_SCHEMA = '$db_name' 
             AND TABLE_NAME = 'user_story_tasks' 
-            AND REFERENCED_TABLE_NAME = 'tasks'
+            AND REFERENCED_TABLE_NAME = 'todos'
         ");
         
         if ($stmt->rowCount() > 0) {
-            $errors[] = "A Foreign Key para 'tasks' já existe!";
+            $errors[] = "A Foreign Key para 'todos' já existe!";
         } else {
             // Adicionar a Foreign Key
             $pdo->exec("
                 ALTER TABLE user_story_tasks
                 ADD CONSTRAINT fk_user_story_tasks_task_id
-                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                FOREIGN KEY (task_id) REFERENCES todos(id) ON DELETE CASCADE
             ");
             
             $success[] = "✓ Foreign Key adicionada com sucesso!";
-            $success[] = "✓ A tabela user_story_tasks está agora totalmente ligada à tabela tasks.";
+            $success[] = "✓ A tabela user_story_tasks está agora totalmente ligada à tabela todos.";
             
             // Adicionar unique constraint se não existir
             try {

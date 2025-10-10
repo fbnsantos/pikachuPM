@@ -82,161 +82,7 @@ async function loadPrototypes() {
     }
 }
 
-async function selectPrototype(id, clickEvent) {
-    try {
-        const response = await fetch(`${API_PATH}?action=get_prototype&id=${id}`);
-        currentPrototype = await response.json();
-        
-        console.log('Prototype selected:', currentPrototype);
-        
-        renderPrototypeDetail();
-        loadStories();
-        loadParticipants();
-        
-        // Update active state
-        document.querySelectorAll('.prototype-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        
-        // Adicionar classe active ao item clicado
-        if (clickEvent && clickEvent.currentTarget) {
-            clickEvent.currentTarget.classList.add('active');
-        }
-    } catch (error) {
-        console.error('Error loading prototype:', error);
-    }
-}
 
-function renderPrototypeDetail() {
-    const panel = document.getElementById('detailPanel');
-    
-    panel.innerHTML = `
-        <div class="detail-section">
-            <div class="section-header">
-                <h3>📋 Basic Information</h3>
-            </div>
-            <div class="info-grid">
-                <div class="info-item">
-                    <div class="info-label">Short Name</div>
-                    <div class="info-value" id="view-shortName">${escapeHtml(currentPrototype.short_name || 'Not defined')}</div>
-                    <button class="edit-btn" onclick="editField('short_name', 'text')" title="Edit">✏️</button>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Title</div>
-                    <div class="info-value" id="view-title">${escapeHtml(currentPrototype.title || 'Not defined')}</div>
-                    <button class="edit-btn" onclick="editField('title', 'text')" title="Edit">✏️</button>
-                </div>
-            </div>
-            
-            <!-- Team Participants -->
-            <div style="margin-top: 30px;">
-                <div class="section-header">
-                    <h4 style="font-size: 16px; color: #4a5568; margin: 0;">👥 Team Participants</h4>
-                    <button class="btn btn-primary btn-small" onclick="openParticipantModal()">+ Add Participant</button>
-                </div>
-                <div id="participantsTable" style="margin-top: 15px;"></div>
-            </div>
-        </div>
-
-        <div class="detail-section">
-            <div class="section-header">
-                <h3>🎯 Product Vision Board</h3>
-            </div>
-            <div class="vision-grid">
-                <div class="vision-card">
-                    <div class="vision-header">
-                        <h4>Vision</h4>
-                        <button class="edit-btn" onclick="editField('vision', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="vision-content" id="view-vision">${escapeHtml(currentPrototype.vision || 'Not defined')}</div>
-                </div>
-                
-                <div class="vision-card">
-                    <div class="vision-header">
-                        <h4>Product Statement</h4>
-                        <button class="edit-btn" onclick="editField('sentence', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="vision-content" id="view-sentence">${escapeHtml(currentPrototype.sentence || 'Not defined')}</div>
-                </div>
-                
-                <div class="vision-card">
-                    <div class="vision-header">
-                        <h4>Target Group</h4>
-                        <button class="edit-btn" onclick="editField('target_group', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="vision-content" id="view-target_group">${escapeHtml(currentPrototype.target_group || 'Not defined')}</div>
-                </div>
-                
-                <div class="vision-card">
-                    <div class="vision-header">
-                        <h4>Needs</h4>
-                        <button class="edit-btn" onclick="editField('needs', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="vision-content" id="view-needs">${escapeHtml(currentPrototype.needs || 'Not defined')}</div>
-                </div>
-                
-                <div class="vision-card">
-                    <div class="vision-header">
-                        <h4>Product Description</h4>
-                        <button class="edit-btn" onclick="editField('product_description', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="vision-content" id="view-product_description">${escapeHtml(currentPrototype.product_description || 'Not defined')}</div>
-                </div>
-                
-                <div class="vision-card">
-                    <div class="vision-header">
-                        <h4>Business Goals</h4>
-                        <button class="edit-btn" onclick="editField('business_goals', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="vision-content" id="view-business_goals">${escapeHtml(currentPrototype.business_goals || 'Not defined')}</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="detail-section">
-            <div class="section-header">
-                <h3>🔗 Links & Resources</h3>
-            </div>
-            <div class="info-grid">
-                <div class="info-item">
-                    <div class="info-label">Repository Links</div>
-                    <div class="info-value" id="view-repo_links">${formatTextWithLinks(currentPrototype.repo_links || 'Not defined')}</div>
-                    <button class="edit-btn" onclick="editField('repo_links', 'textarea')" title="Edit">✏️</button>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Documentation Links</div>
-                    <div class="info-value" id="view-documentation_links">${formatTextWithLinks(currentPrototype.documentation_links || 'Not defined')}</div>
-                    <button class="edit-btn" onclick="editField('documentation_links', 'textarea')" title="Edit">✏️</button>
-                </div>
-            </div>
-        </div>
-
-        <div class="detail-section">
-            <div class="section-header">
-                <h3>📝 User Stories</h3>
-                <div style="display: flex; gap: 10px;">
-                    <select id="priorityFilter" onchange="loadStories()" style="padding: 8px; border: 1px solid #e1e8ed; border-radius: 6px;">
-                        <option value="">All Priorities</option>
-                        <option value="Must">Must Have</option>
-                        <option value="Should">Should Have</option>
-                        <option value="Could">Could Have</option>
-                        <option value="Won't">Won't Have</option>
-                    </select>
-                    <button class="btn btn-primary" onclick="openStoryModal()">+ Add Story</button>
-                </div>
-            </div>
-            <div id="storiesList"></div>
-        </div>
-
-        <div class="action-bar">
-            <button class="btn btn-danger" onclick="deletePrototype()">🗑️ Delete Prototype</button>
-            <button class="btn btn-secondary" onclick="exportMarkdown()">📥 Export Markdown</button>
-        </div>
-    `;
-    
-    // Carregar participantes após renderizar
-    loadParticipants();
-}
 
 // ===== INLINE EDITING =====
 
@@ -1073,6 +919,164 @@ async function createTaskFromStory(event, storyId) {
     } catch (error) {
         console.error('Error creating task:', error);
         alert('Error creating task');
+    }
+}
+
+
+
+function renderPrototypeDetail() {
+    const panel = document.getElementById('detailPanel');
+    
+    panel.innerHTML = `
+        <div class="detail-section">
+            <div class="section-header">
+                <h3>📋 Basic Information</h3>
+            </div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Short Name</div>
+                    <div class="info-value" id="view-shortName">${escapeHtml(currentPrototype.short_name || 'Not defined')}</div>
+                    <button class="edit-btn" onclick="editField('short_name', 'text')" title="Edit">✏️</button>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Title</div>
+                    <div class="info-value" id="view-title">${escapeHtml(currentPrototype.title || 'Not defined')}</div>
+                    <button class="edit-btn" onclick="editField('title', 'text')" title="Edit">✏️</button>
+                </div>
+            </div>
+            
+            <!-- Team Participants -->
+            <div style="margin-top: 30px;">
+                <div class="section-header">
+                    <h4 style="font-size: 16px; color: #4a5568; margin: 0;">👥 Team Participants</h4>
+                    <button class="btn btn-primary btn-small" onclick="openParticipantModal()">+ Add Participant</button>
+                </div>
+                <div id="participantsTable" style="margin-top: 15px;"></div>
+            </div>
+        </div>
+
+        <div class="detail-section">
+            <div class="section-header">
+                <h3>🎯 Product Vision Board</h3>
+            </div>
+            <div class="vision-grid">
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Vision</h4>
+                        <button class="edit-btn" onclick="editField('vision', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-vision">${escapeHtml(currentPrototype.vision || 'Not defined')}</div>
+                </div>
+                
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Product Statement</h4>
+                        <button class="edit-btn" onclick="editField('sentence', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-sentence">${escapeHtml(currentPrototype.sentence || 'Not defined')}</div>
+                </div>
+                
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Target Group</h4>
+                        <button class="edit-btn" onclick="editField('target_group', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-target_group">${escapeHtml(currentPrototype.target_group || 'Not defined')}</div>
+                </div>
+                
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Needs</h4>
+                        <button class="edit-btn" onclick="editField('needs', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-needs">${escapeHtml(currentPrototype.needs || 'Not defined')}</div>
+                </div>
+                
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Product Description</h4>
+                        <button class="edit-btn" onclick="editField('product_description', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-product_description">${escapeHtml(currentPrototype.product_description || 'Not defined')}</div>
+                </div>
+                
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Business Goals</h4>
+                        <button class="edit-btn" onclick="editField('business_goals', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-business_goals">${escapeHtml(currentPrototype.business_goals || 'Not defined')}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="detail-section">
+            <div class="section-header">
+                <h3>🔗 Links & Resources</h3>
+            </div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Repository Links</div>
+                    <div class="info-value" id="view-repo_links">${formatTextWithLinks(currentPrototype.repo_links || 'Not defined')}</div>
+                    <button class="edit-btn" onclick="editField('repo_links', 'textarea')" title="Edit">✏️</button>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Documentation Links</div>
+                    <div class="info-value" id="view-documentation_links">${formatTextWithLinks(currentPrototype.documentation_links || 'Not defined')}</div>
+                    <button class="edit-btn" onclick="editField('documentation_links', 'textarea')" title="Edit">✏️</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="detail-section">
+            <div class="section-header">
+                <h3>📝 User Stories</h3>
+                <div style="display: flex; gap: 10px;">
+                    <select id="priorityFilter" onchange="loadStories()" style="padding: 8px; border: 1px solid #e1e8ed; border-radius: 6px;">
+                        <option value="">All Priorities</option>
+                        <option value="Must">Must Have</option>
+                        <option value="Should">Should Have</option>
+                        <option value="Could">Could Have</option>
+                        <option value="Won't">Won't Have</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="openStoryModal()">+ Add Story</button>
+                </div>
+            </div>
+            <div id="storiesList"></div>
+        </div>
+
+        <div class="action-bar">
+            <button class="btn btn-danger" onclick="deletePrototype()">🗑️ Delete Prototype</button>
+            <button class="btn btn-secondary" onclick="exportMarkdown()">📥 Export Markdown</button>
+        </div>
+    `;
+    
+    // Carregar participantes após renderizar
+    loadParticipants();
+}
+
+async function selectPrototype(id, clickEvent) {
+    try {
+        const response = await fetch(`${API_PATH}?action=get_prototype&id=${id}`);
+        currentPrototype = await response.json();
+        
+        console.log('Prototype selected:', currentPrototype);
+        
+        renderPrototypeDetail();
+        loadStories();
+        loadParticipants();
+        
+        // Update active state
+        document.querySelectorAll('.prototype-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        
+        // Adicionar classe active ao item clicado
+        if (clickEvent && clickEvent.currentTarget) {
+            clickEvent.currentTarget.classList.add('active');
+        }
+    } catch (error) {
+        console.error('Error loading prototype:', error);
     }
 }
 

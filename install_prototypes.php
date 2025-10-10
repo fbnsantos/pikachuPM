@@ -46,6 +46,26 @@ try {
     if (!empty($existingTables) && count($existingTables) < count($tables)) {
         $errors[] = "Instalação incompleta detectada! Tabelas existentes: " . implode(', ', $existingTables);
         $errors[] = "Recomenda-se reinstalar completamente.";
+                // ===== TABELA PROTOTYPE_PARTICIPANTS (NOVA!) =====
+        $sql_participants = "
+        CREATE TABLE IF NOT EXISTS prototype_participants (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            prototype_id INT NOT NULL,
+            user_id INT NOT NULL,
+            role VARCHAR(50) DEFAULT 'member',
+            is_leader BOOLEAN DEFAULT FALSE,
+            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (prototype_id) REFERENCES prototypes(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES user_tokens(user_id) ON DELETE CASCADE,
+            UNIQUE KEY unique_user_prototype (prototype_id, user_id),
+            INDEX idx_prototype (prototype_id),
+            INDEX idx_user (user_id),
+            INDEX idx_leader (is_leader)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ";
+        
+        $pdo->exec($sql_participants);
+        $success[] = "Tabela 'prototype_participants' criada com sucesso!";
     }
     
     // Se todas as tabelas já existirem, avisar

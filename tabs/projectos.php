@@ -367,13 +367,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Verificar se tabela todos existe
                 $checkTodos = $pdo->query("SHOW TABLES LIKE 'todos'")->fetch();
                 if ($checkTodos) {
-                    // Criar nova task
-                    $stmt = $pdo->prepare("INSERT INTO todos (titulo, descritivo, data_limite, autor, estado) VALUES (?, ?, ?, ?, 'aberta')");
+                    // Obter o projeto_id do deliverable
+                    $deliverableStmt = $pdo->prepare("SELECT project_id FROM project_deliverables WHERE id=?");
+                    $deliverableStmt->execute([$_POST['deliverable_id']]);
+                    $deliverable = $deliverableStmt->fetch(PDO::FETCH_ASSOC);
+                    $projectId = $deliverable['project_id'];
+                    
+                    // Criar nova task na tabela todos com projeto_id preenchido
+                    $stmt = $pdo->prepare("INSERT INTO todos (titulo, descritivo, data_limite, autor, projeto_id, estado) VALUES (?, ?, ?, ?, ?, 'aberta')");
                     $stmt->execute([
                         $_POST['task_title'],
                         $_POST['task_description'] ?? '',
                         $_POST['task_due_date'] ?: null,
-                        $_SESSION['user_id']
+                        $_SESSION['user_id'],
+                        $projectId
                     ]);
                     $todoId = $pdo->lastInsertId();
                     
@@ -384,7 +391,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Recalcular estado
                     updateDeliverableStatus($pdo, $_POST['deliverable_id']);
                     
-                    $message = "Nova task criada e associada ao entregável!";
+                    $message = "Nova task criada e associada ao entregável! (projeto_id = $projectId)";
                     $messageType = 'success';
                 } else {
                     $message = "Tabela 'todos' não existe!";
@@ -397,17 +404,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Agora usamos deliverable_tasks para múltiplas tasks
                 $checkTodos = $pdo->query("SHOW TABLES LIKE 'todos'")->fetch();
                 if ($checkTodos) {
-                    $deliverable = $pdo->prepare("SELECT * FROM project_deliverables WHERE id=?");
+                    // Verificar se coluna projeto_id existe, se não, criar
+                    try {
+                        $checkColumn = $pdo->query("SHOW COLUMNS FROM todos LIKE 'projeto_id'")->fetch();
+                        if (!$checkColumn) {
+                            $pdo->exec("ALTER TABLE todos ADD COLUMN projeto_id INT NULL AFTER responsavel, ADD INDEX idx_projeto (projeto_id)");
+                        }
+                    } catch (PDOException $e) {
+                        // Coluna já existe ou erro - continuar
+                    }
+                    
+                    $deliverable = $pdo->prepare("SELECT pd.*, pd.project_id FROM project_deliverables pd WHERE pd.id=?");
                     $deliverable->execute([$_POST['deliverable_id']]);
                     $deliv = $deliverable->fetch(PDO::FETCH_ASSOC);
                     
-                    // Criar todo
-                    $stmt = $pdo->prepare("INSERT INTO todos (titulo, descritivo, data_limite, autor, estado) VALUES (?, ?, ?, ?, 'aberta')");
+                    // Criar todo com projeto_id
+                    $stmt = $pdo->prepare("INSERT INTO todos (titulo, descritivo, data_limite, autor, projeto_id, estado) VALUES (?, ?, ?, ?, ?, 'aberta')");
                     $stmt->execute([
                         $deliv['title'],
                         $deliv['description'],
                         $deliv['due_date'],
-                        $_SESSION['user_id']
+                        $_SESSION['user_id'],
+                        $deliv['project_id']
                     ]);
                     $todoId = $pdo->lastInsertId();
                     

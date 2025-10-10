@@ -24,6 +24,9 @@ try {
 }
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
+// Verificar e gerar token do usuário
+$user_id = $_SESSION['user_id'];
+$username = $_SESSION['username'];
 
 try {
     switch($action) {

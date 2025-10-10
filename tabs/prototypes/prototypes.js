@@ -1,70 +1,43 @@
-/**
- * PIKACHUPM - PROTOTYPES MODULE
- * Complete JavaScript file with correct function order
- */
-
-// ===== FUNÇÕES AUXILIARES (DEVEM VIR PRIMEIRO!) =====
-
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function makeLinksClickable(text) {
-    if (!text) return '';
-    
-    // Regex para detectar URLs
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    
-    // Substitui URLs por links clicáveis
-    return text.replace(urlRegex, (url) => {
-        return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #3b82f6; text-decoration: underline;">${url}</a>`;
-    });
-}
-
-function formatTextWithLinks(text) {
-    if (!text) return '';
-    return makeLinksClickable(escapeHtml(text)).replace(/\n/g, '<br>');
-}
-
-// ===== GLOBAL VARIABLES =====
-const API_PATH = 'tabs/prototypes/prototypes_api.php';
+// prototypes.js
 let currentPrototype = null;
 let currentStory = null;
+let prototypes = [];
 let stories = [];
-let participants = [];
 
-// ===== INITIALIZATION =====
-document.addEventListener('DOMContentLoaded', function() {
+// Caminho da API (definido no HTML ou usar padrão)
+const API_PATH = window.PROTOTYPES_API_PATH || 'prototypes_api.php';
+
+// Inicialização
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('Prototypes JS loaded. API Path:', API_PATH);
     loadPrototypes();
+    
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+        loadPrototypes(e.target.value);
+    });
 });
 
-function createNewPrototype() {
-    console.log('createNewPrototype() chamada!');
-    try {
-        openPrototypeModal();
-    } catch (error) {
-        console.error('Erro ao abrir modal:', error);
-        alert('Erro ao abrir modal: ' + error.message);
-    }
-}
-
 // ===== PROTOTYPES =====
-
-async function loadPrototypes() {
+async function loadPrototypes(search = '') {
     try {
-        const response = await fetch(`${API_PATH}?action=get_prototypes`);
-        const prototypes = await response.json();
+        const url = `${API_PATH}?action=get_prototypes${search ? `&search=${encodeURIComponent(search)}` : ''}`;
+        console.log('Loading prototypes from:', url);
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        prototypes = await response.json();
+        console.log('Prototypes loaded:', prototypes);
         
         const listEl = document.getElementById('prototypesList');
         
         if (prototypes.length === 0) {
             listEl.innerHTML = `
                 <div class="empty-state">
-                    <h3>No prototypes yet</h3>
-                    <p>Create your first prototype</p>
+                    <h3>No prototypes found</h3>
+                    <p>Create your first prototype to get started</p>
                 </div>
             `;
             return;
@@ -72,7 +45,7 @@ async function loadPrototypes() {
         
         listEl.innerHTML = prototypes.map(p => `
             <div class="prototype-item ${currentPrototype?.id === p.id ? 'active' : ''}" 
-                 onclick="selectPrototype(${p.id}, event)">
+                 onclick="selectPrototype(${p.id})">
                 <h3>${escapeHtml(p.short_name)}</h3>
                 <p>${escapeHtml(p.title)}</p>
             </div>
@@ -82,101 +55,302 @@ async function loadPrototypes() {
     }
 }
 
-
-
-// ===== INLINE EDITING =====
-
-async function editField(fieldName, inputType) {
-    const viewElement = document.getElementById(`view-${fieldName}`);
-    if (!viewElement) return;
-    
-    const currentValue = currentPrototype[fieldName] || '';
-    const parent = viewElement.parentElement;
-    
-    // Salvar o conteúdo original
-    const originalContent = viewElement.innerHTML;
-    
-    // Criar input
-    let inputElement;
-    if (inputType === 'textarea') {
-        inputElement = document.createElement('textarea');
-        inputElement.style.minHeight = '100px';
-        inputElement.style.width = '100%';
-        inputElement.style.padding = '10px';
-        inputElement.style.border = '2px solid #3b82f6';
-        inputElement.style.borderRadius = '6px';
-        inputElement.style.fontFamily = 'inherit';
-        inputElement.style.fontSize = '14px';
-    } else {
-        inputElement = document.createElement('input');
-        inputElement.type = 'text';
-        inputElement.style.width = '100%';
-        inputElement.style.padding = '10px';
-        inputElement.style.border = '2px solid #3b82f6';
-        inputElement.style.borderRadius = '6px';
-        inputElement.style.fontSize = '14px';
+async function selectPrototype(id) {
+    try {
+        const response = await fetch(`${API_PATH}?action=get_prototype&id=${id}`);
+        currentPrototype = await response.json();
+        
+        console.log('Prototype selected:', currentPrototype);
+        
+        renderPrototypeDetail();
+        loadStories();
+        
+        // Update active state
+        document.querySelectorAll('.prototype-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        event.currentTarget?.classList.add('active');
+    } catch (error) {
+        console.error('Error loading prototype:', error);
     }
-    
-    inputElement.value = currentValue;
-    inputElement.id = `edit-${fieldName}`;
-    
-    // Substituir o elemento de visualização
-    viewElement.replaceWith(inputElement);
-    inputElement.focus();
-    
-    // Criar botões de ação
-    const actionDiv = document.createElement('div');
-    actionDiv.style.marginTop = '10px';
-    actionDiv.style.display = 'flex';
-    actionDiv.style.gap = '10px';
-    actionDiv.innerHTML = `
-        <button class="btn btn-primary btn-small" onclick="saveFieldEdit('${fieldName}', '${inputType}')">💾 Save</button>
-        <button class="btn btn-secondary btn-small" onclick="cancelFieldEdit('${fieldName}', '${inputType}', \`${originalContent.replace(/`/g, '\\`')}\`)">❌ Cancel</button>
-    `;
-    
-    inputElement.after(actionDiv);
-    
-    // Ocultar botão de editar
-    const editBtn = parent.querySelector('.edit-btn');
-    if (editBtn) editBtn.style.display = 'none';
 }
 
-async function saveFieldEdit(fieldName, inputType) {
-    const inputElement = document.getElementById(`edit-${fieldName}`);
-    if (!inputElement) return;
+// Adicionar ao prototypes.js - substituir a função renderPrototypeDetail()
+
+function renderPrototypeDetail() {
+    const panel = document.getElementById('detailPanel');
     
+    panel.innerHTML = `
+        <div class="detail-section">
+            <div class="section-header">
+                <h3>📋 Basic Information</h3>
+            </div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Short Name</div>
+                    <div class="info-value" id="view-shortName">${escapeHtml(currentPrototype.short_name || 'Not defined')}</div>
+                    <button class="edit-btn" onclick="editField('shortName', 'text')" title="Edit">✏️</button>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Title</div>
+                    <div class="info-value" id="view-title">${escapeHtml(currentPrototype.title || 'Not defined')}</div>
+                    <button class="edit-btn" onclick="editField('title', 'text')" title="Edit">✏️</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="detail-section">
+            <div class="section-header">
+                <h3>🎯 Product Vision Board</h3>
+            </div>
+            
+            <div class="vision-grid">
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Vision</h4>
+                        <button class="edit-btn" onclick="editField('vision', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-vision">
+                        ${formatText(currentPrototype.vision) || '<em class="text-muted">Not defined</em>'}
+                    </div>
+                </div>
+
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Target Group</h4>
+                        <button class="edit-btn" onclick="editField('targetGroup', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-targetGroup">
+                        ${formatText(currentPrototype.target_group) || '<em class="text-muted">Not defined</em>'}
+                    </div>
+                </div>
+
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Needs (Problems to Solve)</h4>
+                        <button class="edit-btn" onclick="editField('needs', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-needs">
+                        ${formatText(currentPrototype.needs) || '<em class="text-muted">Not defined</em>'}
+                    </div>
+                </div>
+
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Product Description</h4>
+                        <button class="edit-btn" onclick="editField('productDescription', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-productDescription">
+                        ${formatText(currentPrototype.product_description) || '<em class="text-muted">Not defined</em>'}
+                    </div>
+                </div>
+
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Business Goals</h4>
+                        <button class="edit-btn" onclick="editField('businessGoals', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-businessGoals">
+                        ${formatText(currentPrototype.business_goals) || '<em class="text-muted">Not defined</em>'}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="detail-section">
+            <div class="section-header">
+                <h3>💡 Product Statement</h3>
+                <button class="edit-btn" onclick="editField('sentence', 'textarea')" title="Edit">✏️</button>
+            </div>
+            <div class="statement-box" id="view-sentence">
+                ${formatText(currentPrototype.sentence) || '<em class="text-muted">Not defined</em>'}
+            </div>
+            <div class="statement-hint">
+                <small>Template: For [target customer], Who [customer needs], The [product name] Is a [product category] That [benefits]. Unlike [competitor], Our product [difference].</small>
+            </div>
+        </div>
+
+        <div class="detail-section">
+            <div class="section-header">
+                <h3>🔗 Resources</h3>
+            </div>
+            <div class="resources-grid">
+                <div class="resource-card">
+                    <div class="resource-header">
+                        <h4>🗂️ Repository Links</h4>
+                        <button class="edit-btn" onclick="editField('repoLinks', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="resource-content" id="view-repoLinks">
+                        ${formatLinks(currentPrototype.repo_links) || '<em class="text-muted">No links added</em>'}
+                    </div>
+                </div>
+
+                <div class="resource-card">
+                    <div class="resource-header">
+                        <h4>📚 Documentation Links</h4>
+                        <button class="edit-btn" onclick="editField('documentationLinks', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="resource-content" id="view-documentationLinks">
+                        ${formatLinks(currentPrototype.documentation_links) || '<em class="text-muted">No links added</em>'}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="detail-section">
+            <h3>📝 User Stories</h3>
+            <div class="filter-bar">
+                <select id="priorityFilter" onchange="loadStories()">
+                    <option value="">All Priorities</option>
+                    <option value="Must">Must Have</option>
+                    <option value="Should">Should Have</option>
+                    <option value="Could">Could Have</option>
+                    <option value="Won't">Won't Have</option>
+                </select>
+                <button class="btn btn-primary btn-small" onclick="openStoryModal()">+ Add Story</button>
+            </div>
+            <div id="storiesList"></div>
+        </div>
+
+        <div class="action-bar">
+            <button class="btn btn-success" onclick="exportMarkdown()">📄 Export MD</button>
+            <button class="btn btn-danger" onclick="deletePrototype()">🗑️ Delete Prototype</button>
+        </div>
+    `;
+}
+
+// Função para formatar texto com quebras de linha
+function formatText(text) {
+    if (!text) return '';
+    return text.split('\n').map(line => {
+        line = escapeHtml(line.trim());
+        if (line.startsWith('-') || line.startsWith('•')) {
+            return `<div class="list-item">${line}</div>`;
+        }
+        return line ? `<p>${line}</p>` : '';
+    }).join('');
+}
+
+// Função para formatar e tornar links clicáveis
+function formatLinks(linksText) {
+    if (!linksText) return '';
+    
+    const lines = linksText.split('\n').filter(line => line.trim());
+    if (lines.length === 0) return '';
+    
+    return lines.map(link => {
+        link = link.trim();
+        // Detectar URLs
+        const urlMatch = link.match(/(https?:\/\/[^\s]+)/);
+        if (urlMatch) {
+            const url = urlMatch[1];
+            const label = link.replace(url, '').trim() || url;
+            return `
+                <div class="link-item">
+                    <span class="link-icon">🔗</span>
+                    <a href="${url}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>
+                    <span class="external-icon">↗</span>
+                </div>
+            `;
+        }
+        return `<div class="link-item"><span class="link-icon">📄</span>${escapeHtml(link)}</div>`;
+    }).join('');
+}
+
+// Função para editar campo
+let editingField = null;
+
+function editField(fieldName, inputType) {
+    // Se já está editando, cancelar edição anterior
+    if (editingField) {
+        cancelEdit();
+    }
+    
+    editingField = fieldName;
+    const viewElement = document.getElementById(`view-${fieldName}`);
+    const currentValue = getCurrentFieldValue(fieldName);
+    
+    let editHTML;
+    if (inputType === 'textarea') {
+        editHTML = `
+            <div class="edit-container">
+                <textarea class="edit-input" id="edit-${fieldName}" rows="6">${escapeHtml(currentValue || '')}</textarea>
+                <div class="edit-actions">
+                    <button class="btn btn-small btn-success" onclick="saveField('${fieldName}')">💾 Save</button>
+                    <button class="btn btn-small btn-secondary" onclick="cancelEdit()">✖ Cancel</button>
+                </div>
+            </div>
+        `;
+    } else {
+        editHTML = `
+            <div class="edit-container">
+                <input type="text" class="edit-input" id="edit-${fieldName}" value="${escapeHtml(currentValue || '')}">
+                <div class="edit-actions">
+                    <button class="btn btn-small btn-success" onclick="saveField('${fieldName}')">💾 Save</button>
+                    <button class="btn btn-small btn-secondary" onclick="cancelEdit()">✖ Cancel</button>
+                </div>
+            </div>
+        `;
+    }
+    
+    viewElement.innerHTML = editHTML;
+    document.getElementById(`edit-${fieldName}`).focus();
+}
+
+function getCurrentFieldValue(fieldName) {
+    const fieldMap = {
+        'shortName': 'short_name',
+        'title': 'title',
+        'vision': 'vision',
+        'targetGroup': 'target_group',
+        'needs': 'needs',
+        'productDescription': 'product_description',
+        'businessGoals': 'business_goals',
+        'sentence': 'sentence',
+        'repoLinks': 'repo_links',
+        'documentationLinks': 'documentation_links'
+    };
+    
+    return currentPrototype[fieldMap[fieldName]] || '';
+}
+
+async function saveField(fieldName) {
+    const inputElement = document.getElementById(`edit-${fieldName}`);
     const newValue = inputElement.value;
     
+    // Mapear nome do campo para nome da coluna no BD
+    const fieldMap = {
+        'shortName': 'short_name',
+        'title': 'title',
+        'vision': 'vision',
+        'targetGroup': 'target_group',
+        'needs': 'needs',
+        'productDescription': 'product_description',
+        'businessGoals': 'business_goals',
+        'sentence': 'sentence',
+        'repoLinks': 'repo_links',
+        'documentationLinks': 'documentation_links'
+    };
+    
+    // Atualizar objeto local
+    currentPrototype[fieldMap[fieldName]] = newValue;
+    
+    // Salvar no servidor
     try {
-        const data = {
-            action: 'update_prototype',
-            id: currentPrototype.id,
-            [fieldName]: newValue
-        };
-        
-        // Incluir todos os campos obrigatórios
-        const requiredFields = ['short_name', 'title', 'vision', 'target_group', 'needs', 
-                                'product_description', 'business_goals', 'sentence', 
-                                'repo_links', 'documentation_links'];
-        
-        requiredFields.forEach(field => {
-            if (field !== fieldName) {
-                data[field] = currentPrototype[field] || '';
-            }
-        });
-        
-        const response = await fetch(API_PATH, {
+        const response = await fetch(`${API_PATH}?action=update_prototype`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(data)
+            body: JSON.stringify(currentPrototype)
         });
         
         const result = await response.json();
         if (result.success) {
-            currentPrototype[fieldName] = newValue;
-            cancelFieldEdit(fieldName, inputType, formatTextWithLinks(newValue || 'Not defined'));
+            // Atualizar visualização
+            editingField = null;
+            renderPrototypeDetail();
+            loadStories(); // Recarregar para manter as histórias
         } else {
-            alert('Error saving changes');
+            alert('Error saving: ' + (result.error || 'Unknown error'));
         }
     } catch (error) {
         console.error('Error saving field:', error);
@@ -184,194 +358,101 @@ async function saveFieldEdit(fieldName, inputType) {
     }
 }
 
-function cancelFieldEdit(fieldName, inputType, originalContent) {
-    const inputElement = document.getElementById(`edit-${fieldName}`);
-    if (!inputElement) return;
-    
-    // Remover botões de ação
-    const actionDiv = inputElement.nextElementSibling;
-    if (actionDiv) actionDiv.remove();
-    
-    // Restaurar elemento de visualização
-    const viewElement = document.createElement('div');
-    viewElement.className = inputType === 'textarea' ? 'vision-content' : 'info-value';
-    viewElement.id = `view-${fieldName}`;
-    viewElement.innerHTML = originalContent;
-    
-    inputElement.replaceWith(viewElement);
-    
-    // Mostrar botão de editar novamente
-    const parent = viewElement.parentElement;
-    const editBtn = parent.querySelector('.edit-btn');
-    if (editBtn) editBtn.style.display = 'block';
+function cancelEdit() {
+    editingField = null;
+    renderPrototypeDetail();
+    loadStories(); // Recarregar para manter as histórias
 }
 
-function openPrototypeModal(prototypeId = null) {
-    console.log('openPrototypeModal() chamada com ID:', prototypeId);
-    
-    currentPrototype = prototypeId ? currentPrototype : null;
-    
-    console.log('Criando modal...');
-    const modal = document.createElement('div');
-    modal.className = 'modal active';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>${currentPrototype ? 'Edit Prototype' : 'New Prototype'}</h3>
-                <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
-            </div>
-            <form onsubmit="savePrototype(event)">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="protoShortName">Short Name *</label>
-                        <input type="text" id="protoShortName" value="${escapeHtml(currentPrototype?.short_name || '')}" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="protoTitle">Title *</label>
-                        <input type="text" id="protoTitle" value="${escapeHtml(currentPrototype?.title || '')}" required>
-                    </div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="protoVision">Vision</label>
-                    <textarea id="protoVision">${escapeHtml(currentPrototype?.vision || '')}</textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label for="protoSentence">Product Statement</label>
-                    <textarea id="protoSentence">${escapeHtml(currentPrototype?.sentence || '')}</textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label for="protoTargetGroup">Target Group</label>
-                    <textarea id="protoTargetGroup">${escapeHtml(currentPrototype?.target_group || '')}</textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label for="protoNeeds">Needs</label>
-                    <textarea id="protoNeeds">${escapeHtml(currentPrototype?.needs || '')}</textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label for="protoProductDescription">Product Description</label>
-                    <textarea id="protoProductDescription">${escapeHtml(currentPrototype?.product_description || '')}</textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label for="protoBusinessGoals">Business Goals</label>
-                    <textarea id="protoBusinessGoals">${escapeHtml(currentPrototype?.business_goals || '')}</textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label for="protoRepoLinks">Repository Links</label>
-                    <textarea id="protoRepoLinks">${escapeHtml(currentPrototype?.repo_links || '')}</textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label for="protoDocumentationLinks">Documentation Links</label>
-                    <textarea id="protoDocumentationLinks">${escapeHtml(currentPrototype?.documentation_links || '')}</textarea>
-                </div>
-                
-                <div class="action-bar">
-                    <button type="submit" class="btn btn-primary">Save</button>
-                    <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
-                </div>
-            </form>
-        </div>
-    `;
-    
-    console.log('Adicionando modal ao body...');
-    document.body.appendChild(modal);
-    console.log('Modal adicionado! Deve estar visível agora.');
-}
-
-async function savePrototype(event) {
-    event.preventDefault();
-    
-    console.log('savePrototype() chamada!');
-    console.log('API_PATH atual:', API_PATH);
-    console.log('window.PROTOTYPES_API_PATH:', window.PROTOTYPES_API_PATH);
+async function updatePrototype() {
+    if (!currentPrototype) return;
     
     const data = {
-        short_name: document.getElementById('protoShortName').value,
-        title: document.getElementById('protoTitle').value,
-        vision: document.getElementById('protoVision').value,
-        sentence: document.getElementById('protoSentence').value,
-        target_group: document.getElementById('protoTargetGroup').value,
-        needs: document.getElementById('protoNeeds').value,
-        product_description: document.getElementById('protoProductDescription').value,
-        business_goals: document.getElementById('protoBusinessGoals').value,
-        repo_links: document.getElementById('protoRepoLinks').value,
-        documentation_links: document.getElementById('protoDocumentationLinks').value
+        id: currentPrototype.id,
+        short_name: document.getElementById('shortName').value,
+        title: document.getElementById('title').value,
+        vision: document.getElementById('vision').value,
+        target_group: document.getElementById('targetGroup').value,
+        needs: document.getElementById('needs').value,
+        product_description: document.getElementById('productDescription').value,
+        business_goals: document.getElementById('businessGoals').value,
+        sentence: document.getElementById('sentence').value,
+        repo_links: document.getElementById('repoLinks').value,
+        documentation_links: document.getElementById('documentationLinks').value
     };
     
-    console.log('Dados do formulário:', data);
-    
-    let url = window.PROTOTYPES_API_PATH || API_PATH;
-    
-    if (currentPrototype) {
-        url += '?action=update_prototype';
-        data.id = currentPrototype.id;
-        console.log('Modo: UPDATE');
-    } else {
-        url += '?action=create_prototype';
-        console.log('Modo: CREATE');
-    }
-    
-    console.log('URL COMPLETA:', url);
-    console.log('URL absoluta:', new URL(url, window.location.href).href);
-    console.log('Payload:', data);
-    
     try {
-        const response = await fetch(url, {
+        const response = await fetch(`${API_PATH}?action=update_prototype`, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
         
-        console.log('Response status:', response.status);
-        console.log('Response URL:', response.url);
-        
-        const responseText = await response.text();
-        console.log('Response text (raw):', responseText);
-        
-        let result;
-        try {
-            result = JSON.parse(responseText);
-        } catch (e) {
-            console.error('Erro ao fazer parse do JSON:', e);
-            console.error('Resposta recebida:', responseText);
-            alert('Erro: Resposta inválida da API\n\n' + responseText.substring(0, 200));
-            return;
-        }
-        
-        console.log('Response data (parsed):', result);
-        
+        const result = await response.json();
         if (result.success) {
-            console.log('✅ Protótipo salvo com sucesso!');
-            document.querySelector('.modal').remove();
-            await loadPrototypes();
-            if (result.id) {
-                console.log('Selecionando protótipo criado:', result.id);
-                selectPrototype(result.id);
-            } else if (currentPrototype) {
-                console.log('Recarregando protótipo atual:', currentPrototype.id);
-                selectPrototype(currentPrototype.id);
-            }
-        } else {
-            console.error('❌ Erro na resposta:', result);
-            alert('Error: ' + (result.error || 'Unknown error'));
+            currentPrototype = { ...currentPrototype, ...data };
+            loadPrototypes();
         }
     } catch (error) {
-        console.error('❌ Erro ao salvar prototype:', error);
-        alert('Error saving prototype: ' + error.message);
+        console.error('Error updating prototype:', error);
+        alert('Error updating prototype');
     }
+}
+
+function createNewPrototype() {
+    const shortName = prompt('Enter short name for new prototype:');
+    if (!shortName) return;
+    
+    const title = prompt('Enter title:');
+    if (!title) return;
+    
+    const data = {
+        short_name: shortName,
+        title: title,
+        vision: '',
+        target_group: '',
+        needs: '',
+        product_description: '',
+        business_goals: '',
+        sentence: '',
+        repo_links: '',
+        documentation_links: ''
+    };
+    
+    console.log('Creating prototype:', data);
+    console.log('API Path:', API_PATH);
+    
+    fetch(`${API_PATH}?action=create_prototype`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    })
+    .then(response => {
+        console.log('Response status:', response.status);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(result => {
+        console.log('Create result:', result);
+        if (result.success) {
+            loadPrototypes();
+            selectPrototype(result.id);
+        } else {
+            alert('Error: ' + (result.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error creating prototype:', error);
+        alert('Error creating prototype: ' + error.message + '\nCheck console for details');
+    });
 }
 
 async function deletePrototype() {
     if (!currentPrototype) return;
     
-    if (!confirm(`Delete prototype "${currentPrototype.short_name}"?\n\nThis will also delete all associated user stories.`)) {
+    if (!confirm(`Are you sure you want to delete "${currentPrototype.short_name}"? This will also delete all associated user stories.`)) {
         return;
     }
     
@@ -402,194 +483,7 @@ async function deletePrototype() {
     }
 }
 
-// ===== PARTICIPANTS MANAGEMENT =====
-
-async function loadParticipants() {
-    if (!currentPrototype) return;
-    
-    try {
-        const response = await fetch(`${API_PATH}?action=get_participants&prototype_id=${currentPrototype.id}`);
-        participants = await response.json();
-        renderParticipantsTable();
-    } catch (error) {
-        console.error('Error loading participants:', error);
-    }
-}
-
-function renderParticipantsTable() {
-    const container = document.getElementById('participantsTable');
-    if (!container) return;
-    
-    if (participants.length === 0) {
-        container.innerHTML = `
-            <div style="text-align: center; padding: 20px; color: #64748b;">
-                <p>No participants yet</p>
-            </div>
-        `;
-        return;
-    }
-    
-    container.innerHTML = `
-        <table style="width: 100%; border-collapse: collapse;">
-            <thead>
-                <tr style="background: #f9fafb; border-bottom: 2px solid #e5e7eb;">
-                    <th style="padding: 12px; text-align: left; font-weight: 600; color: #4a5568;">Username</th>
-                    <th style="padding: 12px; text-align: left; font-weight: 600; color: #4a5568;">Role</th>
-                    <th style="padding: 12px; text-align: center; font-weight: 600; color: #4a5568;">Leader</th>
-                    <th style="padding: 12px; text-align: center; font-weight: 600; color: #4a5568;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${participants.map(p => `
-                    <tr style="border-bottom: 1px solid #e5e7eb;">
-                        <td style="padding: 12px;">
-                            <strong>${escapeHtml(p.username)}</strong>
-                            ${p.is_leader ? '<span style="margin-left: 8px; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">👑 LEADER</span>' : ''}
-                        </td>
-                        <td style="padding: 12px;">${escapeHtml(p.role || 'member')}</td>
-                        <td style="padding: 12px; text-align: center;">
-                            ${p.is_leader 
-                                ? '<span style="color: #f59e0b; font-size: 20px;">👑</span>' 
-                                : `<button class="btn btn-secondary btn-small" onclick="setLeader(${p.id})" title="Make leader">Set Leader</button>`
-                            }
-                        </td>
-                        <td style="padding: 12px; text-align: center;">
-                            <button class="btn btn-danger btn-small" onclick="removeParticipant(${p.id})">🗑️</button>
-                        </td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    `;
-}
-
-async function openParticipantModal() {
-    try {
-        const response = await fetch(`${API_PATH}?action=get_available_users&prototype_id=${currentPrototype.id}`);
-        const availableUsers = await response.json();
-        
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>Add Participant</h3>
-                    <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
-                </div>
-                <form onsubmit="addParticipant(event)">
-                    <div class="form-group">
-                        <label>Select User</label>
-                        <select id="participantUsername" required style="width: 100%; padding: 10px; border: 1px solid #e1e8ed; border-radius: 6px;">
-                            <option value="">-- Select a user --</option>
-                            ${availableUsers.map(u => `<option value="${escapeHtml(u.username)}">${escapeHtml(u.username)}</option>`).join('')}
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Role</label>
-                        <input type="text" id="participantRole" value="member" placeholder="e.g., Developer, Designer, PM">
-                    </div>
-                    <div class="form-group">
-                        <label style="display: flex; align-items: center; gap: 8px;">
-                            <input type="checkbox" id="participantIsLeader">
-                            <span>Make this user the project leader</span>
-                        </label>
-                    </div>
-                    <div class="action-bar">
-                        <button type="submit" class="btn btn-primary">Add Participant</button>
-                        <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
-                    </div>
-                </form>
-            </div>
-        `;
-        document.body.appendChild(modal);
-    } catch (error) {
-        console.error('Error loading users:', error);
-        alert('Error loading available users');
-    }
-}
-
-async function addParticipant(event) {
-    event.preventDefault();
-    
-    const username = document.getElementById('participantUsername').value;
-    const role = document.getElementById('participantRole').value;
-    const isLeader = document.getElementById('participantIsLeader').checked;
-    
-    try {
-        const response = await fetch(API_PATH, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                action: 'add_participant',
-                prototype_id: currentPrototype.id,
-                username: username,
-                role: role,
-                is_leader: isLeader
-            })
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            document.querySelector('.modal').remove();
-            loadParticipants();
-        } else if (result.error) {
-            alert(result.error);
-        }
-    } catch (error) {
-        console.error('Error adding participant:', error);
-        alert('Error adding participant');
-    }
-}
-
-async function setLeader(participantId) {
-    if (!confirm('Set this user as project leader?')) return;
-    
-    try {
-        const response = await fetch(API_PATH, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                action: 'set_leader',
-                prototype_id: currentPrototype.id,
-                participant_id: participantId
-            })
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            loadParticipants();
-        }
-    } catch (error) {
-        console.error('Error setting leader:', error);
-        alert('Error setting leader');
-    }
-}
-
-async function removeParticipant(participantId) {
-    if (!confirm('Remove this participant?')) return;
-    
-    try {
-        const formData = new FormData();
-        formData.append('action', 'remove_participant');
-        formData.append('id', participantId);
-        
-        const response = await fetch(API_PATH, {
-            method: 'POST',
-            body: formData
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            loadParticipants();
-        }
-    } catch (error) {
-        console.error('Error removing participant:', error);
-        alert('Error removing participant');
-    }
-}
-
 // ===== USER STORIES =====
-
 async function loadStories() {
     if (!currentPrototype) return;
     
@@ -633,70 +527,52 @@ async function loadStories() {
 function openStoryModal(storyId = null) {
     currentStory = storyId ? stories.find(s => s.id === storyId) : null;
     
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>${currentStory ? 'Edit User Story' : 'New User Story'}</h3>
-                <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
-            </div>
-            <form onsubmit="saveStory(event)">
-                <div class="form-group">
-                    <label>Story Text *</label>
-                    <textarea id="storyText" required placeholder="As a [user type], I want [goal] so that [benefit]">${escapeHtml(currentStory?.story_text || '')}</textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label>MoSCoW Priority *</label>
-                    <select id="storyPriority" required>
-                        <option value="Must" ${currentStory?.moscow_priority === 'Must' ? 'selected' : ''}>Must Have</option>
-                        <option value="Should" ${currentStory?.moscow_priority === 'Should' ? 'selected' : ''}>Should Have</option>
-                        <option value="Could" ${currentStory?.moscow_priority === 'Could' ? 'selected' : ''}>Could Have</option>
-                        <option value="Won't" ${currentStory?.moscow_priority === "Won't" ? 'selected' : ''}>Won't Have</option>
-                    </select>
-                </div>
-                
-                <div class="action-bar">
-                    <button type="submit" class="btn btn-primary">Save</button>
-                    <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
-                </div>
-            </form>
-        </div>
-    `;
-    document.body.appendChild(modal);
+    document.getElementById('storyModalTitle').textContent = currentStory ? 'Edit User Story' : 'New User Story';
+    document.getElementById('storyText').value = currentStory?.story_text || '';
+    document.getElementById('storyPriority').value = currentStory?.moscow_priority || 'Should';
+    
+    document.getElementById('storyModal').classList.add('active');
 }
 
-function editStory(storyId) {
-    openStoryModal(storyId);
+function closeStoryModal() {
+    document.getElementById('storyModal').classList.remove('active');
+    currentStory = null;
 }
 
-async function saveStory(event) {
-    event.preventDefault();
+function editStory(id) {
+    openStoryModal(id);
+}
+
+async function saveStory() {
+    const storyText = document.getElementById('storyText').value.trim();
+    const priority = document.getElementById('storyPriority').value;
+    
+    if (!storyText) {
+        alert('Please enter story text');
+        return;
+    }
     
     const data = {
         prototype_id: currentPrototype.id,
-        story_text: document.getElementById('storyText').value,
-        moscow_priority: document.getElementById('storyPriority').value
+        story_text: storyText,
+        moscow_priority: priority
     };
     
-    if (currentStory) {
-        data.id = currentStory.id;
-        data.action = 'update_story';
-    } else {
-        data.action = 'create_story';
-    }
-    
     try {
-        const response = await fetch(API_PATH, {
+        const action = currentStory ? 'update_story' : 'create_story';
+        if (currentStory) {
+            data.id = currentStory.id;
+        }
+        
+        const response = await fetch(`${API_PATH}?action=${action}`, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
         
         const result = await response.json();
         if (result.success) {
-            document.querySelector('.modal').remove();
+            closeStoryModal();
             loadStories();
         }
     } catch (error) {
@@ -705,15 +581,15 @@ async function saveStory(event) {
     }
 }
 
-async function deleteStory(storyId) {
+async function deleteStory(id) {
     if (!confirm('Delete this user story?')) return;
     
     try {
         const formData = new FormData();
         formData.append('action', 'delete_story');
-        formData.append('id', storyId);
+        formData.append('id', id);
         
-        const response = await fetch(API_PATH, {
+        const response = await fetch(`${API_PATH}`, {
             method: 'POST',
             body: formData
         });
@@ -728,8 +604,7 @@ async function deleteStory(storyId) {
     }
 }
 
-// ===== STORY TASKS =====
-
+// ===== TASKS =====
 async function viewStoryTasks(storyId) {
     currentStory = stories.find(s => s.id === storyId);
     
@@ -737,125 +612,147 @@ async function viewStoryTasks(storyId) {
         const response = await fetch(`${API_PATH}?action=get_story_tasks&story_id=${storyId}`);
         const tasks = await response.json();
         
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.innerHTML = `
-            <div class="modal-content" style="max-width: 800px;">
-                <div class="modal-header">
-                    <h3>📋 Tasks for Story #${storyId}</h3>
-                    <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
+        const tasksList = tasks.length > 0 ? tasks.map(task => `
+            <div class="task-item">
+                <div>
+                    <strong>${escapeHtml(task.title || 'Task #' + task.id)}</strong>
+                    <span class="badge badge-info">${escapeHtml(task.status || 'pending')}</span>
                 </div>
-                
-                <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                    <p style="margin: 0; color: #64748b; font-size: 14px;">${escapeHtml(currentStory.story_text)}</p>
-                </div>
-                
-                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-                    <button class="btn btn-primary" onclick="openLinkTaskModal(${storyId})">🔗 Link Existing Task</button>
-                    <button class="btn btn-primary" onclick="openCreateTaskModal(${storyId})">+ Create New Task</button>
-                </div>
-                
-                <div class="task-list">
-                    ${tasks.length === 0 ? '<p style="text-align: center; color: #64748b;">No tasks linked yet</p>' : ''}
-                    ${tasks.map(task => `
-                        <div class="task-item">
-                            <div>
-                                <strong>${escapeHtml(task.titulo)}</strong>
-                                <span class="badge badge-info">${escapeHtml(task.estado)}</span>
-                            </div>
-                            <button class="btn btn-danger btn-small" onclick="unlinkTask(${task.link_id}, ${storyId})">🔗 Unlink</button>
-                        </div>
-                    `).join('')}
-                </div>
+                <button class="btn btn-danger btn-small" onclick="unlinkTask(${task.link_id})">Unlink</button>
             </div>
-        `;
-        document.body.appendChild(modal);
-    } catch (error) {
-        console.error('Error loading story tasks:', error);
-        alert('Error loading tasks');
-    }
-}
-
-async function openLinkTaskModal(storyId) {
-    try {
-        const response = await fetch(`${API_PATH}?action=get_available_tasks&story_id=${storyId}`);
-        const availableTasks = await response.json();
+        `).join('') : '<p>No tasks linked to this story yet.</p>';
         
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>Link Existing Task</h3>
-                    <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
-                </div>
-                <form onsubmit="linkTask(event, ${storyId})">
-                    <div class="form-group">
-                        <label>Select Task</label>
-                        <select id="taskToLink" required style="width: 100%; padding: 10px; border: 1px solid #e1e8ed; border-radius: 6px;">
-                            <option value="">-- Select a task --</option>
-                            ${availableTasks.map(t => `
-                                <option value="${t.id}">${escapeHtml(t.titulo)} (${escapeHtml(t.estado)})</option>
-                            `).join('')}
-                        </select>
-                    </div>
-                    <div class="action-bar">
-                        <button type="submit" class="btn btn-primary">Link Task</button>
-                        <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
-                    </div>
-                </form>
+        const modal = document.getElementById('taskModal');
+        modal.querySelector('.modal-content').innerHTML = `
+            <div class="modal-header">
+                <h3>Tasks for Story #${storyId}</h3>
+                <button class="close-modal" onclick="closeTaskModal()">&times;</button>
+            </div>
+            <div class="task-list">
+                ${tasksList}
+            </div>
+            <div class="action-bar">
+                <button class="btn btn-primary" onclick="openCreateTaskForm(${storyId})">+ Create New Task</button>
+                <button class="btn btn-secondary" onclick="closeTaskModal()">Close</button>
             </div>
         `;
-        document.body.appendChild(modal);
+        modal.classList.add('active');
     } catch (error) {
-        console.error('Error loading available tasks:', error);
-        alert('Error loading tasks');
+        console.error('Error loading tasks:', error);
     }
 }
 
-async function linkTask(event, storyId) {
-    event.preventDefault();
+function openCreateTaskForm(storyId) {
+    const story = stories.find(s => s.id === storyId);
     
-    const taskId = document.getElementById('taskToLink').value;
+    if (!story) {
+        alert('Error: Story not found');
+        console.error('Story ID:', storyId, 'Available stories:', stories);
+        return;
+    }
+    
+    currentStory = story;
+    console.log('Opening create task form for story:', currentStory);
+    
+    const modal = document.getElementById('taskModal');
+    modal.querySelector('.modal-content').innerHTML = `
+        <div class="modal-header">
+            <h3>Create Task from Story #${storyId}</h3>
+            <button class="close-modal" onclick="closeTaskModal()">&times;</button>
+        </div>
+        <div class="form-group">
+            <label>Task Title</label>
+            <input type="text" id="taskTitle" placeholder="Task title">
+        </div>
+        <div class="form-group">
+            <label>Description</label>
+            <textarea id="taskDescription" placeholder="Task description"></textarea>
+        </div>
+        <div class="form-group">
+            <label>Priority</label>
+            <select id="taskPriority">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+            </select>
+        </div>
+        <div class="action-bar">
+            <button class="btn btn-primary" onclick="createTaskFromStory()">Create Task</button>
+            <button class="btn btn-secondary" onclick="viewStoryTasks(${storyId})">← Back</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+async function createTaskFromStory() {
+    const title = document.getElementById('taskTitle').value.trim();
+    const description = document.getElementById('taskDescription').value.trim();
+    const priority = document.getElementById('taskPriority').value;
+    
+    if (!title) {
+        alert('Please enter task title');
+        return;
+    }
+    
+    if (!currentStory || !currentStory.id) {
+        alert('Error: No story selected');
+        console.error('currentStory:', currentStory);
+        return;
+    }
+    
+    const data = {
+        story_id: currentStory.id,
+        title: title,
+        description: description,
+        priority: priority
+    };
+    
+    console.log('Creating task from story:', data);
     
     try {
-        const response = await fetch(API_PATH, {
+        const response = await fetch(`${API_PATH}?action=create_task_from_story`, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                action: 'link_task',
-                story_id: storyId,
-                task_id: taskId
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
         });
         
+        console.log('Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const result = await response.json();
+        console.log('Create task result:', result);
+        
         if (result.success) {
-            document.querySelector('.modal').remove();
-            viewStoryTasks(storyId);
+            alert('Task created successfully!');
+            viewStoryTasks(currentStory.id);
+        } else {
+            alert('Error: ' + (result.error || 'Unknown error'));
         }
     } catch (error) {
-        console.error('Error linking task:', error);
-        alert('Error linking task');
+        console.error('Error creating task:', error);
+        alert('Error creating task: ' + error.message + '\nCheck console for details');
     }
 }
 
-async function unlinkTask(linkId, storyId) {
-    if (!confirm('Unlink this task?')) return;
+async function unlinkTask(linkId) {
+    if (!confirm('Unlink this task from the story?')) return;
     
     try {
         const formData = new FormData();
         formData.append('action', 'unlink_task');
         formData.append('id', linkId);
         
-        const response = await fetch(API_PATH, {
+        const response = await fetch(`${API_PATH}`, {
             method: 'POST',
             body: formData
         });
         
         const result = await response.json();
         if (result.success) {
-            viewStoryTasks(storyId);
+            viewStoryTasks(currentStory.id);
         }
     } catch (error) {
         console.error('Error unlinking task:', error);
@@ -863,229 +760,20 @@ async function unlinkTask(linkId, storyId) {
     }
 }
 
-async function openCreateTaskModal(storyId) {
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Create New Task</h3>
-                <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
-            </div>
-            <form onsubmit="createTaskFromStory(event, ${storyId})">
-                <div class="form-group">
-                    <label>Task Title *</label>
-                    <input type="text" id="newTaskTitle" required placeholder="Enter task title">
-                </div>
-                <div class="form-group">
-                    <label>Description</label>
-                    <textarea id="newTaskDescription" placeholder="Enter task description"></textarea>
-                </div>
-                <div class="action-bar">
-                    <button type="submit" class="btn btn-primary">Create & Link Task</button>
-                    <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
-                </div>
-            </form>
-        </div>
-    `;
-    document.body.appendChild(modal);
-}
-
-async function createTaskFromStory(event, storyId) {
-    event.preventDefault();
-    
-    const title = document.getElementById('newTaskTitle').value;
-    const description = document.getElementById('newTaskDescription').value;
-    
-    try {
-        const response = await fetch(API_PATH, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                action: 'create_task_from_story',
-                story_id: storyId,
-                title: title,
-                description: description
-            })
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            document.querySelector('.modal').remove();
-            viewStoryTasks(storyId);
-        } else if (result.error) {
-            alert('Error: ' + result.error);
-        }
-    } catch (error) {
-        console.error('Error creating task:', error);
-        alert('Error creating task');
-    }
-}
-
-
-
-function renderPrototypeDetail() {
-    const panel = document.getElementById('detailPanel');
-    
-    panel.innerHTML = `
-        <div class="detail-section">
-            <div class="section-header">
-                <h3>📋 Basic Information</h3>
-            </div>
-            <div class="info-grid">
-                <div class="info-item">
-                    <div class="info-label">Short Name</div>
-                    <div class="info-value" id="view-shortName">${escapeHtml(currentPrototype.short_name || 'Not defined')}</div>
-                    <button class="edit-btn" onclick="editField('short_name', 'text')" title="Edit">✏️</button>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Title</div>
-                    <div class="info-value" id="view-title">${escapeHtml(currentPrototype.title || 'Not defined')}</div>
-                    <button class="edit-btn" onclick="editField('title', 'text')" title="Edit">✏️</button>
-                </div>
-            </div>
-            
-            <!-- Team Participants -->
-            <div style="margin-top: 30px;">
-                <div class="section-header">
-                    <h4 style="font-size: 16px; color: #4a5568; margin: 0;">👥 Team Participants</h4>
-                    <button class="btn btn-primary btn-small" onclick="openParticipantModal()">+ Add Participant</button>
-                </div>
-                <div id="participantsTable" style="margin-top: 15px;"></div>
-            </div>
-        </div>
-
-        <div class="detail-section">
-            <div class="section-header">
-                <h3>🎯 Product Vision Board</h3>
-            </div>
-            <div class="vision-grid">
-                <div class="vision-card">
-                    <div class="vision-header">
-                        <h4>Vision</h4>
-                        <button class="edit-btn" onclick="editField('vision', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="vision-content" id="view-vision">${escapeHtml(currentPrototype.vision || 'Not defined')}</div>
-                </div>
-                
-                <div class="vision-card">
-                    <div class="vision-header">
-                        <h4>Product Statement</h4>
-                        <button class="edit-btn" onclick="editField('sentence', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="vision-content" id="view-sentence">${escapeHtml(currentPrototype.sentence || 'Not defined')}</div>
-                </div>
-                
-                <div class="vision-card">
-                    <div class="vision-header">
-                        <h4>Target Group</h4>
-                        <button class="edit-btn" onclick="editField('target_group', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="vision-content" id="view-target_group">${escapeHtml(currentPrototype.target_group || 'Not defined')}</div>
-                </div>
-                
-                <div class="vision-card">
-                    <div class="vision-header">
-                        <h4>Needs</h4>
-                        <button class="edit-btn" onclick="editField('needs', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="vision-content" id="view-needs">${escapeHtml(currentPrototype.needs || 'Not defined')}</div>
-                </div>
-                
-                <div class="vision-card">
-                    <div class="vision-header">
-                        <h4>Product Description</h4>
-                        <button class="edit-btn" onclick="editField('product_description', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="vision-content" id="view-product_description">${escapeHtml(currentPrototype.product_description || 'Not defined')}</div>
-                </div>
-                
-                <div class="vision-card">
-                    <div class="vision-header">
-                        <h4>Business Goals</h4>
-                        <button class="edit-btn" onclick="editField('business_goals', 'textarea')" title="Edit">✏️</button>
-                    </div>
-                    <div class="vision-content" id="view-business_goals">${escapeHtml(currentPrototype.business_goals || 'Not defined')}</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="detail-section">
-            <div class="section-header">
-                <h3>🔗 Links & Resources</h3>
-            </div>
-            <div class="info-grid">
-                <div class="info-item">
-                    <div class="info-label">Repository Links</div>
-                    <div class="info-value" id="view-repo_links">${formatTextWithLinks(currentPrototype.repo_links || 'Not defined')}</div>
-                    <button class="edit-btn" onclick="editField('repo_links', 'textarea')" title="Edit">✏️</button>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Documentation Links</div>
-                    <div class="info-value" id="view-documentation_links">${formatTextWithLinks(currentPrototype.documentation_links || 'Not defined')}</div>
-                    <button class="edit-btn" onclick="editField('documentation_links', 'textarea')" title="Edit">✏️</button>
-                </div>
-            </div>
-        </div>
-
-        <div class="detail-section">
-            <div class="section-header">
-                <h3>📝 User Stories</h3>
-                <div style="display: flex; gap: 10px;">
-                    <select id="priorityFilter" onchange="loadStories()" style="padding: 8px; border: 1px solid #e1e8ed; border-radius: 6px;">
-                        <option value="">All Priorities</option>
-                        <option value="Must">Must Have</option>
-                        <option value="Should">Should Have</option>
-                        <option value="Could">Could Have</option>
-                        <option value="Won't">Won't Have</option>
-                    </select>
-                    <button class="btn btn-primary" onclick="openStoryModal()">+ Add Story</button>
-                </div>
-            </div>
-            <div id="storiesList"></div>
-        </div>
-
-        <div class="action-bar">
-            <button class="btn btn-danger" onclick="deletePrototype()">🗑️ Delete Prototype</button>
-            <button class="btn btn-secondary" onclick="exportMarkdown()">📥 Export Markdown</button>
-        </div>
-    `;
-    
-    // Carregar participantes após renderizar
-    loadParticipants();
-}
-
-async function selectPrototype(id, clickEvent) {
-    try {
-        const response = await fetch(`${API_PATH}?action=get_prototype&id=${id}`);
-        currentPrototype = await response.json();
-        
-        console.log('Prototype selected:', currentPrototype);
-        
-        renderPrototypeDetail();
-        loadStories();
-        loadParticipants();
-        
-        // Update active state
-        document.querySelectorAll('.prototype-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        
-        // Adicionar classe active ao item clicado
-        if (clickEvent && clickEvent.currentTarget) {
-            clickEvent.currentTarget.classList.add('active');
-        }
-    } catch (error) {
-        console.error('Error loading prototype:', error);
-    }
+function closeTaskModal() {
+    document.getElementById('taskModal').classList.remove('active');
 }
 
 // ===== EXPORT =====
-
 function exportMarkdown() {
     if (!currentPrototype) return;
     window.location.href = `${API_PATH}?action=export_markdown&id=${currentPrototype.id}`;
 }
 
-// ===== END OF FILE =====
-console.log('Prototypes module loaded successfully');
+// ===== UTILITY =====
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}

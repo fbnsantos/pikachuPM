@@ -3,7 +3,7 @@
 header('Content-Type: application/json');
 
 // Incluir configuração do projeto
-include_once __DIR__ . '/../../config.php';
+include_once __DIR__ . '../../config.php';
 
 // Criar conexão PDO usando as variáveis do config.php
 try {
@@ -178,28 +178,69 @@ try {
             break;
             
         case 'create_task_from_story':
-            $data = json_decode(file_get_contents('php://input'), true);
-            
-            // Criar a tarefa na tabela todos
-            $stmt = $pdo->prepare("
-                INSERT INTO todos (title, description, status, priority, created_at)
-                VALUES (?, ?, 'pending', ?, NOW())
-            ");
-            $stmt->execute([
-                $data['title'],
-                $data['description'] ?? '',
-                $data['priority'] ?? 'medium'
-            ]);
-            $taskId = $pdo->lastInsertId();
-            
-            // Associar à user story
-            $stmt = $pdo->prepare("
-                INSERT INTO user_story_tasks (story_id, task_id)
-                VALUES (?, ?)
-            ");
-            $stmt->execute([$data['story_id'], $taskId]);
-            
-            echo json_encode(['success' => true, 'task_id' => $taskId]);
+            try {
+                $data = json_decode(file_get_contents('php://input'), true);
+                
+                // Debug: log dos dados recebidos
+                error_log("Create task from story - Data received: " . print_r($data, true));
+                
+                if (!isset($data['story_id']) || !isset($data['title'])) {
+                    echo json_encode([
+                        'error' => 'Missing required fields',
+                        'received' => $data
+                    ]);
+                    break;
+                }
+                
+                // Verificar se a tabela todos existe
+                $tables = $pdo->query("SHOW TABLES LIKE 'todos'")->fetchAll();
+                if (empty($tables)) {
+                    echo json_encode([
+                        'error' => 'Table "todos" does not exist',
+                        'help' => 'Please create the todos table first'
+                    ]);
+                    break;
+                }
+                
+                // Criar a tarefa na tabela todos
+                $stmt = $pdo->prepare("
+                    INSERT INTO todos (titulo, descritivo, estado, autor, created_at)
+                    VALUES (?, ?, 'aberta', 1, NOW())
+                ");
+                
+                $stmt->execute([
+                    $data['title'],
+                    $data['description'] ?? ''
+                ]);
+                
+                $taskId = $pdo->lastInsertId();
+                error_log("Task created with ID: $taskId");
+                
+                // Associar à user story
+                $stmt = $pdo->prepare("
+                    INSERT INTO user_story_tasks (story_id, task_id)
+                    VALUES (?, ?)
+                ");
+                $stmt->execute([$data['story_id'], $taskId]);
+                
+                error_log("Task linked to story: {$data['story_id']}");
+                
+                echo json_encode(['success' => true, 'task_id' => $taskId]);
+                
+            } catch (PDOException $e) {
+                error_log("Database error in create_task_from_story: " . $e->getMessage());
+                echo json_encode([
+                    'error' => 'Database error',
+                    'message' => $e->getMessage(),
+                    'code' => $e->getCode()
+                ]);
+            } catch (Exception $e) {
+                error_log("Error in create_task_from_story: " . $e->getMessage());
+                echo json_encode([
+                    'error' => 'Server error',
+                    'message' => $e->getMessage()
+                ]);
+            }
             break;
             
         // ===== EXPORT =====

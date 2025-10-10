@@ -1,16 +1,9 @@
-// Verificar/criar entrada na tabela user_tokens se não existir
-                $stmt = $pdo->prepare("SELECT user_id FROM user_tokens WHERE user_id = ?");
-                $stmt->execute([$user_id]);
-                
-                if (!$stmt->fetch()) {
-                    // Utilizador não existe em user_tokens, criar entrada
-                    $username = $_SESSION['username'] ?? 'user_' . $user_id;
-                    $<?php
+<?php
 // prototypes_api.php
 header('Content-Type: application/json');
 
 // Incluir configuração do projeto
-include_once __DIR__ . '/config.php';
+include_once __DIR__ . '/../../config.php';
 
 // Criar conexão PDO usando as variáveis do config.php
 try {

@@ -17,6 +17,25 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
+// ===== MAKE LINKS CLICKABLE =====
+function makeLinksClickable(text) {
+    if (!text) return '';
+    
+    // Regex para detectar URLs
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    
+    // Substitui URLs por links clicáveis
+    return text.replace(urlRegex, (url) => {
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #3b82f6; text-decoration: underline;">${url}</a>`;
+    });
+}
+
+// Função auxiliar para converter quebras de linha em <br> e tornar links clicáveis
+function formatTextWithLinks(text) {
+    if (!text) return '';
+    return makeLinksClickable(escapeHtml(text)).replace(/\n/g, '<br>');
+}
+
 // ===== PROTOTYPES =====
 async function loadPrototypes(search = '') {
     try {
@@ -955,21 +974,3 @@ async function removeParticipant(participantId) {
     }
 }
 
-// ===== MAKE LINKS CLICKABLE =====
-function makeLinksClickable(text) {
-    if (!text) return '';
-    
-    // Regex para detectar URLs
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    
-    // Substitui URLs por links clicáveis
-    return text.replace(urlRegex, (url) => {
-        return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #3b82f6; text-decoration: underline;">${url}</a>`;
-    });
-}
-
-// Função auxiliar para converter quebras de linha em <br> e tornar links clicáveis
-function formatTextWithLinks(text) {
-    if (!text) return '';
-    return makeLinksClickable(escapeHtml(text)).replace(/\n/g, '<br>');
-}

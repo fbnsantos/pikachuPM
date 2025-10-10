@@ -107,31 +107,57 @@
                                 <input type="hidden" name="deliverable_id" id="link_task_deliverable_id">
                                 
                                 <div class="mb-3">
-                                    <label class="form-label">Selecionar Task *</label>
-                                    <select name="todo_id" class="form-select" required size="10" style="min-height: 300px;">
+                                    <label class="form-label">Selecionar Task da tabela <code>todos</code> *</label>
+                                    <select name="todo_id" class="form-select" required size="12" style="min-height: 400px;">
                                         <?php foreach ($availableTodos as $todo): ?>
-                                            <option value="<?= $todo['id'] ?>">
-                                                [<?= ucfirst($todo['estado']) ?>] <?= htmlspecialchars($todo['titulo']) ?>
-                                                <?= $todo['autor_name'] ? ' - ' . htmlspecialchars($todo['autor_name']) : '' ?>
+                                            <option value="<?= $todo['id'] ?>" style="padding: 8px;">
+                                                <?php 
+                                                $estadoBadge = '';
+                                                switch($todo['estado']) {
+                                                    case 'aberta': $estadoBadge = '🟡'; break;
+                                                    case 'em_progresso': $estadoBadge = '🔵'; break;
+                                                    case 'fechada': $estadoBadge = '🟢'; break;
+                                                    default: $estadoBadge = '⚪';
+                                                }
+                                                ?>
+                                                <?= $estadoBadge ?> [<?= strtoupper($todo['estado']) ?>] #<?= $todo['id'] ?> - <?= htmlspecialchars($todo['titulo']) ?>
+                                                <?php if ($todo['projeto_nome']): ?>
+                                                    | 📁 <?= htmlspecialchars($todo['projeto_nome']) ?>
+                                                <?php endif; ?>
+                                                <?php if ($todo['autor_name']): ?>
+                                                    | 👤 <?= htmlspecialchars($todo['autor_name']) ?>
+                                                <?php endif; ?>
+                                                <?php if ($todo['data_limite']): ?>
+                                                    | 📅 <?= date('d/m/Y', strtotime($todo['data_limite'])) ?>
+                                                <?php endif; ?>
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
-                                    <small class="text-muted">Mostrando as últimas 100 tasks disponíveis</small>
+                                    <small class="text-muted">
+                                        📊 Mostrando as últimas 200 tasks da tabela <code>todos</code><br>
+                                        🟡 Aberta | 🔵 Em Progresso | 🟢 Fechada
+                                    </small>
+                                </div>
+                                
+                                <div class="alert alert-info">
+                                    <i class="bi bi-info-circle"></i> 
+                                    Estas tasks são da <strong>tabela todos</strong> (mesma do módulo todos.php). 
+                                    Ao associar, a task mantém seu <code>projeto_id</code> original.
                                 </div>
                                 
                                 <button type="submit" class="btn btn-success w-100">
-                                    <i class="bi bi-link-45deg"></i> Associar Task Selecionada
+                                    <i class="bi bi-link-45deg"></i> Associar Task Selecionada ao Entregável
                                 </button>
                             </form>
                         <?php elseif (!$todosExist): ?>
                             <div class="alert alert-warning">
                                 <i class="bi bi-exclamation-triangle"></i>
-                                O módulo de ToDos não está instalado. Instale-o primeiro para poder associar tasks.
+                                A tabela <code>todos</code> não existe. Instale o módulo <code>todos.php</code> primeiro para poder associar tasks.
                             </div>
                         <?php else: ?>
                             <div class="alert alert-info">
                                 <i class="bi bi-info-circle"></i>
-                                Não há tasks disponíveis. Crie uma nova task usando a aba "Criar Nova Task".
+                                Não há tasks disponíveis na tabela <code>todos</code>. Crie uma nova task usando a aba "Criar Nova Task" ou no módulo todos.php.
                             </div>
                         <?php endif; ?>
                     </div>
@@ -529,6 +555,8 @@ if ($todosExist) {
     ")->fetchAll(PDO::FETCH_ASSOC);
 }
 
+echo "<!-- DEBUG: todosExist = " . ($todosExist ? 'true' : 'false') . ", availableTodos count = " . count($availableTodos) . " -->";
+
 // Obter projeto selecionado
 $selectedProject = null;
 if (isset($_GET['project_id'])) {
@@ -899,7 +927,7 @@ if (isset($_GET['project_id'])) {
                 </div>
             <?php else: ?>
                 <?php foreach ($projects as $proj): ?>
-                    <a href="?tab=projectos&project_id=<?= $proj['id'] ?>" class="text-decoration-none">
+                    <a href="?tab=projecto&project_id=<?= $proj['id'] ?>" class="text-decoration-none">
                         <div class="project-list-item <?= isset($_GET['project_id']) && $_GET['project_id'] == $proj['id'] ? 'active' : '' ?>">
                             <div class="project-short-name"><?= htmlspecialchars($proj['short_name']) ?></div>
                             <div class="project-title"><?= htmlspecialchars($proj['title']) ?></div>

@@ -537,26 +537,6 @@ if ($checkPrototypes) {
     $prototypes = $pdo->query("SELECT id, short_name, title FROM prototypes ORDER BY short_name")->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// Verificar se a tabela todos existe
-$checkTodos = $pdo->query("SHOW TABLES LIKE 'todos'")->fetch();
-$todosExist = (bool)$checkTodos;
-
-// Obter todas as tasks disponíveis para associar (da tabela todos)
-$availableTodos = [];
-if ($todosExist) {
-    // Buscar todas as tasks da tabela todos, ordenadas por data de criação
-    $availableTodos = $pdo->query("
-        SELECT t.id, t.titulo, t.estado, t.data_limite, t.projeto_id, u.username as autor_name, p.short_name as projeto_nome
-        FROM todos t 
-        LEFT JOIN user_tokens u ON t.autor = u.user_id 
-        LEFT JOIN projects p ON t.projeto_id = p.id
-        ORDER BY t.created_at DESC 
-        LIMIT 200
-    ")->fetchAll(PDO::FETCH_ASSOC);
-}
-
-echo "<!-- DEBUG: todosExist = " . ($todosExist ? 'true' : 'false') . ", availableTodos count = " . count($availableTodos) . " -->";
-
 // Obter projeto selecionado
 $selectedProject = null;
 if (isset($_GET['project_id'])) {
@@ -565,6 +545,27 @@ if (isset($_GET['project_id'])) {
     $selectedProject = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if ($selectedProject) {
+        // MOVER VERIFICAÇÃO DA TABELA TODOS PARA AQUI (dentro do if selectedProject)
+        // Verificar se a tabela todos existe
+        $checkTodos = $pdo->query("SHOW TABLES LIKE 'todos'")->fetch();
+        $todosExist = (bool)$checkTodos;
+        
+        // Obter todas as tasks disponíveis para associar (da tabela todos)
+        $availableTodos = [];
+        if ($todosExist) {
+            // Buscar todas as tasks da tabela todos, ordenadas por data de criação
+            $availableTodos = $pdo->query("
+                SELECT t.id, t.titulo, t.estado, t.data_limite, t.projeto_id, u.username as autor_name, p.short_name as projeto_nome
+                FROM todos t 
+                LEFT JOIN user_tokens u ON t.autor = u.user_id 
+                LEFT JOIN projects p ON t.projeto_id = p.id
+                ORDER BY t.created_at DESC 
+                LIMIT 200
+            ")->fetchAll(PDO::FETCH_ASSOC);
+        }
+        
+        echo "<!-- DEBUG: todosExist = " . ($todosExist ? 'true' : 'false') . ", availableTodos count = " . count($availableTodos) . " -->";
+        
         // Obter links
         $stmt = $pdo->prepare("SELECT * FROM project_links WHERE project_id=? ORDER BY title");
         $stmt->execute([$selectedProject['id']]);

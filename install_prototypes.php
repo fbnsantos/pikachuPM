@@ -5,10 +5,30 @@
  * Cria todas as tabelas necessárias no banco de dados
  */
 
-require_once '/config.php';
 
-$success = [];
+// Incluir configuração do projeto
+include_once __DIR__ . '/config.php';
+
 $errors = [];
+$success = [];
+
+// Criar conexão PDO usando as variáveis do config.php
+try {
+    $pdo = new PDO(
+        "mysql:host=$db_host;dbname=$db_name;charset=utf8mb4",
+        $db_user,
+        $db_pass,
+        [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false
+        ]
+    );
+    $success[] = "Conexão à base de dados estabelecida com sucesso!";
+} catch (PDOException $e) {
+    $errors[] = "Erro ao conectar à base de dados: " . $e->getMessage();
+    $errors[] = "Verifique as configurações em config.php (db_host: $db_host, db_name: $db_name, db_user: $db_user)";
+}
 
 try {
     // ===== VERIFICAR SE AS TABELAS JÁ EXISTEM =====

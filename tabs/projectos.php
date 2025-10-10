@@ -40,25 +40,27 @@
 <?php endif; ?>
 
 <!-- Modal: Gerir Tasks do Entregável -->
-<div class="modal fade" id="manageTasksModal" tabindex="-1">
+<div class="modal fade" id="manageTasksModal" tabindex="-1" aria-labelledby="manageTasksModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Gerir Tasks do Entregável: <span id="taskModalDeliverableTitle"></span></h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <h5 class="modal-title" id="manageTasksModalLabel">
+                    Gerir Tasks: <span id="taskModalDeliverableTitle"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
             </div>
             <div class="modal-body">
                 <input type="hidden" id="taskModalDeliverableId">
                 
                 <!-- Tabs para Criar Nova ou Associar Existente -->
-                <ul class="nav nav-tabs mb-3" role="tablist">
+                <ul class="nav nav-tabs mb-3" id="taskTabs" role="tablist">
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link active" id="create-task-tab" data-bs-toggle="tab" data-bs-target="#create-task-panel" type="button">
+                        <button class="nav-link active" id="create-task-tab" data-bs-toggle="tab" data-bs-target="#create-task-panel" type="button" role="tab">
                             <i class="bi bi-plus-circle"></i> Criar Nova Task
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="link-task-tab" data-bs-toggle="tab" data-bs-target="#link-task-panel" type="button">
+                        <button class="nav-link" id="link-task-tab" data-bs-toggle="tab" data-bs-target="#link-task-panel" type="button" role="tab">
                             <i class="bi bi-link-45deg"></i> Associar Task Existente
                         </button>
                     </li>
@@ -1479,26 +1481,56 @@ function editDeliverable(deliverable) {
 function manageDeliverableTasks(deliverableId, deliverableTitle) {
     console.log('Opening tasks modal for deliverable:', deliverableId, deliverableTitle);
     
-    document.getElementById('taskModalDeliverableId').value = deliverableId;
-    document.getElementById('taskModalDeliverableTitle').textContent = deliverableTitle;
-    document.getElementById('create_task_deliverable_id').value = deliverableId;
-    document.getElementById('link_task_deliverable_id').value = deliverableId;
+    // Verificar se todos os elementos existem
+    const elements = {
+        modal: document.getElementById('manageTasksModal'),
+        taskModalDeliverableId: document.getElementById('taskModalDeliverableId'),
+        taskModalDeliverableTitle: document.getElementById('taskModalDeliverableTitle'),
+        create_task_deliverable_id: document.getElementById('create_task_deliverable_id'),
+        link_task_deliverable_id: document.getElementById('link_task_deliverable_id')
+    };
     
-    var modalEl = document.getElementById('manageTasksModal');
-    if (!modalEl) {
-        console.error('Modal element not found!');
-        alert('Erro: Modal não encontrado. Verifique se está num projeto selecionado.');
+    // Debug: mostrar quais elementos não foram encontrados
+    Object.keys(elements).forEach(key => {
+        if (!elements[key]) {
+            console.error(`Elemento não encontrado: ${key}`);
+        }
+    });
+    
+    if (!elements.modal) {
+        alert('Erro: Modal não encontrado! Certifique-se que está num projeto selecionado.');
         return;
     }
     
     if (typeof bootstrap === 'undefined') {
         console.error('Bootstrap not loaded!');
-        alert('Erro: Bootstrap não está carregado. Verifique o index.php');
+        alert('Erro: Bootstrap não está carregado.');
         return;
     }
     
-    var modal = new bootstrap.Modal(modalEl);
-    modal.show();
+    // Definir valores apenas se os elementos existirem
+    if (elements.taskModalDeliverableId) {
+        elements.taskModalDeliverableId.value = deliverableId;
+    }
+    if (elements.taskModalDeliverableTitle) {
+        elements.taskModalDeliverableTitle.textContent = deliverableTitle;
+    }
+    if (elements.create_task_deliverable_id) {
+        elements.create_task_deliverable_id.value = deliverableId;
+    }
+    if (elements.link_task_deliverable_id) {
+        elements.link_task_deliverable_id.value = deliverableId;
+    }
+    
+    // Abrir modal
+    try {
+        var modal = new bootstrap.Modal(elements.modal);
+        modal.show();
+        console.log('Modal aberto com sucesso!');
+    } catch (error) {
+        console.error('Erro ao abrir modal:', error);
+        alert('Erro ao abrir modal: ' + error.message);
+    }
 }
 
 // Debug: verificar se Bootstrap está carregado ao carregar a página

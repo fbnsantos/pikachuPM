@@ -41,6 +41,10 @@ document.addEventListener('DOMContentLoaded', function() {
     loadPrototypes();
 });
 
+function createNewPrototype() {
+    openPrototypeModal();
+}
+
 // ===== PROTOTYPES =====
 
 async function loadPrototypes() {

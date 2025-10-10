@@ -18,7 +18,7 @@ $tabs = [
     'dashboard' => 'Painel Principal',
     'prototypes/prototypesv2' => 'Prototypes',
     'bomlist/bomlist'  => 'Boom list',
-    'projecto' => 'Projects',
+    'projectos' => 'Projects',
     'milestone' => 'Sprints',
     'todos' => 'ToDo',
     'phd_kanban' => 'Doutoramento',
@@ -27,7 +27,8 @@ $tabs = [
     'oportunidades' => 'Leads',
     'search' => 'Search',
     'links' => 'Links',
-    'prototypes' => 'Prototypes',
+    'prototypes' => 'Prototypes_v1',
+    'projecto' => 'Projects_1',
     'admin' => 'Administration',
 ];
 

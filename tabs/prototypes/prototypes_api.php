@@ -1,4 +1,5 @@
 <?php
+session_start(); //
 // prototypes_api.php
 header('Content-Type: application/json');
 

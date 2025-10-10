@@ -459,20 +459,22 @@ async function savePrototype(event) {
     
     console.log('Dados do formulário:', data);
     
+    let url = API_PATH;
+    
     if (currentPrototype) {
         data.id = currentPrototype.id;
-        data.action = 'update_prototype';
+        url += '?action=update_prototype';
         console.log('Modo: UPDATE');
     } else {
-        data.action = 'create_prototype';
+        url += '?action=create_prototype';
         console.log('Modo: CREATE');
     }
     
-    console.log('Enviando para API:', API_PATH);
-    console.log('Payload completo:', data);
+    console.log('Enviando para:', url);
+    console.log('Payload:', data);
     
     try {
-        const response = await fetch(API_PATH, {
+        const response = await fetch(url, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(data)
@@ -487,7 +489,7 @@ async function savePrototype(event) {
         if (result.success) {
             console.log('✅ Protótipo salvo com sucesso!');
             document.querySelector('.modal').remove();
-            loadPrototypes();
+            await loadPrototypes();
             if (result.id) {
                 console.log('Selecionando protótipo criado:', result.id);
                 selectPrototype(result.id);

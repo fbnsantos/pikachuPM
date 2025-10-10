@@ -72,7 +72,7 @@ async function loadPrototypes() {
     }
 }
 
-async function selectPrototype(id, event = null) {
+async function selectPrototype(id, clickEvent) {
     try {
         const response = await fetch(`${API_PATH}?action=get_prototype&id=${id}`);
         currentPrototype = await response.json();
@@ -88,17 +88,9 @@ async function selectPrototype(id, event = null) {
             item.classList.remove('active');
         });
         
-        // Se o evento foi passado, adiciona classe active ao item clicado
-        if (event && event.currentTarget) {
-            event.currentTarget.classList.add('active');
-        } else {
-            // Senão, procura pelo ID e adiciona active
-            const items = document.querySelectorAll('.prototype-item');
-            items.forEach(item => {
-                if (item.onclick && item.onclick.toString().includes(`selectPrototype(${id}`)) {
-                    item.classList.add('active');
-                }
-            });
+        // Adicionar classe active ao item clicado
+        if (clickEvent && clickEvent.currentTarget) {
+            clickEvent.currentTarget.classList.add('active');
         }
     } catch (error) {
         console.error('Error loading prototype:', error);

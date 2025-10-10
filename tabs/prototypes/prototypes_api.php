@@ -3,7 +3,7 @@
 header('Content-Type: application/json');
 
 // Incluir configuração do projeto
-include_once __DIR__ . '../../config.php';
+include_once __DIR__ . '/../../config.php';
 
 // Criar conexão PDO usando as variáveis do config.php
 try {

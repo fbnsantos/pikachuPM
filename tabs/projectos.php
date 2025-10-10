@@ -1,5 +1,5 @@
 <?php
-// tabs/projecto.php - Sistema Completo de Gestão de Projetos
+// tabs/projectos.php - Sistema Completo de Gestão de Projetos
 if (!isset($_SESSION['username'])) {
     header('Location: login.php');
     exit;
@@ -292,7 +292,7 @@ if (isset($_GET['project_id'])) {
             
             // Para cada protótipo, obter suas stories
             foreach ($selectedProject['prototypes'] as &$proto) {
-                $stmt = $pdo->prepare("SELECT id, title, as_a, i_want, so_that, priority, status FROM user_stories WHERE prototype_id=? ORDER BY priority DESC, id");
+                $stmt = $pdo->prepare("SELECT id, story_text, moscow_priority FROM user_stories WHERE prototype_id=? ORDER BY FIELD(moscow_priority, 'Must', 'Should', 'Could', 'Won''t'), id");
                 $stmt->execute([$proto['id']]);
                 $proto['stories'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
@@ -512,9 +512,10 @@ if (isset($_GET['project_id'])) {
     margin-right: 8px;
 }
 
-.priority-high { background: #f8d7da; color: #842029; }
-.priority-medium { background: #fff3cd; color: #856404; }
-.priority-low { background: #d1e7dd; color: #0f5132; }
+.priority-must { background: #f8d7da; color: #842029; }
+.priority-should { background: #fff3cd; color: #856404; }
+.priority-could { background: #d1e7dd; color: #0f5132; }
+.priority-won't { background: #e2e3e5; color: #41464b; }
 
 .empty-state {
     text-align: center;
@@ -554,7 +555,7 @@ if (isset($_GET['project_id'])) {
                 </div>
             <?php else: ?>
                 <?php foreach ($projects as $proj): ?>
-                    <a href="?tab=projectos&project_id=<?= $proj['id'] ?>" class="text-decoration-none">
+                    <a href="?tab=projecto&project_id=<?= $proj['id'] ?>" class="text-decoration-none">
                         <div class="project-list-item <?= isset($_GET['project_id']) && $_GET['project_id'] == $proj['id'] ? 'active' : '' ?>">
                             <div class="project-short-name"><?= htmlspecialchars($proj['short_name']) ?></div>
                             <div class="project-title"><?= htmlspecialchars($proj['title']) ?></div>
@@ -768,14 +769,11 @@ if (isset($_GET['project_id'])) {
                                         <small class="text-muted fw-bold">User Stories:</small>
                                         <?php foreach ($proto['stories'] as $story): ?>
                                             <div class="story-item">
-                                                <span class="story-priority priority-<?= strtolower($story['priority'] ?? 'medium') ?>">
-                                                    <?= strtoupper($story['priority'] ?? 'medium') ?>
+                                                <span class="story-priority priority-<?= strtolower($story['moscow_priority'] ?? 'should') ?>">
+                                                    <?= strtoupper($story['moscow_priority'] ?? 'SHOULD') ?>
                                                 </span>
-                                                <strong><?= htmlspecialchars($story['title']) ?></strong>
-                                                <div class="small text-muted mt-1">
-                                                    Como <?= htmlspecialchars($story['as_a']) ?>, 
-                                                    quero <?= htmlspecialchars($story['i_want']) ?>, 
-                                                    para <?= htmlspecialchars($story['so_that']) ?>
+                                                <div class="small mt-1">
+                                                    <?= nl2br(htmlspecialchars($story['story_text'])) ?>
                                                 </div>
                                             </div>
                                         <?php endforeach; ?>

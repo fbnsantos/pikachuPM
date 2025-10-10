@@ -1,9 +1,16 @@
-<?php
+// Verificar/criar entrada na tabela user_tokens se não existir
+                $stmt = $pdo->prepare("SELECT user_id FROM user_tokens WHERE user_id = ?");
+                $stmt->execute([$user_id]);
+                
+                if (!$stmt->fetch()) {
+                    // Utilizador não existe em user_tokens, criar entrada
+                    $username = $_SESSION['username'] ?? 'user_' . $user_id;
+                    $<?php
 // prototypes_api.php
 header('Content-Type: application/json');
 
 // Incluir configuração do projeto
-include_once __DIR__ . '/../../config.php';
+include_once __DIR__ . '/config.php';
 
 // Criar conexão PDO usando as variáveis do config.php
 try {
@@ -205,12 +212,13 @@ try {
                 // Criar a tarefa na tabela todos
                 $stmt = $pdo->prepare("
                     INSERT INTO todos (titulo, descritivo, estado, autor, created_at)
-                    VALUES (?, ?, 'aberta', 1, NOW())
+                    VALUES (?, ?, 'aberta', ?, NOW())
                 ");
                 
                 $stmt->execute([
                     $data['title'],
-                    $data['description'] ?? ''
+                    $data['description'] ?? '',
+                    $user_id  // Usar o user_id da sessão
                 ]);
                 
                 $taskId = $pdo->lastInsertId();

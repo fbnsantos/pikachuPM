@@ -443,12 +443,21 @@ async function viewStoryTasks(storyId) {
 }
 
 function openCreateTaskForm(storyId) {
-    currentStory = stories.find(s => s.id === storyId);
+    const story = stories.find(s => s.id === storyId);
+    
+    if (!story) {
+        alert('Error: Story not found');
+        console.error('Story ID:', storyId, 'Available stories:', stories);
+        return;
+    }
+    
+    currentStory = story;
+    console.log('Opening create task form for story:', currentStory);
     
     const modal = document.getElementById('taskModal');
     modal.querySelector('.modal-content').innerHTML = `
         <div class="modal-header">
-            <h3>Create Task from Story</h3>
+            <h3>Create Task from Story #${storyId}</h3>
             <button class="close-modal" onclick="closeTaskModal()">&times;</button>
         </div>
         <div class="form-group">
@@ -472,6 +481,7 @@ function openCreateTaskForm(storyId) {
             <button class="btn btn-secondary" onclick="viewStoryTasks(${storyId})">← Back</button>
         </div>
     `;
+    modal.classList.add('active');
 }
 
 async function createTaskFromStory() {
@@ -484,12 +494,20 @@ async function createTaskFromStory() {
         return;
     }
     
+    if (!currentStory || !currentStory.id) {
+        alert('Error: No story selected');
+        console.error('currentStory:', currentStory);
+        return;
+    }
+    
     const data = {
         story_id: currentStory.id,
         title: title,
         description: description,
         priority: priority
     };
+    
+    console.log('Creating task from story:', data);
     
     try {
         const response = await fetch(`${API_PATH}?action=create_task_from_story`, {
@@ -498,14 +516,24 @@ async function createTaskFromStory() {
             body: JSON.stringify(data)
         });
         
+        console.log('Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const result = await response.json();
+        console.log('Create task result:', result);
+        
         if (result.success) {
             alert('Task created successfully!');
             viewStoryTasks(currentStory.id);
+        } else {
+            alert('Error: ' + (result.error || 'Unknown error'));
         }
     } catch (error) {
         console.error('Error creating task:', error);
-        alert('Error creating task');
+        alert('Error creating task: ' + error.message + '\nCheck console for details');
     }
 }
 

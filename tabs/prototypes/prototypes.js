@@ -442,6 +442,8 @@ function openPrototypeModal(prototypeId = null) {
 async function savePrototype(event) {
     event.preventDefault();
     
+    console.log('savePrototype() chamada!');
+    
     const data = {
         short_name: document.getElementById('protoShortName').value,
         title: document.getElementById('protoTitle').value,
@@ -455,12 +457,19 @@ async function savePrototype(event) {
         documentation_links: document.getElementById('protoDocumentationLinks').value
     };
     
+    console.log('Dados do formulário:', data);
+    
     if (currentPrototype) {
         data.id = currentPrototype.id;
         data.action = 'update_prototype';
+        console.log('Modo: UPDATE');
     } else {
         data.action = 'create_prototype';
+        console.log('Modo: CREATE');
     }
+    
+    console.log('Enviando para API:', API_PATH);
+    console.log('Payload completo:', data);
     
     try {
         const response = await fetch(API_PATH, {
@@ -469,19 +478,30 @@ async function savePrototype(event) {
             body: JSON.stringify(data)
         });
         
+        console.log('Response status:', response.status);
+        console.log('Response ok:', response.ok);
+        
         const result = await response.json();
+        console.log('Response data:', result);
+        
         if (result.success) {
+            console.log('✅ Protótipo salvo com sucesso!');
             document.querySelector('.modal').remove();
             loadPrototypes();
             if (result.id) {
+                console.log('Selecionando protótipo criado:', result.id);
                 selectPrototype(result.id);
             } else if (currentPrototype) {
+                console.log('Recarregando protótipo atual:', currentPrototype.id);
                 selectPrototype(currentPrototype.id);
             }
+        } else {
+            console.error('❌ Erro na resposta:', result);
+            alert('Error: ' + (result.error || 'Unknown error'));
         }
     } catch (error) {
-        console.error('Error saving prototype:', error);
-        alert('Error saving prototype');
+        console.error('❌ Erro ao salvar prototype:', error);
+        alert('Error saving prototype: ' + error.message);
     }
 }
 

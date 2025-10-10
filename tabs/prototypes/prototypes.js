@@ -75,70 +75,125 @@ async function selectPrototype(id) {
     }
 }
 
+// Adicionar ao prototypes.js - substituir a função renderPrototypeDetail()
+
 function renderPrototypeDetail() {
     const panel = document.getElementById('detailPanel');
     
     panel.innerHTML = `
         <div class="detail-section">
-            <h3>📋 Basic Information</h3>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Short Name</label>
-                    <input type="text" id="shortName" value="${escapeHtml(currentPrototype.short_name || '')}" 
-                           onchange="updatePrototype()">
+            <div class="section-header">
+                <h3>📋 Basic Information</h3>
+            </div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Short Name</div>
+                    <div class="info-value" id="view-shortName">${escapeHtml(currentPrototype.short_name || 'Not defined')}</div>
+                    <button class="edit-btn" onclick="editField('shortName', 'text')" title="Edit">✏️</button>
                 </div>
-                <div class="form-group">
-                    <label>Title</label>
-                    <input type="text" id="title" value="${escapeHtml(currentPrototype.title || '')}"
-                           onchange="updatePrototype()">
+                <div class="info-item">
+                    <div class="info-label">Title</div>
+                    <div class="info-value" id="view-title">${escapeHtml(currentPrototype.title || 'Not defined')}</div>
+                    <button class="edit-btn" onclick="editField('title', 'text')" title="Edit">✏️</button>
                 </div>
             </div>
         </div>
 
         <div class="detail-section">
-            <h3>🎯 Product Vision Board</h3>
-            <div class="form-group">
-                <label>Vision</label>
-                <textarea id="vision" onchange="updatePrototype()">${escapeHtml(currentPrototype.vision || '')}</textarea>
+            <div class="section-header">
+                <h3>🎯 Product Vision Board</h3>
             </div>
-            <div class="form-group">
-                <label>Target Group</label>
-                <textarea id="targetGroup" onchange="updatePrototype()">${escapeHtml(currentPrototype.target_group || '')}</textarea>
-            </div>
-            <div class="form-group">
-                <label>Needs (Problems to Solve)</label>
-                <textarea id="needs" onchange="updatePrototype()">${escapeHtml(currentPrototype.needs || '')}</textarea>
-            </div>
-            <div class="form-group">
-                <label>Product Description</label>
-                <textarea id="productDescription" onchange="updatePrototype()">${escapeHtml(currentPrototype.product_description || '')}</textarea>
-            </div>
-            <div class="form-group">
-                <label>Business Goals</label>
-                <textarea id="businessGoals" onchange="updatePrototype()">${escapeHtml(currentPrototype.business_goals || '')}</textarea>
+            
+            <div class="vision-grid">
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Vision</h4>
+                        <button class="edit-btn" onclick="editField('vision', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-vision">
+                        ${formatText(currentPrototype.vision) || '<em class="text-muted">Not defined</em>'}
+                    </div>
+                </div>
+
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Target Group</h4>
+                        <button class="edit-btn" onclick="editField('targetGroup', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-targetGroup">
+                        ${formatText(currentPrototype.target_group) || '<em class="text-muted">Not defined</em>'}
+                    </div>
+                </div>
+
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Needs (Problems to Solve)</h4>
+                        <button class="edit-btn" onclick="editField('needs', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-needs">
+                        ${formatText(currentPrototype.needs) || '<em class="text-muted">Not defined</em>'}
+                    </div>
+                </div>
+
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Product Description</h4>
+                        <button class="edit-btn" onclick="editField('productDescription', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-productDescription">
+                        ${formatText(currentPrototype.product_description) || '<em class="text-muted">Not defined</em>'}
+                    </div>
+                </div>
+
+                <div class="vision-card">
+                    <div class="vision-header">
+                        <h4>Business Goals</h4>
+                        <button class="edit-btn" onclick="editField('businessGoals', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="vision-content" id="view-businessGoals">
+                        ${formatText(currentPrototype.business_goals) || '<em class="text-muted">Not defined</em>'}
+                    </div>
+                </div>
             </div>
         </div>
 
         <div class="detail-section">
-            <h3>💡 Product Statement</h3>
-            <div class="form-group">
-                <label>Elevator Pitch</label>
-                <textarea id="sentence" onchange="updatePrototype()" 
-                          placeholder="For [target customer], Who [customer needs], The [product name] Is a [product category] That [benefits]. Unlike [competitor], Our product [difference].">${escapeHtml(currentPrototype.sentence || '')}</textarea>
+            <div class="section-header">
+                <h3>💡 Product Statement</h3>
+                <button class="edit-btn" onclick="editField('sentence', 'textarea')" title="Edit">✏️</button>
+            </div>
+            <div class="statement-box" id="view-sentence">
+                ${formatText(currentPrototype.sentence) || '<em class="text-muted">Not defined</em>'}
+            </div>
+            <div class="statement-hint">
+                <small>Template: For [target customer], Who [customer needs], The [product name] Is a [product category] That [benefits]. Unlike [competitor], Our product [difference].</small>
             </div>
         </div>
 
         <div class="detail-section">
-            <h3>🔗 Resources</h3>
-            <div class="form-group">
-                <label>Repository Links</label>
-                <textarea id="repoLinks" onchange="updatePrototype()" 
-                          placeholder="https://github.com/user/repo">${escapeHtml(currentPrototype.repo_links || '')}</textarea>
+            <div class="section-header">
+                <h3>🔗 Resources</h3>
             </div>
-            <div class="form-group">
-                <label>Documentation Links</label>
-                <textarea id="documentationLinks" onchange="updatePrototype()"
-                          placeholder="https://docs.example.com">${escapeHtml(currentPrototype.documentation_links || '')}</textarea>
+            <div class="resources-grid">
+                <div class="resource-card">
+                    <div class="resource-header">
+                        <h4>🗂️ Repository Links</h4>
+                        <button class="edit-btn" onclick="editField('repoLinks', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="resource-content" id="view-repoLinks">
+                        ${formatLinks(currentPrototype.repo_links) || '<em class="text-muted">No links added</em>'}
+                    </div>
+                </div>
+
+                <div class="resource-card">
+                    <div class="resource-header">
+                        <h4>📚 Documentation Links</h4>
+                        <button class="edit-btn" onclick="editField('documentationLinks', 'textarea')" title="Edit">✏️</button>
+                    </div>
+                    <div class="resource-content" id="view-documentationLinks">
+                        ${formatLinks(currentPrototype.documentation_links) || '<em class="text-muted">No links added</em>'}
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -162,6 +217,151 @@ function renderPrototypeDetail() {
             <button class="btn btn-danger" onclick="deletePrototype()">🗑️ Delete Prototype</button>
         </div>
     `;
+}
+
+// Função para formatar texto com quebras de linha
+function formatText(text) {
+    if (!text) return '';
+    return text.split('\n').map(line => {
+        line = escapeHtml(line.trim());
+        if (line.startsWith('-') || line.startsWith('•')) {
+            return `<div class="list-item">${line}</div>`;
+        }
+        return line ? `<p>${line}</p>` : '';
+    }).join('');
+}
+
+// Função para formatar e tornar links clicáveis
+function formatLinks(linksText) {
+    if (!linksText) return '';
+    
+    const lines = linksText.split('\n').filter(line => line.trim());
+    if (lines.length === 0) return '';
+    
+    return lines.map(link => {
+        link = link.trim();
+        // Detectar URLs
+        const urlMatch = link.match(/(https?:\/\/[^\s]+)/);
+        if (urlMatch) {
+            const url = urlMatch[1];
+            const label = link.replace(url, '').trim() || url;
+            return `
+                <div class="link-item">
+                    <span class="link-icon">🔗</span>
+                    <a href="${url}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>
+                    <span class="external-icon">↗</span>
+                </div>
+            `;
+        }
+        return `<div class="link-item"><span class="link-icon">📄</span>${escapeHtml(link)}</div>`;
+    }).join('');
+}
+
+// Função para editar campo
+let editingField = null;
+
+function editField(fieldName, inputType) {
+    // Se já está editando, cancelar edição anterior
+    if (editingField) {
+        cancelEdit();
+    }
+    
+    editingField = fieldName;
+    const viewElement = document.getElementById(`view-${fieldName}`);
+    const currentValue = getCurrentFieldValue(fieldName);
+    
+    let editHTML;
+    if (inputType === 'textarea') {
+        editHTML = `
+            <div class="edit-container">
+                <textarea class="edit-input" id="edit-${fieldName}" rows="6">${escapeHtml(currentValue || '')}</textarea>
+                <div class="edit-actions">
+                    <button class="btn btn-small btn-success" onclick="saveField('${fieldName}')">💾 Save</button>
+                    <button class="btn btn-small btn-secondary" onclick="cancelEdit()">✖ Cancel</button>
+                </div>
+            </div>
+        `;
+    } else {
+        editHTML = `
+            <div class="edit-container">
+                <input type="text" class="edit-input" id="edit-${fieldName}" value="${escapeHtml(currentValue || '')}">
+                <div class="edit-actions">
+                    <button class="btn btn-small btn-success" onclick="saveField('${fieldName}')">💾 Save</button>
+                    <button class="btn btn-small btn-secondary" onclick="cancelEdit()">✖ Cancel</button>
+                </div>
+            </div>
+        `;
+    }
+    
+    viewElement.innerHTML = editHTML;
+    document.getElementById(`edit-${fieldName}`).focus();
+}
+
+function getCurrentFieldValue(fieldName) {
+    const fieldMap = {
+        'shortName': 'short_name',
+        'title': 'title',
+        'vision': 'vision',
+        'targetGroup': 'target_group',
+        'needs': 'needs',
+        'productDescription': 'product_description',
+        'businessGoals': 'business_goals',
+        'sentence': 'sentence',
+        'repoLinks': 'repo_links',
+        'documentationLinks': 'documentation_links'
+    };
+    
+    return currentPrototype[fieldMap[fieldName]] || '';
+}
+
+async function saveField(fieldName) {
+    const inputElement = document.getElementById(`edit-${fieldName}`);
+    const newValue = inputElement.value;
+    
+    // Mapear nome do campo para nome da coluna no BD
+    const fieldMap = {
+        'shortName': 'short_name',
+        'title': 'title',
+        'vision': 'vision',
+        'targetGroup': 'target_group',
+        'needs': 'needs',
+        'productDescription': 'product_description',
+        'businessGoals': 'business_goals',
+        'sentence': 'sentence',
+        'repoLinks': 'repo_links',
+        'documentationLinks': 'documentation_links'
+    };
+    
+    // Atualizar objeto local
+    currentPrototype[fieldMap[fieldName]] = newValue;
+    
+    // Salvar no servidor
+    try {
+        const response = await fetch(`${API_PATH}?action=update_prototype`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(currentPrototype)
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            // Atualizar visualização
+            editingField = null;
+            renderPrototypeDetail();
+            loadStories(); // Recarregar para manter as histórias
+        } else {
+            alert('Error saving: ' + (result.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error saving field:', error);
+        alert('Error saving changes');
+    }
+}
+
+function cancelEdit() {
+    editingField = null;
+    renderPrototypeDetail();
+    loadStories(); // Recarregar para manter as histórias
 }
 
 async function updatePrototype() {

@@ -1,4 +1,146 @@
-<?php
+<?php if ($checkPrototypes): ?>
+<!-- Modal: Associar Protótipo -->
+<div class="modal fade" id="addPrototypeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Associar Protótipo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="add_prototype">
+                    <input type="hidden" name="project_id" value="<?= $selectedProject['id'] ?>">
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Protótipo *</label>
+                        <select name="prototype_id" class="form-select" required>
+                            <option value="">Selecione...</option>
+                            <?php foreach ($prototypes as $proto): ?>
+                                <option value="<?= $proto['id'] ?>">
+                                    <?= htmlspecialchars($proto['short_name']) ?> - <?= htmlspecialchars($proto['title']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> 
+                        As user stories do protótipo aparecerão automaticamente após associar.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Associar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
+<!-- Modal: Gerir Tasks do Entregável -->
+<div class="modal fade" id="manageTasksModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Gerir Tasks do Entregável: <span id="taskModalDeliverableTitle"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="taskModalDeliverableId">
+                
+                <!-- Tabs para Criar Nova ou Associar Existente -->
+                <ul class="nav nav-tabs mb-3" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="create-task-tab" data-bs-toggle="tab" data-bs-target="#create-task-panel" type="button">
+                            <i class="bi bi-plus-circle"></i> Criar Nova Task
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="link-task-tab" data-bs-toggle="tab" data-bs-target="#link-task-panel" type="button">
+                            <i class="bi bi-link-45deg"></i> Associar Task Existente
+                        </button>
+                    </li>
+                </ul>
+                
+                <div class="tab-content">
+                    <!-- Criar Nova Task -->
+                    <div class="tab-pane fade show active" id="create-task-panel">
+                        <form method="post">
+                            <input type="hidden" name="action" value="create_new_task_for_deliverable">
+                            <input type="hidden" name="deliverable_id" id="create_task_deliverable_id">
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Título da Task *</label>
+                                <input type="text" name="task_title" class="form-control" required placeholder="Nome da task">
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Descrição</label>
+                                <textarea name="task_description" class="form-control" rows="3" placeholder="Detalhes da task"></textarea>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Data Limite</label>
+                                <input type="date" name="task_due_date" class="form-control">
+                            </div>
+                            
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle"></i> 
+                                A task será criada e automaticamente associada a este entregável. O estado do entregável será recalculado.
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="bi bi-plus-circle"></i> Criar e Associar Task
+                            </button>
+                        </form>
+                    </div>
+                    
+                    <!-- Associar Task Existente -->
+                    <div class="tab-pane fade" id="link-task-panel">
+                        <?php if ($todosExist && !empty($availableTodos)): ?>
+                            <form method="post">
+                                <input type="hidden" name="action" value="add_task_to_deliverable">
+                                <input type="hidden" name="deliverable_id" id="link_task_deliverable_id">
+                                
+                                <div class="mb-3">
+                                    <label class="form-label">Selecionar Task *</label>
+                                    <select name="todo_id" class="form-select" required size="10" style="min-height: 300px;">
+                                        <?php foreach ($availableTodos as $todo): ?>
+                                            <option value="<?= $todo['id'] ?>">
+                                                [<?= ucfirst($todo['estado']) ?>] <?= htmlspecialchars($todo['titulo']) ?>
+                                                <?= $todo['autor_name'] ? ' - ' . htmlspecialchars($todo['autor_name']) : '' ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <small class="text-muted">Mostrando as últimas 100 tasks disponíveis</small>
+                                </div>
+                                
+                                <button type="submit" class="btn btn-success w-100">
+                                    <i class="bi bi-link-45deg"></i> Associar Task Selecionada
+                                </button>
+                            </form>
+                        <?php elseif (!$todosExist): ?>
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                O módulo de ToDos não está instalado. Instale-o primeiro para poder associar tasks.
+                            </div>
+                        <?php else: ?>
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle"></i>
+                                Não há tasks disponíveis. Crie uma nova task usando a aba "Criar Nova Task".
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div><?php
 // tabs/projectos.php - Sistema Completo de Gestão de Projetos
 if (!isset($_SESSION['username'])) {
     header('Location: login.php');
@@ -63,11 +205,23 @@ CREATE TABLE IF NOT EXISTS project_deliverables (
     description TEXT,
     due_date DATE,
     status VARCHAR(20) DEFAULT 'pending',
-    todo_id INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    INDEX idx_project (project_id),
+    INDEX idx_project (project_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+");
+
+// Tabela para associar múltiplas tasks aos entregáveis
+$pdo->exec("
+CREATE TABLE IF NOT EXISTS deliverable_tasks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    deliverable_id INT NOT NULL,
+    todo_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (deliverable_id) REFERENCES project_deliverables(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_deliverable_task (deliverable_id, todo_id),
+    INDEX idx_deliverable (deliverable_id),
     INDEX idx_todo (todo_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 ");
@@ -169,20 +323,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
                 
             case 'update_deliverable':
-                $stmt = $pdo->prepare("UPDATE project_deliverables SET title=?, description=?, due_date=?, status=? WHERE id=?");
+                $stmt = $pdo->prepare("UPDATE project_deliverables SET title=?, description=?, due_date=? WHERE id=?");
                 $stmt->execute([
                     $_POST['deliverable_title'],
                     $_POST['deliverable_description'] ?? '',
                     $_POST['due_date'] ?: null,
-                    $_POST['status'],
                     $_POST['deliverable_id']
                 ]);
+                // Recalcular estado automaticamente
+                updateDeliverableStatus($pdo, $_POST['deliverable_id']);
                 $message = "Entregável atualizado!";
                 $messageType = 'success';
                 break;
                 
-            case 'convert_to_todo':
+            case 'add_task_to_deliverable':
                 // Verificar se tabela todos existe
+                $checkTodos = $pdo->query("SHOW TABLES LIKE 'todos'")->fetch();
+                if ($checkTodos) {
+                    $stmt = $pdo->prepare("INSERT IGNORE INTO deliverable_tasks (deliverable_id, todo_id) VALUES (?, ?)");
+                    $stmt->execute([$_POST['deliverable_id'], $_POST['todo_id']]);
+                    // Recalcular estado do entregável
+                    updateDeliverableStatus($pdo, $_POST['deliverable_id']);
+                    $message = "Task associada ao entregável!";
+                    $messageType = 'success';
+                } else {
+                    $message = "Tabela 'todos' não existe!";
+                    $messageType = 'danger';
+                }
+                break;
+                
+            case 'remove_task_from_deliverable':
+                $stmt = $pdo->prepare("DELETE FROM deliverable_tasks WHERE id=?");
+                $stmt->execute([$_POST['task_link_id']]);
+                // Recalcular estado do entregável
+                updateDeliverableStatus($pdo, $_POST['deliverable_id']);
+                $message = "Task desassociada!";
+                $messageType = 'success';
+                break;
+                
+            case 'create_new_task_for_deliverable':
+                // Verificar se tabela todos existe
+                $checkTodos = $pdo->query("SHOW TABLES LIKE 'todos'")->fetch();
+                if ($checkTodos) {
+                    // Criar nova task
+                    $stmt = $pdo->prepare("INSERT INTO todos (titulo, descritivo, data_limite, autor, estado) VALUES (?, ?, ?, ?, 'aberta')");
+                    $stmt->execute([
+                        $_POST['task_title'],
+                        $_POST['task_description'] ?? '',
+                        $_POST['task_due_date'] ?: null,
+                        $_SESSION['user_id']
+                    ]);
+                    $todoId = $pdo->lastInsertId();
+                    
+                    // Associar ao entregável
+                    $stmt = $pdo->prepare("INSERT INTO deliverable_tasks (deliverable_id, todo_id) VALUES (?, ?)");
+                    $stmt->execute([$_POST['deliverable_id'], $todoId]);
+                    
+                    // Recalcular estado
+                    updateDeliverableStatus($pdo, $_POST['deliverable_id']);
+                    
+                    $message = "Nova task criada e associada ao entregável!";
+                    $messageType = 'success';
+                } else {
+                    $message = "Tabela 'todos' não existe!";
+                    $messageType = 'danger';
+                }
+                break;
+                
+            case 'convert_to_todo':
+                // DEPRECATED - Mantido para compatibilidade
+                // Agora usamos deliverable_tasks para múltiplas tasks
                 $checkTodos = $pdo->query("SHOW TABLES LIKE 'todos'")->fetch();
                 if ($checkTodos) {
                     $deliverable = $pdo->prepare("SELECT * FROM project_deliverables WHERE id=?");
@@ -199,9 +409,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ]);
                     $todoId = $pdo->lastInsertId();
                     
-                    // Associar todo ao deliverable
-                    $stmt = $pdo->prepare("UPDATE project_deliverables SET todo_id=? WHERE id=?");
-                    $stmt->execute([$todoId, $_POST['deliverable_id']]);
+                    // Associar à tabela deliverable_tasks
+                    $stmt = $pdo->prepare("INSERT INTO deliverable_tasks (deliverable_id, todo_id) VALUES (?, ?)");
+                    $stmt->execute([$_POST['deliverable_id'], $todoId]);
+                    
+                    // Recalcular estado
+                    updateDeliverableStatus($pdo, $_POST['deliverable_id']);
                     
                     $message = "Entregável convertido em ToDo com sucesso!";
                     $messageType = 'success';
@@ -238,6 +451,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// Função para calcular e atualizar o estado do entregável baseado nas tasks
+function updateDeliverableStatus($pdo, $deliverableId) {
+    // Obter todas as tasks associadas ao entregável
+    $stmt = $pdo->prepare("
+        SELECT t.estado 
+        FROM deliverable_tasks dt 
+        JOIN todos t ON dt.todo_id = t.id 
+        WHERE dt.deliverable_id = ?
+    ");
+    $stmt->execute([$deliverableId]);
+    $tasks = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    
+    if (empty($tasks)) {
+        // Sem tasks, manter como pending
+        $status = 'pending';
+    } else {
+        // Contar estados
+        $total = count($tasks);
+        $fechadas = count(array_filter($tasks, fn($estado) => $estado === 'fechada'));
+        $emProgresso = count(array_filter($tasks, fn($estado) => $estado !== 'fechada' && $estado !== 'aberta'));
+        
+        if ($fechadas === $total) {
+            // Todas fechadas
+            $status = 'completed';
+        } elseif ($fechadas > 0 || $emProgresso > 0) {
+            // Pelo menos uma em progresso ou fechada
+            $status = 'in-progress';
+        } else {
+            // Todas abertas
+            $status = 'pending';
+        }
+    }
+    
+    // Atualizar estado do entregável
+    $stmt = $pdo->prepare("UPDATE project_deliverables SET status = ? WHERE id = ?");
+    $stmt->execute([$status, $deliverableId]);
+}
+
 // Obter dados para exibição
 $projects = $pdo->query("SELECT p.*, u.username as owner_name FROM projects p LEFT JOIN user_tokens u ON p.owner_id = u.user_id ORDER BY p.created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
 
@@ -254,6 +505,12 @@ if ($checkPrototypes) {
 // Verificar se a tabela todos existe
 $checkTodos = $pdo->query("SHOW TABLES LIKE 'todos'")->fetch();
 $todosExist = (bool)$checkTodos;
+
+// Obter todas as tasks disponíveis para associar
+$availableTodos = [];
+if ($todosExist) {
+    $availableTodos = $pdo->query("SELECT t.id, t.titulo, t.estado, u.username as autor_name FROM todos t LEFT JOIN user_tokens u ON t.autor = u.user_id ORDER BY t.created_at DESC LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // Obter projeto selecionado
 $selectedProject = null;
@@ -277,6 +534,22 @@ if (isset($_GET['project_id'])) {
         $stmt = $pdo->prepare("SELECT * FROM project_deliverables WHERE project_id=? ORDER BY due_date, created_at");
         $stmt->execute([$selectedProject['id']]);
         $selectedProject['deliverables'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Para cada entregável, obter as tasks associadas
+        if ($checkTodos) {
+            foreach ($selectedProject['deliverables'] as &$deliv) {
+                $stmt = $pdo->prepare("
+                    SELECT dt.id as link_id, t.id, t.titulo, t.descritivo, t.estado, t.data_limite, u.username as autor_name
+                    FROM deliverable_tasks dt 
+                    JOIN todos t ON dt.todo_id = t.id 
+                    LEFT JOIN user_tokens u ON t.autor = u.user_id
+                    WHERE dt.deliverable_id = ?
+                    ORDER BY t.created_at
+                ");
+                $stmt->execute([$deliv['id']]);
+                $deliv['tasks'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+        }
         
         // Obter protótipos associados
         if ($checkPrototypes) {
@@ -455,7 +728,7 @@ if (isset($_GET['project_id'])) {
 
 .deliverable-header {
     display: flex;
-    justify-content: space-between;
+    justify-content: between;
     align-items: center;
     margin-bottom: 8px;
 }
@@ -463,6 +736,12 @@ if (isset($_GET['project_id'])) {
 .deliverable-title {
     font-weight: 600;
     color: #212529;
+    flex: 1;
+}
+
+.deliverable-actions {
+    display: flex;
+    gap: 5px;
 }
 
 .status-badge {
@@ -476,6 +755,54 @@ if (isset($_GET['project_id'])) {
 .status-pending { background: #fff3cd; color: #856404; }
 .status-in-progress { background: #cfe2ff; color: #084298; }
 .status-completed { background: #d1e7dd; color: #0f5132; }
+
+.task-list {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #dee2e6;
+}
+
+.task-item {
+    background: white;
+    padding: 8px 10px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-left: 3px solid #dee2e6;
+    font-size: 13px;
+}
+
+.task-item.aberta { border-left-color: #ffc107; }
+.task-item.em_progresso { border-left-color: #0d6efd; }
+.task-item.fechada { border-left-color: #198754; }
+
+.task-info {
+    flex: 1;
+}
+
+.task-title {
+    font-weight: 500;
+    color: #212529;
+}
+
+.task-meta {
+    font-size: 11px;
+    color: #6c757d;
+    margin-top: 2px;
+}
+
+.task-badge {
+    padding: 2px 6px;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.task-badge.aberta { background: #fff3cd; color: #856404; }
+.task-badge.em_progresso { background: #cfe2ff; color: #084298; }
+.task-badge.fechada { background: #d1e7dd; color: #0f5132; }
 
 .prototype-card {
     background: #f8f9fa;
@@ -555,7 +882,7 @@ if (isset($_GET['project_id'])) {
                 </div>
             <?php else: ?>
                 <?php foreach ($projects as $proj): ?>
-                    <a href="?tab=projectos&project_id=<?= $proj['id'] ?>" class="text-decoration-none">
+                    <a href="?tab=projecto&project_id=<?= $proj['id'] ?>" class="text-decoration-none">
                         <div class="project-list-item <?= isset($_GET['project_id']) && $_GET['project_id'] == $proj['id'] ? 'active' : '' ?>">
                             <div class="project-short-name"><?= htmlspecialchars($proj['short_name']) ?></div>
                             <div class="project-title"><?= htmlspecialchars($proj['title']) ?></div>
@@ -686,10 +1013,23 @@ if (isset($_GET['project_id'])) {
                             <div class="deliverable-item <?= $deliv['status'] ?>">
                                 <div class="deliverable-header">
                                     <div class="deliverable-title"><?= htmlspecialchars($deliv['title']) ?></div>
-                                    <div>
+                                    <div class="deliverable-actions">
                                         <span class="status-badge status-<?= $deliv['status'] ?>">
-                                            <?= ucfirst($deliv['status']) ?>
+                                            <?= ucfirst(str_replace('-', ' ', $deliv['status'])) ?>
                                         </span>
+                                        <button class="btn btn-sm btn-outline-primary" onclick="editDeliverable(<?= htmlspecialchars(json_encode($deliv)) ?>)">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-success" onclick="manageDeliverableTasks(<?= $deliv['id'] ?>, '<?= htmlspecialchars($deliv['title']) ?>')">
+                                            <i class="bi bi-list-task"></i> Tasks
+                                        </button>
+                                        <form method="post" style="display:inline;">
+                                            <input type="hidden" name="action" value="delete_deliverable">
+                                            <input type="hidden" name="deliverable_id" value="<?= $deliv['id'] ?>">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Remover este entregável?')">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </form>
                                     </div>
                                 </div>
                                 
@@ -702,34 +1042,38 @@ if (isset($_GET['project_id'])) {
                                         <?php if ($deliv['due_date']): ?>
                                             <i class="bi bi-calendar-event"></i> <?= date('d/m/Y', strtotime($deliv['due_date'])) ?>
                                         <?php endif; ?>
-                                        <?php if ($deliv['todo_id']): ?>
-                                            <span class="badge bg-info ms-2">
-                                                <i class="bi bi-check-circle"></i> Convertido em ToDo
-                                            </span>
-                                        <?php endif; ?>
-                                    </div>
-                                    <div>
-                                        <?php if ($todosExist && !$deliv['todo_id']): ?>
-                                            <form method="post" style="display:inline;">
-                                                <input type="hidden" name="action" value="convert_to_todo">
-                                                <input type="hidden" name="deliverable_id" value="<?= $deliv['id'] ?>">
-                                                <button type="submit" class="btn btn-sm btn-outline-success" title="Converter em ToDo">
-                                                    <i class="bi bi-arrow-right-circle"></i> ToDo
-                                                </button>
-                                            </form>
-                                        <?php endif; ?>
-                                        <button class="btn btn-sm btn-outline-primary" onclick="editDeliverable(<?= htmlspecialchars(json_encode($deliv)) ?>)">
-                                            <i class="bi bi-pencil"></i>
-                                        </button>
-                                        <form method="post" style="display:inline;">
-                                            <input type="hidden" name="action" value="delete_deliverable">
-                                            <input type="hidden" name="deliverable_id" value="<?= $deliv['id'] ?>">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Remover este entregável?')">
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                        </form>
                                     </div>
                                 </div>
+                                
+                                <?php if (!empty($deliv['tasks'])): ?>
+                                    <div class="task-list">
+                                        <small class="text-muted fw-bold">Tasks Associadas (<?= count($deliv['tasks']) ?>):</small>
+                                        <?php foreach ($deliv['tasks'] as $task): ?>
+                                            <div class="task-item <?= $task['estado'] ?>">
+                                                <div class="task-info">
+                                                    <div class="task-title"><?= htmlspecialchars($task['titulo']) ?></div>
+                                                    <div class="task-meta">
+                                                        <span class="task-badge <?= $task['estado'] ?>"><?= ucfirst(str_replace('_', ' ', $task['estado'])) ?></span>
+                                                        <?php if ($task['autor_name']): ?>
+                                                            | <?= htmlspecialchars($task['autor_name']) ?>
+                                                        <?php endif; ?>
+                                                        <?php if ($task['data_limite']): ?>
+                                                            | <i class="bi bi-calendar"></i> <?= date('d/m/Y', strtotime($task['data_limite'])) ?>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                </div>
+                                                <form method="post" style="display:inline;">
+                                                    <input type="hidden" name="action" value="remove_task_from_deliverable">
+                                                    <input type="hidden" name="task_link_id" value="<?= $task['link_id'] ?>">
+                                                    <input type="hidden" name="deliverable_id" value="<?= $deliv['id'] ?>">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Desassociar esta task?')" title="Desassociar">
+                                                        <i class="bi bi-x-lg"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endif; ?>
                             </div>
                         <?php endforeach; ?>
                     <?php endif; ?>
@@ -1061,11 +1405,12 @@ if (isset($_GET['project_id'])) {
                     
                     <div class="mb-3">
                         <label class="form-label">Estado</label>
-                        <select name="status" id="edit_status" class="form-select">
+                        <select name="status" id="edit_status" class="form-select" disabled>
                             <option value="pending">Pendente</option>
                             <option value="in-progress">Em Progresso</option>
                             <option value="completed">Concluído</option>
                         </select>
+                        <small class="text-muted">O estado é calculado automaticamente baseado nas tasks associadas</small>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -1128,6 +1473,16 @@ function editDeliverable(deliverable) {
     document.getElementById('edit_status').value = deliverable.status;
     
     var modal = new bootstrap.Modal(document.getElementById('editDeliverableModal'));
+    modal.show();
+}
+
+function manageDeliverableTasks(deliverableId, deliverableTitle) {
+    document.getElementById('taskModalDeliverableId').value = deliverableId;
+    document.getElementById('taskModalDeliverableTitle').textContent = deliverableTitle;
+    document.getElementById('create_task_deliverable_id').value = deliverableId;
+    document.getElementById('link_task_deliverable_id').value = deliverableId;
+    
+    var modal = new bootstrap.Modal(document.getElementById('manageTasksModal'));
     modal.show();
 }
 </script>

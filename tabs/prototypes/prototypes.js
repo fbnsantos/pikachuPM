@@ -1,21 +1,12 @@
-// prototypes.js
-let currentPrototype = null;
-let currentStory = null;
-let prototypes = [];
-let stories = [];
 
-// Caminho da API (definido no HTML ou usar padrão)
-const API_PATH = window.PROTOTYPES_API_PATH || 'prototypes_api.php';
+// ===== UTILITY =====
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 
-// Inicialização
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('Prototypes JS loaded. API Path:', API_PATH);
-    loadPrototypes();
-    
-    document.getElementById('searchInput').addEventListener('input', (e) => {
-        loadPrototypes(e.target.value);
-    });
-});
 
 // ===== MAKE LINKS CLICKABLE =====
 function makeLinksClickable(text) {
@@ -35,6 +26,26 @@ function formatTextWithLinks(text) {
     if (!text) return '';
     return makeLinksClickable(escapeHtml(text)).replace(/\n/g, '<br>');
 }
+
+// prototypes.js
+let currentPrototype = null;
+let currentStory = null;
+let prototypes = [];
+let stories = [];
+
+// Caminho da API (definido no HTML ou usar padrão)
+const API_PATH = window.PROTOTYPES_API_PATH || 'prototypes_api.php';
+
+// Inicialização
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('Prototypes JS loaded. API Path:', API_PATH);
+    loadPrototypes();
+    
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+        loadPrototypes(e.target.value);
+    });
+});
+
 
 // ===== PROTOTYPES =====
 async function loadPrototypes(search = '') {
@@ -74,7 +85,22 @@ async function loadPrototypes(search = '') {
     }
 }
 
-async function selectPrototype(id) {
+// ===== PARTICIPANTS MANAGEMENT =====
+let participants = [];
+
+async function loadParticipants() {
+    if (!currentPrototype) return;
+    
+    try {
+        const response = await fetch(`${API_PATH}?action=get_participants&prototype_id=${currentPrototype.id}`);
+        participants = await response.json();
+        renderParticipantsTable();
+    } catch (error) {
+        console.error('Error loading participants:', error);
+    }
+}
+
+async function selectPrototype(id, event = null) {
     try {
         const response = await fetch(`${API_PATH}?action=get_prototype&id=${id}`);
         currentPrototype = await response.json();
@@ -226,6 +252,181 @@ function renderPrototypeDetail() {
     
     // Carregar participantes após renderizar
     loadParticipants();
+}
+
+
+
+
+function renderParticipantsTable() {
+    const container = document.getElementById('participantsTable');
+    if (!container) return;
+    
+    if (participants.length === 0) {
+        container.innerHTML = `
+            <div style="text-align: center; padding: 20px; color: #64748b;">
+                <p>No participants yet</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = `
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f9fafb; border-bottom: 2px solid #e5e7eb;">
+                    <th style="padding: 12px; text-align: left; font-weight: 600; color: #4a5568;">Username</th>
+                    <th style="padding: 12px; text-align: left; font-weight: 600; color: #4a5568;">Role</th>
+                    <th style="padding: 12px; text-align: center; font-weight: 600; color: #4a5568;">Leader</th>
+                    <th style="padding: 12px; text-align: center; font-weight: 600; color: #4a5568;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${participants.map(p => `
+                    <tr style="border-bottom: 1px solid #e5e7eb;">
+                        <td style="padding: 12px;">
+                            <strong>${escapeHtml(p.username)}</strong>
+                            ${p.is_leader ? '<span style="margin-left: 8px; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">👑 LEADER</span>' : ''}
+                        </td>
+                        <td style="padding: 12px;">${escapeHtml(p.role || 'member')}</td>
+                        <td style="padding: 12px; text-align: center;">
+                            ${p.is_leader 
+                                ? '<span style="color: #f59e0b; font-size: 20px;">👑</span>' 
+                                : `<button class="btn btn-secondary btn-small" onclick="setLeader(${p.id})" title="Make leader">Set Leader</button>`
+                            }
+                        </td>
+                        <td style="padding: 12px; text-align: center;">
+                            <button class="btn btn-danger btn-small" onclick="removeParticipant(${p.id})">🗑️</button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+async function openParticipantModal() {
+    try {
+        const response = await fetch(`${API_PATH}?action=get_available_users&prototype_id=${currentPrototype.id}`);
+        const availableUsers = await response.json();
+        
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Add Participant</h3>
+                    <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
+                </div>
+                <form onsubmit="addParticipant(event)">
+                    <div class="form-group">
+                        <label>Select User</label>
+                        <select id="participantUsername" required style="width: 100%; padding: 10px; border: 1px solid #e1e8ed; border-radius: 6px;">
+                            <option value="">-- Select a user --</option>
+                            ${availableUsers.map(u => `<option value="${escapeHtml(u.username)}">${escapeHtml(u.username)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Role</label>
+                        <input type="text" id="participantRole" value="member" placeholder="e.g., Developer, Designer, PM">
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="participantIsLeader">
+                            <span>Make this user the project leader</span>
+                        </label>
+                    </div>
+                    <div class="action-bar">
+                        <button type="submit" class="btn btn-primary">Add Participant</button>
+                        <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    } catch (error) {
+        console.error('Error loading users:', error);
+        alert('Error loading available users');
+    }
+}
+
+async function addParticipant(event) {
+    event.preventDefault();
+    
+    const username = document.getElementById('participantUsername').value;
+    const role = document.getElementById('participantRole').value;
+    const isLeader = document.getElementById('participantIsLeader').checked;
+    
+    try {
+        const response = await fetch(API_PATH, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                action: 'add_participant',
+                prototype_id: currentPrototype.id,
+                username: username,
+                role: role,
+                is_leader: isLeader
+            })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            document.querySelector('.modal').remove();
+            loadParticipants();
+        } else if (result.error) {
+            alert(result.error);
+        }
+    } catch (error) {
+        console.error('Error adding participant:', error);
+        alert('Error adding participant');
+    }
+}
+
+async function setLeader(participantId) {
+    if (!confirm('Set this user as project leader?')) return;
+    
+    try {
+        const response = await fetch(API_PATH, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                action: 'set_leader',
+                prototype_id: currentPrototype.id,
+                participant_id: participantId
+            })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            loadParticipants();
+        }
+    } catch (error) {
+        console.error('Error setting leader:', error);
+        alert('Error setting leader');
+    }
+}
+
+async function removeParticipant(participantId) {
+    if (!confirm('Remove this participant?')) return;
+    
+    try {
+        const formData = new FormData();
+        formData.append('action', 'remove_participant');
+        formData.append('id', participantId);
+        
+        const response = await fetch(API_PATH, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            loadParticipants();
+        }
+    } catch (error) {
+        console.error('Error removing participant:', error);
+        alert('Error removing participant');
+    }
 }
 
 // Função para formatar texto com quebras de linha
@@ -773,204 +974,12 @@ function closeTaskModal() {
     document.getElementById('taskModal').classList.remove('active');
 }
 
+
+
+
+
 // ===== EXPORT =====
 function exportMarkdown() {
     if (!currentPrototype) return;
     window.location.href = `${API_PATH}?action=export_markdown&id=${currentPrototype.id}`;
 }
-
-// ===== UTILITY =====
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-// ===== PARTICIPANTS MANAGEMENT =====
-let participants = [];
-
-async function loadParticipants() {
-    if (!currentPrototype) return;
-    
-    try {
-        const response = await fetch(`${API_PATH}?action=get_participants&prototype_id=${currentPrototype.id}`);
-        participants = await response.json();
-        renderParticipantsTable();
-    } catch (error) {
-        console.error('Error loading participants:', error);
-    }
-}
-
-function renderParticipantsTable() {
-    const container = document.getElementById('participantsTable');
-    if (!container) return;
-    
-    if (participants.length === 0) {
-        container.innerHTML = `
-            <div style="text-align: center; padding: 20px; color: #64748b;">
-                <p>No participants yet</p>
-            </div>
-        `;
-        return;
-    }
-    
-    container.innerHTML = `
-        <table style="width: 100%; border-collapse: collapse;">
-            <thead>
-                <tr style="background: #f9fafb; border-bottom: 2px solid #e5e7eb;">
-                    <th style="padding: 12px; text-align: left; font-weight: 600; color: #4a5568;">Username</th>
-                    <th style="padding: 12px; text-align: left; font-weight: 600; color: #4a5568;">Role</th>
-                    <th style="padding: 12px; text-align: center; font-weight: 600; color: #4a5568;">Leader</th>
-                    <th style="padding: 12px; text-align: center; font-weight: 600; color: #4a5568;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${participants.map(p => `
-                    <tr style="border-bottom: 1px solid #e5e7eb;">
-                        <td style="padding: 12px;">
-                            <strong>${escapeHtml(p.username)}</strong>
-                            ${p.is_leader ? '<span style="margin-left: 8px; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">👑 LEADER</span>' : ''}
-                        </td>
-                        <td style="padding: 12px;">${escapeHtml(p.role || 'member')}</td>
-                        <td style="padding: 12px; text-align: center;">
-                            ${p.is_leader 
-                                ? '<span style="color: #f59e0b; font-size: 20px;">👑</span>' 
-                                : `<button class="btn btn-secondary btn-small" onclick="setLeader(${p.id})" title="Make leader">Set Leader</button>`
-                            }
-                        </td>
-                        <td style="padding: 12px; text-align: center;">
-                            <button class="btn btn-danger btn-small" onclick="removeParticipant(${p.id})">🗑️</button>
-                        </td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    `;
-}
-
-async function openParticipantModal() {
-    try {
-        const response = await fetch(`${API_PATH}?action=get_available_users&prototype_id=${currentPrototype.id}`);
-        const availableUsers = await response.json();
-        
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>Add Participant</h3>
-                    <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
-                </div>
-                <form onsubmit="addParticipant(event)">
-                    <div class="form-group">
-                        <label>Select User</label>
-                        <select id="participantUsername" required style="width: 100%; padding: 10px; border: 1px solid #e1e8ed; border-radius: 6px;">
-                            <option value="">-- Select a user --</option>
-                            ${availableUsers.map(u => `<option value="${escapeHtml(u.username)}">${escapeHtml(u.username)}</option>`).join('')}
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Role</label>
-                        <input type="text" id="participantRole" value="member" placeholder="e.g., Developer, Designer, PM">
-                    </div>
-                    <div class="form-group">
-                        <label style="display: flex; align-items: center; gap: 8px;">
-                            <input type="checkbox" id="participantIsLeader">
-                            <span>Make this user the project leader</span>
-                        </label>
-                    </div>
-                    <div class="action-bar">
-                        <button type="submit" class="btn btn-primary">Add Participant</button>
-                        <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
-                    </div>
-                </form>
-            </div>
-        `;
-        document.body.appendChild(modal);
-    } catch (error) {
-        console.error('Error loading users:', error);
-        alert('Error loading available users');
-    }
-}
-
-async function addParticipant(event) {
-    event.preventDefault();
-    
-    const username = document.getElementById('participantUsername').value;
-    const role = document.getElementById('participantRole').value;
-    const isLeader = document.getElementById('participantIsLeader').checked;
-    
-    try {
-        const response = await fetch(API_PATH, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                action: 'add_participant',
-                prototype_id: currentPrototype.id,
-                username: username,
-                role: role,
-                is_leader: isLeader
-            })
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            document.querySelector('.modal').remove();
-            loadParticipants();
-        } else if (result.error) {
-            alert(result.error);
-        }
-    } catch (error) {
-        console.error('Error adding participant:', error);
-        alert('Error adding participant');
-    }
-}
-
-async function setLeader(participantId) {
-    if (!confirm('Set this user as project leader?')) return;
-    
-    try {
-        const response = await fetch(API_PATH, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                action: 'set_leader',
-                prototype_id: currentPrototype.id,
-                participant_id: participantId
-            })
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            loadParticipants();
-        }
-    } catch (error) {
-        console.error('Error setting leader:', error);
-        alert('Error setting leader');
-    }
-}
-
-async function removeParticipant(participantId) {
-    if (!confirm('Remove this participant?')) return;
-    
-    try {
-        const formData = new FormData();
-        formData.append('action', 'remove_participant');
-        formData.append('id', participantId);
-        
-        const response = await fetch(API_PATH, {
-            method: 'POST',
-            body: formData
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            loadParticipants();
-        }
-    } catch (error) {
-        console.error('Error removing participant:', error);
-        alert('Error removing participant');
-    }
-}
-

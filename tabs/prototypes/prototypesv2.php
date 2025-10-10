@@ -535,11 +535,12 @@
             <div class="panel-header">
                 <h2>📋 Prototypes</h2>
                 <div class="search-box">
-                    <input type="text" id="searchInput" placeholder="Search prototypes...">
-                    <button class="btn btn-primary" onclick="createNewPrototype()">+ New</button>
+                    <label for="searchInput" style="display:none;">Search prototypes</label>
+                    <input type="text" id="searchInput" placeholder="Search prototypes..." aria-label="Search prototypes">
+                    <button class="btn btn-primary" onclick="createNewPrototype()" aria-label="Create new prototype">+ New</button>
                 </div>
             </div>
-            <div class="prototypes-list" id="prototypesList">
+            <div class="prototypes-list" id="prototypesList" role="list" aria-label="Prototypes list">
                 <div class="empty-state">
                     <h3>No prototypes yet</h3>
                     <p>Create your first prototype to get started</p>
@@ -548,7 +549,7 @@
         </div>
 
         <!-- Right Panel -->
-        <div class="right-panel" id="detailPanel">
+        <div class="right-panel" id="detailPanel" role="main" aria-label="Prototype details">
             <div class="empty-state">
                 <h3>Select a prototype</h3>
                 <p>Choose a prototype from the list to view details</p>

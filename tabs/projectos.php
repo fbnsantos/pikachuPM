@@ -555,7 +555,7 @@ if (isset($_GET['project_id'])) {
                 </div>
             <?php else: ?>
                 <?php foreach ($projects as $proj): ?>
-                    <a href="?tab=projecto&project_id=<?= $proj['id'] ?>" class="text-decoration-none">
+                    <a href="?tab=projectos&project_id=<?= $proj['id'] ?>" class="text-decoration-none">
                         <div class="project-list-item <?= isset($_GET['project_id']) && $_GET['project_id'] == $proj['id'] ? 'active' : '' ?>">
                             <div class="project-short-name"><?= htmlspecialchars($proj['short_name']) ?></div>
                             <div class="project-title"><?= htmlspecialchars($proj['title']) ?></div>

@@ -16,10 +16,10 @@ $HORA_TRANSICAO_CALENDARIO = "12:00"; // formato HH:MM - Hora para transição p
 // Tabs disponíveis
 $tabs = [
     'dashboard' => 'Painel Principal',
-    'prototypes/prototypesv2' => 'Prototypes',
     'bomlist/bomlist'  => 'Boom list',
+    'prototypes/prototypesv2' => 'Prototypes',
     'projectos' => 'Projects',
-    'milestone' => 'Sprints',
+    'sprints' => 'Sprints',
     'todos' => 'ToDo',
     'phd_kanban' => 'Doutoramento',
     'equipa' => 'Reunião Diária',
@@ -29,6 +29,7 @@ $tabs = [
     'links' => 'Links',
     'prototypes' => 'Prototypes_v1',
     'projecto' => 'Projects_1',
+    'milestone' => 'milestones',
     'admin' => 'Administration',
 ];
 

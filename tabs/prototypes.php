@@ -97,6 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
     header('Content-Type: application/json');
     
     $action = $_POST['ajax_action'];
+    $response = ['success' => false];
     
     try {
         switch($action) {
@@ -114,8 +115,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                     $result = $db->query($sql);
                 }
                 $prototypes = $result->fetch_all(MYSQLI_ASSOC);
-                echo json_encode(['success' => true, 'data' => $prototypes]);
-                exit;
+                $response = ['success' => true, 'data' => $prototypes];
+                break;
                 
             case 'get_prototype':
                 $id = (int)$_POST['id'];
@@ -123,8 +124,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 $stmt->bind_param('i', $id);
                 $stmt->execute();
                 $prototype = $stmt->get_result()->fetch_assoc();
-                echo json_encode(['success' => true, 'data' => $prototype]);
-                exit;
+                $response = ['success' => true, 'data' => $prototype];
+                break;
                 
             case 'create_prototype':
                 $short_name = $_POST['short_name'] ?? '';
@@ -139,8 +140,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 $stmt->bind_param('ss', $short_name, $title);
                 $stmt->execute();
                 
-                echo json_encode(['success' => true, 'id' => $db->insert_id]);
-                exit;
+                $response = ['success' => true, 'id' => $db->insert_id];
+                break;
                 
             case 'update_prototype':
                 $id = (int)$_POST['id'];
@@ -159,8 +160,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 );
                 $stmt->execute();
                 
-                echo json_encode(['success' => true]);
-                exit;
+                $response = ['success' => true];
+                break;
                 
             case 'delete_prototype':
                 $id = (int)$_POST['id'];
@@ -168,8 +169,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 $stmt->bind_param('i', $id);
                 $stmt->execute();
                 
-                echo json_encode(['success' => true]);
-                exit;
+                $response = ['success' => true];
+                break;
                 
             case 'get_stories':
                 $prototype_id = (int)$_POST['prototype_id'];
@@ -190,8 +191,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 $stmt->execute();
                 $stories = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                 
-                echo json_encode(['success' => true, 'data' => $stories]);
-                exit;
+                $response = ['success' => true, 'data' => $stories];
+                break;
                 
             case 'create_story':
                 $prototype_id = (int)$_POST['prototype_id'];
@@ -205,8 +206,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 $stmt->bind_param('iss', $prototype_id, $story_text, $priority);
                 $stmt->execute();
                 
-                echo json_encode(['success' => true, 'id' => $db->insert_id]);
-                exit;
+                $response = ['success' => true, 'id' => $db->insert_id];
+                break;
                 
             case 'update_story':
                 $id = (int)$_POST['id'];
@@ -221,8 +222,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 $stmt->bind_param('ssi', $story_text, $priority, $id);
                 $stmt->execute();
                 
-                echo json_encode(['success' => true]);
-                exit;
+                $response = ['success' => true];
+                break;
                 
             case 'delete_story':
                 $id = (int)$_POST['id'];
@@ -230,8 +231,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 $stmt->bind_param('i', $id);
                 $stmt->execute();
                 
-                echo json_encode(['success' => true]);
-                exit;
+                $response = ['success' => true];
+                break;
                 
             case 'create_task_from_story':
                 $story_id = (int)$_POST['story_id'];
@@ -268,8 +269,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 $stmt->bind_param('ii', $story_id, $task_id);
                 $stmt->execute();
                 
-                echo json_encode(['success' => true, 'task_id' => $task_id]);
-                exit;
+                $response = ['success' => true, 'task_id' => $task_id];
+                break;
                 
             case 'get_story_tasks':
                 $story_id = (int)$_POST['story_id'];
@@ -283,8 +284,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 $stmt->execute();
                 $tasks = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                 
-                echo json_encode(['success' => true, 'data' => $tasks]);
-                exit;
+                $response = ['success' => true, 'data' => $tasks];
+                break;
                 
             case 'unlink_task':
                 $link_id = (int)$_POST['link_id'];
@@ -292,13 +293,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 $stmt->bind_param('i', $link_id);
                 $stmt->execute();
                 
-                echo json_encode(['success' => true]);
-                exit;
+                $response = ['success' => true];
+                break;
+                
+            default:
+                $response = ['success' => false, 'error' => 'Invalid action'];
         }
     } catch (Exception $e) {
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
-        exit;
+        $response = ['success' => false, 'error' => $e->getMessage()];
     }
+    
+    // Fechar conexão e retornar JSON
+    $db->close();
+    echo json_encode($response);
+    exit; // IMPORTANTE: sair aqui para não incluir o HTML
 }
 
 $db->close();

@@ -400,25 +400,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
                 
             case 'convert_to_todo':
-                // DEPRECATED - Mantido para compatibilidade
-                // Agora usamos deliverable_tasks para múltiplas tasks
+                // Converter entregável em task da tabela todos
                 $checkTodos = $pdo->query("SHOW TABLES LIKE 'todos'")->fetch();
                 if ($checkTodos) {
-                    // Verificar se coluna projeto_id existe, se não, criar
-                    try {
-                        $checkColumn = $pdo->query("SHOW COLUMNS FROM todos LIKE 'projeto_id'")->fetch();
-                        if (!$checkColumn) {
-                            $pdo->exec("ALTER TABLE todos ADD COLUMN projeto_id INT NULL AFTER responsavel, ADD INDEX idx_projeto (projeto_id)");
-                        }
-                    } catch (PDOException $e) {
-                        // Coluna já existe ou erro - continuar
-                    }
-                    
                     $deliverable = $pdo->prepare("SELECT pd.*, pd.project_id FROM project_deliverables pd WHERE pd.id=?");
                     $deliverable->execute([$_POST['deliverable_id']]);
                     $deliv = $deliverable->fetch(PDO::FETCH_ASSOC);
                     
-                    // Criar todo com projeto_id
+                    // Criar task na tabela todos com projeto_id preenchido
                     $stmt = $pdo->prepare("INSERT INTO todos (titulo, descritivo, data_limite, autor, projeto_id, estado) VALUES (?, ?, ?, ?, ?, 'aberta')");
                     $stmt->execute([
                         $deliv['title'],
@@ -436,7 +425,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Recalcular estado
                     updateDeliverableStatus($pdo, $_POST['deliverable_id']);
                     
-                    $message = "Entregável convertido em ToDo com sucesso!";
+                    $message = "Entregável convertido em Task (tabela todos) com sucesso! (projeto_id = {$deliv['project_id']})";
                     $messageType = 'success';
                 } else {
                     $message = "Tabela 'todos' não existe! Instale o módulo de ToDos primeiro.";
@@ -526,10 +515,18 @@ if ($checkPrototypes) {
 $checkTodos = $pdo->query("SHOW TABLES LIKE 'todos'")->fetch();
 $todosExist = (bool)$checkTodos;
 
-// Obter todas as tasks disponíveis para associar
+// Obter todas as tasks disponíveis para associar (da tabela todos)
 $availableTodos = [];
 if ($todosExist) {
-    $availableTodos = $pdo->query("SELECT t.id, t.titulo, t.estado, u.username as autor_name FROM todos t LEFT JOIN user_tokens u ON t.autor = u.user_id ORDER BY t.created_at DESC LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);
+    // Buscar todas as tasks da tabela todos, ordenadas por data de criação
+    $availableTodos = $pdo->query("
+        SELECT t.id, t.titulo, t.estado, t.data_limite, t.projeto_id, u.username as autor_name, p.short_name as projeto_nome
+        FROM todos t 
+        LEFT JOIN user_tokens u ON t.autor = u.user_id 
+        LEFT JOIN projects p ON t.projeto_id = p.id
+        ORDER BY t.created_at DESC 
+        LIMIT 200
+    ")->fetchAll(PDO::FETCH_ASSOC);
 }
 
 // Obter projeto selecionado

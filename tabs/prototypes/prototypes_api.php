@@ -183,6 +183,7 @@ try {
                 
                 // Debug: log dos dados recebidos
                 error_log("Create task from story - Data received: " . print_r($data, true));
+                error_log("User ID from session: $user_id");
                 
                 if (!isset($data['story_id']) || !isset($data['title'])) {
                     echo json_encode([
@@ -202,27 +203,47 @@ try {
                     break;
                 }
                 
+                // Verificar/criar entrada na tabela user_tokens se não existir
+                $checkUser = $pdo->prepare("SELECT user_id FROM user_tokens WHERE user_id = ?");
+                $checkUser->execute([$user_id]);
+                
+                if (!$checkUser->fetch()) {
+                    // Utilizador não existe em user_tokens, criar entrada
+                    $username = $_SESSION['username'] ?? 'user_' . $user_id;
+                    $token = bin2hex(random_bytes(16));
+                    
+                    $insertUser = $pdo->prepare("
+                        INSERT INTO user_tokens (user_id, username, token)
+                        VALUES (?, ?, ?)
+                    ");
+                    $insertUser->execute([$user_id, $username, $token]);
+                    error_log("Created user_token for user_id: $user_id, username: $username");
+                }
+                
                 // Criar a tarefa na tabela todos
-                $stmt = $pdo->prepare("
+                $insertTodo = $pdo->prepare("
                     INSERT INTO todos (titulo, descritivo, estado, autor, created_at)
                     VALUES (?, ?, 'aberta', ?, NOW())
                 ");
                 
-                $stmt->execute([
+                $executeResult = $insertTodo->execute([
                     $data['title'],
                     $data['description'] ?? '',
-                    $user_id  // Usar o user_id da sessão
+                    $user_id
                 ]);
+                
+                error_log("Insert todo result: " . ($executeResult ? 'success' : 'failed'));
+                error_log("Values used - titulo: {$data['title']}, autor: $user_id");
                 
                 $taskId = $pdo->lastInsertId();
                 error_log("Task created with ID: $taskId");
                 
                 // Associar à user story
-                $stmt = $pdo->prepare("
+                $linkStory = $pdo->prepare("
                     INSERT INTO user_story_tasks (story_id, task_id)
                     VALUES (?, ?)
                 ");
-                $stmt->execute([$data['story_id'], $taskId]);
+                $linkStory->execute([$data['story_id'], $taskId]);
                 
                 error_log("Task linked to story: {$data['story_id']}");
                 
@@ -230,10 +251,12 @@ try {
                 
             } catch (PDOException $e) {
                 error_log("Database error in create_task_from_story: " . $e->getMessage());
+                error_log("User ID was: " . ($user_id ?? 'NULL'));
                 echo json_encode([
                     'error' => 'Database error',
                     'message' => $e->getMessage(),
-                    'code' => $e->getCode()
+                    'code' => $e->getCode(),
+                    'user_id' => $user_id ?? null
                 ]);
             } catch (Exception $e) {
                 error_log("Error in create_task_from_story: " . $e->getMessage());

@@ -361,10 +361,13 @@ function cancelFieldEdit(fieldName, inputType, originalContent) {
 }
 
 function openPrototypeModal(prototypeId = null) {
+    console.log('openPrototypeModal() chamada com ID:', prototypeId);
+    
     currentPrototype = prototypeId ? currentPrototype : null;
     
+    console.log('Criando modal...');
     const modal = document.createElement('div');
-    modal.className = 'modal';
+    modal.className = 'modal active';
     modal.innerHTML = `
         <div class="modal-content">
             <div class="modal-header">
@@ -374,52 +377,52 @@ function openPrototypeModal(prototypeId = null) {
             <form onsubmit="savePrototype(event)">
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Short Name *</label>
+                        <label for="protoShortName">Short Name *</label>
                         <input type="text" id="protoShortName" value="${escapeHtml(currentPrototype?.short_name || '')}" required>
                     </div>
                     <div class="form-group">
-                        <label>Title *</label>
+                        <label for="protoTitle">Title *</label>
                         <input type="text" id="protoTitle" value="${escapeHtml(currentPrototype?.title || '')}" required>
                     </div>
                 </div>
                 
                 <div class="form-group">
-                    <label>Vision</label>
+                    <label for="protoVision">Vision</label>
                     <textarea id="protoVision">${escapeHtml(currentPrototype?.vision || '')}</textarea>
                 </div>
                 
                 <div class="form-group">
-                    <label>Product Statement</label>
+                    <label for="protoSentence">Product Statement</label>
                     <textarea id="protoSentence">${escapeHtml(currentPrototype?.sentence || '')}</textarea>
                 </div>
                 
                 <div class="form-group">
-                    <label>Target Group</label>
+                    <label for="protoTargetGroup">Target Group</label>
                     <textarea id="protoTargetGroup">${escapeHtml(currentPrototype?.target_group || '')}</textarea>
                 </div>
                 
                 <div class="form-group">
-                    <label>Needs</label>
+                    <label for="protoNeeds">Needs</label>
                     <textarea id="protoNeeds">${escapeHtml(currentPrototype?.needs || '')}</textarea>
                 </div>
                 
                 <div class="form-group">
-                    <label>Product Description</label>
+                    <label for="protoProductDescription">Product Description</label>
                     <textarea id="protoProductDescription">${escapeHtml(currentPrototype?.product_description || '')}</textarea>
                 </div>
                 
                 <div class="form-group">
-                    <label>Business Goals</label>
+                    <label for="protoBusinessGoals">Business Goals</label>
                     <textarea id="protoBusinessGoals">${escapeHtml(currentPrototype?.business_goals || '')}</textarea>
                 </div>
                 
                 <div class="form-group">
-                    <label>Repository Links</label>
+                    <label for="protoRepoLinks">Repository Links</label>
                     <textarea id="protoRepoLinks">${escapeHtml(currentPrototype?.repo_links || '')}</textarea>
                 </div>
                 
                 <div class="form-group">
-                    <label>Documentation Links</label>
+                    <label for="protoDocumentationLinks">Documentation Links</label>
                     <textarea id="protoDocumentationLinks">${escapeHtml(currentPrototype?.documentation_links || '')}</textarea>
                 </div>
                 
@@ -430,7 +433,10 @@ function openPrototypeModal(prototypeId = null) {
             </form>
         </div>
     `;
+    
+    console.log('Adicionando modal ao body...');
     document.body.appendChild(modal);
+    console.log('Modal adicionado! Deve estar visível agora.');
 }
 
 async function savePrototype(event) {

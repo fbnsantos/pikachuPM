@@ -5,7 +5,7 @@
  * Cria todas as tabelas necessárias no banco de dados
  */
 
-require_once '../db.php';
+require_once 'config.php';
 
 $success = [];
 $errors = [];

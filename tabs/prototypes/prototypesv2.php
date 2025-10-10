@@ -466,6 +466,14 @@
         </div>
     </div>
 
-    <script src="prototypes.js"></script>
+    <script>
+        // Detectar se está sendo incluído ou executado diretamente
+        const isIncluded = window.location.search.includes('tab=');
+        const basePath = isIncluded ? 'tabs/prototypes/' : '';
+        
+        // Ajustar caminho da API dinamicamente
+        window.PROTOTYPES_API_PATH = basePath + 'prototypes_api.php';
+    </script>
+    <script src="<?php echo (strpos($_SERVER['REQUEST_URI'], 'tab=') !== false) ? 'tabs/prototypes/' : ''; ?>prototypes.js"></script>
 </body>
 </html>

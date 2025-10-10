@@ -4,8 +4,12 @@ let currentStory = null;
 let prototypes = [];
 let stories = [];
 
+// Caminho da API (definido no HTML ou usar padrão)
+const API_PATH = window.PROTOTYPES_API_PATH || 'prototypes_api.php';
+
 // Inicialização
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('Prototypes JS loaded. API Path:', API_PATH);
     loadPrototypes();
     
     document.getElementById('searchInput').addEventListener('input', (e) => {
@@ -16,9 +20,16 @@ document.addEventListener('DOMContentLoaded', () => {
 // ===== PROTOTYPES =====
 async function loadPrototypes(search = '') {
     try {
-        const url = `prototypes_api.php?action=get_prototypes${search ? `&search=${encodeURIComponent(search)}` : ''}`;
+        const url = `${API_PATH}?action=get_prototypes${search ? `&search=${encodeURIComponent(search)}` : ''}`;
+        console.log('Loading prototypes from:', url);
         const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         prototypes = await response.json();
+        console.log('Prototypes loaded:', prototypes);
         
         const listEl = document.getElementById('prototypesList');
         
@@ -46,8 +57,10 @@ async function loadPrototypes(search = '') {
 
 async function selectPrototype(id) {
     try {
-        const response = await fetch(`prototypes_api.php?action=get_prototype&id=${id}`);
+        const response = await fetch(`${API_PATH}?action=get_prototype&id=${id}`);
         currentPrototype = await response.json();
+        
+        console.log('Prototype selected:', currentPrototype);
         
         renderPrototypeDetail();
         loadStories();
@@ -169,7 +182,7 @@ async function updatePrototype() {
     };
     
     try {
-        const response = await fetch('prototypes_api.php?action=update_prototype', {
+        const response = await fetch(`${API_PATH}?action=update_prototype`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -206,21 +219,33 @@ function createNewPrototype() {
         documentation_links: ''
     };
     
-    fetch('prototypes_api.php?action=create_prototype', {
+    console.log('Creating prototype:', data);
+    console.log('API Path:', API_PATH);
+    
+    fetch(`${API_PATH}?action=create_prototype`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
     })
-    .then(response => response.json())
+    .then(response => {
+        console.log('Response status:', response.status);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
     .then(result => {
+        console.log('Create result:', result);
         if (result.success) {
             loadPrototypes();
             selectPrototype(result.id);
+        } else {
+            alert('Error: ' + (result.error || 'Unknown error'));
         }
     })
     .catch(error => {
         console.error('Error creating prototype:', error);
-        alert('Error creating prototype');
+        alert('Error creating prototype: ' + error.message + '\nCheck console for details');
     });
 }
 
@@ -236,7 +261,7 @@ async function deletePrototype() {
         formData.append('action', 'delete_prototype');
         formData.append('id', currentPrototype.id);
         
-        const response = await fetch('prototypes_api.php', {
+        const response = await fetch(`${API_PATH}`, {
             method: 'POST',
             body: formData
         });
@@ -265,7 +290,7 @@ async function loadStories() {
     const priority = document.getElementById('priorityFilter')?.value || '';
     
     try {
-        const url = `prototypes_api.php?action=get_stories&prototype_id=${currentPrototype.id}${priority ? `&priority=${priority}` : ''}`;
+        const url = `${API_PATH}?action=get_stories&prototype_id=${currentPrototype.id}${priority ? `&priority=${priority}` : ''}`;
         const response = await fetch(url);
         stories = await response.json();
         
@@ -339,7 +364,7 @@ async function saveStory() {
             data.id = currentStory.id;
         }
         
-        const response = await fetch(`prototypes_api.php?action=${action}`, {
+        const response = await fetch(`${API_PATH}?action=${action}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -364,7 +389,7 @@ async function deleteStory(id) {
         formData.append('action', 'delete_story');
         formData.append('id', id);
         
-        const response = await fetch('prototypes_api.php', {
+        const response = await fetch(`${API_PATH}`, {
             method: 'POST',
             body: formData
         });
@@ -384,7 +409,7 @@ async function viewStoryTasks(storyId) {
     currentStory = stories.find(s => s.id === storyId);
     
     try {
-        const response = await fetch(`prototypes_api.php?action=get_story_tasks&story_id=${storyId}`);
+        const response = await fetch(`${API_PATH}?action=get_story_tasks&story_id=${storyId}`);
         const tasks = await response.json();
         
         const tasksList = tasks.length > 0 ? tasks.map(task => `
@@ -467,7 +492,7 @@ async function createTaskFromStory() {
     };
     
     try {
-        const response = await fetch('prototypes_api.php?action=create_task_from_story', {
+        const response = await fetch(`${API_PATH}?action=create_task_from_story`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -492,7 +517,7 @@ async function unlinkTask(linkId) {
         formData.append('action', 'unlink_task');
         formData.append('id', linkId);
         
-        const response = await fetch('prototypes_api.php', {
+        const response = await fetch(`${API_PATH}`, {
             method: 'POST',
             body: formData
         });
@@ -514,7 +539,7 @@ function closeTaskModal() {
 // ===== EXPORT =====
 function exportMarkdown() {
     if (!currentPrototype) return;
-    window.location.href = `prototypes_api.php?action=export_markdown&id=${currentPrototype.id}`;
+    window.location.href = `${API_PATH}?action=export_markdown&id=${currentPrototype.id}`;
 }
 
 // ===== UTILITY =====

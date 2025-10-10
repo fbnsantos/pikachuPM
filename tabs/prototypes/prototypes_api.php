@@ -180,9 +180,9 @@ try {
         case 'create_task_from_story':
             $data = json_decode(file_get_contents('php://input'), true);
             
-            // Criar a tarefa
+            // Criar a tarefa na tabela todos
             $stmt = $pdo->prepare("
-                INSERT INTO tasks (title, description, status, priority, created_at)
+                INSERT INTO todos (title, description, status, priority, created_at)
                 VALUES (?, ?, 'pending', ?, NOW())
             ");
             $stmt->execute([

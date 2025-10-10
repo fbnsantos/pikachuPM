@@ -12,9 +12,12 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('Prototypes JS loaded. API Path:', API_PATH);
     loadPrototypes();
     
-    document.getElementById('searchInput').addEventListener('input', (e) => {
-        loadPrototypes(e.target.value);
-    });
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            loadPrototypes(e.target.value);
+        });
+    }
 });
 
 // ===== PROTOTYPES =====
@@ -52,6 +55,7 @@ async function loadPrototypes(search = '') {
         `).join('');
     } catch (error) {
         console.error('Error loading prototypes:', error);
+        alert('Error loading prototypes: ' + error.message);
     }
 }
 
@@ -72,6 +76,7 @@ async function selectPrototype(id) {
         event.currentTarget?.classList.add('active');
     } catch (error) {
         console.error('Error loading prototype:', error);
+        alert('Error loading prototype details');
     }
 }
 
@@ -406,7 +411,13 @@ async function deleteStory(id) {
 
 // ===== TASKS =====
 async function viewStoryTasks(storyId) {
-    currentStory = stories.find(s => s.id === storyId);
+    const story = stories.find(s => s.id === storyId);
+    if (!story) {
+        alert('Story not found');
+        return;
+    }
+    
+    currentStory = story;
     
     try {
         const response = await fetch(`${API_PATH}?action=get_story_tasks&story_id=${storyId}`);
@@ -415,8 +426,8 @@ async function viewStoryTasks(storyId) {
         const tasksList = tasks.length > 0 ? tasks.map(task => `
             <div class="task-item">
                 <div>
-                    <strong>${escapeHtml(task.title || 'Task #' + task.id)}</strong>
-                    <span class="badge badge-info">${escapeHtml(task.status || 'pending')}</span>
+                    <strong>${escapeHtml(task.titulo || task.title || 'Task #' + task.id)}</strong>
+                    <span class="badge badge-info">${escapeHtml(task.estado || task.status || 'pending')}</span>
                 </div>
                 <button class="btn btn-danger btn-small" onclick="unlinkTask(${task.link_id})">Unlink</button>
             </div>
@@ -439,6 +450,7 @@ async function viewStoryTasks(storyId) {
         modal.classList.add('active');
     } catch (error) {
         console.error('Error loading tasks:', error);
+        alert('Error loading tasks');
     }
 }
 
@@ -519,6 +531,8 @@ async function createTaskFromStory() {
         console.log('Response status:', response.status);
         
         if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Error response:', errorText);
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
@@ -529,7 +543,7 @@ async function createTaskFromStory() {
             alert('Task created successfully!');
             viewStoryTasks(currentStory.id);
         } else {
-            alert('Error: ' + (result.error || 'Unknown error'));
+            alert('Error: ' + (result.error || 'Unknown error') + '\nDetails: ' + (result.message || ''));
         }
     } catch (error) {
         console.error('Error creating task:', error);

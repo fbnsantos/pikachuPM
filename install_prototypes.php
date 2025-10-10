@@ -30,160 +30,151 @@ try {
 
 // Só continuar se conseguiu conectar
 if (empty($errors)) {
-try {
-    // Verificar se as tabelas já existem
-    $tables = ['prototypes', 'user_stories', 'user_story_tasks'];
-    $existingTables = [];
-    
-    foreach ($tables as $table) {
-        $result = $pdo->query("SHOW TABLES LIKE '$table'");
-        if ($result->rowCount() > 0) {
-            $existingTables[] = $table;
-        }
-    }
-    
-    if (!empty($existingTables)) {
-        echo "<h3>⚠️ Aviso: As seguintes tabelas já existem:</h3>";
-        echo "<ul>";
-        foreach ($existingTables as $table) {
-            echo "<li>$table</li>";
-        }
-        echo "</ul>";
-        echo "<p>Se pretende reinstalar, elimine estas tabelas manualmente primeiro.</p>";
+    try {
+        // Verificar se as tabelas já existem
+        $tables = ['prototypes', 'user_stories', 'user_story_tasks'];
+        $existingTables = [];
         
-        // Se não quiser prosseguir, descomente a linha abaixo:
-        // exit;
-    }
-    
-    // ===== TABELA PROTOTYPES =====
-    $sql_prototypes = "
-    CREATE TABLE IF NOT EXISTS prototypes (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        short_name VARCHAR(100) NOT NULL,
-        title VARCHAR(255) NOT NULL,
-        vision TEXT,
-        target_group TEXT,
-        needs TEXT,
-        product_description TEXT,
-        business_goals TEXT,
-        sentence TEXT,
-        repo_links TEXT,
-        documentation_links TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_short_name (short_name),
-        INDEX idx_title (title)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    ";
-    
-    $pdo->exec($sql_prototypes);
-    $success[] = "Tabela 'prototypes' criada com sucesso!";
-    
-    // ===== TABELA USER_STORIES =====
-    $sql_user_stories = "
-    CREATE TABLE IF NOT EXISTS user_stories (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        prototype_id INT NOT NULL,
-        story_text TEXT NOT NULL,
-        moscow_priority ENUM('Must', 'Should', 'Could', 'Won''t') NOT NULL DEFAULT 'Should',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        FOREIGN KEY (prototype_id) REFERENCES prototypes(id) ON DELETE CASCADE,
-        INDEX idx_prototype (prototype_id),
-        INDEX idx_priority (moscow_priority)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    ";
-    
-    $pdo->exec($sql_user_stories);
-    $success[] = "Tabela 'user_stories' criada com sucesso!";
-    
-    // ===== TABELA USER_STORY_TASKS =====
-    // Nota: Esta tabela assume que existe uma tabela 'tasks' no sistema
-    // Ajuste o nome da tabela de tarefas conforme o seu sistema
-    
-    $sql_user_story_tasks = "
-    CREATE TABLE IF NOT EXISTS user_story_tasks (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        story_id INT NOT NULL,
-        task_id INT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (story_id) REFERENCES user_stories(id) ON DELETE CASCADE,
-        INDEX idx_story (story_id),
-        INDEX idx_task (task_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    ";
-    
-    // Verificar se a tabela tasks existe antes de criar a constraint
-    $result = $pdo->query("SHOW TABLES LIKE 'tasks'");
-    if ($result->rowCount() > 0) {
-        // Adicionar foreign key se a tabela tasks existe
-        $sql_user_story_tasks = "
-        CREATE TABLE IF NOT EXISTS user_story_tasks (
+        foreach ($tables as $table) {
+            $result = $pdo->query("SHOW TABLES LIKE '$table'");
+            if ($result->rowCount() > 0) {
+                $existingTables[] = $table;
+            }
+        }
+        
+        if (!empty($existingTables)) {
+            $errors[] = "⚠️ Aviso: As seguintes tabelas já existem: " . implode(', ', $existingTables);
+            $errors[] = "Se pretende reinstalar, elimine estas tabelas manualmente primeiro.";
+        }
+        
+        // ===== TABELA PROTOTYPES =====
+        $sql_prototypes = "
+        CREATE TABLE IF NOT EXISTS prototypes (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            story_id INT NOT NULL,
-            task_id INT NOT NULL,
+            short_name VARCHAR(100) NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            vision TEXT,
+            target_group TEXT,
+            needs TEXT,
+            product_description TEXT,
+            business_goals TEXT,
+            sentence TEXT,
+            repo_links TEXT,
+            documentation_links TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (story_id) REFERENCES user_stories(id) ON DELETE CASCADE,
-            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-            UNIQUE KEY unique_story_task (story_id, task_id),
-            INDEX idx_story (story_id),
-            INDEX idx_task (task_id)
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_short_name (short_name),
+            INDEX idx_title (title)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         ";
-        $success[] = "Tabela 'user_story_tasks' criada com Foreign Key para 'tasks'!";
-    } else {
-        $errors[] = "Aviso: Tabela 'tasks' não encontrada. A tabela 'user_story_tasks' foi criada sem a Foreign Key para tasks. Adicione manualmente depois.";
+        
+        $pdo->exec($sql_prototypes);
+        $success[] = "Tabela 'prototypes' criada com sucesso!";
+        
+        // ===== TABELA USER_STORIES =====
+        $sql_user_stories = "
+        CREATE TABLE IF NOT EXISTS user_stories (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            prototype_id INT NOT NULL,
+            story_text TEXT NOT NULL,
+            moscow_priority ENUM('Must', 'Should', 'Could', 'Won''t') NOT NULL DEFAULT 'Should',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            FOREIGN KEY (prototype_id) REFERENCES prototypes(id) ON DELETE CASCADE,
+            INDEX idx_prototype (prototype_id),
+            INDEX idx_priority (moscow_priority)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ";
+        
+        $pdo->exec($sql_user_stories);
+        $success[] = "Tabela 'user_stories' criada com sucesso!";
+        
+        // ===== TABELA USER_STORY_TASKS =====
+        // Verificar se a tabela tasks existe antes de criar a constraint
+        $result = $pdo->query("SHOW TABLES LIKE 'tasks'");
+        
+        if ($result->rowCount() > 0) {
+            // Adicionar foreign key se a tabela tasks existe
+            $sql_user_story_tasks = "
+            CREATE TABLE IF NOT EXISTS user_story_tasks (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                story_id INT NOT NULL,
+                task_id INT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (story_id) REFERENCES user_stories(id) ON DELETE CASCADE,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+                UNIQUE KEY unique_story_task (story_id, task_id),
+                INDEX idx_story (story_id),
+                INDEX idx_task (task_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            ";
+            $success[] = "Tabela 'user_story_tasks' criada com Foreign Key para 'tasks'!";
+        } else {
+            // Criar sem foreign key para tasks
+            $sql_user_story_tasks = "
+            CREATE TABLE IF NOT EXISTS user_story_tasks (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                story_id INT NOT NULL,
+                task_id INT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (story_id) REFERENCES user_stories(id) ON DELETE CASCADE,
+                INDEX idx_story (story_id),
+                INDEX idx_task (task_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            ";
+            $errors[] = "⚠️ Aviso: Tabela 'tasks' não encontrada. A tabela 'user_story_tasks' foi criada sem a Foreign Key para tasks.";
+        }
+        
+        $pdo->exec($sql_user_story_tasks);
+        $success[] = "Tabela 'user_story_tasks' criada com sucesso!";
+        
+        // ===== INSERIR DADOS DE EXEMPLO (OPCIONAL) =====
+        $insertExamples = false; // Altere para true se quiser dados de exemplo
+        
+        if ($insertExamples) {
+            $stmt = $pdo->prepare("
+                INSERT INTO prototypes (short_name, title, vision, target_group, needs, product_description, business_goals, sentence)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            
+            $stmt->execute([
+                'TaskManager',
+                'Task Management System',
+                'Simplificar a gestão de tarefas para equipas ágeis',
+                'Equipas de desenvolvimento e gestores de projeto',
+                'Necessidade de organizar tarefas, priorizar trabalho e acompanhar progresso',
+                'Sistema web de gestão de tarefas com metodologias ágeis integradas',
+                'Aumentar produtividade em 30%, reduzir tempo de planeamento',
+                'For development teams, Who need to organize their work efficiently, The TaskManager Is a web application That provides agile task management. Unlike traditional tools, Our product integrates seamlessly with development workflows.'
+            ]);
+            
+            $prototypeId = $pdo->lastInsertId();
+            
+            $stmt = $pdo->prepare("
+                INSERT INTO user_stories (prototype_id, story_text, moscow_priority)
+                VALUES (?, ?, ?)
+            ");
+            
+            $stmt->execute([
+                $prototypeId,
+                'As a project manager, I want to create and assign tasks to team members, so that I can distribute work effectively.',
+                'Must'
+            ]);
+            
+            $stmt->execute([
+                $prototypeId,
+                'As a developer, I want to see my assigned tasks in a kanban board, so that I can visualize my workflow.',
+                'Should'
+            ]);
+            
+            $success[] = "Dados de exemplo inseridos com sucesso!";
+        }
+        
+    } catch (PDOException $e) {
+        $errors[] = "Erro na base de dados: " . $e->getMessage();
+    } catch (Exception $e) {
+        $errors[] = "Erro: " . $e->getMessage();
     }
-    
-    $pdo->exec($sql_user_story_tasks);
-    $success[] = "Tabela 'user_story_tasks' criada com sucesso!";
-    
-    // ===== INSERIR DADOS DE EXEMPLO (OPCIONAL) =====
-    $insertExamples = false; // Altere para true se quiser dados de exemplo
-    
-    if ($insertExamples) {
-        $stmt = $pdo->prepare("
-            INSERT INTO prototypes (short_name, title, vision, target_group, needs, product_description, business_goals, sentence)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-        
-        $stmt->execute([
-            'TaskManager',
-            'Task Management System',
-            'Simplificar a gestão de tarefas para equipas ágeis',
-            'Equipas de desenvolvimento e gestores de projeto',
-            'Necessidade de organizar tarefas, priorizar trabalho e acompanhar progresso',
-            'Sistema web de gestão de tarefas com metodologias ágeis integradas',
-            'Aumentar produtividade em 30%, reduzir tempo de planeamento',
-            'For development teams, Who need to organize their work efficiently, The TaskManager Is a web application That provides agile task management. Unlike traditional tools, Our product integrates seamlessly with development workflows.'
-        ]);
-        
-        $prototypeId = $pdo->lastInsertId();
-        
-        $stmt = $pdo->prepare("
-            INSERT INTO user_stories (prototype_id, story_text, moscow_priority)
-            VALUES (?, ?, ?)
-        ");
-        
-        $stmt->execute([
-            $prototypeId,
-            'As a project manager, I want to create and assign tasks to team members, so that I can distribute work effectively.',
-            'Must'
-        ]);
-        
-        $stmt->execute([
-            $prototypeId,
-            'As a developer, I want to see my assigned tasks in a kanban board, so that I can visualize my workflow.',
-            'Should'
-        ]);
-        
-        $success[] = "Dados de exemplo inseridos com sucesso!";
-    }
-    
-} catch (PDOException $e) {
-    $errors[] = "Erro na base de dados: " . $e->getMessage();
-} catch (Exception $e) {
-    $errors[] = "Erro: " . $e->getMessage();
 }
 
 // ===== EXIBIR RESULTADOS =====
@@ -250,7 +241,13 @@ try {
             color: #991b1b;
         }
         
-        .success h3, .error h3 {
+        .warning {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            color: #92400e;
+        }
+        
+        .success h3, .error h3, .warning h3 {
             margin-bottom: 10px;
             font-size: 16px;
         }
@@ -324,7 +321,7 @@ try {
                 <h3>✓ Operações realizadas:</h3>
                 <ul>
                     <?php foreach ($success as $msg): ?>
-                        <li><?php echo $msg; ?></li>
+                        <li><?php echo htmlspecialchars($msg); ?></li>
                     <?php endforeach; ?>
                 </ul>
             </div>
@@ -332,17 +329,54 @@ try {
             <div class="info-box">
                 <h4>🚀 Próximos Passos:</h4>
                 <p>
-                    1. Aceda ao módulo através de <code>prototypesv2.php</code><br>
-                    2. Para integrar no menu do sistema, veja as instruções abaixo<br>
-                    3. Certifique-se que o ficheiro <code>prototypes_api.php</code> está acessível
+                    1. Aceda ao módulo através de <code>tabs/prototypes/prototypesv2.php</code><br>
+                    2. Para integrar no menu do sistema, consulte o guia de integração<br>
+                    3. <strong>Elimine este ficheiro</strong> <code>install_prototypes.php</code> por segurança
                 </p>
             </div>
             
-            <a href="prototypesv2.php" class="btn">📋 Abrir Módulo de Protótipos</a>
+            <a href="tabs/prototypes/prototypesv2.php" class="btn">📋 Abrir Módulo de Protótipos</a>
+            
+        <?php elseif (!empty($errors) && str_contains(implode('', $errors), 'já existem')): ?>
+            <div class="status-icon">⚠️</div>
+            <h1>Tabelas Já Existem</h1>
+            <p class="subtitle">O módulo já foi instalado anteriormente</p>
+            
+            <div class="warning">
+                <h3>⚠ Avisos:</h3>
+                <ul>
+                    <?php foreach ($errors as $error): ?>
+                        <li><?php echo htmlspecialchars($error); ?></li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+            
+            <?php if (!empty($success)): ?>
+                <div class="success">
+                    <h3>✓ Verificações bem-sucedidas:</h3>
+                    <ul>
+                        <?php foreach ($success as $msg): ?>
+                            <li><?php echo htmlspecialchars($msg); ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
+            
+            <div class="info-box">
+                <h4>💡 O que fazer:</h4>
+                <p>
+                    Se pretende reinstalar:<br>
+                    1. Aceda ao phpMyAdmin ou MySQL<br>
+                    2. Execute: <code>DROP TABLE user_story_tasks, user_stories, prototypes;</code><br>
+                    3. Execute novamente este instalador
+                </p>
+            </div>
+            
+            <a href="tabs/prototypes/prototypesv2.php" class="btn">📋 Ir para Protótipos</a>
             
         <?php else: ?>
-            <div class="status-icon">⚠️</div>
-            <h1>Problemas na Instalação</h1>
+            <div class="status-icon">❌</div>
+            <h1>Erro na Instalação</h1>
             <p class="subtitle">Alguns erros foram encontrados</p>
             
             <?php if (!empty($errors)): ?>
@@ -350,7 +384,7 @@ try {
                     <h3>✗ Erros encontrados:</h3>
                     <ul>
                         <?php foreach ($errors as $error): ?>
-                            <li><?php echo $error; ?></li>
+                            <li><?php echo htmlspecialchars($error); ?></li>
                         <?php endforeach; ?>
                     </ul>
                 </div>
@@ -361,7 +395,7 @@ try {
                     <h3>✓ Operações bem-sucedidas:</h3>
                     <ul>
                         <?php foreach ($success as $msg): ?>
-                            <li><?php echo $msg; ?></li>
+                            <li><?php echo htmlspecialchars($msg); ?></li>
                         <?php endforeach; ?>
                     </ul>
                 </div>
@@ -370,8 +404,9 @@ try {
             <div class="info-box">
                 <h4>💡 Sugestões:</h4>
                 <p>
-                    - Verifique se o ficheiro <code>config.php</code> existe e tem a conexão PDO<br>
+                    - Verifique se o ficheiro <code>config.php</code> existe na raiz<br>
                     - Confirme as permissões da base de dados<br>
+                    - Verifique se as variáveis $db_host, $db_name, $db_user, $db_pass estão corretas<br>
                     - Consulte os logs de erro do servidor
                 </p>
             </div>

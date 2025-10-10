@@ -443,6 +443,8 @@ async function savePrototype(event) {
     event.preventDefault();
     
     console.log('savePrototype() chamada!');
+    console.log('API_PATH atual:', API_PATH);
+    console.log('window.PROTOTYPES_API_PATH:', window.PROTOTYPES_API_PATH);
     
     const data = {
         short_name: document.getElementById('protoShortName').value,
@@ -459,18 +461,19 @@ async function savePrototype(event) {
     
     console.log('Dados do formulário:', data);
     
-    let url = API_PATH;
+    let url = window.PROTOTYPES_API_PATH || API_PATH;
     
     if (currentPrototype) {
-        data.id = currentPrototype.id;
         url += '?action=update_prototype';
+        data.id = currentPrototype.id;
         console.log('Modo: UPDATE');
     } else {
         url += '?action=create_prototype';
         console.log('Modo: CREATE');
     }
     
-    console.log('Enviando para:', url);
+    console.log('URL COMPLETA:', url);
+    console.log('URL absoluta:', new URL(url, window.location.href).href);
     console.log('Payload:', data);
     
     try {
@@ -481,10 +484,22 @@ async function savePrototype(event) {
         });
         
         console.log('Response status:', response.status);
-        console.log('Response ok:', response.ok);
+        console.log('Response URL:', response.url);
         
-        const result = await response.json();
-        console.log('Response data:', result);
+        const responseText = await response.text();
+        console.log('Response text (raw):', responseText);
+        
+        let result;
+        try {
+            result = JSON.parse(responseText);
+        } catch (e) {
+            console.error('Erro ao fazer parse do JSON:', e);
+            console.error('Resposta recebida:', responseText);
+            alert('Erro: Resposta inválida da API\n\n' + responseText.substring(0, 200));
+            return;
+        }
+        
+        console.log('Response data (parsed):', result);
         
         if (result.success) {
             console.log('✅ Protótipo salvo com sucesso!');

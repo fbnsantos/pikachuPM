@@ -313,106 +313,106 @@ try {
             header('Content-Disposition: attachment; filename="' . $prototype['short_name'] . '.md"');
             echo $md;
             exit;
-        // ===== PARTICIPANTS =====
-case 'get_participants':
-    $prototypeId = $_GET['prototype_id'] ?? 0;
-    $stmt = $pdo->prepare("
-        SELECT pp.*, ut.username, ut.user_id
-        FROM prototype_participants pp
-        JOIN user_tokens ut ON pp.user_id = ut.user_id
-        WHERE pp.prototype_id = ?
-        ORDER BY pp.is_leader DESC, ut.username ASC
-    ");
-    $stmt->execute([$prototypeId]);
-    echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
-    break;
-
-    case 'add_participant':
-        $data = json_decode(file_get_contents('php://input'), true);
-        
-        // Buscar user_id pelo username
-        $stmt = $pdo->prepare("SELECT user_id FROM user_tokens WHERE username = ?");
-        $stmt->execute([$data['username']]);
-        $user = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        if (!$user) {
-            echo json_encode(['error' => 'User not found']);
+                // ===== PARTICIPANTS =====
+        case 'get_participants':
+            $prototypeId = $_GET['prototype_id'] ?? 0;
+            $stmt = $pdo->prepare("
+                SELECT pp.*, ut.username, ut.user_id
+                FROM prototype_participants pp
+                JOIN user_tokens ut ON pp.user_id = ut.user_id
+                WHERE pp.prototype_id = ?
+                ORDER BY pp.is_leader DESC, ut.username ASC
+            ");
+            $stmt->execute([$prototypeId]);
+            echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
             break;
-        }
-        
-        $stmt = $pdo->prepare("
-            INSERT INTO prototype_participants (prototype_id, user_id, role, is_leader)
-            VALUES (?, ?, ?, ?)
-        ");
-        $stmt->execute([
-            $data['prototype_id'],
-            $user['user_id'],
-            $data['role'] ?? 'member',
-            $data['is_leader'] ?? false
-        ]);
-        echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
-        break;
 
-    case 'update_participant':
-        $data = json_decode(file_get_contents('php://input'), true);
-        $stmt = $pdo->prepare("
-            UPDATE prototype_participants 
-            SET role = ?, is_leader = ?
-            WHERE id = ?
-        ");
-        $stmt->execute([
-            $data['role'],
-            $data['is_leader'] ?? false,
-            $data['id']
-        ]);
-        echo json_encode(['success' => true]);
-        break;
+            case 'add_participant':
+                $data = json_decode(file_get_contents('php://input'), true);
+                
+                // Buscar user_id pelo username
+                $stmt = $pdo->prepare("SELECT user_id FROM user_tokens WHERE username = ?");
+                $stmt->execute([$data['username']]);
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if (!$user) {
+                    echo json_encode(['error' => 'User not found']);
+                    break;
+                }
+                
+                $stmt = $pdo->prepare("
+                    INSERT INTO prototype_participants (prototype_id, user_id, role, is_leader)
+                    VALUES (?, ?, ?, ?)
+                ");
+                $stmt->execute([
+                    $data['prototype_id'],
+                    $user['user_id'],
+                    $data['role'] ?? 'member',
+                    $data['is_leader'] ?? false
+                ]);
+                echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
+                break;
 
-    case 'remove_participant':
-        $id = $_POST['id'] ?? 0;
-        $stmt = $pdo->prepare("DELETE FROM prototype_participants WHERE id = ?");
-        $stmt->execute([$id]);
-        echo json_encode(['success' => true]);
-        break;
+            case 'update_participant':
+                $data = json_decode(file_get_contents('php://input'), true);
+                $stmt = $pdo->prepare("
+                    UPDATE prototype_participants 
+                    SET role = ?, is_leader = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([
+                    $data['role'],
+                    $data['is_leader'] ?? false,
+                    $data['id']
+                ]);
+                echo json_encode(['success' => true]);
+                break;
 
-    case 'set_leader':
-        $data = json_decode(file_get_contents('php://input'), true);
-        
-        // Remove o líder atual
-        $stmt = $pdo->prepare("
-            UPDATE prototype_participants 
-            SET is_leader = FALSE 
-            WHERE prototype_id = ?
-        ");
-        $stmt->execute([$data['prototype_id']]);
-        
-        // Define o novo líder
-        $stmt = $pdo->prepare("
-            UPDATE prototype_participants 
-            SET is_leader = TRUE 
-            WHERE id = ?
-        ");
-        $stmt->execute([$data['participant_id']]);
-        
-        echo json_encode(['success' => true]);
-        break;
+            case 'remove_participant':
+                $id = $_POST['id'] ?? 0;
+                $stmt = $pdo->prepare("DELETE FROM prototype_participants WHERE id = ?");
+                $stmt->execute([$id]);
+                echo json_encode(['success' => true]);
+                break;
 
-    case 'get_available_users':
-        // Retorna usuários que não estão no protótipo
-        $prototypeId = $_GET['prototype_id'] ?? 0;
-        $stmt = $pdo->prepare("
-            SELECT ut.user_id, ut.username
-            FROM user_tokens ut
-            WHERE ut.user_id NOT IN (
-                SELECT user_id 
-                FROM prototype_participants 
-                WHERE prototype_id = ?
-            )
-            ORDER BY ut.username
-        ");
-        $stmt->execute([$prototypeId]);
-        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
-        break;    
+            case 'set_leader':
+                $data = json_decode(file_get_contents('php://input'), true);
+                
+                // Remove o líder atual
+                $stmt = $pdo->prepare("
+                    UPDATE prototype_participants 
+                    SET is_leader = FALSE 
+                    WHERE prototype_id = ?
+                ");
+                $stmt->execute([$data['prototype_id']]);
+                
+                // Define o novo líder
+                $stmt = $pdo->prepare("
+                    UPDATE prototype_participants 
+                    SET is_leader = TRUE 
+                    WHERE id = ?
+                ");
+                $stmt->execute([$data['participant_id']]);
+                
+                echo json_encode(['success' => true]);
+                break;
+
+            case 'get_available_users':
+                // Retorna usuários que não estão no protótipo
+                $prototypeId = $_GET['prototype_id'] ?? 0;
+                $stmt = $pdo->prepare("
+                    SELECT ut.user_id, ut.username
+                    FROM user_tokens ut
+                    WHERE ut.user_id NOT IN (
+                        SELECT user_id 
+                        FROM prototype_participants 
+                        WHERE prototype_id = ?
+                    )
+                    ORDER BY ut.username
+                ");
+                $stmt->execute([$prototypeId]);
+                echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+                break;    
         default:
             echo json_encode(['error' => 'Invalid action']);
     }

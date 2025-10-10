@@ -42,7 +42,13 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function createNewPrototype() {
-    openPrototypeModal();
+    console.log('createNewPrototype() chamada!');
+    try {
+        openPrototypeModal();
+    } catch (error) {
+        console.error('Erro ao abrir modal:', error);
+        alert('Erro ao abrir modal: ' + error.message);
+    }
 }
 
 // ===== PROTOTYPES =====

@@ -1477,12 +1477,61 @@ function editDeliverable(deliverable) {
 }
 
 function manageDeliverableTasks(deliverableId, deliverableTitle) {
+    console.log('Opening tasks modal for deliverable:', deliverableId, deliverableTitle);
+    
     document.getElementById('taskModalDeliverableId').value = deliverableId;
     document.getElementById('taskModalDeliverableTitle').textContent = deliverableTitle;
     document.getElementById('create_task_deliverable_id').value = deliverableId;
     document.getElementById('link_task_deliverable_id').value = deliverableId;
     
-    var modal = new bootstrap.Modal(document.getElementById('manageTasksModal'));
+    var modalEl = document.getElementById('manageTasksModal');
+    if (!modalEl) {
+        console.error('Modal element not found!');
+        alert('Erro: Modal não encontrado. Verifique se está num projeto selecionado.');
+        return;
+    }
+    
+    if (typeof bootstrap === 'undefined') {
+        console.error('Bootstrap not loaded!');
+        alert('Erro: Bootstrap não está carregado. Verifique o index.php');
+        return;
+    }
+    
+    var modal = new bootstrap.Modal(modalEl);
     modal.show();
 }
+
+// Debug: verificar se Bootstrap está carregado ao carregar a página
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('=== DEBUG INFO ===');
+    console.log('Bootstrap disponível:', typeof bootstrap !== 'undefined');
+    console.log('jQuery disponível:', typeof $ !== 'undefined');
+    console.log('Modal tasks existe:', document.getElementById('manageTasksModal') !== null);
+    console.log('Projeto selecionado:', <?= $selectedProject ? 'true' : 'false' ?>);
+    
+    // Testar se conseguimos abrir o modal manualmente
+    window.testModal = function() {
+        var modalEl = document.getElementById('manageTasksModal');
+        if (modalEl) {
+            var modal = new bootstrap.Modal(modalEl);
+            modal.show();
+            console.log('Modal aberto com sucesso!');
+        } else {
+            console.error('Modal element não encontrado!');
+        }
+    };
+    
+    console.log('Para testar manualmente, execute: testModal()');
+    console.log('==================');
+});
 </script>
+
+<?php if (!$selectedProject): ?>
+<script>
+// Se não há projeto selecionado, avisar ao tentar abrir modal
+function manageDeliverableTasks(deliverableId, deliverableTitle) {
+    alert('Erro: Esta funcionalidade só está disponível quando um projeto está selecionado.');
+    console.error('Tentou abrir modal sem projeto selecionado');
+}
+</script>
+<?php endif; ?>

@@ -247,6 +247,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
                 
+            case 'create_and_add_task':
+                // Criar nova task e associá-la automaticamente à sprint
+                if ($checkTodos) {
+                    try {
+                        // Criar a task na tabela todos
+                        $titulo = trim($_POST['titulo'] ?? '');
+                        $descritivo = trim($_POST['descritivo'] ?? '');
+                        $data_limite = !empty($_POST['data_limite']) ? trim($_POST['data_limite']) : null;
+                        $responsavel = !empty($_POST['responsavel']) ? (int)$_POST['responsavel'] : null;
+                        $projeto_id = !empty($_POST['projeto_id']) ? (int)$_POST['projeto_id'] : null;
+                        $estado = trim($_POST['estado'] ?? 'aberta');
+                        $sprint_id = (int)$_POST['sprint_id'];
+                        
+                        if (empty($titulo)) {
+                            throw new Exception('O título da tarefa é obrigatório.');
+                        }
+                        
+                        $stmt = $pdo->prepare("
+                            INSERT INTO todos (titulo, descritivo, data_limite, autor, responsavel, projeto_id, estado)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ");
+                        $stmt->execute([
+                            $titulo,
+                            $descritivo,
+                            $data_limite,
+                            $current_user_id,
+                            $responsavel,
+                            $projeto_id,
+                            $estado
+                        ]);
+                        
+                        $todo_id = $pdo->lastInsertId();
+                        
+                        // Associar automaticamente à sprint
+                        $stmt = $pdo->prepare("INSERT INTO sprint_tasks (sprint_id, todo_id) VALUES (?, ?)");
+                        $stmt->execute([$sprint_id, $todo_id]);
+                        
+                        $message = "Task criada e associada à sprint com sucesso!";
+                        $messageType = 'success';
+                        
+                    } catch (Exception $e) {
+                        $message = "Erro ao criar task: " . $e->getMessage();
+                        $messageType = 'danger';
+                    }
+                } else {
+                    $message = "Módulo de ToDos não está instalado!";
+                    $messageType = 'warning';
+                }
+                break;
+                
             case 'remove_task':
                 if ($checkTodos) {
                     $stmt = $pdo->prepare("DELETE FROM sprint_tasks WHERE sprint_id=? AND todo_id=?");
@@ -1649,11 +1699,10 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                 <h5 class="modal-title">Criar Nova Task para a Sprint</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" action="?tab=todos">
+            <form method="POST">
                 <div class="modal-body">
-                    <input type="hidden" name="action" value="add">
-                    <input type="hidden" name="redirect_to" value="sprints">
-                    <input type="hidden" name="sprint_id_redirect" value="<?= $selectedSprint['id'] ?>">
+                    <input type="hidden" name="action" value="create_and_add_task">
+                    <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
                     
                     <?php if (!empty($selectedSprint['prototype_stories'])): ?>
                     <div class="mb-3">
@@ -1738,15 +1787,14 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                         <?php endif; ?>
                     </div>
                     
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> 
-                        <strong>Nota:</strong> Esta task será criada no módulo ToDos. 
-                        Após criar, você precisará associá-la manualmente a esta sprint usando o botão "Associar Task".
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle"></i> 
+                        <strong>Nota:</strong> Esta task será criada e automaticamente associada a esta sprint.
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Criar Task</button>
+                    <button type="submit" class="btn btn-primary">Criar e Associar Task</button>
                 </div>
             </form>
         </div>

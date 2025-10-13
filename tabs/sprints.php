@@ -1146,6 +1146,9 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                     <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#addTaskModal">
                         <i class="bi bi-link-45deg"></i> Associar Task
                     </button>
+                    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createTaskModal">
+                        <i class="bi bi-plus-lg"></i> Nova Task
+                    </button>
                 </div>
             </div>
             
@@ -1539,6 +1542,88 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-success">Associar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Criar Nova Task -->
+<div class="modal fade" id="createTaskModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Criar Nova Task para a Sprint</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="?tab=todos">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="add">
+                    <input type="hidden" name="redirect_to" value="sprints">
+                    <input type="hidden" name="sprint_id_redirect" value="<?= $selectedSprint['id'] ?>">
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Título da Task *</label>
+                        <input type="text" name="titulo" class="form-control" required placeholder="Ex: Implementar sistema de login">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Descrição</label>
+                        <textarea name="descritivo" class="form-control" rows="3" placeholder="Detalhes da task..."></textarea>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Responsável</label>
+                            <select name="responsavel" class="form-select">
+                                <option value="">Não atribuído</option>
+                                <?php foreach ($users as $user): ?>
+                                    <option value="<?= $user['user_id'] ?>"><?= htmlspecialchars($user['username']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Data Limite</label>
+                            <input type="date" name="data_limite" class="form-control">
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Estado</label>
+                            <select name="estado" class="form-select">
+                                <option value="aberta">Aberta</option>
+                                <option value="em execução">Em Execução</option>
+                                <option value="suspensa">Suspensa</option>
+                                <option value="completada">Completada</option>
+                            </select>
+                        </div>
+                        
+                        <?php if ($checkProjects): ?>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Projeto</label>
+                            <select name="projeto_id" class="form-select">
+                                <option value="">Sem projeto</option>
+                                <?php foreach ($projects as $project): ?>
+                                    <option value="<?= $project['id'] ?>">
+                                        <?= htmlspecialchars($project['short_name']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> 
+                        <strong>Nota:</strong> Esta task será criada no módulo ToDos. 
+                        Após criar, você precisará associá-la manualmente a esta sprint usando o botão "Associar Task".
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Criar Task</button>
                 </div>
             </form>
         </div>

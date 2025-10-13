@@ -41,6 +41,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $pdo = conectarDB($dbSelecionada);
         
+        // Adicionar novo utilizador ao user_tokens
+        if (isset($_POST['add_user_token'])) {
+            $user_id = intval($_POST['new_user_id']);
+            $username = trim($_POST['new_username']);
+            $token = trim($_POST['new_token']);
+            
+            // Se o token estiver vazio, gerar automaticamente
+            if (empty($token)) {
+                $token = bin2hex(random_bytes(32));
+            }
+            
+            if (empty($username)) {
+                throw new Exception("O nome de utilizador é obrigatório.");
+            }
+            
+            $stmt = $pdo->prepare("INSERT INTO user_tokens (user_id, username, token) VALUES (?, ?, ?)");
+            $stmt->execute([$user_id, $username, $token]);
+            $mensagem = "Utilizador '$username' adicionado com sucesso à tabela user_tokens!";
+        }
+        
+        // Apagar utilizador do user_tokens
+        if (isset($_POST['delete_user_token'])) {
+            $id = intval($_POST['user_token_id']);
+            $stmt = $pdo->prepare("DELETE FROM user_tokens WHERE id = ?");
+            $stmt->execute([$id]);
+            $mensagem = "Utilizador removido com sucesso da tabela user_tokens!";
+        }
+        
         // Download da base de dados
         if (isset($_POST['download_db'])) {
             $filename = "backup_" . $dbSelecionada . "_" . date('Y-m-d_H-i-s') . ".sql";
@@ -193,53 +221,45 @@ function formatBytes($size, $precision = 2) {
                 </div>
             </div>
 
-            <?php if ($mensagem): ?>
+            <!-- Mensagens de Sucesso/Erro -->
+            <?php if (!empty($mensagem)): ?>
                 <div class="alert alert-success alert-dismissible fade show" role="alert">
                     <i class="bi bi-check-circle"></i> <?= htmlspecialchars($mensagem) ?>
                     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                 </div>
             <?php endif; ?>
 
-            <?php if ($erro): ?>
+            <?php if (!empty($erro)): ?>
                 <div class="alert alert-danger alert-dismissible fade show" role="alert">
                     <i class="bi bi-exclamation-triangle"></i> <?= htmlspecialchars($erro) ?>
                     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                 </div>
             <?php endif; ?>
 
-            <!-- Seção de Backup e Restore -->
-            <div class="row mb-4">
-                <div class="col-md-6">
-                    <div class="card h-100">
-                        <div class="card-header bg-primary text-white">
-                            <h5 class="card-title mb-0"><i class="bi bi-download"></i> Download da Base de Dados</h5>
-                        </div>
-                        <div class="card-body">
-                            <p class="card-text">Faça o download de toda a base de dados em formato SQL.</p>
-                            <form method="post" class="d-inline">
+            <!-- Ações da Base de Dados -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0"><i class="bi bi-tools"></i> Ações da Base de Dados</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <!-- Download -->
+                        <div class="col-md-6">
+                            <form method="post">
                                 <input type="hidden" name="db_selected" value="<?= htmlspecialchars($dbSelecionada) ?>">
-                                <button type="submit" name="download_db" class="btn btn-primary" onclick="return confirm('Confirma o download da base de dados <?= htmlspecialchars($dbSelecionada) ?>?')">
-                                    <i class="bi bi-download"></i> Download SQL
+                                <button type="submit" name="download_db" class="btn btn-success w-100">
+                                    <i class="bi bi-download"></i> Download da Base de Dados (SQL)
                                 </button>
                             </form>
                         </div>
-                    </div>
-                </div>
-                
-                <div class="col-md-6">
-                    <div class="card h-100">
-                        <div class="card-header bg-warning text-dark">
-                            <h5 class="card-title mb-0"><i class="bi bi-upload"></i> Upload da Base de Dados</h5>
-                        </div>
-                        <div class="card-body">
-                            <p class="card-text">Restaure a base de dados a partir de um arquivo SQL.</p>
-                            <form method="post" enctype="multipart/form-data">
+
+                        <!-- Upload -->
+                        <div class="col-md-6">
+                            <form method="post" enctype="multipart/form-data" class="d-flex gap-2">
                                 <input type="hidden" name="db_selected" value="<?= htmlspecialchars($dbSelecionada) ?>">
-                                <div class="mb-3">
-                                    <input type="file" class="form-control" name="sql_file" accept=".sql" required>
-                                </div>
-                                <button type="submit" name="upload_db" class="btn btn-warning" onclick="return confirm('ATENÇÃO: Esta operação irá substituir todos os dados existentes na base <?= htmlspecialchars($dbSelecionada) ?>. Confirma?')">
-                                    <i class="bi bi-upload"></i> Restaurar BD
+                                <input type="file" name="sql_file" accept=".sql" class="form-control" required>
+                                <button type="submit" name="upload_db" class="btn btn-warning text-nowrap" onclick="return confirm('Esta ação irá restaurar a base de dados. Deseja continuar?')">
+                                    <i class="bi bi-upload"></i> Restaurar
                                 </button>
                             </form>
                         </div>
@@ -247,19 +267,23 @@ function formatBytes($size, $precision = 2) {
                 </div>
             </div>
 
-            <!-- Informações das Tabelas -->
-            <div class="card">
+            <!-- Lista de Tabelas -->
+            <div class="card mb-4">
                 <div class="card-header bg-info text-white">
-                    <h5 class="card-title mb-0"><i class="bi bi-table"></i> Informações das Tabelas</h5>
+                    <h5 class="card-title mb-0"><i class="bi bi-table"></i> Tabelas da Base de Dados: <?= htmlspecialchars($dbSelecionada) ?></h5>
                 </div>
                 <div class="card-body">
                     <?php if (!empty($tabelasInfo)): ?>
+                        <?php
+                        $totalLinhas = array_sum(array_column($tabelasInfo, 'linhas'));
+                        $tamanhoTotal = array_sum(array_column($tabelasInfo, 'tamanho'));
+                        ?>
                         <div class="table-responsive">
-                            <table class="table table-striped table-hover">
+                            <table class="table table-hover table-striped">
                                 <thead class="table-dark">
                                     <tr>
-                                        <th>Nome da Tabela</th>
-                                        <th>Nº de Linhas</th>
+                                        <th>Tabela</th>
+                                        <th>Linhas</th>
                                         <th>Tamanho</th>
                                         <th>Engine</th>
                                         <th>Collation</th>
@@ -267,24 +291,16 @@ function formatBytes($size, $precision = 2) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php 
-                                    $totalLinhas = 0;
-                                    $tamanhoTotal = 0;
-                                    foreach ($tabelasInfo as $tabela): 
-                                        $totalLinhas += $tabela['linhas'];
-                                        $tamanhoTotal += $tabela['tamanho'];
-                                    ?>
+                                    <?php foreach ($tabelasInfo as $tabela): ?>
                                         <tr>
                                             <td><strong><?= htmlspecialchars($tabela['nome']) ?></strong></td>
-                                            <td>
-                                                <span class="badge bg-secondary"><?= number_format($tabela['linhas']) ?></span>
-                                            </td>
+                                            <td><span class="badge bg-secondary"><?= number_format($tabela['linhas']) ?></span></td>
                                             <td><?= formatBytes($tabela['tamanho']) ?></td>
                                             <td><?= htmlspecialchars($tabela['engine']) ?></td>
                                             <td><small><?= htmlspecialchars($tabela['collation']) ?></small></td>
                                             <td>
-                                                <div class="btn-group" role="group">
-                                                    <form method="post" class="d-inline" onsubmit="return confirm('ATENÇÃO: Esta ação irá apagar TODOS os dados da tabela <?= htmlspecialchars($tabela['nome']) ?> na base <?= htmlspecialchars($dbSelecionada) ?>. A estrutura da tabela será mantida. Confirma?')">
+                                                <div class="btn-group btn-group-sm">
+                                                    <form method="post" class="d-inline" onsubmit="return confirm('Tem certeza que deseja limpar todos os dados da tabela <?= htmlspecialchars($tabela['nome']) ?> da base <?= htmlspecialchars($dbSelecionada) ?>? A estrutura da tabela será mantida. Confirma?')">
                                                         <input type="hidden" name="db_selected" value="<?= htmlspecialchars($dbSelecionada) ?>">
                                                         <input type="hidden" name="table_name" value="<?= htmlspecialchars($tabela['nome']) ?>">
                                                         <button type="submit" name="clear_table" class="btn btn-sm btn-outline-warning" title="Limpar dados da tabela">
@@ -367,16 +383,12 @@ function formatBytes($size, $precision = 2) {
                                     <td><?= htmlspecialchars($_SESSION['username']) ?></td>
                                 </tr>
                                 <tr>
-                                    <td><strong>ID do Utilizador:</strong></td>
+                                    <td><strong>User ID:</strong></td>
                                     <td><?= htmlspecialchars($_SESSION['user_id']) ?></td>
                                 </tr>
                                 <tr>
-                                    <td><strong>Data/Hora:</strong></td>
+                                    <td><strong>Data/Hora Atual:</strong></td>
                                     <td><?= date('Y-m-d H:i:s') ?></td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Versão PHP:</strong></td>
-                                    <td><?= phpversion() ?></td>
                                 </tr>
                             </table>
                         </div>
@@ -384,52 +396,127 @@ function formatBytes($size, $precision = 2) {
                 </div>
             </div>
 
-            <!-- Aviso de Segurança -->
-            <div class="alert alert-warning mt-4" role="alert">
-                <i class="bi bi-exclamation-triangle-fill"></i>
-                <strong>Aviso de Segurança:</strong> Esta área contém funcionalidades críticas que podem afetar todo o sistema. 
-                Use sempre com precaução e certifique-se de que tem backups atualizados antes de realizar operações de restore ou limpeza de tabelas.
-            </div>
+            <!-- Gestão de User Tokens -->
+            <?php
+            try {
+                $pdo = conectarDB($dbSelecionada);
+                
+                // Verificar se a tabela user_tokens existe
+                $stmt = $pdo->query("SHOW TABLES LIKE 'user_tokens'");
+                $tableExists = $stmt->fetch();
+                
+                if ($tableExists):
+                    // Obter todos os utilizadores
+                    $stmt = $pdo->query("SELECT * FROM user_tokens ORDER BY user_id ASC");
+                    $userTokens = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            ?>
+                    <div class="card mt-4">
+                        <div class="card-header bg-success text-white">
+                            <h5 class="card-title mb-0"><i class="bi bi-people-fill"></i> Gestão de Utilizadores (user_tokens)</h5>
+                        </div>
+                        <div class="card-body">
+                            <!-- Formulário para adicionar novo utilizador -->
+                            <div class="card mb-3">
+                                <div class="card-header bg-light">
+                                    <h6 class="mb-0"><i class="bi bi-person-plus"></i> Adicionar Novo Utilizador</h6>
+                                </div>
+                                <div class="card-body">
+                                    <form method="post" class="row g-3">
+                                        <input type="hidden" name="db_selected" value="<?= htmlspecialchars($dbSelecionada) ?>">
+                                        
+                                        <div class="col-md-2">
+                                            <label for="new_user_id" class="form-label">User ID</label>
+                                            <input type="number" class="form-control" id="new_user_id" name="new_user_id" required>
+                                            <small class="text-muted">ID único do utilizador</small>
+                                        </div>
+                                        
+                                        <div class="col-md-3">
+                                            <label for="new_username" class="form-label">Username *</label>
+                                            <input type="text" class="form-control" id="new_username" name="new_username" required>
+                                            <small class="text-muted">Nome do utilizador</small>
+                                        </div>
+                                        
+                                        <div class="col-md-5">
+                                            <label for="new_token" class="form-label">Token</label>
+                                            <input type="text" class="form-control" id="new_token" name="new_token" placeholder="Deixe vazio para gerar automaticamente">
+                                            <small class="text-muted">Token de autenticação (gerado automaticamente se vazio)</small>
+                                        </div>
+                                        
+                                        <div class="col-md-2 d-flex align-items-end">
+                                            <button type="submit" name="add_user_token" class="btn btn-success w-100">
+                                                <i class="bi bi-plus-circle"></i> Adicionar
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+
+                            <!-- Lista de utilizadores -->
+                            <?php if (!empty($userTokens)): ?>
+                                <div class="table-responsive">
+                                    <table class="table table-hover table-striped">
+                                        <thead class="table-dark">
+                                            <tr>
+                                                <th>ID</th>
+                                                <th>User ID</th>
+                                                <th>Username</th>
+                                                <th>Token</th>
+                                                <th>Criado em</th>
+                                                <th>Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($userTokens as $user): ?>
+                                                <tr>
+                                                    <td><strong><?= htmlspecialchars($user['id']) ?></strong></td>
+                                                    <td><span class="badge bg-info"><?= htmlspecialchars($user['user_id']) ?></span></td>
+                                                    <td><?= htmlspecialchars($user['username']) ?></td>
+                                                    <td>
+                                                        <code class="small" style="word-break: break-all;">
+                                                            <?= htmlspecialchars(substr($user['token'], 0, 20)) ?>...
+                                                        </code>
+                                                        <button class="btn btn-sm btn-outline-secondary ms-1" onclick="navigator.clipboard.writeText('<?= htmlspecialchars($user['token']) ?>'); this.innerHTML='<i class=\'bi bi-check\'></i> Copiado!';" title="Copiar token completo">
+                                                            <i class="bi bi-clipboard"></i>
+                                                        </button>
+                                                    </td>
+                                                    <td><small><?= htmlspecialchars($user['created_at'] ?? 'N/A') ?></small></td>
+                                                    <td>
+                                                        <form method="post" class="d-inline" onsubmit="return confirm('Tem certeza que deseja apagar o utilizador \'<?= htmlspecialchars($user['username']) ?>\'?')">
+                                                            <input type="hidden" name="db_selected" value="<?= htmlspecialchars($dbSelecionada) ?>">
+                                                            <input type="hidden" name="user_token_id" value="<?= htmlspecialchars($user['id']) ?>">
+                                                            <button type="submit" name="delete_user_token" class="btn btn-sm btn-danger">
+                                                                <i class="bi bi-trash"></i> Apagar
+                                                            </button>
+                                                        </form>
+                                                    </td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                        <tfoot class="table-light">
+                                            <tr>
+                                                <th colspan="6">
+                                                    Total de utilizadores: <span class="badge bg-primary"><?= count($userTokens) ?></span>
+                                                </th>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            <?php else: ?>
+                                <div class="alert alert-info">
+                                    <i class="bi bi-info-circle"></i> Nenhum utilizador encontrado na tabela user_tokens.
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+            <?php
+                endif;
+            } catch (Exception $e) {
+                echo '<div class="alert alert-warning mt-4">';
+                echo '<i class="bi bi-exclamation-triangle"></i> Não foi possível carregar a tabela user_tokens: ' . htmlspecialchars($e->getMessage());
+                echo '</div>';
+            }
+            ?>
+
         </div>
     </div>
 </div>
-
-<style>
-    .card {
-        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-        border: 1px solid rgba(0, 0, 0, 0.125);
-    }
-    
-    .table th {
-        font-weight: 600;
-    }
-    
-    .badge {
-        font-size: 0.875em;
-    }
-    
-    .btn-sm {
-        padding: 0.25rem 0.5rem;
-        font-size: 0.8125rem;
-    }
-    
-    .alert {
-        border-left: 4px solid;
-    }
-    
-    .alert-success {
-        border-left-color: #198754;
-    }
-    
-    .alert-danger {
-        border-left-color: #dc3545;
-    }
-    
-    .alert-warning {
-        border-left-color: #ffc107;
-    }
-    
-    .alert-info {
-        border-left-color: #0dcaf0;
-    }
-</style>

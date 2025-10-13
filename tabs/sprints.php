@@ -272,7 +272,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     if ($message && !headers_sent()) {
-        header("Location: ?tab=sprints&sprint_id=" . ($_POST['sprint_id'] ?? $_GET['sprint_id'] ?? '') . "&message=" . urlencode($message) . "&type=$messageType" . (isset($_GET['filter_my_sprints']) ? '&filter_my_sprints=' . $_GET['filter_my_sprints'] : '') . (isset($_GET['show_closed']) ? '&show_closed=' . $_GET['show_closed'] : ''));
+        $redirect_params = [
+            'tab' => 'sprints',
+            'message' => urlencode($message),
+            'type' => $messageType
+        ];
+        
+        if (isset($_POST['sprint_id']) || isset($_GET['sprint_id'])) {
+            $redirect_params['sprint_id'] = $_POST['sprint_id'] ?? $_GET['sprint_id'];
+        }
+        
+        if (isset($_GET['filter_my_sprints'])) {
+            $redirect_params['filter_my_sprints'] = $_GET['filter_my_sprints'];
+        }
+        
+        if (isset($_GET['filter_responsible_only'])) {
+            $redirect_params['filter_responsible_only'] = $_GET['filter_responsible_only'];
+        }
+        
+        if (isset($_GET['show_closed'])) {
+            $redirect_params['show_closed'] = $_GET['show_closed'];
+        }
+        
+        header("Location: ?" . http_build_query($redirect_params));
         exit;
     }
 }
@@ -280,20 +302,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Get current user ID from session
 $current_user_id = $_SESSION['user_id'] ?? null;
 
-// Get filter preference from URL or cookie
+// Get filter preferences from URL or cookie
 $filter_my_sprints = isset($_GET['filter_my_sprints']) ? $_GET['filter_my_sprints'] === '1' : ($_COOKIE['filter_my_sprints'] ?? '0') === '1';
+$filter_responsible_only = isset($_GET['filter_responsible_only']) ? $_GET['filter_responsible_only'] === '1' : ($_COOKIE['filter_responsible_only'] ?? '0') === '1';
 
-// Save filter preference in cookie
+// Save filter preferences in cookie
 if (isset($_GET['filter_my_sprints'])) {
     setcookie('filter_my_sprints', $_GET['filter_my_sprints'], time() + (86400 * 30), "/");
+}
+if (isset($_GET['filter_responsible_only'])) {
+    setcookie('filter_responsible_only', $_GET['filter_responsible_only'], time() + (86400 * 30), "/");
 }
 
 // Obter dados
 $showClosed = isset($_GET['show_closed']) && $_GET['show_closed'] == '1';
 
 try {
-    // Build the query based on filter
-    if ($filter_my_sprints && $current_user_id) {
+    // Build the query based on filters
+    if ($filter_responsible_only && $current_user_id) {
+        // Show only sprints where user is responsible
+        $query = "
+            SELECT DISTINCT s.*, u.username as responsavel_nome,
+                   1 as is_responsible,
+                   CASE 
+                       WHEN sm.user_id IS NOT NULL THEN 1
+                       ELSE 0
+                   END as is_member
+            FROM sprints s
+            LEFT JOIN user_tokens u ON s.responsavel_id = u.user_id
+            LEFT JOIN sprint_members sm ON s.id = sm.sprint_id AND sm.user_id = ?
+            WHERE s.responsavel_id = ?
+        ";
+        
+        if (!$showClosed) {
+            $query .= " AND s.estado != 'fechada'";
+        }
+        
+        $query .= " ORDER BY 
+                    CASE s.estado 
+                        WHEN 'aberta' THEN 1 
+                        WHEN 'pausa' THEN 2 
+                        WHEN 'fechada' THEN 3 
+                    END,
+                    s.data_fim ASC,
+                    s.created_at DESC";
+        
+        $stmt = $pdo->prepare($query);
+        $stmt->execute([$current_user_id, $current_user_id]);
+        
+    } elseif ($filter_my_sprints && $current_user_id) {
         // Show only sprints where user is responsible or member
         $query = "
             SELECT DISTINCT s.*, u.username as responsavel_nome,
@@ -877,17 +934,32 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
         
         <!-- Filter Toggle -->
         <div class="filter-container">
-            <div class="form-check form-switch">
+            <div class="form-check form-switch mb-2">
                 <input class="form-check-input" type="checkbox" id="filterMySprints" 
                        <?= $filter_my_sprints ? 'checked' : '' ?>
+                       <?= $filter_responsible_only ? 'disabled' : '' ?>
                        onchange="window.location.href='?tab=sprints&filter_my_sprints=' + (this.checked ? '1' : '0') + '<?= $showClosed ? '&show_closed=1' : '' ?><?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
                 <label class="form-check-label" for="filterMySprints">
                     <i class="bi bi-person-check"></i> Only My Sprints
                 </label>
             </div>
+            
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="filterResponsibleOnly" 
+                       <?= $filter_responsible_only ? 'checked' : '' ?>
+                       onchange="window.location.href='?tab=sprints&filter_responsible_only=' + (this.checked ? '1' : '0') + '<?= $showClosed ? '&show_closed=1' : '' ?><?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
+                <label class="form-check-label" for="filterResponsibleOnly">
+                    <i class="bi bi-star-fill"></i> Only as Responsible
+                </label>
+            </div>
+            
             <?php if ($filter_my_sprints): ?>
-                <small class="text-muted d-block mt-1">
+                <small class="text-muted d-block mt-2">
                     Showing sprints where you are responsible or member
+                </small>
+            <?php elseif ($filter_responsible_only): ?>
+                <small class="text-muted d-block mt-2">
+                    Showing only sprints where you are responsible
                 </small>
             <?php endif; ?>
         </div>
@@ -896,7 +968,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
         <div class="show-closed-container">
             <label>
                 <input type="checkbox" id="showClosedCheckbox" <?= $showClosed ? 'checked' : '' ?> 
-                       onchange="window.location.href='?tab=sprints<?= $filter_my_sprints ? '&filter_my_sprints=1' : '' ?>&show_closed=' + (this.checked ? '1' : '0')<?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
+                       onchange="window.location.href='?tab=sprints<?= $filter_my_sprints ? '&filter_my_sprints=1' : '' ?><?= $filter_responsible_only ? '&filter_responsible_only=1' : '' ?>&show_closed=' + (this.checked ? '1' : '0')<?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
                 <i class="bi bi-archive"></i> Show Closed Sprints
             </label>
         </div>
@@ -906,7 +978,9 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
             <div class="text-center text-muted py-4">
                 <i class="bi bi-inbox" style="font-size: 2rem;"></i>
                 <p class="mt-2">
-                    <?php if ($filter_my_sprints): ?>
+                    <?php if ($filter_responsible_only): ?>
+                        No sprints found where you are responsible
+                    <?php elseif ($filter_my_sprints): ?>
                         No sprints found where you are involved
                     <?php else: ?>
                         No sprints created yet
@@ -933,7 +1007,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                 $is_active = isset($_GET['sprint_id']) && $_GET['sprint_id'] == $sprint['id'];
             ?>
                 <div class="sprint-item <?= $is_active ? 'active' : '' ?>" 
-                     onclick="window.location.href='?tab=sprints<?= $filter_my_sprints ? '&filter_my_sprints=1' : '' ?><?= $showClosed ? '&show_closed=1' : '' ?>&sprint_id=<?= $sprint['id'] ?>'">
+                     onclick="window.location.href='?tab=sprints<?= $filter_my_sprints ? '&filter_my_sprints=1' : '' ?><?= $filter_responsible_only ? '&filter_responsible_only=1' : '' ?><?= $showClosed ? '&show_closed=1' : '' ?>&sprint_id=<?= $sprint['id'] ?>'">
                     
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <strong style="font-size: 14px;"><?= htmlspecialchars($sprint['nome']) ?></strong>

@@ -69,6 +69,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $mensagem = "Utilizador removido com sucesso da tabela user_tokens!";
         }
         
+        // Importar utilizador do Redmine
+        if (isset($_POST['import_from_redmine'])) {
+            $redmine_user_id = intval($_POST['redmine_user_id']);
+            
+            // Buscar informações do utilizador no Redmine
+            global $API_KEY, $BASE_URL;
+            
+            if (empty($API_KEY) || empty($BASE_URL)) {
+                throw new Exception("Configuração do Redmine não encontrada. Verifique config.php");
+            }
+            
+            $redmine_url = rtrim($BASE_URL, '/') . "/users/{$redmine_user_id}.json";
+            
+            $ch = curl_init($redmine_url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'X-Redmine-API-Key: ' . $API_KEY,
+                'Content-Type: application/json'
+            ]);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($response === false || $httpCode !== 200) {
+                throw new Exception("Erro ao buscar utilizador no Redmine (HTTP $httpCode)");
+            }
+            
+            $data = json_decode($response, true);
+            
+            if (!isset($data['user'])) {
+                throw new Exception("Resposta inválida do Redmine");
+            }
+            
+            $redmine_user = $data['user'];
+            $username = $redmine_user['login'] ?? ($redmine_user['firstname'] . '.' . $redmine_user['lastname']);
+            $token = bin2hex(random_bytes(32));
+            
+            // Inserir na tabela user_tokens
+            $stmt = $pdo->prepare("INSERT INTO user_tokens (user_id, username, token) VALUES (?, ?, ?)");
+            $stmt->execute([$redmine_user_id, $username, $token]);
+            
+            $mensagem = "Utilizador '{$username}' importado com sucesso do Redmine!";
+        }
+        
         // Download da base de dados
         if (isset($_POST['download_db'])) {
             $filename = "backup_" . $dbSelecionada . "_" . date('Y-m-d_H-i-s') . ".sql";
@@ -409,6 +455,44 @@ function formatBytes($size, $precision = 2) {
                     // Obter todos os utilizadores
                     $stmt = $pdo->query("SELECT * FROM user_tokens ORDER BY user_id ASC");
                     $userTokens = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    
+                    // Buscar utilizadores disponíveis no Redmine
+                    $redmineUsers = [];
+                    try {
+                        global $API_KEY, $BASE_URL;
+                        
+                        if (!empty($API_KEY) && !empty($BASE_URL)) {
+                            $redmine_url = rtrim($BASE_URL, '/') . "/users.json?limit=200&status=1";
+                            
+                            $ch = curl_init($redmine_url);
+                            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                                'X-Redmine-API-Key: ' . $API_KEY,
+                                'Content-Type: application/json'
+                            ]);
+                            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+                            
+                            $response = curl_exec($ch);
+                            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                            curl_close($ch);
+                            
+                            if ($response !== false && $httpCode === 200) {
+                                $data = json_decode($response, true);
+                                if (isset($data['users'])) {
+                                    $redmineUsers = $data['users'];
+                                    
+                                    // Filtrar utilizadores que já existem na tabela local
+                                    $existingIds = array_column($userTokens, 'user_id');
+                                    $redmineUsers = array_filter($redmineUsers, function($user) use ($existingIds) {
+                                        return !in_array($user['id'], $existingIds);
+                                    });
+                                }
+                            }
+                        }
+                    } catch (Exception $e) {
+                        error_log("Erro ao buscar utilizadores do Redmine: " . $e->getMessage());
+                    }
             ?>
                     <div class="card mt-4">
                         <div class="card-header bg-success text-white">
@@ -450,6 +534,53 @@ function formatBytes($size, $precision = 2) {
                                     </form>
                                 </div>
                             </div>
+
+                            <!-- Importar do Redmine -->
+                            <?php if (!empty($redmineUsers)): ?>
+                            <div class="card mb-3">
+                                <div class="card-header bg-info text-white">
+                                    <h6 class="mb-0"><i class="bi bi-cloud-download"></i> Importar Utilizador do Redmine</h6>
+                                </div>
+                                <div class="card-body">
+                                    <form method="post" class="row g-3">
+                                        <input type="hidden" name="db_selected" value="<?= htmlspecialchars($dbSelecionada) ?>">
+                                        
+                                        <div class="col-md-10">
+                                            <label for="redmine_user_id" class="form-label">Selecione um utilizador do Redmine</label>
+                                            <select class="form-select" id="redmine_user_id" name="redmine_user_id" required>
+                                                <option value="">-- Selecione um utilizador --</option>
+                                                <?php foreach ($redmineUsers as $user): ?>
+                                                    <option value="<?= htmlspecialchars($user['id']) ?>">
+                                                        <?= htmlspecialchars($user['login'] ?? ($user['firstname'] . ' ' . $user['lastname'])) ?> 
+                                                        (ID: <?= htmlspecialchars($user['id']) ?>)
+                                                        <?php if (isset($user['mail'])): ?>
+                                                            - <?= htmlspecialchars($user['mail']) ?>
+                                                        <?php endif; ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <small class="text-muted">
+                                                <?= count($redmineUsers) ?> utilizadores disponíveis para importação
+                                            </small>
+                                        </div>
+                                        
+                                        <div class="col-md-2 d-flex align-items-end">
+                                            <button type="submit" name="import_from_redmine" class="btn btn-info w-100">
+                                                <i class="bi bi-download"></i> Importar
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                            <?php elseif (!empty($API_KEY) && !empty($BASE_URL)): ?>
+                            <div class="alert alert-info mb-3">
+                                <i class="bi bi-info-circle"></i> Todos os utilizadores do Redmine já foram importados ou não há utilizadores disponíveis.
+                            </div>
+                            <?php else: ?>
+                            <div class="alert alert-warning mb-3">
+                                <i class="bi bi-exclamation-triangle"></i> Configuração do Redmine não encontrada. Configure API_KEY e BASE_URL no config.php para importar utilizadores.
+                            </div>
+                            <?php endif; ?>
 
                             <!-- Lista de utilizadores -->
                             <?php if (!empty($userTokens)): ?>

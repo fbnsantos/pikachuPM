@@ -570,6 +570,25 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                     ");
                     $stmt->execute([$selectedSprint['id']]);
                     $selectedSprint['prototypes'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    
+                    // Obter user stories dos protótipos associados
+                    $selectedSprint['prototype_stories'] = [];
+                    if (!empty($selectedSprint['prototypes']) && tableExists($pdo, 'user_stories')) {
+                        $prototype_ids = array_column($selectedSprint['prototypes'], 'prototype_id');
+                        $placeholders = implode(',', array_fill(0, count($prototype_ids), '?'));
+                        
+                        $stmt = $pdo->prepare("
+                            SELECT us.*, p.short_name as prototype_name, p.title as prototype_title
+                            FROM user_stories us
+                            JOIN prototypes p ON us.prototype_id = p.id
+                            WHERE us.prototype_id IN ($placeholders)
+                            ORDER BY p.short_name, 
+                                     FIELD(us.moscow_priority, 'Must', 'Should', 'Could', 'Won''t'),
+                                     us.id
+                        ");
+                        $stmt->execute($prototype_ids);
+                        $selectedSprint['prototype_stories'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    }
                 } catch (PDOException $e) {
                     // Ignorar erro
                 }
@@ -1636,9 +1655,39 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                     <input type="hidden" name="redirect_to" value="sprints">
                     <input type="hidden" name="sprint_id_redirect" value="<?= $selectedSprint['id'] ?>">
                     
+                    <?php if (!empty($selectedSprint['prototype_stories'])): ?>
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <i class="bi bi-lightbulb"></i> Escolher de User Stories dos Protótipos
+                        </label>
+                        <select id="storySelector" class="form-select" onchange="fillFromStory(this.value)">
+                            <option value="">-- Ou selecione uma user story existente --</option>
+                            <?php 
+                            $current_prototype = '';
+                            foreach ($selectedSprint['prototype_stories'] as $story): 
+                                if ($current_prototype !== $story['prototype_name']):
+                                    if ($current_prototype !== '') echo '</optgroup>';
+                                    $current_prototype = $story['prototype_name'];
+                            ?>
+                                    <optgroup label="<?= htmlspecialchars($story['prototype_name']) ?> - <?= htmlspecialchars($story['prototype_title']) ?>">
+                            <?php endif; ?>
+                                    <option value="<?= htmlspecialchars($story['story_text']) ?>" data-priority="<?= htmlspecialchars($story['moscow_priority']) ?>">
+                                        [<?= htmlspecialchars($story['moscow_priority']) ?>] <?= htmlspecialchars(substr($story['story_text'], 0, 100)) ?><?= strlen($story['story_text']) > 100 ? '...' : '' ?>
+                                    </option>
+                            <?php 
+                            endforeach;
+                            if ($current_prototype !== '') echo '</optgroup>';
+                            ?>
+                        </select>
+                        <small class="text-muted">
+                            Selecione uma user story para preencher automaticamente o título
+                        </small>
+                    </div>
+                    <?php endif; ?>
+                    
                     <div class="mb-3">
                         <label class="form-label">Título da Task *</label>
-                        <input type="text" name="titulo" class="form-control" required placeholder="Ex: Implementar sistema de login">
+                        <input type="text" id="taskTitle" name="titulo" class="form-control" required placeholder="Ex: Implementar sistema de login">
                     </div>
                     
                     <div class="mb-3">
@@ -1707,6 +1756,14 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
 <?php endif; ?>
 
 <script>
+function fillFromStory(storyText) {
+    if (storyText) {
+        document.getElementById('taskTitle').value = storyText;
+        // Auto-focus no campo de descrição após preencher o título
+        document.querySelector('textarea[name="descritivo"]').focus();
+    }
+}
+
 function changeTaskStatus(taskId, newStatus) {
     const form = document.createElement('form');
     form.method = 'POST';

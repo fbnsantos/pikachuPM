@@ -145,6 +145,9 @@ if ($checkTodos) {
 $message = '';
 $messageType = 'success';
 
+// Get current user ID from session for actions
+$current_user_id = $_SESSION['user_id'] ?? null;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $action = $_POST['action'] ?? '';
@@ -251,6 +254,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Criar nova task e associá-la automaticamente à sprint
                 if ($checkTodos) {
                     try {
+                        // Validar que temos um user_id
+                        if (!$current_user_id) {
+                            throw new Exception('Sessão expirada. Por favor, faça login novamente.');
+                        }
+                        
                         // Criar a task na tabela todos
                         $titulo = trim($_POST['titulo'] ?? '');
                         $descritivo = trim($_POST['descritivo'] ?? '');
@@ -264,11 +272,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             throw new Exception('O título da tarefa é obrigatório.');
                         }
                         
+                        // Log para debug
+                        error_log("Creating task - autor: $current_user_id, responsavel: $responsavel, titulo: $titulo");
+                        
                         $stmt = $pdo->prepare("
                             INSERT INTO todos (titulo, descritivo, data_limite, autor, responsavel, projeto_id, estado)
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                         ");
-                        $stmt->execute([
+                        
+                        $result = $stmt->execute([
                             $titulo,
                             $descritivo,
                             $data_limite,
@@ -278,7 +290,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $estado
                         ]);
                         
+                        if (!$result) {
+                            throw new Exception('Erro ao inserir task: ' . implode(', ', $stmt->errorInfo()));
+                        }
+                        
                         $todo_id = $pdo->lastInsertId();
+                        
+                        if (!$todo_id) {
+                            throw new Exception('Erro ao obter ID da task criada.');
+                        }
                         
                         // Associar automaticamente à sprint
                         $stmt = $pdo->prepare("INSERT INTO sprint_tasks (sprint_id, todo_id) VALUES (?, ?)");
@@ -290,6 +310,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } catch (Exception $e) {
                         $message = "Erro ao criar task: " . $e->getMessage();
                         $messageType = 'danger';
+                        error_log("Error in create_and_add_task: " . $e->getMessage());
                     }
                 } else {
                     $message = "Módulo de ToDos não está instalado!";
@@ -351,6 +372,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Get current user ID from session
 $current_user_id = $_SESSION['user_id'] ?? null;
+
+// Verificar se o usuário está logado
+if (!$current_user_id) {
+    die("<div class='alert alert-danger'>Erro: Sessão inválida. Por favor, faça login novamente.</div>");
+}
 
 // Get filter preferences from URL or cookie
 $filter_my_sprints = isset($_GET['filter_my_sprints']) ? $_GET['filter_my_sprints'] === '1' : ($_COOKIE['filter_my_sprints'] ?? '0') === '1';

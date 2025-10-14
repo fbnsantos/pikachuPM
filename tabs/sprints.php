@@ -39,8 +39,9 @@ if (!$checkUserTokens) {
     die("<div class='alert alert-danger'>Erro: Tabela 'user_tokens' não existe. Este módulo requer utilizadores cadastrados.</div>");
 }
 
-// Criar tabela sprints
+// Criar tabelas necessárias
 try {
+    // Criar tabela sprints
     $pdo->exec("
     CREATE TABLE IF NOT EXISTS sprints (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -56,12 +57,8 @@ try {
         INDEX idx_responsavel (responsavel_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
-} catch (PDOException $e) {
-    die("<div class='alert alert-danger'>Erro ao criar tabela sprints: " . htmlspecialchars($e->getMessage()) . "</div>");
-}
-
-// Criar tabela sprint_members
-try {
+    
+    // Criar tabela sprint_members
     $pdo->exec("
     CREATE TABLE IF NOT EXISTS sprint_members (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -75,53 +72,9 @@ try {
         INDEX idx_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
-} catch (PDOException $e) {
-    // Tabela já existe ou erro não crítico
-}
-
-// Criar tabela sprint_projects (apenas se tabela projects existir)
-if ($checkProjects) {
-    try {
-        $pdo->exec("
-        CREATE TABLE IF NOT EXISTS sprint_projects (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            sprint_id INT NOT NULL,
-            project_id INT NOT NULL,
-            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
-            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-            UNIQUE KEY unique_sprint_project (sprint_id, project_id),
-            INDEX idx_sprint (sprint_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        ");
-    } catch (PDOException $e) {
-        // Tabela já existe
-    }
-}
-
-// Criar tabela sprint_prototypes (apenas se tabela prototypes existir)
-if ($checkPrototypes) {
-    try {
-        $pdo->exec("
-        CREATE TABLE IF NOT EXISTS sprint_prototypes (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            sprint_id INT NOT NULL,
-            prototype_id INT NOT NULL,
-            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
-            FOREIGN KEY (prototype_id) REFERENCES prototypes(id) ON DELETE CASCADE,
-            UNIQUE KEY unique_sprint_prototype (sprint_id, prototype_id),
-            INDEX idx_sprint (sprint_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        ");
-    } catch (PDOException $e) {
-        // Tabela já existe
-    }
-}
-
-// Criar tabela sprint_tasks (apenas se tabela todos existir)
-if ($checkTodos) {
-    try {
+    
+    // Criar tabela sprint_tasks se tabela todos existir
+    if ($checkTodos) {
         $pdo->exec("
         CREATE TABLE IF NOT EXISTS sprint_tasks (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -136,17 +89,54 @@ if ($checkTodos) {
             INDEX idx_todo (todo_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
-    } catch (PDOException $e) {
-        // Tabela já existe
     }
+    
+    // Criar tabela sprint_projects se tabela projects existir
+    if ($checkProjects) {
+        $pdo->exec("
+        CREATE TABLE IF NOT EXISTS sprint_projects (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            sprint_id INT NOT NULL,
+            project_id INT NOT NULL,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            UNIQUE KEY unique_sprint_project (sprint_id, project_id),
+            INDEX idx_sprint (sprint_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+    }
+    
+    // Criar tabela sprint_prototypes se tabela prototypes existir
+    if ($checkPrototypes) {
+        $pdo->exec("
+        CREATE TABLE IF NOT EXISTS sprint_prototypes (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            sprint_id INT NOT NULL,
+            prototype_id INT NOT NULL,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
+            FOREIGN KEY (prototype_id) REFERENCES prototypes(id) ON DELETE CASCADE,
+            UNIQUE KEY unique_sprint_prototype (sprint_id, prototype_id),
+            INDEX idx_sprint (sprint_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+    }
+} catch (PDOException $e) {
+    // Tabelas já existem ou erro não crítico
+}
+
+// Get current user ID from session
+$current_user_id = $_SESSION['user_id'] ?? null;
+
+// Verificar se o usuário está logado
+if (!$current_user_id) {
+    die("<div class='alert alert-danger'>Erro: Sessão inválida. Por favor, faça login novamente.</div>");
 }
 
 // Processar ações
 $message = '';
 $messageType = 'success';
-
-// Get current user ID from session for actions
-$current_user_id = $_SESSION['user_id'] ?? null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -184,7 +174,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("DELETE FROM sprints WHERE id=?");
                 $stmt->execute([$_POST['sprint_id']]);
                 $message = "Sprint removida com sucesso!";
-                // Redirecionar para lista após deletar
                 header("Location: ?tab=sprints&message=" . urlencode($message) . "&type=success");
                 exit;
                 break;
@@ -201,120 +190,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message = "Membro removido da sprint!";
                 break;
                 
-            case 'add_project':
-                if ($checkProjects) {
-                    $stmt = $pdo->prepare("INSERT IGNORE INTO sprint_projects (sprint_id, project_id) VALUES (?, ?)");
-                    $stmt->execute([$_POST['sprint_id'], $_POST['project_id']]);
-                    $message = "Projeto associado à sprint!";
-                } else {
-                    $message = "Módulo de Projects não está instalado!";
-                    $messageType = 'warning';
-                }
-                break;
-                
-            case 'remove_project':
-                if ($checkProjects) {
-                    $stmt = $pdo->prepare("DELETE FROM sprint_projects WHERE id=?");
-                    $stmt->execute([$_POST['project_id']]);
-                    $message = "Projeto removido da sprint!";
-                }
-                break;
-                
-            case 'add_prototype':
-                if ($checkPrototypes) {
-                    $stmt = $pdo->prepare("INSERT IGNORE INTO sprint_prototypes (sprint_id, prototype_id) VALUES (?, ?)");
-                    $stmt->execute([$_POST['sprint_id'], $_POST['prototype_id']]);
-                    $message = "Protótipo associado à sprint!";
-                } else {
-                    $message = "Módulo de Prototypes não está instalado!";
-                    $messageType = 'warning';
-                }
-                break;
-                
-            case 'remove_prototype':
-                if ($checkPrototypes) {
-                    $stmt = $pdo->prepare("DELETE FROM sprint_prototypes WHERE id=?");
-                    $stmt->execute([$_POST['prototype_id']]);
-                    $message = "Protótipo removido da sprint!";
-                }
-                break;
-                
             case 'add_task':
                 if ($checkTodos) {
                     $stmt = $pdo->prepare("INSERT IGNORE INTO sprint_tasks (sprint_id, todo_id) VALUES (?, ?)");
                     $stmt->execute([$_POST['sprint_id'], $_POST['todo_id']]);
                     $message = "Task associada à sprint!";
-                } else {
-                    $message = "Módulo de ToDos não está instalado!";
-                    $messageType = 'warning';
-                }
-                break;
-                
-            case 'create_and_add_task':
-                // Criar nova task e associá-la automaticamente à sprint
-                if ($checkTodos) {
-                    try {
-                        // Validar que temos um user_id
-                        if (!$current_user_id) {
-                            throw new Exception('Sessão expirada. Por favor, faça login novamente.');
-                        }
-                        
-                        // Criar a task na tabela todos
-                        $titulo = trim($_POST['titulo'] ?? '');
-                        $descritivo = trim($_POST['descritivo'] ?? '');
-                        $data_limite = !empty($_POST['data_limite']) ? trim($_POST['data_limite']) : null;
-                        $responsavel = !empty($_POST['responsavel']) ? (int)$_POST['responsavel'] : null;
-                        $projeto_id = !empty($_POST['projeto_id']) ? (int)$_POST['projeto_id'] : null;
-                        $estado = trim($_POST['estado'] ?? 'aberta');
-                        $sprint_id = (int)$_POST['sprint_id'];
-                        
-                        if (empty($titulo)) {
-                            throw new Exception('O título da tarefa é obrigatório.');
-                        }
-                        
-                        // Log para debug
-                        error_log("Creating task - autor: $current_user_id, responsavel: $responsavel, titulo: $titulo");
-                        
-                        $stmt = $pdo->prepare("
-                            INSERT INTO todos (titulo, descritivo, data_limite, autor, responsavel, projeto_id, estado)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        ");
-                        
-                        $result = $stmt->execute([
-                            $titulo,
-                            $descritivo,
-                            $data_limite,
-                            $current_user_id,
-                            $responsavel,
-                            $projeto_id,
-                            $estado
-                        ]);
-                        
-                        if (!$result) {
-                            throw new Exception('Erro ao inserir task: ' . implode(', ', $stmt->errorInfo()));
-                        }
-                        
-                        $todo_id = $pdo->lastInsertId();
-                        
-                        if (!$todo_id) {
-                            throw new Exception('Erro ao obter ID da task criada.');
-                        }
-                        
-                        // Associar automaticamente à sprint
-                        $stmt = $pdo->prepare("INSERT INTO sprint_tasks (sprint_id, todo_id) VALUES (?, ?)");
-                        $stmt->execute([$sprint_id, $todo_id]);
-                        
-                        $message = "Task criada e associada à sprint com sucesso!";
-                        $messageType = 'success';
-                        
-                    } catch (Exception $e) {
-                        $message = "Erro ao criar task: " . $e->getMessage();
-                        $messageType = 'danger';
-                        error_log("Error in create_and_add_task: " . $e->getMessage());
-                    }
-                } else {
-                    $message = "Módulo de ToDos não está instalado!";
-                    $messageType = 'warning';
                 }
                 break;
                 
@@ -331,9 +211,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $pdo->prepare("UPDATE todos SET estado=? WHERE id=?");
                     $stmt->execute([$_POST['estado'], $_POST['todo_id']]);
                     $message = "Estado da task atualizado!";
-                } else {
-                    $message = "Módulo de ToDos não está instalado!";
-                    $messageType = 'warning';
                 }
                 break;
         }
@@ -353,199 +230,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $redirect_params['sprint_id'] = $_POST['sprint_id'] ?? $_GET['sprint_id'];
         }
         
-        if (isset($_GET['filter_my_sprints'])) {
-            $redirect_params['filter_my_sprints'] = $_GET['filter_my_sprints'];
-        }
-        
-        if (isset($_GET['filter_responsible_only'])) {
-            $redirect_params['filter_responsible_only'] = $_GET['filter_responsible_only'];
-        }
-        
-        if (isset($_GET['show_closed'])) {
-            $redirect_params['show_closed'] = $_GET['show_closed'];
-        }
-        
         header("Location: ?" . http_build_query($redirect_params));
         exit;
     }
 }
 
-// Get current user ID from session
-$current_user_id = $_SESSION['user_id'] ?? null;
+// Get filter preferences
+$filter_my_sprints = isset($_GET['filter_my_sprints']) && $_GET['filter_my_sprints'] === '1';
+$filter_responsible_only = isset($_GET['filter_responsible_only']) && $_GET['filter_responsible_only'] === '1';
+$showClosed = isset($_GET['show_closed']) && $_GET['show_closed'] === '1';
 
-// Verificar se o usuário está logado
-if (!$current_user_id) {
-    die("<div class='alert alert-danger'>Erro: Sessão inválida. Por favor, faça login novamente.</div>");
-}
-
-// Get filter preferences from URL or cookie
-$filter_my_sprints = isset($_GET['filter_my_sprints']) ? $_GET['filter_my_sprints'] === '1' : ($_COOKIE['filter_my_sprints'] ?? '0') === '1';
-$filter_responsible_only = isset($_GET['filter_responsible_only']) ? $_GET['filter_responsible_only'] === '1' : ($_COOKIE['filter_responsible_only'] ?? '0') === '1';
-
-// Save filter preferences in cookie
-if (isset($_GET['filter_my_sprints'])) {
-    setcookie('filter_my_sprints', $_GET['filter_my_sprints'], time() + (86400 * 30), "/");
-}
-if (isset($_GET['filter_responsible_only'])) {
-    setcookie('filter_responsible_only', $_GET['filter_responsible_only'], time() + (86400 * 30), "/");
-}
-
-// Obter dados
-$showClosed = isset($_GET['show_closed']) && $_GET['show_closed'] == '1';
-
+// Obter sprints com filtros
 try {
-    // Build the query based on filters
-    if ($filter_responsible_only && $current_user_id) {
-        // Show only sprints where user is responsible
-        $query = "
-            SELECT DISTINCT s.*, u.username as responsavel_nome,
-                   1 as is_responsible,
-                   CASE 
-                       WHEN sm.user_id IS NOT NULL THEN 1
-                       ELSE 0
-                   END as is_member
-            FROM sprints s
-            LEFT JOIN user_tokens u ON s.responsavel_id = u.user_id
-            LEFT JOIN sprint_members sm ON s.id = sm.sprint_id AND sm.user_id = ?
-            WHERE s.responsavel_id = ?
-        ";
-        
-        if (!$showClosed) {
-            $query .= " AND s.estado != 'fechada'";
-        }
-        
-        $query .= " ORDER BY 
-                    CASE s.estado 
-                        WHEN 'aberta' THEN 1 
-                        WHEN 'pausa' THEN 2 
-                        WHEN 'fechada' THEN 3 
-                    END,
-                    s.data_fim ASC,
-                    s.created_at DESC";
-        
-        $stmt = $pdo->prepare($query);
-        $stmt->execute([$current_user_id, $current_user_id]);
-        
-    } elseif ($filter_my_sprints && $current_user_id) {
-        // Show only sprints where user is responsible or member
-        $query = "
-            SELECT DISTINCT s.*, u.username as responsavel_nome,
-                   CASE 
-                       WHEN s.responsavel_id = ? THEN 1
-                       ELSE 0
-                   END as is_responsible,
-                   CASE 
-                       WHEN sm.user_id IS NOT NULL THEN 1
-                       ELSE 0
-                   END as is_member
-            FROM sprints s
-            LEFT JOIN user_tokens u ON s.responsavel_id = u.user_id
-            LEFT JOIN sprint_members sm ON s.id = sm.sprint_id AND sm.user_id = ?
-            WHERE (s.responsavel_id = ? OR sm.user_id IS NOT NULL)
-        ";
-        
-        if (!$showClosed) {
-            $query .= " AND s.estado != 'fechada'";
-        }
-        
-        $query .= " ORDER BY 
-                    CASE s.estado 
-                        WHEN 'aberta' THEN 1 
-                        WHEN 'pausa' THEN 2 
-                        WHEN 'fechada' THEN 3 
-                    END,
-                    s.data_fim ASC,
-                    s.created_at DESC";
-        
-        $stmt = $pdo->prepare($query);
-        $stmt->execute([$current_user_id, $current_user_id, $current_user_id]);
-    } else {
-        // Show all sprints
-        $query = "
-            SELECT s.*, u.username as responsavel_nome,
-                   CASE 
-                       WHEN s.responsavel_id = ? THEN 1
-                       ELSE 0
-                   END as is_responsible,
-                   CASE 
-                       WHEN sm.user_id IS NOT NULL THEN 1
-                       ELSE 0
-                   END as is_member
-            FROM sprints s
-            LEFT JOIN user_tokens u ON s.responsavel_id = u.user_id
-            LEFT JOIN sprint_members sm ON s.id = sm.sprint_id AND sm.user_id = ?
-        ";
-        
-        if (!$showClosed) {
-            $query .= " WHERE s.estado != 'fechada'";
-        }
-        
-        $query .= " GROUP BY s.id
-                    ORDER BY 
-                    CASE s.estado 
-                        WHEN 'aberta' THEN 1 
-                        WHEN 'pausa' THEN 2 
-                        WHEN 'fechada' THEN 3 
-                    END,
-                    s.data_fim ASC,
-                    s.created_at DESC";
-        
-        $stmt = $pdo->prepare($query);
-        $stmt->execute([$current_user_id, $current_user_id]);
+    $query = "
+        SELECT s.*, 
+               u.username as responsavel_nome,
+               (SELECT COUNT(*) FROM sprint_members WHERE sprint_id = s.id) as total_membros,
+               CASE 
+                   WHEN s.responsavel_id = ? THEN 1
+                   ELSE 0
+               END as is_responsible,
+               CASE 
+                   WHEN sm.user_id IS NOT NULL THEN 1
+                   ELSE 0
+               END as is_member
+        FROM sprints s
+        LEFT JOIN user_tokens u ON s.responsavel_id = u.user_id
+        LEFT JOIN sprint_members sm ON s.id = sm.sprint_id AND sm.user_id = ?
+    ";
+    
+    if (!$showClosed) {
+        $query .= " WHERE s.estado != 'fechada'";
     }
     
+    $query .= " GROUP BY s.id
+                ORDER BY 
+                CASE s.estado 
+                    WHEN 'aberta' THEN 1 
+                    WHEN 'pausa' THEN 2 
+                    WHEN 'fechada' THEN 3 
+                END,
+                s.data_fim ASC,
+                s.created_at DESC";
+    
+    $stmt = $pdo->prepare($query);
+    $stmt->execute([$current_user_id, $current_user_id]);
     $sprints = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     // Calcular estatísticas para cada sprint
     foreach ($sprints as &$sprint) {
-        // Calcular dias para deadline
-        if ($sprint['data_fim']) {
-            $hoje = new DateTime();
-            $deadline = new DateTime($sprint['data_fim']);
-            $diff = $hoje->diff($deadline);
-            
-            if ($hoje > $deadline) {
-                $sprint['dias_restantes'] = -$diff->days;
-                $sprint['status_deadline'] = 'atrasado';
-            } else {
-                $sprint['dias_restantes'] = $diff->days;
-                if ($diff->days <= 3) {
-                    $sprint['status_deadline'] = 'urgente';
-                } elseif ($diff->days <= 7) {
-                    $sprint['status_deadline'] = 'proximo';
-                } else {
-                    $sprint['status_deadline'] = 'normal';
-                }
-            }
-        } else {
-            $sprint['dias_restantes'] = null;
-            $sprint['status_deadline'] = 'sem_deadline';
-        }
-        
-        // Calcular progresso (tasks completadas / total tasks)
         if ($checkTodos && tableExists($pdo, 'sprint_tasks')) {
-            try {
-                $stmt = $pdo->prepare("
-                    SELECT 
-                        COUNT(*) as total,
-                        SUM(CASE WHEN t.estado = 'completada' THEN 1 ELSE 0 END) as completadas
-                    FROM sprint_tasks st
-                    JOIN todos t ON st.todo_id = t.id
-                    WHERE st.sprint_id = ?
-                ");
-                $stmt->execute([$sprint['id']]);
-                $stats = $stmt->fetch(PDO::FETCH_ASSOC);
-                
-                $sprint['total_tasks'] = $stats['total'] ?? 0;
-                $sprint['tasks_completadas'] = $stats['completadas'] ?? 0;
-                $sprint['percentagem'] = $sprint['total_tasks'] > 0 
-                    ? round(($sprint['tasks_completadas'] / $sprint['total_tasks']) * 100) 
-                    : 0;
-            } catch (PDOException $e) {
-                $sprint['total_tasks'] = 0;
-                $sprint['tasks_completadas'] = 0;
-                $sprint['percentagem'] = 0;
-            }
+            $stmt = $pdo->prepare("
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN t.estado = 'concluída' OR t.estado = 'completada' THEN 1 ELSE 0 END) as completadas
+                FROM sprint_tasks st
+                JOIN todos t ON st.todo_id = t.id
+                WHERE st.sprint_id = ?
+            ");
+            $stmt->execute([$sprint['id']]);
+            $stats = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            $sprint['total_tasks'] = $stats['total'] ?? 0;
+            $sprint['tasks_completadas'] = $stats['completadas'] ?? 0;
+            $sprint['percentagem'] = $sprint['total_tasks'] > 0 
+                ? round(($sprint['tasks_completadas'] / $sprint['total_tasks']) * 100) 
+                : 0;
         } else {
             $sprint['total_tasks'] = 0;
             $sprint['tasks_completadas'] = 0;
@@ -561,32 +311,7 @@ try {
 }
 
 // Obter usuários
-try {
-    $users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
-} catch (PDOException $e) {
-    $users = [];
-}
-
-// Obter projetos e protótipos se existirem
-$projects = [];
-$prototypes = [];
-$availableTasks = [];
-
-if ($checkProjects) {
-    try {
-        $projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY short_name")->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        // Ignorar erro
-    }
-}
-
-if ($checkPrototypes) {
-    try {
-        $prototypes = $pdo->query("SELECT id, short_name, title FROM prototypes ORDER BY short_name")->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        // Ignorar erro
-    }
-}
+$users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
 
 // Obter sprint selecionada
 $selectedSprint = null;
@@ -601,283 +326,106 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
         $stmt->execute([$_GET['sprint_id']]);
         $selectedSprint = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        if ($selectedSprint) {
-            // Obter membros
-            try {
-                $stmt = $pdo->prepare("
-                    SELECT sm.*, u.username 
-                    FROM sprint_members sm 
-                    JOIN user_tokens u ON sm.user_id = u.user_id 
-                    WHERE sm.sprint_id=? 
-                    ORDER BY u.username
-                ");
-                $stmt->execute([$selectedSprint['id']]);
-                $selectedSprint['members'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            } catch (PDOException $e) {
-                $selectedSprint['members'] = [];
-            }
-            
-            // Obter projetos
-            $selectedSprint['projects'] = [];
-            if ($checkProjects && tableExists($pdo, 'sprint_projects')) {
-                try {
-                    $stmt = $pdo->prepare("
-                        SELECT sp.*, p.short_name, p.title 
-                        FROM sprint_projects sp 
-                        JOIN projects p ON sp.project_id = p.id 
-                        WHERE sp.sprint_id=?
-                    ");
-                    $stmt->execute([$selectedSprint['id']]);
-                    $selectedSprint['projects'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                } catch (PDOException $e) {
-                    // Ignorar erro
-                }
-            }
-            
-            // Obter protótipos
-            $selectedSprint['prototypes'] = [];
-            if ($checkPrototypes && tableExists($pdo, 'sprint_prototypes')) {
-                try {
-                    $stmt = $pdo->prepare("
-                        SELECT sp.*, p.short_name, p.title 
-                        FROM sprint_prototypes sp 
-                        JOIN prototypes p ON sp.prototype_id = p.id 
-                        WHERE sp.sprint_id=?
-                    ");
-                    $stmt->execute([$selectedSprint['id']]);
-                    $selectedSprint['prototypes'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                    
-                    // Obter user stories dos protótipos associados
-                    $selectedSprint['prototype_stories'] = [];
-                    if (!empty($selectedSprint['prototypes']) && tableExists($pdo, 'user_stories')) {
-                        $prototype_ids = array_column($selectedSprint['prototypes'], 'prototype_id');
-                        $placeholders = implode(',', array_fill(0, count($prototype_ids), '?'));
-                        
-                        $stmt = $pdo->prepare("
-                            SELECT us.*, p.short_name as prototype_name, p.title as prototype_title
-                            FROM user_stories us
-                            JOIN prototypes p ON us.prototype_id = p.id
-                            WHERE us.prototype_id IN ($placeholders)
-                            ORDER BY p.short_name, 
-                                     FIELD(us.moscow_priority, 'Must', 'Should', 'Could', 'Won''t'),
-                                     us.id
-                        ");
-                        $stmt->execute($prototype_ids);
-                        $selectedSprint['prototype_stories'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                    }
-                } catch (PDOException $e) {
-                    // Ignorar erro
-                }
-            }
-            
-            // Obter tasks da sprint organizadas em kanban
+        if ($selectedSprint && $checkTodos) {
+            // Inicializar kanban
             $selectedSprint['kanban'] = [
                 'aberta' => [],
                 'em execução' => [],
                 'suspensa' => [],
-                'completada' => []
+                'completada' => [],
+                'concluída' => [] // Alias
             ];
             
-            if ($checkTodos && tableExists($pdo, 'sprint_tasks')) {
-                try {
-                    $stmt = $pdo->prepare("
-                        SELECT st.id as st_id, t.*, u1.username as autor_nome, u2.username as responsavel_nome,
-                               p.short_name as projeto_nome
-                        FROM sprint_tasks st
-                        JOIN todos t ON st.todo_id = t.id
-                        LEFT JOIN user_tokens u1 ON t.autor = u1.user_id
-                        LEFT JOIN user_tokens u2 ON t.responsavel = u2.user_id
-                        LEFT JOIN projects p ON t.projeto_id = p.id
-                        WHERE st.sprint_id=?
-                        ORDER BY st.position, t.created_at DESC
-                    ");
-                    $stmt->execute([$selectedSprint['id']]);
-                    $selectedSprint['tasks'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                    
-                    // Agrupar tasks por estado para o kanban
-                    foreach ($selectedSprint['tasks'] as $task) {
-                        $estado = $task['estado'] ?? 'aberta';
-                        if (isset($selectedSprint['kanban'][$estado])) {
-                            $selectedSprint['kanban'][$estado][] = $task;
-                        }
-                    }
-                } catch (PDOException $e) {
-                    // Ignorar erro
+            // Obter tasks da sprint
+            $stmt = $pdo->prepare("
+                SELECT t.*, 
+                       u1.username as autor_nome, 
+                       u2.username as responsavel_nome
+                FROM sprint_tasks st
+                JOIN todos t ON st.todo_id = t.id
+                LEFT JOIN user_tokens u1 ON t.autor = u1.user_id
+                LEFT JOIN user_tokens u2 ON t.responsavel = u2.user_id
+                WHERE st.sprint_id = ?
+                ORDER BY st.position, t.created_at DESC
+            ");
+            $stmt->execute([$selectedSprint['id']]);
+            $selectedSprint['tasks'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Agrupar tasks por estado
+            foreach ($selectedSprint['tasks'] as $task) {
+                $estado = $task['estado'] ?? 'aberta';
+                if (isset($selectedSprint['kanban'][$estado])) {
+                    $selectedSprint['kanban'][$estado][] = $task;
                 }
-                
-                // Obter tasks disponíveis para adicionar
-                try {
-                    $stmt = $pdo->query("
-                        SELECT t.id, t.titulo, t.estado, t.data_limite, t.projeto_id,
-                               u1.username as autor_nome, u2.username as responsavel_nome,
-                               p.short_name as projeto_nome
-                        FROM todos t 
-                        LEFT JOIN user_tokens u1 ON t.autor = u1.user_id 
-                        LEFT JOIN user_tokens u2 ON t.responsavel = u2.user_id
-                        LEFT JOIN projects p ON t.projeto_id = p.id
-                        WHERE t.estado != 'completada'
-                        AND t.id NOT IN (SELECT todo_id FROM sprint_tasks WHERE sprint_id = {$selectedSprint['id']})
-                        ORDER BY t.created_at DESC
-                        LIMIT 100
-                    ");
-                    $availableTasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                } catch (PDOException $e) {
-                    $availableTasks = [];
+                // Tratar também "concluída" como "completada"
+                if ($estado === 'concluída' && !isset($selectedSprint['kanban']['concluída'])) {
+                    $selectedSprint['kanban']['completada'][] = $task;
                 }
             }
         }
     } catch (PDOException $e) {
-        $message = "Erro ao carregar detalhes da sprint: " . $e->getMessage();
+        $message = "Erro ao carregar sprint: " . $e->getMessage();
         $messageType = 'danger';
     }
 }
 ?>
+<!-- Continuação do sprints.php - Parte 2: HTML/CSS/JavaScript -->
 
 <style>
 .sprints-container {
-    display: flex;
+    display: grid;
+    grid-template-columns: 300px 1fr;
     gap: 20px;
-    height: calc(100vh - 150px);
+    min-height: 80vh;
 }
 
 .sprints-sidebar {
-    width: 300px;
-    background: #f8f9fa;
-    border-radius: 8px;
-    padding: 15px;
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    max-height: 85vh;
     overflow-y: auto;
 }
 
-.filter-container {
-    padding: 12px;
-    background: white;
-    border-radius: 6px;
-    border: 1px solid #e5e7eb;
-    margin-bottom: 15px;
-}
-
-.filter-container .form-check-input {
-    cursor: pointer;
-}
-
-.filter-container .form-check-label {
-    cursor: pointer;
-    font-weight: 500;
-    color: #374151;
-}
-
 .sprint-item {
-    padding: 12px;
+    padding: 15px;
     margin-bottom: 10px;
-    background: white;
-    border-radius: 6px;
-    border: 2px solid #e1e8ed;
+    border-radius: 8px;
     cursor: pointer;
     transition: all 0.2s;
+    border: 2px solid transparent;
 }
 
 .sprint-item:hover {
-    border-color: #3b82f6;
-    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
+    background: #f8f9fa;
+    border-color: #667eea;
 }
 
 .sprint-item.active {
-    border-color: #3b82f6;
-    background: #eff6ff;
-}
-
-.sprint-item .badge {
-    font-size: 10px;
-    padding: 3px 6px;
-}
-
-.sprint-item .badge.bg-primary {
-    background-color: #3b82f6 !important;
-}
-
-.sprint-item .badge.bg-info {
-    background-color: #06b6d4 !important;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-color: #667eea;
 }
 
 .sprint-badge {
     display: inline-block;
-    padding: 3px 8px;
-    border-radius: 4px;
+    padding: 4px 12px;
+    border-radius: 12px;
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
-    margin-top: 5px;
 }
 
 .sprint-badge.aberta { background: #dcfce7; color: #166534; }
 .sprint-badge.pausa { background: #fef3c7; color: #92400e; }
 .sprint-badge.fechada { background: #f3f4f6; color: #6b7280; }
 
-.sprint-deadline {
-    font-size: 11px;
-    padding: 3px 6px;
-    border-radius: 3px;
-    display: inline-block;
-    margin-top: 5px;
-    font-weight: 600;
-}
-
-.sprint-deadline.normal { background: #dbeafe; color: #1e40af; }
-.sprint-deadline.proximo { background: #fef3c7; color: #92400e; }
-.sprint-deadline.urgente { background: #fee2e2; color: #991b1b; }
-.sprint-deadline.atrasado { background: #fecaca; color: #7f1d1d; }
-
-.sprint-progress {
-    margin-top: 8px;
-}
-
-.progress-bar-sprint {
-    height: 6px;
-    background: #e5e7eb;
-    border-radius: 3px;
-    overflow: hidden;
-    position: relative;
-}
-
-.progress-bar-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #3b82f6, #2563eb);
-    transition: width 0.3s ease;
-}
-
-.progress-bar-fill.complete {
-    background: linear-gradient(90deg, #10b981, #059669);
-}
-
-.progress-text {
-    font-size: 10px;
-    color: #6b7280;
-    margin-top: 2px;
-}
-
-.show-closed-container {
-    margin-bottom: 15px;
-    padding: 10px;
-    background: white;
-    border-radius: 6px;
-    border: 1px solid #e5e7eb;
-}
-
-.show-closed-container label {
-    margin: 0;
-    font-size: 13px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
 .sprint-details {
-    flex: 1;
     background: white;
-    border-radius: 8px;
-    padding: 20px;
-    overflow-y: auto;
+    border-radius: 12px;
+    padding: 30px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
 .info-grid {
@@ -889,23 +437,21 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
 
 .info-card {
     padding: 15px;
-    background: #f9fafb;
-    border-radius: 6px;
-    border: 1px solid #e5e7eb;
+    background: #f8f9fa;
+    border-radius: 8px;
 }
 
 .info-label {
-    font-size: 11px;
-    font-weight: 600;
+    font-size: 12px;
     color: #6b7280;
     text-transform: uppercase;
     margin-bottom: 5px;
 }
 
 .info-value {
-    font-size: 15px;
+    font-size: 16px;
+    font-weight: 600;
     color: #1a202c;
-    font-weight: 500;
 }
 
 .section-header {
@@ -915,23 +461,6 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
     margin: 30px 0 15px 0;
     padding-bottom: 10px;
     border-bottom: 2px solid #e5e7eb;
-}
-
-.member-list, .project-list, .prototype-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 10px;
-}
-
-.member-badge, .project-badge, .prototype-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
 }
 
 .kanban-board {
@@ -988,6 +517,28 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
     display: flex;
     gap: 10px;
     align-items: center;
+    margin-bottom: 8px;
+}
+
+/* Botões de ação nas tasks */
+.task-actions {
+    display: flex;
+    gap: 5px;
+    margin-top: 8px;
+}
+
+.btn-edit-task {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.btn-edit-task:hover {
+    transform: scale(1.05);
+}
+
+.kanban-task .btn {
+    padding: 4px 8px;
+    font-size: 12px;
 }
 
 .empty-state {
@@ -1001,18 +552,51 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
     margin-bottom: 20px;
     opacity: 0.3;
 }
+
+.progress-bar-container {
+    margin-top: 10px;
+}
+
+.progress {
+    height: 8px;
+    border-radius: 4px;
+    background: #e5e7eb;
+}
+
+.progress-bar {
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    border-radius: 4px;
+    transition: width 0.3s;
+}
+
+.progress-bar.complete {
+    background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+}
+
+.progress-text {
+    font-size: 11px;
+    color: #6b7280;
+    margin-top: 5px;
+}
+
+.filter-container {
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.filter-container label {
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
 </style>
 
 <?php if (isset($_GET['message'])): ?>
 <div class="alert alert-<?= htmlspecialchars($_GET['type'] ?? 'success') ?> alert-dismissible fade show">
     <?= htmlspecialchars($_GET['message']) ?>
-    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-</div>
-<?php endif; ?>
-
-<?php if ($message): ?>
-<div class="alert alert-<?= htmlspecialchars($messageType) ?> alert-dismissible fade show">
-    <?= htmlspecialchars($message) ?>
     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
 </div>
 <?php endif; ?>
@@ -1027,116 +611,56 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
             </button>
         </div>
         
-        <!-- Filter Toggle -->
+        <!-- Filtros -->
         <div class="filter-container">
             <div class="form-check form-switch mb-2">
                 <input class="form-check-input" type="checkbox" id="filterMySprints" 
                        <?= $filter_my_sprints ? 'checked' : '' ?>
-                       <?= $filter_responsible_only ? 'disabled' : '' ?>
-                       onchange="window.location.href='?tab=sprints&filter_my_sprints=' + (this.checked ? '1' : '0') + '<?= $showClosed ? '&show_closed=1' : '' ?><?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
+                       onchange="toggleFilter('filter_my_sprints', this.checked)">
                 <label class="form-check-label" for="filterMySprints">
-                    <i class="bi bi-person-check"></i> Only My Sprints
+                    <i class="bi bi-person"></i> Minhas Sprints
                 </label>
             </div>
             
-            <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" id="filterResponsibleOnly" 
-                       <?= $filter_responsible_only ? 'checked' : '' ?>
-                       onchange="window.location.href='?tab=sprints&filter_responsible_only=' + (this.checked ? '1' : '0') + '<?= $showClosed ? '&show_closed=1' : '' ?><?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
-                <label class="form-check-label" for="filterResponsibleOnly">
-                    <i class="bi bi-star-fill"></i> Only as Responsible
+            <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" id="showClosed" 
+                       <?= $showClosed ? 'checked' : '' ?>
+                       onchange="toggleFilter('show_closed', this.checked)">
+                <label class="form-check-label" for="showClosed">
+                    <i class="bi bi-archive"></i> Mostrar Fechadas
                 </label>
             </div>
-            
-            <?php if ($filter_my_sprints): ?>
-                <small class="text-muted d-block mt-2">
-                    Showing sprints where you are responsible or member
-                </small>
-            <?php elseif ($filter_responsible_only): ?>
-                <small class="text-muted d-block mt-2">
-                    Showing only sprints where you are responsible
-                </small>
-            <?php endif; ?>
         </div>
         
-        <!-- Show Closed Toggle -->
-        <div class="show-closed-container">
-            <label>
-                <input type="checkbox" id="showClosedCheckbox" <?= $showClosed ? 'checked' : '' ?> 
-                       onchange="window.location.href='?tab=sprints<?= $filter_my_sprints ? '&filter_my_sprints=1' : '' ?><?= $filter_responsible_only ? '&filter_responsible_only=1' : '' ?>&show_closed=' + (this.checked ? '1' : '0')<?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
-                <i class="bi bi-archive"></i> Show Closed Sprints
-            </label>
-        </div>
-        
-        <!-- Sprint List -->
+        <!-- Lista de Sprints -->
         <?php if (empty($sprints)): ?>
             <div class="text-center text-muted py-4">
                 <i class="bi bi-inbox" style="font-size: 2rem;"></i>
-                <p class="mt-2">
-                    <?php if ($filter_responsible_only): ?>
-                        No sprints found where you are responsible
-                    <?php elseif ($filter_my_sprints): ?>
-                        No sprints found where you are involved
-                    <?php else: ?>
-                        No sprints created yet
-                    <?php endif; ?>
-                </p>
+                <p class="mt-2">Nenhuma sprint encontrada</p>
             </div>
         <?php else: ?>
             <?php foreach ($sprints as $sprint): 
-                $deadline_class = 'normal';
-                if ($sprint['data_fim']) {
-                    $today = new DateTime();
-                    $deadline = new DateTime($sprint['data_fim']);
-                    $diff = $today->diff($deadline);
-                    
-                    if ($deadline < $today) {
-                        $deadline_class = 'atrasado';
-                    } elseif ($diff->days <= 3) {
-                        $deadline_class = 'urgente';
-                    } elseif ($diff->days <= 7) {
-                        $deadline_class = 'proximo';
-                    }
-                }
-                
                 $is_active = isset($_GET['sprint_id']) && $_GET['sprint_id'] == $sprint['id'];
             ?>
                 <div class="sprint-item <?= $is_active ? 'active' : '' ?>" 
-                     onclick="window.location.href='?tab=sprints<?= $filter_my_sprints ? '&filter_my_sprints=1' : '' ?><?= $filter_responsible_only ? '&filter_responsible_only=1' : '' ?><?= $showClosed ? '&show_closed=1' : '' ?>&sprint_id=<?= $sprint['id'] ?>'">
-                    
-                    <div class="d-flex justify-content-between align-items-start mb-2">
-                        <strong style="font-size: 14px;"><?= htmlspecialchars($sprint['nome']) ?></strong>
-                        <div>
-                            <?php if ($sprint['is_responsible']): ?>
-                                <span class="badge bg-primary" title="You are responsible">
-                                    <i class="bi bi-star-fill"></i>
-                                </span>
-                            <?php endif; ?>
-                            <?php if ($sprint['is_member']): ?>
-                                <span class="badge bg-info" title="You are a member">
-                                    <i class="bi bi-person-check"></i>
-                                </span>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    
-                    <div>
+                     onclick="window.location.href='?tab=sprints&sprint_id=<?= $sprint['id'] ?>'">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <strong><?= htmlspecialchars($sprint['nome']) ?></strong>
                         <span class="sprint-badge <?= $sprint['estado'] ?>">
                             <?= $sprint['estado'] ?>
                         </span>
-                        
-                        <?php if ($sprint['data_fim']): ?>
-                            <span class="sprint-deadline <?= $deadline_class ?>">
-                                <i class="bi bi-calendar-event"></i>
-                                <?= date('d/m/Y', strtotime($sprint['data_fim'])) ?>
-                            </span>
-                        <?php endif; ?>
                     </div>
                     
-                    <?php if ($checkTodos && isset($sprint['total_tasks'])): ?>
-                        <div class="sprint-progress">
-                            <div class="progress-bar-sprint">
-                                <div class="progress-bar-fill <?= $sprint['percentagem'] == 100 ? 'complete' : '' ?>" 
+                    <?php if ($sprint['data_fim']): ?>
+                        <div class="small text-muted">
+                            <i class="bi bi-calendar"></i> <?= date('d/m/Y', strtotime($sprint['data_fim'])) ?>
+                        </div>
+                    <?php endif; ?>
+                    
+                    <?php if ($checkTodos): ?>
+                        <div class="progress-bar-container">
+                            <div class="progress">
+                                <div class="progress-bar <?= $sprint['percentagem'] >= 100 ? 'complete' : '' ?>" 
                                      style="width: <?= $sprint['percentagem'] ?>%"></div>
                             </div>
                             <div class="progress-text">
@@ -1194,118 +718,22 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                 <div class="info-card">
                     <div class="info-label">Responsável</div>
                     <div class="info-value">
-                        <?= $selectedSprint['responsavel_nome'] ? '👤 ' . htmlspecialchars($selectedSprint['responsavel_nome']) : 'Não definido' ?>
+                        <?= $selectedSprint['responsavel_nome'] ? '👤 ' . htmlspecialchars($selectedSprint['responsavel_nome']) : 'Sem responsável' ?>
                     </div>
                 </div>
                 <div class="info-card">
-                    <div class="info-label">Período</div>
+                    <div class="info-label">Data Início</div>
                     <div class="info-value">
-                        <?php if ($selectedSprint['data_inicio'] && $selectedSprint['data_fim']): ?>
-                            <?= date('d/m/Y', strtotime($selectedSprint['data_inicio'])) ?> - 
-                            <?= date('d/m/Y', strtotime($selectedSprint['data_fim'])) ?>
-                        <?php else: ?>
-                            Não definido
-                        <?php endif; ?>
+                        <?= $selectedSprint['data_inicio'] ? date('d/m/Y', strtotime($selectedSprint['data_inicio'])) : '-' ?>
                     </div>
                 </div>
-                <?php if ($checkTodos): ?>
                 <div class="info-card">
-                    <div class="info-label">Progresso</div>
+                    <div class="info-label">Deadline</div>
                     <div class="info-value">
-                        <?= $selectedSprint['tasks_completadas'] ?? 0 ?>/<?= $selectedSprint['total_tasks'] ?? 0 ?> tasks 
-                        (<?= $selectedSprint['percentagem'] ?? 0 ?>%)
+                        <?= $selectedSprint['data_fim'] ? date('d/m/Y', strtotime($selectedSprint['data_fim'])) : '-' ?>
                     </div>
                 </div>
-                <?php endif; ?>
             </div>
-            
-            <!-- Membros da Sprint -->
-            <div class="section-header">
-                <h5><i class="bi bi-people"></i> Membros</h5>
-                <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#addMemberModal">
-                    <i class="bi bi-person-plus"></i> Adicionar
-                </button>
-            </div>
-            <div class="member-list">
-                <?php if (!empty($selectedSprint['members'])): ?>
-                    <?php foreach ($selectedSprint['members'] as $member): ?>
-                        <div class="member-badge">
-                            <span>👤 <?= htmlspecialchars($member['username']) ?></span>
-                            <?php if ($member['role'] !== 'member'): ?>
-                                <span class="badge bg-secondary"><?= htmlspecialchars($member['role']) ?></span>
-                            <?php endif; ?>
-                            <form method="POST" style="display:inline;" onsubmit="return confirm('Remover este membro?')">
-                                <input type="hidden" name="action" value="remove_member">
-                                <input type="hidden" name="member_id" value="<?= $member['id'] ?>">
-                                <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
-                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" style="text-decoration:none;">
-                                    <i class="bi bi-x"></i>
-                                </button>
-                            </form>
-                        </div>
-                    <?php endforeach; ?>
-                <?php else: ?>
-                    <p class="text-muted">Nenhum membro adicionado</p>
-                <?php endif; ?>
-            </div>
-            
-            <!-- Projetos Associados -->
-            <?php if ($checkProjects): ?>
-            <div class="section-header">
-                <h5><i class="bi bi-folder"></i> Projetos</h5>
-                <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#addProjectModal">
-                    <i class="bi bi-link-45deg"></i> Associar
-                </button>
-            </div>
-            <div class="project-list">
-                <?php if (!empty($selectedSprint['projects'])): ?>
-                    <?php foreach ($selectedSprint['projects'] as $project): ?>
-                        <div class="project-badge">
-                            <span>📁 <?= htmlspecialchars($project['short_name']) ?></span>
-                            <form method="POST" style="display:inline;" onsubmit="return confirm('Remover este projeto?')">
-                                <input type="hidden" name="action" value="remove_project">
-                                <input type="hidden" name="project_id" value="<?= $project['id'] ?>">
-                                <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
-                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" style="text-decoration:none;">
-                                    <i class="bi bi-x"></i>
-                                </button>
-                            </form>
-                        </div>
-                    <?php endforeach; ?>
-                <?php else: ?>
-                    <p class="text-muted">Nenhum projeto associado</p>
-                <?php endif; ?>
-            </div>
-            <?php endif; ?>
-            
-            <!-- Protótipos Associados -->
-            <?php if ($checkPrototypes): ?>
-            <div class="section-header">
-                <h5><i class="bi bi-cpu"></i> Protótipos</h5>
-                <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#addPrototypeModal">
-                    <i class="bi bi-link-45deg"></i> Associar
-                </button>
-            </div>
-            <div class="prototype-list">
-                <?php if (!empty($selectedSprint['prototypes'])): ?>
-                    <?php foreach ($selectedSprint['prototypes'] as $prototype): ?>
-                        <div class="prototype-badge">
-                            <span>🔧 <?= htmlspecialchars($prototype['short_name']) ?></span>
-                            <form method="POST" style="display:inline;" onsubmit="return confirm('Remover este protótipo?')">
-                                <input type="hidden" name="action" value="remove_prototype">
-                                <input type="hidden" name="prototype_id" value="<?= $prototype['id'] ?>">
-                                <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
-                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" style="text-decoration:none;">
-                                    <i class="bi bi-x"></i>
-                                </button>
-                            </form>
-                        </div>
-                    <?php endforeach; ?>
-                <?php else: ?>
-                    <p class="text-muted">Nenhum protótipo associado</p>
-                <?php endif; ?>
-            </div>
-            <?php endif; ?>
             
             <!-- Kanban Board -->
             <?php if ($checkTodos): ?>
@@ -1338,9 +766,12 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                                     <span>📅 <?= date('d/m', strtotime($task['data_limite'])) ?></span>
                                 <?php endif; ?>
                             </div>
-                            <div class="mt-2">
-                                <button class="btn btn-sm btn-link text-danger p-0" onclick="removeTask(<?= $task['id'] ?>)">
-                                    <i class="bi bi-x"></i> Remover
+                            <div class="task-actions">
+                                <button class="btn btn-sm btn-primary btn-edit-task" onclick="openTaskEditor(<?= $task['id'] ?>)" title="Editar">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="removeTask(<?= $task['id'] ?>)" title="Remover">
+                                    <i class="bi bi-trash"></i>
                                 </button>
                             </div>
                         </div>
@@ -1363,9 +794,12 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                                     <span>📅 <?= date('d/m', strtotime($task['data_limite'])) ?></span>
                                 <?php endif; ?>
                             </div>
-                            <div class="mt-2">
-                                <button class="btn btn-sm btn-link text-danger p-0" onclick="removeTask(<?= $task['id'] ?>)">
-                                    <i class="bi bi-x"></i> Remover
+                            <div class="task-actions">
+                                <button class="btn btn-sm btn-primary btn-edit-task" onclick="openTaskEditor(<?= $task['id'] ?>)" title="Editar">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="removeTask(<?= $task['id'] ?>)" title="Remover">
+                                    <i class="bi bi-trash"></i>
                                 </button>
                             </div>
                         </div>
@@ -1388,9 +822,12 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                                     <span>📅 <?= date('d/m', strtotime($task['data_limite'])) ?></span>
                                 <?php endif; ?>
                             </div>
-                            <div class="mt-2">
-                                <button class="btn btn-sm btn-link text-danger p-0" onclick="removeTask(<?= $task['id'] ?>)">
-                                    <i class="bi bi-x"></i> Remover
+                            <div class="task-actions">
+                                <button class="btn btn-sm btn-primary btn-edit-task" onclick="openTaskEditor(<?= $task['id'] ?>)" title="Editar">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="removeTask(<?= $task['id'] ?>)" title="Remover">
+                                    <i class="bi bi-trash"></i>
                                 </button>
                             </div>
                         </div>
@@ -1400,9 +837,15 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                 <!-- Coluna: Completada -->
                 <div class="kanban-column">
                     <div class="kanban-header completada">
-                        ✅ Completada (<?= count($selectedSprint['kanban']['completada']) ?>)
+                        ✅ Completada (<?= count($selectedSprint['kanban']['completada']) + count($selectedSprint['kanban']['concluída']) ?>)
                     </div>
-                    <?php foreach ($selectedSprint['kanban']['completada'] as $task): ?>
+                    <?php 
+                    $completedTasks = array_merge(
+                        $selectedSprint['kanban']['completada'],
+                        $selectedSprint['kanban']['concluída']
+                    );
+                    foreach ($completedTasks as $task): 
+                    ?>
                         <div class="kanban-task" data-task-id="<?= $task['id'] ?>">
                             <div class="task-title"><?= htmlspecialchars($task['titulo']) ?></div>
                             <div class="task-meta">
@@ -1413,9 +856,12 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                                     <span>📅 <?= date('d/m', strtotime($task['data_limite'])) ?></span>
                                 <?php endif; ?>
                             </div>
-                            <div class="mt-2">
-                                <button class="btn btn-sm btn-link text-danger p-0" onclick="removeTask(<?= $task['id'] ?>)">
-                                    <i class="bi bi-x"></i> Remover
+                            <div class="task-actions">
+                                <button class="btn btn-sm btn-primary btn-edit-task" onclick="openTaskEditor(<?= $task['id'] ?>)" title="Editar">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="removeTask(<?= $task['id'] ?>)" title="Remover">
+                                    <i class="bi bi-trash"></i>
                                 </button>
                             </div>
                         </div>
@@ -1431,9 +877,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
     </div>
 </div>
 
-<!-- Modais -->
-
-<!-- Modal: Criar Sprint -->
+<!-- Modais (criar/editar sprint, etc) -->
 <div class="modal fade" id="createSprintModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -1444,17 +888,14 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
             <form method="POST">
                 <div class="modal-body">
                     <input type="hidden" name="action" value="create_sprint">
-                    
                     <div class="mb-3">
                         <label class="form-label">Nome da Sprint *</label>
-                        <input type="text" name="nome" class="form-control" required placeholder="Ex: Sprint 1 - MVP">
+                        <input type="text" name="nome" class="form-control" required>
                     </div>
-                    
                     <div class="mb-3">
                         <label class="form-label">Descrição</label>
-                        <textarea name="descricao" class="form-control" rows="3" placeholder="Objetivos e metas desta sprint"></textarea>
+                        <textarea name="descricao" class="form-control" rows="3"></textarea>
                     </div>
-                    
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Data Início</label>
@@ -1465,20 +906,10 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                             <input type="date" name="data_fim" class="form-control">
                         </div>
                     </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Estado</label>
-                        <select name="estado" class="form-select">
-                            <option value="aberta">Aberta</option>
-                            <option value="pausa">Pausa</option>
-                            <option value="fechada">Fechada</option>
-                        </select>
-                    </div>
-                    
                     <div class="mb-3">
                         <label class="form-label">Responsável</label>
                         <select name="responsavel_id" class="form-select">
-                            <option value="">Nenhum</option>
+                            <option value="">Sem responsável</option>
                             <?php foreach ($users as $user): ?>
                                 <option value="<?= $user['user_id'] ?>"><?= htmlspecialchars($user['username']) ?></option>
                             <?php endforeach; ?>
@@ -1494,361 +925,15 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
     </div>
 </div>
 
-<!-- Modal: Editar Sprint -->
-<?php if ($selectedSprint): ?>
-<div class="modal fade" id="editSprintModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Editar Sprint</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form method="POST">
-                <div class="modal-body">
-                    <input type="hidden" name="action" value="update_sprint">
-                    <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Nome da Sprint *</label>
-                        <input type="text" name="nome" class="form-control" required value="<?= htmlspecialchars($selectedSprint['nome']) ?>">
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Descrição</label>
-                        <textarea name="descricao" class="form-control" rows="3"><?= htmlspecialchars($selectedSprint['descricao']) ?></textarea>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Data Início</label>
-                            <input type="date" name="data_inicio" class="form-control" value="<?= $selectedSprint['data_inicio'] ?>">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Deadline</label>
-                            <input type="date" name="data_fim" class="form-control" value="<?= $selectedSprint['data_fim'] ?>">
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Estado</label>
-                        <select name="estado" class="form-select">
-                            <option value="aberta" <?= $selectedSprint['estado'] == 'aberta' ? 'selected' : '' ?>>Aberta</option>
-                            <option value="pausa" <?= $selectedSprint['estado'] == 'pausa' ? 'selected' : '' ?>>Pausa</option>
-                            <option value="fechada" <?= $selectedSprint['estado'] == 'fechada' ? 'selected' : '' ?>>Fechada</option>
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Responsável</label>
-                        <select name="responsavel_id" class="form-select">
-                            <option value="">Nenhum</option>
-                            <?php foreach ($users as $user): ?>
-                                <option value="<?= $user['user_id'] ?>" <?= $selectedSprint['responsavel_id'] == $user['user_id'] ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($user['username']) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Salvar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Modal: Adicionar Membro -->
-<div class="modal fade" id="addMemberModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Adicionar Membro</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form method="POST">
-                <div class="modal-body">
-                    <input type="hidden" name="action" value="add_member">
-                    <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Utilizador</label>
-                        <select name="user_id" class="form-select" required>
-                            <option value="">Selecione...</option>
-                            <?php foreach ($users as $user): ?>
-                                <option value="<?= $user['user_id'] ?>"><?= htmlspecialchars($user['username']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Papel</label>
-                        <select name="role" class="form-select">
-                            <option value="member">Member</option>
-                            <option value="lead">Lead</option>
-                            <option value="developer">Developer</option>
-                            <option value="tester">Tester</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-success">Adicionar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Modal: Associar Projeto -->
-<?php if ($checkProjects): ?>
-<div class="modal fade" id="addProjectModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Associar Projeto</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form method="POST">
-                <div class="modal-body">
-                    <input type="hidden" name="action" value="add_project">
-                    <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Projeto</label>
-                        <select name="project_id" class="form-select" required>
-                            <option value="">Selecione...</option>
-                            <?php foreach ($projects as $project): ?>
-                                <option value="<?= $project['id'] ?>">
-                                    <?= htmlspecialchars($project['short_name']) ?> - <?= htmlspecialchars($project['title']) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-success">Associar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
-
-<!-- Modal: Associar Protótipo -->
-<?php if ($checkPrototypes): ?>
-<div class="modal fade" id="addPrototypeModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Associar Protótipo</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form method="POST">
-                <div class="modal-body">
-                    <input type="hidden" name="action" value="add_prototype">
-                    <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Protótipo</label>
-                        <select name="prototype_id" class="form-select" required>
-                            <option value="">Selecione...</option>
-                            <?php foreach ($prototypes as $prototype): ?>
-                                <option value="<?= $prototype['id'] ?>">
-                                    <?= htmlspecialchars($prototype['short_name']) ?> - <?= htmlspecialchars($prototype['title']) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-success">Associar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
-
-<!-- Modal: Associar Task -->
-<?php if ($checkTodos): ?>
-<div class="modal fade" id="addTaskModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Associar Task à Sprint</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form method="POST">
-                <div class="modal-body">
-                    <input type="hidden" name="action" value="add_task">
-                    <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Task</label>
-                        <select name="todo_id" class="form-select" required size="10">
-                            <option value="">Selecione uma task...</option>
-                            <?php foreach ($availableTasks as $task): ?>
-                                <option value="<?= $task['id'] ?>">
-                                    [<?= htmlspecialchars($task['estado']) ?>] <?= htmlspecialchars($task['titulo']) ?>
-                                    <?php if ($task['responsavel_nome']): ?>
-                                        - 👤 <?= htmlspecialchars($task['responsavel_nome']) ?>
-                                    <?php endif; ?>
-                                    <?php if ($task['data_limite']): ?>
-                                        - 📅 <?= date('d/m/Y', strtotime($task['data_limite'])) ?>
-                                    <?php endif; ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                        <small class="text-muted">
-                            <?= count($availableTasks) ?> tasks disponíveis (excluindo completadas e já associadas)
-                        </small>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-success">Associar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Modal: Criar Nova Task -->
-<div class="modal fade" id="createTaskModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Criar Nova Task para a Sprint</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form method="POST">
-                <div class="modal-body">
-                    <input type="hidden" name="action" value="create_and_add_task">
-                    <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
-                    
-                    <?php if (!empty($selectedSprint['prototype_stories'])): ?>
-                    <div class="mb-3">
-                        <label class="form-label">
-                            <i class="bi bi-lightbulb"></i> Escolher de User Stories dos Protótipos
-                        </label>
-                        <select id="storySelector" class="form-select" onchange="fillFromStory(this.value)">
-                            <option value="">-- Ou selecione uma user story existente --</option>
-                            <?php 
-                            $current_prototype = '';
-                            foreach ($selectedSprint['prototype_stories'] as $story): 
-                                if ($current_prototype !== $story['prototype_name']):
-                                    if ($current_prototype !== '') echo '</optgroup>';
-                                    $current_prototype = $story['prototype_name'];
-                            ?>
-                                    <optgroup label="<?= htmlspecialchars($story['prototype_name']) ?> - <?= htmlspecialchars($story['prototype_title']) ?>">
-                            <?php endif; ?>
-                                    <option value="<?= htmlspecialchars($story['story_text']) ?>" data-priority="<?= htmlspecialchars($story['moscow_priority']) ?>">
-                                        [<?= htmlspecialchars($story['moscow_priority']) ?>] <?= htmlspecialchars(substr($story['story_text'], 0, 100)) ?><?= strlen($story['story_text']) > 100 ? '...' : '' ?>
-                                    </option>
-                            <?php 
-                            endforeach;
-                            if ($current_prototype !== '') echo '</optgroup>';
-                            ?>
-                        </select>
-                        <small class="text-muted">
-                            Selecione uma user story para preencher automaticamente o título
-                        </small>
-                    </div>
-                    <?php endif; ?>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Título da Task *</label>
-                        <input type="text" id="taskTitle" name="titulo" class="form-control" required placeholder="Ex: Implementar sistema de login">
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Descrição</label>
-                        <textarea name="descritivo" class="form-control" rows="3" placeholder="Detalhes da task..."></textarea>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Responsável</label>
-                            <select name="responsavel" class="form-select">
-                                <option value="">Não atribuído</option>
-                                <?php foreach ($users as $user): ?>
-                                    <option value="<?= $user['user_id'] ?>"><?= htmlspecialchars($user['username']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Data Limite</label>
-                            <input type="date" name="data_limite" class="form-control">
-                        </div>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Estado</label>
-                            <select name="estado" class="form-select">
-                                <option value="aberta">Aberta</option>
-                                <option value="em execução">Em Execução</option>
-                                <option value="suspensa">Suspensa</option>
-                                <option value="completada">Completada</option>
-                            </select>
-                        </div>
-                        
-                        <?php if ($checkProjects): ?>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Projeto</label>
-                            <select name="projeto_id" class="form-select">
-                                <option value="">Sem projeto</option>
-                                <?php foreach ($projects as $project): ?>
-                                    <option value="<?= $project['id'] ?>">
-                                        <?= htmlspecialchars($project['short_name']) ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <?php endif; ?>
-                    </div>
-                    
-                    <div class="alert alert-success">
-                        <i class="bi bi-check-circle"></i> 
-                        <strong>Nota:</strong> Esta task será criada e automaticamente associada a esta sprint.
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Criar e Associar Task</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
-<?php endif; ?>
-
 <script>
-function fillFromStory(storyText) {
-    if (storyText) {
-        document.getElementById('taskTitle').value = storyText;
-        // Auto-focus no campo de descrição após preencher o título
-        document.querySelector('textarea[name="descritivo"]').focus();
+function toggleFilter(filterName, checked) {
+    const url = new URL(window.location.href);
+    if (checked) {
+        url.searchParams.set(filterName, '1');
+    } else {
+        url.searchParams.delete(filterName);
     }
-}
-
-function changeTaskStatus(taskId, newStatus) {
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.innerHTML = `
-        <input type="hidden" name="action" value="change_task_status">
-        <input type="hidden" name="todo_id" value="${taskId}">
-        <input type="hidden" name="estado" value="${newStatus}">
-        <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?? '' ?>">
-    `;
-    document.body.appendChild(form);
-    form.submit();
+    window.location.href = url.toString();
 }
 
 function removeTask(taskId) {
@@ -1865,7 +950,7 @@ function removeTask(taskId) {
     form.submit();
 }
 
-// Auto-dismiss alerts após 5 segundos
+// Auto-dismiss alerts
 document.addEventListener('DOMContentLoaded', function() {
     const alerts = document.querySelectorAll('.alert-dismissible');
     alerts.forEach(alert => {
@@ -1875,67 +960,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 5000);
     });
 });
-
-// Drag and drop para o Kanban
-document.addEventListener('DOMContentLoaded', function() {
-    const kanbanTasks = document.querySelectorAll('.kanban-task');
-    const kanbanColumns = document.querySelectorAll('.kanban-column');
-    
-    kanbanTasks.forEach(task => {
-        task.setAttribute('draggable', true);
-        
-        task.addEventListener('dragstart', function(e) {
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/html', this.innerHTML);
-            e.dataTransfer.setData('taskId', this.dataset.taskId);
-            this.style.opacity = '0.4';
-        });
-        
-        task.addEventListener('dragend', function(e) {
-            this.style.opacity = '1';
-        });
-    });
-    
-    kanbanColumns.forEach(column => {
-        column.addEventListener('dragover', function(e) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            return false;
-        });
-        
-        column.addEventListener('dragenter', function(e) {
-            this.style.background = '#e0e7ff';
-        });
-        
-        column.addEventListener('dragleave', function(e) {
-            this.style.background = '';
-        });
-        
-        column.addEventListener('drop', function(e) {
-            e.stopPropagation();
-            e.preventDefault();
-            
-            this.style.background = '';
-            
-            const taskId = e.dataTransfer.getData('taskId');
-            const columnHeader = this.querySelector('.kanban-header');
-            
-            // Determinar novo estado baseado na coluna
-            let newStatus = 'aberta';
-            if (columnHeader.classList.contains('execucao')) {
-                newStatus = 'em execução';
-            } else if (columnHeader.classList.contains('suspensa')) {
-                newStatus = 'suspensa';
-            } else if (columnHeader.classList.contains('completada')) {
-                newStatus = 'completada';
-            }
-            
-            if (confirm(`Mover task para "${newStatus}"?`)) {
-                changeTaskStatus(taskId, newStatus);
-            }
-            
-            return false;
-        });
-    });
-});
 </script>
+
+<?php
+// Incluir editor universal de tasks
+include __DIR__ . '/../edit_task.php';
+?>

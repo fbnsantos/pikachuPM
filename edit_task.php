@@ -46,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $stmt->execute([$todo_id]);
     $task = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if (!$task || ($task['autor'] != $_SESSION['user_id'] && $task['responsavel'] != $_SESSION['user_id'])) {
+    if (!$task || ($task['autor'] != $_SESSION['user_id'] && !empty($task['responsavel']) && $task['responsavel'] != $_SESSION['user_id'])   ) {
         echo json_encode(['success' => false, 'error' => 'Sem permissão']);
         exit;
     }
@@ -167,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $stmt->execute([$file_id]);
     $file = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if (!$file || ($file['autor'] != $_SESSION['user_id'] && $file['responsavel'] != $_SESSION['user_id'])) {
+    if (!$file || ($file['autor'] != $_SESSION['user_id'] && !empty($task['responsavel']) &&  $file['responsavel'] != $_SESSION['user_id'])) {
         echo json_encode(['success' => false, 'error' => 'Sem permissão']);
         exit;
     }
@@ -196,7 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $stmt->execute([$todo_id]);
     $task = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if (!$task || ($task['autor'] != $_SESSION['user_id'] && $task['responsavel'] != $_SESSION['user_id'])) {
+    if (!$task || ($task['autor'] != $_SESSION['user_id'] && !empty($task['responsavel']) &&  $task['responsavel'] != $_SESSION['user_id'])) {
         echo json_encode(['success' => false, 'error' => 'Sem permissão']);
         exit;
     }

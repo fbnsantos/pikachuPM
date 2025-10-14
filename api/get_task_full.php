@@ -44,7 +44,10 @@ if (!$task) {
 }
 
 // Verificar permissão (autor ou responsável)
-if ($task['autor'] != $_SESSION['user_id'] && $task['responsavel'] != $_SESSION['user_id']) {
+if (
+    $task['autor'] != $_SESSION['user_id'] && 
+    ($task['responsavel'] != $_SESSION['user_id'] && !empty($task['responsavel']))
+) {
     echo json_encode(['success' => false, 'error' => 'Sem permissão para editar']);
     exit;
 }

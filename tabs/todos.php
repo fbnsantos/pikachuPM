@@ -47,22 +47,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ? AND (autor = ? OR responsavel = ?)');
             $stmt->bind_param('siii', $new_estado, $todo_id, $user_id, $user_id);
             
-            if ($stmt->execute()) {
+            if ($stmt->execute() && $stmt->affected_rows > 0) {
                 if (isset($_POST['ajax'])) {
                     header('Content-Type: application/json');
                     echo json_encode(['success' => true, 'message' => 'Estado atualizado!']);
+                    $stmt->close();
+                    $db->close();
                     exit;
                 }
                 $success_message = '✅ Estado atualizado!';
             } else {
                 if (isset($_POST['ajax'])) {
                     header('Content-Type: application/json');
-                    echo json_encode(['success' => false, 'error' => 'Erro ao atualizar']);
+                    echo json_encode(['success' => false, 'error' => 'Erro ao atualizar ou sem permissão']);
+                    $stmt->close();
+                    $db->close();
                     exit;
                 }
                 $error_message = '❌ Erro ao atualizar estado.';
             }
             $stmt->close();
+        } else {
+            if (isset($_POST['ajax'])) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'error' => 'Estado inválido']);
+                $db->close();
+                exit;
+            }
         }
     }
     
@@ -135,71 +146,76 @@ if (!$show_completed) {
 }
 
 $query .= ' ORDER BY 
-    CASE 
-        WHEN t.estado = "em execução" THEN 1
-        WHEN t.estado = "aberta" THEN 2
-        WHEN t.estado = "suspensa" THEN 3
-        WHEN t.estado = "concluída" THEN 4
-        ELSE 5
+    CASE t.estado 
+        WHEN "em execução" THEN 1
+        WHEN "aberta" THEN 2
+        WHEN "suspensa" THEN 3
+        WHEN "concluída" THEN 4
     END,
-    t.data_limite ASC,
-    t.created_at DESC';
+    t.data_limite ASC, t.id DESC';
 
 $stmt = $db->prepare($query);
-if (!empty($params)) {
+if (!empty($types)) {
     $stmt->bind_param($types, ...$params);
 }
 $stmt->execute();
 $result = $stmt->get_result();
-
-$tarefas = [];
-while ($row = $result->fetch_assoc()) {
-    $tarefas[] = $row;
-}
+$todos = $result->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
-// Agrupar por estado para Kanban
-$tarefas_por_estado = [
+// Agrupar por estado
+$todos_by_estado = [
     'aberta' => [],
     'em execução' => [],
     'suspensa' => [],
     'concluída' => []
 ];
 
-foreach ($tarefas as $tarefa) {
-    if (isset($tarefas_por_estado[$tarefa['estado']])) {
-        $tarefas_por_estado[$tarefa['estado']][] = $tarefa;
+foreach ($todos as $todo) {
+    $estado = $todo['estado'];
+    if (isset($todos_by_estado[$estado])) {
+        $todos_by_estado[$estado][] = $todo;
     }
 }
 
 // Estatísticas
-$stats = ['total' => count($tarefas), 'abertas' => 0, 'execucao' => 0, 'concluidas' => 0];
-foreach ($tarefas as $t) {
-    if ($t['estado'] === 'aberta') $stats['abertas']++;
-    if ($t['estado'] === 'em execução') $stats['execucao']++;
-    if ($t['estado'] === 'concluída') $stats['concluidas']++;
-}
+$stats = [
+    'total' => count($todos),
+    'aberta' => count($todos_by_estado['aberta']),
+    'em_execucao' => count($todos_by_estado['em execução']),
+    'suspensa' => count($todos_by_estado['suspensa']),
+    'concluida' => count($todos_by_estado['concluída'])
+];
+
+$db->close();
 ?>
 
 <style>
 .stats-card {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
     border-radius: 10px;
-    padding: 20px;
-    margin-bottom: 20px;
-}
-
-.stats-item {
+    padding: 15px;
     text-align: center;
+    transition: all 0.3s;
+    border: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
-.stats-number {
-    font-size: 2rem;
-    font-weight: bold;
+.stats-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.15);
+}
+
+.kanban-board {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
 }
 
 .kanban-card {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
     cursor: move;
     transition: all 0.2s;
     border-left: 4px solid transparent;
@@ -282,292 +298,240 @@ foreach ($tarefas as $t) {
     <?php endif; ?>
     
     <!-- Estatísticas -->
-    <div class="stats-card">
-        <div class="row">
-            <div class="col-md-3 stats-item">
-                <div class="stats-number"><?= $stats['total'] ?></div>
-                <div class="stats-label">Total</div>
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3">
+            <div class="stats-card bg-light">
+                <h3 class="mb-0"><?= $stats['total'] ?></h3>
+                <small class="text-muted">Total de Tarefas</small>
             </div>
-            <div class="col-md-3 stats-item">
-                <div class="stats-number"><?= $stats['abertas'] ?></div>
-                <div class="stats-label">Abertas</div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stats-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                <h3 class="mb-0"><?= $stats['aberta'] ?></h3>
+                <small>Abertas</small>
             </div>
-            <div class="col-md-3 stats-item">
-                <div class="stats-number"><?= $stats['execucao'] ?></div>
-                <div class="stats-label">Em Execução</div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stats-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;">
+                <h3 class="mb-0"><?= $stats['em_execucao'] ?></h3>
+                <small>Em Execução</small>
             </div>
-            <div class="col-md-3 stats-item">
-                <div class="stats-number"><?= $stats['concluidas'] ?></div>
-                <div class="stats-label">Concluídas</div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stats-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white;">
+                <h3 class="mb-0"><?= $stats['suspensa'] ?></h3>
+                <small>Suspensas</small>
             </div>
         </div>
     </div>
     
-    <!-- Filtros e Visualização -->
-    <div class="card mb-3">
+    <!-- Filtros -->
+    <div class="card mb-4">
         <div class="card-body">
-            <div class="row align-items-end">
-                <div class="col-md-4">
+            <form method="GET" class="row g-3">
+                <input type="hidden" name="tab" value="todos">
+                
+                <div class="col-md-3">
                     <label class="form-label">Visualização</label>
-                    <div class="btn-group w-100">
-                        <a href="?tab=todos&view=kanban<?= $filter_responsavel ? '&responsavel='.$filter_responsavel : '' ?><?= $show_completed ? '&show_completed=1' : '' ?>" 
-                           class="btn btn-<?= $view_mode === 'kanban' ? 'primary' : 'outline-primary' ?>">
-                            <i class="bi bi-kanban"></i> Kanban
-                        </a>
-                        <a href="?tab=todos&view=lista<?= $filter_responsavel ? '&responsavel='.$filter_responsavel : '' ?><?= $show_completed ? '&show_completed=1' : '' ?>" 
-                           class="btn btn-<?= $view_mode === 'lista' ? 'primary' : 'outline-primary' ?>">
-                            <i class="bi bi-list-ul"></i> Lista
-                        </a>
+                    <select name="view" class="form-select" onchange="this.form.submit()">
+                        <option value="kanban" <?= $view_mode === 'kanban' ? 'selected' : '' ?>>Kanban</option>
+                        <option value="lista" <?= $view_mode === 'lista' ? 'selected' : '' ?>>Lista</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-3">
+                    <label class="form-label">Responsável</label>
+                    <select name="responsavel" class="form-select" onchange="this.form.submit()">
+                        <option value="">Todas as minhas</option>
+                        <?php foreach ($all_users as $u): ?>
+                            <option value="<?= $u['user_id'] ?>" <?= $filter_responsavel === $u['user_id'] ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($u['username']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div class="col-md-3">
+                    <label class="form-label d-block">&nbsp;</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="show_completed" 
+                               id="showCompleted" <?= $show_completed ? 'checked' : '' ?> 
+                               onchange="this.form.submit()">
+                        <label class="form-check-label" for="showCompleted">
+                            Mostrar concluídas
+                        </label>
                     </div>
                 </div>
-                <div class="col-md-4">
-                    <form method="GET" class="d-inline">
-                        <input type="hidden" name="tab" value="todos">
-                        <input type="hidden" name="view" value="<?= $view_mode ?>">
-                        <?php if ($show_completed): ?>
-                            <input type="hidden" name="show_completed" value="1">
-                        <?php endif; ?>
-                        <label class="form-label">Filtrar por Responsável</label>
-                        <select name="responsavel" class="form-select" onchange="this.form.submit()">
-                            <option value="">Minhas Tarefas</option>
-                            <?php foreach ($all_users as $u): ?>
-                                <option value="<?= $u['user_id'] ?>" <?= $filter_responsavel == $u['user_id'] ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($u['username']) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </form>
-                </div>
-                <div class="col-md-4">
-                    <form method="GET">
-                        <input type="hidden" name="tab" value="todos">
-                        <input type="hidden" name="view" value="<?= $view_mode ?>">
-                        <?php if ($filter_responsavel): ?>
-                            <input type="hidden" name="responsavel" value="<?= $filter_responsavel ?>">
-                        <?php endif; ?>
-                        <label class="form-label">&nbsp;</label>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="show_completed" value="1" 
-                                   <?= $show_completed ? 'checked' : '' ?> onchange="this.form.submit()">
-                            <label class="form-check-label">Mostrar concluídas</label>
-                        </div>
-                    </form>
-                </div>
-            </div>
+            </form>
         </div>
     </div>
     
+    <!-- KANBAN VIEW -->
     <?php if ($view_mode === 'kanban'): ?>
-        <!-- KANBAN BOARD -->
-        <div class="row g-3">
+        <div class="kanban-board">
             <?php
-            $colunas = [
-                'aberta' => ['titulo' => 'Abertas', 'icon' => 'circle', 'color' => 'secondary'],
-                'em execução' => ['titulo' => 'Em Execução', 'icon' => 'play-circle', 'color' => 'primary'],
-                'suspensa' => ['titulo' => 'Suspensas', 'icon' => 'pause-circle', 'color' => 'warning'],
-                'concluída' => ['titulo' => 'Concluídas', 'icon' => 'check-circle', 'color' => 'success']
+            $estados_config = [
+                'aberta' => ['titulo' => 'Abertas', 'icon' => 'bi-circle', 'color' => '#6c757d'],
+                'em execução' => ['titulo' => 'Em Execução', 'icon' => 'bi-arrow-repeat', 'color' => '#0d6efd'],
+                'suspensa' => ['titulo' => 'Suspensas', 'icon' => 'bi-pause-circle', 'color' => '#ffc107'],
+                'concluída' => ['titulo' => 'Concluídas', 'icon' => 'bi-check-circle', 'color' => '#198754']
             ];
             
-            foreach ($colunas as $estado => $info):
-                $tarefas_coluna = $tarefas_por_estado[$estado];
+            foreach ($estados_config as $estado => $config):
+                $tasks = $todos_by_estado[$estado];
             ?>
-                <div class="col-md-3">
-                    <div class="card h-100 shadow-sm">
-                        <div class="card-header bg-<?= $info['color'] ?> text-white">
-                            <h5 class="mb-0">
-                                <i class="bi bi-<?= $info['icon'] ?>"></i>
-                                <?= $info['titulo'] ?>
-                                <span class="badge bg-light text-dark float-end">
-                                    <?= count($tarefas_coluna) ?>
-                                </span>
-                            </h5>
+                <div>
+                    <div class="card mb-0">
+                        <div class="card-header" style="background: <?= $config['color'] ?>; color: white;">
+                            <i class="bi <?= $config['icon'] ?>"></i> <?= $config['titulo'] ?>
+                            <span class="badge bg-white text-dark float-end"><?= count($tasks) ?></span>
                         </div>
                         <div class="kanban-column" data-estado="<?= $estado ?>">
-                            <?php if (empty($tarefas_coluna)): ?>
-                                <div class="text-center text-muted py-5">
-                                    <i class="bi bi-inbox" style="font-size: 2rem;"></i>
-                                    <p class="mt-2 small">Nenhuma tarefa</p>
-                                </div>
-                            <?php else: ?>
-                                <?php foreach ($tarefas_coluna as $tarefa): ?>
-                                    <div class="card kanban-card" 
-                                         draggable="true" 
-                                         data-task-id="<?= $tarefa['id'] ?>"
-                                         data-estado="<?= $tarefa['estado'] ?>">
-                                        <div class="card-body p-3">
-                                            <h6 class="card-title"><?= htmlspecialchars($tarefa['titulo']) ?></h6>
-                                            <?php if ($tarefa['descritivo']): ?>
-                                                <p class="card-text small text-muted">
-                                                    <?= nl2br(htmlspecialchars(substr($tarefa['descritivo'], 0, 80))) ?>
-                                                    <?= strlen($tarefa['descritivo']) > 80 ? '...' : '' ?>
-                                                </p>
-                                            <?php endif; ?>
-                                            
-                                            <div class="d-flex gap-1 flex-wrap mt-2">
-                                                <?php if ($tarefa['data_limite']): ?>
-                                                    <span class="badge bg-info">
-                                                        <i class="bi bi-calendar"></i> 
-                                                        <?= date('d/m', strtotime($tarefa['data_limite'])) ?>
-                                                    </span>
-                                                <?php endif; ?>
-                                                <?php if ($tarefa['responsavel_nome']): ?>
-                                                    <span class="badge bg-secondary">
-                                                        <?= htmlspecialchars($tarefa['responsavel_nome']) ?>
-                                                    </span>
-                                                <?php endif; ?>
-                                            </div>
-                                            
-                                            <div class="btn-group btn-group-sm w-100 mt-2">
-                                                <button class="btn btn-outline-primary edit-task-btn" 
-                                                        data-task-id="<?= $tarefa['id'] ?>">
-                                                    <i class="bi bi-pencil"></i>
-                                                </button>
-                                                <button class="btn btn-outline-danger" 
-                                                        onclick="confirmarExclusao(<?= $tarefa['id'] ?>, '<?= htmlspecialchars($tarefa['titulo'], ENT_QUOTES) ?>')">
-                                                    <i class="bi bi-trash"></i>
-                                                </button>
-                                            </div>
-                                        </div>
+                            <?php foreach ($tasks as $todo): ?>
+                                <div class="kanban-card" draggable="true" 
+                                     data-task-id="<?= $todo['id'] ?>" 
+                                     data-estado="<?= $estado ?>">
+                                    <h6 class="mb-2">
+                                        <a href="#" class="text-decoration-none text-dark edit-task-btn" 
+                                           data-task-id="<?= $todo['id'] ?>">
+                                            <?= htmlspecialchars($todo['titulo']) ?>
+                                        </a>
+                                    </h6>
+                                    
+                                    <?php if ($todo['descritivo']): ?>
+                                        <p class="small text-muted mb-2">
+                                            <?= htmlspecialchars(substr($todo['descritivo'], 0, 80)) ?>
+                                            <?= strlen($todo['descritivo']) > 80 ? '...' : '' ?>
+                                        </p>
+                                    <?php endif; ?>
+                                    
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <small class="text-muted">
+                                            <i class="bi bi-person"></i> <?= htmlspecialchars($todo['responsavel_nome'] ?? 'N/A') ?>
+                                        </small>
+                                        <?php if ($todo['data_limite']): ?>
+                                            <small class="text-muted">
+                                                <i class="bi bi-calendar"></i> <?= date('d/m/Y', strtotime($todo['data_limite'])) ?>
+                                            </small>
+                                        <?php endif; ?>
                                     </div>
-                                <?php endforeach; ?>
+                                </div>
+                            <?php endforeach; ?>
+                            
+                            <?php if (empty($tasks)): ?>
+                                <p class="text-muted text-center p-3">Nenhuma tarefa</p>
                             <?php endif; ?>
                         </div>
                     </div>
                 </div>
             <?php endforeach; ?>
         </div>
-        
+    
+    <!-- LISTA VIEW -->
     <?php else: ?>
-        <!-- VISTA LISTA -->
-        <div class="row g-3">
-            <?php if (empty($tarefas)): ?>
-                <div class="col-12">
-                    <div class="alert alert-info text-center">
-                        <i class="bi bi-info-circle"></i> Nenhuma tarefa encontrada.
-                    </div>
-                </div>
-            <?php else: ?>
-                <?php foreach ($tarefas as $tarefa): ?>
-                    <div class="col-md-6 col-lg-4">
-                        <div class="card task-card h-100">
-                            <div class="card-header bg-<?= $tarefa['estado'] === 'concluída' ? 'success' : ($tarefa['estado'] === 'em execução' ? 'primary' : 'warning') ?> text-white">
-                                <h6 class="mb-0"><?= htmlspecialchars($tarefa['titulo']) ?></h6>
-                            </div>
-                            <div class="card-body">
-                                <?php if ($tarefa['descritivo']): ?>
-                                    <p class="card-text small text-muted">
-                                        <?= nl2br(htmlspecialchars(substr($tarefa['descritivo'], 0, 100))) ?>
-                                        <?= strlen($tarefa['descritivo']) > 100 ? '...' : '' ?>
-                                    </p>
-                                <?php endif; ?>
-                                
-                                <div class="d-flex gap-1 flex-wrap mt-2">
-                                    <?php if ($tarefa['data_limite']): ?>
-                                        <span class="badge bg-info">
-                                            <i class="bi bi-calendar"></i> 
-                                            <?= date('d/m/Y', strtotime($tarefa['data_limite'])) ?>
-                                        </span>
-                                    <?php endif; ?>
-                                    <?php if ($tarefa['responsavel_nome']): ?>
-                                        <span class="badge bg-secondary">
-                                            <i class="bi bi-person"></i> 
-                                            <?= htmlspecialchars($tarefa['responsavel_nome']) ?>
-                                        </span>
-                                    <?php endif; ?>
-                                    <span class="badge bg-<?= $tarefa['estado'] === 'concluída' ? 'success' : ($tarefa['estado'] === 'em execução' ? 'primary' : 'warning') ?>">
-                                        <?= ucfirst($tarefa['estado']) ?>
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="card-footer bg-transparent">
-                                <div class="btn-group btn-group-sm w-100">
-                                    <button class="btn btn-outline-primary edit-task-btn" 
-                                            data-task-id="<?= $tarefa['id'] ?>">
-                                        <i class="bi bi-pencil-square"></i> Editar
-                                    </button>
-                                    <button class="btn btn-outline-danger" 
-                                            onclick="confirmarExclusao(<?= $tarefa['id'] ?>, '<?= htmlspecialchars($tarefa['titulo'], ENT_QUOTES) ?>')">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Título</th>
+                        <th>Responsável</th>
+                        <th>Estado</th>
+                        <th>Data Limite</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($todos as $todo): ?>
+                        <tr>
+                            <td><?= $todo['id'] ?></td>
+                            <td>
+                                <a href="#" class="edit-task-btn" data-task-id="<?= $todo['id'] ?>">
+                                    <?= htmlspecialchars($todo['titulo']) ?>
+                                </a>
+                            </td>
+                            <td><?= htmlspecialchars($todo['responsavel_nome'] ?? 'N/A') ?></td>
+                            <td>
+                                <?php
+                                $badge_class = [
+                                    'aberta' => 'secondary',
+                                    'em execução' => 'primary',
+                                    'suspensa' => 'warning',
+                                    'concluída' => 'success'
+                                ];
+                                ?>
+                                <span class="badge bg-<?= $badge_class[$todo['estado']] ?? 'secondary' ?>">
+                                    <?= ucfirst($todo['estado']) ?>
+                                </span>
+                            </td>
+                            <td><?= $todo['data_limite'] ? date('d/m/Y', strtotime($todo['data_limite'])) : '-' ?></td>
+                            <td>
+                                <form method="POST" style="display: inline;" onsubmit="return confirm('Tem certeza?');">
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="todo_id" value="<?= $todo['id'] ?>">
+                                    <button type="submit" class="btn btn-sm btn-danger">
                                         <i class="bi bi-trash"></i>
                                     </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            <?php endif; ?>
+                                </form>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
         </div>
     <?php endif; ?>
 </div>
 
-<!-- Modal: Nova Tarefa -->
+<!-- Modal: Adicionar Tarefa -->
 <div class="modal fade" id="addTaskModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
                 <input type="hidden" name="action" value="add">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Nova Tarefa</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <div class="modal-header">
+                    <h5 class="modal-title">Nova Tarefa</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label">Título *</label>
-                        <input type="text" class="form-control" name="titulo" required>
+                        <input type="text" name="titulo" class="form-control" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Descrição</label>
-                        <textarea class="form-control" name="descritivo" rows="3"></textarea>
+                        <textarea name="descritivo" class="form-control" rows="3"></textarea>
                     </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Data Limite</label>
-                            <input type="date" class="form-control" name="data_limite">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Responsável</label>
-                            <select class="form-select" name="responsavel">
-                                <option value="">Sem responsável</option>
-                                <?php foreach ($all_users as $u): ?>
-                                    <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $user_id ? 'selected' : '' ?>>
-                                        <?= htmlspecialchars($u['username']) ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
+                    <div class="mb-3">
+                        <label class="form-label">Data Limite</label>
+                        <input type="date" name="data_limite" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Responsável</label>
+                        <select name="responsavel" class="form-select">
+                            <option value="">Eu</option>
+                            <?php foreach ($all_users as $u): ?>
+                                <option value="<?= $u['user_id'] ?>"><?= htmlspecialchars($u['username']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">
-                        <i class="bi bi-plus-circle"></i> Adicionar
-                    </button>
+                    <button type="submit" class="btn btn-primary">Adicionar</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
 
-<!-- Form oculto para eliminar -->
-<form id="delete-form" method="POST" style="display: none;">
-    <input type="hidden" name="action" value="delete">
-    <input type="hidden" name="todo_id" id="delete-todo-id">
-</form>
-
 <script>
-// Confirmar exclusão
-function confirmarExclusao(id, titulo) {
-    if (confirm(`Eliminar "${titulo}"?`)) {
-        document.getElementById('delete-todo-id').value = id;
-        document.getElementById('delete-form').submit();
-    }
-}
-
-// Integração com editor universal
 document.addEventListener('DOMContentLoaded', function() {
+    // Abrir editor ao clicar em tarefa
     document.querySelectorAll('.edit-task-btn').forEach(btn => {
         btn.addEventListener('click', function(e) {
             e.preventDefault();
             const taskId = this.dataset.taskId;
+            
             if (typeof openTaskEditor === 'function') {
                 openTaskEditor(taskId);
             } else {
@@ -576,7 +540,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // DRAG AND DROP KANBAN
+    // DRAG AND DROP KANBAN - VERSÃO CORRIGIDA
     const kanbanCards = document.querySelectorAll('.kanban-card');
     const kanbanColumns = document.querySelectorAll('.kanban-column');
     
@@ -618,6 +582,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const oldEstado = draggedCard.dataset.estado;
                 
                 if (newEstado !== oldEstado) {
+                    // Feedback visual
                     draggedCard.style.opacity = '0.5';
                     
                     const formData = new FormData();
@@ -630,18 +595,28 @@ document.addEventListener('DOMContentLoaded', function() {
                         method: 'POST',
                         body: formData
                     })
-                    .then(r => r.json())
+                    .then(response => {
+                        // Verificar se a resposta é JSON válido
+                        const contentType = response.headers.get('content-type');
+                        if (!contentType || !contentType.includes('application/json')) {
+                            throw new Error('Resposta não é JSON válido');
+                        }
+                        return response.json();
+                    })
                     .then(data => {
                         if (data.success) {
+                            // Sucesso - recarregar página
                             location.reload();
                         } else {
-                            alert('Erro: ' + data.error);
+                            // Erro retornado pela API
+                            alert('Erro ao mover tarefa: ' + (data.error || 'Erro desconhecido'));
                             draggedCard.style.opacity = '1';
                         }
                     })
                     .catch(err => {
-                        console.error(err);
-                        alert('Erro ao mover tarefa');
+                        // Erro de rede ou parsing
+                        console.error('Erro:', err);
+                        alert('Erro ao mover tarefa. Por favor, tente novamente.');
                         draggedCard.style.opacity = '1';
                     });
                 }

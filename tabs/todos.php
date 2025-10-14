@@ -528,6 +528,43 @@ $stats = ['total' => count($tarefas), 'abertas' => count($tarefas_por_estado['ab
 <script>
 let checklistItems = [];
 
+// Função para mostrar notificações toast
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `alert alert-${type} position-fixed top-0 start-50 translate-middle-x mt-3 shadow-lg`;
+    toast.style.zIndex = '9999';
+    toast.style.minWidth = '300px';
+    toast.style.maxWidth = '500px';
+    toast.innerHTML = `
+        <div class="d-flex align-items-center">
+            <div class="flex-grow-1">${message}</div>
+            <button type="button" class="btn-close ms-2" onclick="this.parentElement.parentElement.remove()"></button>
+        </div>
+    `;
+    document.body.appendChild(toast);
+    
+    // Animar entrada
+    setTimeout(() => toast.classList.add('show'), 10);
+    
+    // Auto remover após 3 segundos
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+// Animação CSS para o pulse
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.05); box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4); }
+    }
+    .alert.show { opacity: 1; transition: opacity 0.3s; }
+    .alert { opacity: 0; }
+`;
+document.head.appendChild(style);
+
 function insertMd(b, a, id) {
     const t = document.getElementById(id);
     const start = t.selectionStart, end = t.selectionEnd;
@@ -590,23 +627,68 @@ function confirmarExclusao(id, titulo) {
     }
 }
 
-// Editor Universal - Aguardar carregamento
-document.addEventListener('DOMContentLoaded', function() {
-    // Verificar se editor foi carregado
-    console.log('openTaskEditor disponível?', typeof openTaskEditor);
+// Editor Universal - Aguardar carregamento COMPLETO
+// Usar setTimeout para garantir que o edit_task.php foi processado
+setTimeout(function() {
+    console.log('🔍 Verificando disponibilidade do editor...');
+    console.log('openTaskEditor existe?', typeof openTaskEditor);
+    console.log('window.openTaskEditor existe?', typeof window.openTaskEditor);
     
+    // Tentar encontrar a função no window
+    if (typeof openTaskEditor === 'undefined' && typeof window.openTaskEditor === 'undefined') {
+        console.error('❌ ERRO: openTaskEditor não foi carregado!');
+        console.log('📝 Verificando se o elemento do editor existe...');
+        const editorElement = document.getElementById('task-editor-overlay');
+        if (editorElement) {
+            console.log('✅ HTML do editor encontrado, mas JavaScript não carregou');
+        } else {
+            console.log('❌ HTML do editor também não foi encontrado!');
+        }
+    } else {
+        console.log('✅ Editor carregado com sucesso!');
+    }
+}, 500);
+
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('📄 DOM carregado');
+    
+    // Adicionar event listeners aos botões de editar
     document.querySelectorAll('.edit-task-btn').forEach(btn => {
         btn.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
             const id = this.dataset.taskId;
-            console.log('Tentando abrir editor para task:', id);
+            console.log('🖱️ Clique no botão editar, Task ID:', id);
             
+            // Tentar várias formas de chamar a função
             if (typeof openTaskEditor === 'function') {
+                console.log('✅ Chamando openTaskEditor()');
                 openTaskEditor(id);
+            } else if (typeof window.openTaskEditor === 'function') {
+                console.log('✅ Chamando window.openTaskEditor()');
+                window.openTaskEditor(id);
             } else {
-                console.error('openTaskEditor não está definido!');
-                alert('❌ Editor não disponível. Verifique:\n1. Se install_task_editor.php foi executado\n2. Se edit_task.php existe na raiz\n3. Console do navegador (F12) para erros');
+                console.error('❌ openTaskEditor não está definido!');
+                
+                // Tentar forçar reload do editor
+                console.log('🔄 Tentando carregar edit_task.php dinamicamente...');
+                
+                showToast('⚠️ Editor não carregado. A tentar recarregar...', 'warning');
+                
+                // Verificar se o script existe
+                fetch('edit_task.php')
+                    .then(response => {
+                        if (response.ok) {
+                            console.log('✅ edit_task.php existe no servidor');
+                            showToast('❌ Editor existe mas não carregou. Recarregue a página (F5) e tente novamente.', 'danger');
+                        } else {
+                            console.error('❌ edit_task.php não encontrado no servidor');
+                            showToast('❌ Ficheiro edit_task.php não encontrado. Execute install_task_editor.php', 'danger');
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Erro ao verificar edit_task.php:', err);
+                    });
             }
         });
     });
@@ -682,7 +764,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 })
                 .then(response => {
                     console.log('Response status:', response.status);
-                    console.log('Response headers:', response.headers);
                     
                     // Verificar se é JSON
                     const contentType = response.headers.get('content-type');
@@ -699,8 +780,58 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(data => {
                     console.log('Response data:', data);
                     if (data.success) {
-                        console.log('Sucesso! Recarregando...');
-                        location.reload();
+                        console.log('✅ Sucesso! Movendo card...');
+                        
+                        // Mover o card visualmente SEM refresh
+                        const oldColumn = dragged.closest('.kanban-column');
+                        const newColumn = this;
+                        
+                        // Atualizar badge de contagem na coluna antiga
+                        const oldBadge = oldColumn.closest('.card').querySelector('.badge');
+                        if (oldBadge) {
+                            const oldCount = parseInt(oldBadge.textContent);
+                            oldBadge.textContent = Math.max(0, oldCount - 1);
+                        }
+                        
+                        // Atualizar badge de contagem na coluna nova
+                        const newBadge = newColumn.closest('.card').querySelector('.badge');
+                        if (newBadge) {
+                            const newCount = parseInt(newBadge.textContent);
+                            newBadge.textContent = newCount + 1;
+                        }
+                        
+                        // Atualizar estado do card
+                        dragged.dataset.estado = newEstado;
+                        
+                        // Mover o elemento visualmente
+                        newColumn.appendChild(dragged);
+                        dragged.style.opacity = '1';
+                        
+                        // Animar
+                        dragged.style.animation = 'pulse 0.5s';
+                        setTimeout(() => {
+                            dragged.style.animation = '';
+                        }, 500);
+                        
+                        // Toast de sucesso
+                        showToast('✅ Estado atualizado com sucesso!', 'success');
+                        
+                        // Verificar se coluna ficou vazia
+                        if (oldColumn.querySelectorAll('.kanban-card').length === 0) {
+                            oldColumn.innerHTML = `
+                                <div class="text-center text-muted py-5">
+                                    <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                                    <p class="mt-2 small">Nenhuma tarefa</p>
+                                </div>
+                            `;
+                        }
+                        
+                        // Remover mensagem de vazio da nova coluna se existir
+                        const emptyMsg = newColumn.querySelector('.text-center.text-muted');
+                        if (emptyMsg) {
+                            emptyMsg.remove();
+                        }
+                        
                     } else {
                         console.error('Erro na resposta:', data);
                         alert('Erro: ' + (data.error || 'Erro desconhecido'));
@@ -722,13 +853,54 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <?php 
 // IMPORTANTE: Incluir o editor universal
-// Verificar se o ficheiro existe antes de incluir
-$editor_path = __DIR__ . '/../edit_task.php';
-if (file_exists($editor_path)) {
-    include $editor_path;
-    echo "<!-- Editor universal incluído -->\n";
-} else {
-    echo "<!-- ERRO: edit_task.php não encontrado em: $editor_path -->\n";
-    echo "<script>console.error('ERRO: edit_task.php não encontrado! Execute install_task_editor.php');</script>\n";
+// Verificar múltiplos caminhos possíveis
+$possible_paths = [
+    __DIR__ . '/../edit_task.php',
+    __DIR__ . '/edit_task.php',
+    dirname(__DIR__) . '/edit_task.php',
+    $_SERVER['DOCUMENT_ROOT'] . '/edit_task.php',
+];
+
+$editor_loaded = false;
+foreach ($possible_paths as $path) {
+    if (file_exists($path)) {
+        echo "<!-- Tentando incluir editor de: $path -->\n";
+        include_once $path;
+        $editor_loaded = true;
+        echo "<!-- ✅ Editor universal incluído com sucesso de: $path -->\n";
+        echo "<script>console.log('✅ Editor incluído do PHP: $path');</script>\n";
+        break;
+    }
 }
+
+if (!$editor_loaded) {
+    echo "<!-- ❌ ERRO: edit_task.php não encontrado em nenhum dos caminhos -->\n";
+    echo "<!-- Caminhos verificados: -->\n";
+    foreach ($possible_paths as $path) {
+        echo "<!-- - $path -->\n";
+    }
+    echo "<script>\n";
+    echo "console.error('❌ ERRO CRÍTICO: edit_task.php não foi incluído!');\n";
+    echo "console.error('Caminhos verificados:');\n";
+    foreach ($possible_paths as $path) {
+        echo "console.error('  - $path');\n";
+    }
+    echo "console.error('SOLUÇÃO: Execute install_task_editor.php ou verifique se o ficheiro existe');\n";
+    echo "alert('❌ Editor não disponível!\\n\\nO ficheiro edit_task.php não foi encontrado.\\n\\nExecute install_task_editor.php para criar o ficheiro.');\n";
+    echo "</script>\n";
+}
+
+// Verificar se a função JavaScript foi definida
+echo "<script>\n";
+echo "// Verificação final após inclusão do PHP\n";
+echo "setTimeout(function() {\n";
+echo "    if (typeof openTaskEditor === 'undefined') {\n";
+echo "        console.error('⚠️ AVISO: Função openTaskEditor não foi definida mesmo após include');\n";
+echo "        console.error('Isto pode indicar erro de sintaxe no edit_task.php');\n";
+echo "        console.error('Verifique erros JavaScript no Console (F12)');\n";
+echo "    } else {\n";
+echo "        console.log('✅✅✅ Editor carregado e pronto para usar!');\n";
+echo "    }\n";
+echo "}, 1000);\n";
+echo "</script>\n";
 ?>

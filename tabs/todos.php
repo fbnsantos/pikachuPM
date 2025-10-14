@@ -590,30 +590,46 @@ function confirmarExclusao(id, titulo) {
     }
 }
 
-// Editor Universal
+// Editor Universal - Aguardar carregamento
 document.addEventListener('DOMContentLoaded', function() {
+    // Verificar se editor foi carregado
+    console.log('openTaskEditor disponível?', typeof openTaskEditor);
+    
     document.querySelectorAll('.edit-task-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
             const id = this.dataset.taskId;
+            console.log('Tentando abrir editor para task:', id);
+            
             if (typeof openTaskEditor === 'function') {
                 openTaskEditor(id);
             } else {
-                alert('Editor não disponível');
+                console.error('openTaskEditor não está definido!');
+                alert('❌ Editor não disponível. Verifique:\n1. Se install_task_editor.php foi executado\n2. Se edit_task.php existe na raiz\n3. Console do navegador (F12) para erros');
             }
         });
     });
     
-    // DRAG & DROP
+    // DRAG & DROP KANBAN
     const cards = document.querySelectorAll('.kanban-card');
     const cols = document.querySelectorAll('.kanban-column');
     let dragged = null;
     
+    console.log('Cards encontrados:', cards.length);
+    console.log('Colunas encontradas:', cols.length);
+    
     cards.forEach(c => {
-        c.addEventListener('dragstart', function() {
+        c.addEventListener('dragstart', function(e) {
+            console.log('Drag start:', this.dataset.taskId);
             dragged = this;
             this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/html', this.innerHTML);
         });
-        c.addEventListener('dragend', function() {
+        
+        c.addEventListener('dragend', function(e) {
+            console.log('Drag end');
             this.classList.remove('dragging');
             cols.forEach(col => col.classList.remove('drag-over'));
         });
@@ -622,29 +638,97 @@ document.addEventListener('DOMContentLoaded', function() {
     cols.forEach(col => {
         col.addEventListener('dragover', function(e) {
             e.preventDefault();
+            e.stopPropagation();
             this.classList.add('drag-over');
+            e.dataTransfer.dropEffect = 'move';
+            return false;
         });
-        col.addEventListener('dragleave', function() {
+        
+        col.addEventListener('dragleave', function(e) {
             this.classList.remove('drag-over');
         });
+        
         col.addEventListener('drop', function(e) {
             e.preventDefault();
+            e.stopPropagation();
             this.classList.remove('drag-over');
+            
             if (dragged) {
                 const id = dragged.dataset.taskId;
                 const newEstado = this.dataset.estado;
+                const oldEstado = dragged.dataset.estado;
+                
+                console.log('Drop - Task:', id, 'de', oldEstado, 'para', newEstado);
+                
+                if (newEstado === oldEstado) {
+                    console.log('Mesmo estado, não fazer nada');
+                    return false;
+                }
+                
+                // Mostrar indicador visual
+                dragged.style.opacity = '0.5';
+                
                 const fd = new FormData();
                 fd.append('action', 'change_estado');
                 fd.append('todo_id', id);
                 fd.append('new_estado', newEstado);
                 fd.append('ajax', '1');
-                fetch(window.location.href, {method: 'POST', body: fd})
-                    .then(r => r.json())
-                    .then(d => { if (d.success) location.reload(); });
+                
+                console.log('Enviando request...');
+                
+                fetch(window.location.href, {
+                    method: 'POST',
+                    body: fd
+                })
+                .then(response => {
+                    console.log('Response status:', response.status);
+                    console.log('Response headers:', response.headers);
+                    
+                    // Verificar se é JSON
+                    const contentType = response.headers.get('content-type');
+                    if (contentType && contentType.includes('application/json')) {
+                        return response.json();
+                    } else {
+                        // Não é JSON, ler como texto para debug
+                        return response.text().then(text => {
+                            console.error('Resposta não é JSON:', text.substring(0, 500));
+                            throw new Error('Resposta não é JSON');
+                        });
+                    }
+                })
+                .then(data => {
+                    console.log('Response data:', data);
+                    if (data.success) {
+                        console.log('Sucesso! Recarregando...');
+                        location.reload();
+                    } else {
+                        console.error('Erro na resposta:', data);
+                        alert('Erro: ' + (data.error || 'Erro desconhecido'));
+                        dragged.style.opacity = '1';
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro no fetch:', error);
+                    alert('Erro ao mover tarefa. Veja o console (F12) para detalhes.');
+                    dragged.style.opacity = '1';
+                });
             }
+            
+            return false;
         });
     });
 });
 </script>
 
-<?php include __DIR__ . '/../edit_task.php'; ?>
+<?php 
+// IMPORTANTE: Incluir o editor universal
+// Verificar se o ficheiro existe antes de incluir
+$editor_path = __DIR__ . '/../edit_task.php';
+if (file_exists($editor_path)) {
+    include $editor_path;
+    echo "<!-- Editor universal incluído -->\n";
+} else {
+    echo "<!-- ERRO: edit_task.php não encontrado em: $editor_path -->\n";
+    echo "<script>console.error('ERRO: edit_task.php não encontrado! Execute install_task_editor.php');</script>\n";
+}
+?>

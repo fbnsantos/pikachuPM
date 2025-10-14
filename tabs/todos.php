@@ -33,52 +33,49 @@ while ($row = $result->fetch_assoc()) {
 }
 $stmt->close();
 
-// PROCESSAR AÇÕES
+// PROCESSAR AÇÕES - IMPORTANTE: Deve estar ANTES de qualquer output HTML
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
-    // MUDAR ESTADO (Drag & Drop do Kanban)
-    if ($action === 'change_estado' && isset($_POST['todo_id']) && isset($_POST['new_estado'])) {
+    // MUDAR ESTADO (Drag & Drop do Kanban) - AJAX
+    if ($action === 'change_estado' && isset($_POST['ajax'])) {
+        // Limpar qualquer output buffer
+        while (ob_get_level()) {
+            ob_end_clean();
+        }
+        
         $todo_id = (int)$_POST['todo_id'];
         $new_estado = $_POST['new_estado'];
         
         $valid_estados = ['aberta', 'em execução', 'suspensa', 'concluída'];
-        if (in_array($new_estado, $valid_estados)) {
-            $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ? AND (autor = ? OR responsavel = ?)');
-            $stmt->bind_param('siii', $new_estado, $todo_id, $user_id, $user_id);
-            
-            if ($stmt->execute() && $stmt->affected_rows > 0) {
-                if (isset($_POST['ajax'])) {
-                    header('Content-Type: application/json');
-                    echo json_encode(['success' => true, 'message' => 'Estado atualizado!']);
-                    $stmt->close();
-                    $db->close();
-                    exit;
-                }
-                $success_message = '✅ Estado atualizado!';
-            } else {
-                if (isset($_POST['ajax'])) {
-                    header('Content-Type: application/json');
-                    echo json_encode(['success' => false, 'error' => 'Erro ao atualizar ou sem permissão']);
-                    $stmt->close();
-                    $db->close();
-                    exit;
-                }
-                $error_message = '❌ Erro ao atualizar estado.';
-            }
+        
+        if (!in_array($new_estado, $valid_estados)) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'Estado inválido']);
+            $db->close();
+            exit;
+        }
+        
+        $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ? AND (autor = ? OR responsavel = ?)');
+        $stmt->bind_param('siii', $new_estado, $todo_id, $user_id, $user_id);
+        
+        if ($stmt->execute() && $stmt->affected_rows > 0) {
             $stmt->close();
+            $db->close();
+            header('Content-Type: application/json');
+            echo json_encode(['success' => true, 'message' => 'Estado atualizado!']);
+            exit;
         } else {
-            if (isset($_POST['ajax'])) {
-                header('Content-Type: application/json');
-                echo json_encode(['success' => false, 'error' => 'Estado inválido']);
-                $db->close();
-                exit;
-            }
+            $stmt->close();
+            $db->close();
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'Erro ao atualizar ou sem permissão']);
+            exit;
         }
     }
     
     // ADICIONAR NOVA TASK (Via Modal Simples)
-    elseif ($action === 'add') {
+    if ($action === 'add') {
         $titulo = trim($_POST['titulo']);
         $descritivo = trim($_POST['descritivo'] ?? '');
         $data_limite = $_POST['data_limite'] ?: null;
@@ -99,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     // ELIMINAR TASK
-    elseif ($action === 'delete') {
+    if ($action === 'delete') {
         $todo_id = (int)$_POST['todo_id'];
         
         $stmt = $db->prepare('DELETE FROM todos WHERE id = ? AND (autor = ? OR responsavel = ?)');
@@ -272,6 +269,17 @@ $db->close();
     transform: translateY(-3px);
     box-shadow: 0 5px 15px rgba(0,0,0,0.15);
 }
+
+.task-actions {
+    display: flex;
+    gap: 5px;
+    margin-top: 10px;
+}
+
+.btn-task-action {
+    padding: 2px 8px;
+    font-size: 12px;
+}
 </style>
 
 <div class="container-fluid p-4">
@@ -392,10 +400,7 @@ $db->close();
                                      data-task-id="<?= $todo['id'] ?>" 
                                      data-estado="<?= $estado ?>">
                                     <h6 class="mb-2">
-                                        <a href="#" class="text-decoration-none text-dark edit-task-btn" 
-                                           data-task-id="<?= $todo['id'] ?>">
-                                            <?= htmlspecialchars($todo['titulo']) ?>
-                                        </a>
+                                        <?= htmlspecialchars($todo['titulo']) ?>
                                     </h6>
                                     
                                     <?php if ($todo['descritivo']): ?>
@@ -414,6 +419,22 @@ $db->close();
                                                 <i class="bi bi-calendar"></i> <?= date('d/m/Y', strtotime($todo['data_limite'])) ?>
                                             </small>
                                         <?php endif; ?>
+                                    </div>
+                                    
+                                    <!-- Botões de ação -->
+                                    <div class="task-actions">
+                                        <button class="btn btn-sm btn-primary btn-task-action edit-task-btn" 
+                                                data-task-id="<?= $todo['id'] ?>" title="Editar">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <form method="POST" style="display: inline;" 
+                                              onsubmit="return confirm('Tem certeza que deseja eliminar esta tarefa?');">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="todo_id" value="<?= $todo['id'] ?>">
+                                            <button type="submit" class="btn btn-sm btn-danger btn-task-action" title="Eliminar">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </form>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
@@ -445,11 +466,7 @@ $db->close();
                     <?php foreach ($todos as $todo): ?>
                         <tr>
                             <td><?= $todo['id'] ?></td>
-                            <td>
-                                <a href="#" class="edit-task-btn" data-task-id="<?= $todo['id'] ?>">
-                                    <?= htmlspecialchars($todo['titulo']) ?>
-                                </a>
-                            </td>
+                            <td><?= htmlspecialchars($todo['titulo']) ?></td>
                             <td><?= htmlspecialchars($todo['responsavel_nome'] ?? 'N/A') ?></td>
                             <td>
                                 <?php
@@ -466,7 +483,12 @@ $db->close();
                             </td>
                             <td><?= $todo['data_limite'] ? date('d/m/Y', strtotime($todo['data_limite'])) : '-' ?></td>
                             <td>
-                                <form method="POST" style="display: inline;" onsubmit="return confirm('Tem certeza?');">
+                                <button class="btn btn-sm btn-primary edit-task-btn" 
+                                        data-task-id="<?= $todo['id'] ?>" title="Editar">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <form method="POST" style="display: inline;" 
+                                      onsubmit="return confirm('Tem certeza que deseja eliminar esta tarefa?');">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="todo_id" value="<?= $todo['id'] ?>">
                                     <button type="submit" class="btn btn-sm btn-danger">
@@ -530,12 +552,13 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.edit-task-btn').forEach(btn => {
         btn.addEventListener('click', function(e) {
             e.preventDefault();
+            e.stopPropagation();
             const taskId = this.dataset.taskId;
             
             if (typeof openTaskEditor === 'function') {
                 openTaskEditor(taskId);
             } else {
-                alert('Editor não disponível');
+                alert('Editor não disponível. Certifique-se que edit_task.php está incluído.');
             }
         });
     });
@@ -596,10 +619,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         body: formData
                     })
                     .then(response => {
+                        // Log da resposta para debug
+                        console.log('Status:', response.status);
+                        console.log('Content-Type:', response.headers.get('content-type'));
+                        
                         // Verificar se a resposta é JSON válido
                         const contentType = response.headers.get('content-type');
                         if (!contentType || !contentType.includes('application/json')) {
-                            throw new Error('Resposta não é JSON válido');
+                            // Tentar ler como texto para ver o que foi retornado
+                            return response.text().then(text => {
+                                console.error('Resposta não é JSON:', text.substring(0, 200));
+                                throw new Error('Servidor retornou HTML em vez de JSON');
+                            });
                         }
                         return response.json();
                     })
@@ -615,8 +646,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     })
                     .catch(err => {
                         // Erro de rede ou parsing
-                        console.error('Erro:', err);
-                        alert('Erro ao mover tarefa. Por favor, tente novamente.');
+                        console.error('Erro completo:', err);
+                        alert('Erro ao mover tarefa: ' + err.message);
                         draggedCard.style.opacity = '1';
                     });
                 }

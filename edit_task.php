@@ -29,7 +29,7 @@ try {
     die('Erro de conexão: ' . $e->getMessage());
 }
 
-// PROCESSAR UPLOAD DE FICHEIROS
+// PROCESSAR UPLOAD DE FICHEIROS - VERSÃO CORRIGIDA
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload_file') {
     header('Content-Type: application/json');
     
@@ -46,31 +46,107 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
     
     if (isset($_FILES['file']) && $_FILES['file']['error'] === UPLOAD_ERR_OK) {
-        $upload_dir = __DIR__ . '/files/';
-        if (!is_dir($upload_dir)) {
-            mkdir($upload_dir, 0755, true);
-        }
+        // Validações
+        $max_file_size = 10 * 1024 * 1024; // 10MB
+        $allowed_extensions = [
+            'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', // Imagens
+            'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', // Documentos
+            'txt', 'csv', 'json', 'xml', // Texto
+            'zip', 'rar', '7z', 'tar', 'gz', // Arquivos
+            'mp3', 'mp4', 'avi', 'mov', 'wmv' // Mídia
+        ];
         
         $file_name = basename($_FILES['file']['name']);
+        $file_size = $_FILES['file']['size'];
+        $file_tmp = $_FILES['file']['tmp_name'];
+        
+        // Obter extensão (case-insensitive)
         $file_ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
+        
+        // Validar tamanho
+        if ($file_size > $max_file_size) {
+            echo json_encode(['success' => false, 'error' => 'Ficheiro muito grande. Máximo 10MB']);
+            exit;
+        }
+        
+        // Validar extensão
+        if (!in_array($file_ext, $allowed_extensions)) {
+            echo json_encode(['success' => false, 'error' => 'Tipo de ficheiro não permitido: .' . $file_ext]);
+            exit;
+        }
+        
+        // Validar se é realmente um ficheiro
+        if (!is_uploaded_file($file_tmp)) {
+            echo json_encode(['success' => false, 'error' => 'Ficheiro inválido']);
+            exit;
+        }
+        
+        // Criar diretório se não existir
+        $upload_dir = __DIR__ . '/files/';
+        if (!is_dir($upload_dir)) {
+            if (!mkdir($upload_dir, 0755, true)) {
+                echo json_encode(['success' => false, 'error' => 'Erro ao criar diretório de upload']);
+                exit;
+            }
+        }
+        
+        // Verificar permissões do diretório
+        if (!is_writable($upload_dir)) {
+            echo json_encode(['success' => false, 'error' => 'Diretório não tem permissões de escrita']);
+            exit;
+        }
+        
+        // Gerar nome único para o ficheiro (sempre em minúsculas)
         $new_name = uniqid() . '_' . time() . '.' . $file_ext;
         $file_path = $upload_dir . $new_name;
         
-        if (move_uploaded_file($_FILES['file']['tmp_name'], $file_path)) {
-            $stmt = $pdo->prepare('INSERT INTO task_files (todo_id, file_name, file_path, uploaded_by) VALUES (?, ?, ?, ?)');
-            $stmt->execute([$todo_id, $file_name, 'files/' . $new_name, $_SESSION['user_id']]);
-            
-            echo json_encode([
-                'success' => true,
-                'file_id' => $pdo->lastInsertId(),
-                'file_name' => $file_name,
-                'file_path' => 'files/' . $new_name
-            ]);
+        // Mover ficheiro
+        if (move_uploaded_file($file_tmp, $file_path)) {
+            // Guardar na base de dados
+            try {
+                $stmt = $pdo->prepare('INSERT INTO task_files (todo_id, file_name, file_path, file_size, uploaded_by) VALUES (?, ?, ?, ?, ?)');
+                $stmt->execute([
+                    $todo_id, 
+                    $file_name, // Nome original do ficheiro
+                    'files/' . $new_name, // Caminho com nome único
+                    $file_size,
+                    $_SESSION['user_id']
+                ]);
+                
+                echo json_encode([
+                    'success' => true,
+                    'file_id' => $pdo->lastInsertId(),
+                    'file_name' => $file_name,
+                    'file_path' => 'files/' . $new_name,
+                    'file_size' => $file_size
+                ]);
+            } catch (PDOException $e) {
+                // Se falhar a inserção na BD, apagar o ficheiro
+                if (file_exists($file_path)) {
+                    unlink($file_path);
+                }
+                echo json_encode(['success' => false, 'error' => 'Erro ao guardar na base de dados: ' . $e->getMessage()]);
+            }
         } else {
-            echo json_encode(['success' => false, 'error' => 'Erro ao mover ficheiro']);
+            $error_info = error_get_last();
+            echo json_encode(['success' => false, 'error' => 'Erro ao mover ficheiro: ' . ($error_info['message'] ?? 'Erro desconhecido')]);
         }
     } else {
-        echo json_encode(['success' => false, 'error' => 'Erro no upload']);
+        // Tratar diferentes tipos de erro de upload
+        $error_messages = [
+            UPLOAD_ERR_INI_SIZE => 'Ficheiro excede o tamanho máximo permitido no PHP',
+            UPLOAD_ERR_FORM_SIZE => 'Ficheiro excede o tamanho máximo do formulário',
+            UPLOAD_ERR_PARTIAL => 'Upload parcial - tente novamente',
+            UPLOAD_ERR_NO_FILE => 'Nenhum ficheiro foi enviado',
+            UPLOAD_ERR_NO_TMP_DIR => 'Diretório temporário não encontrado',
+            UPLOAD_ERR_CANT_WRITE => 'Erro ao escrever ficheiro no disco',
+            UPLOAD_ERR_EXTENSION => 'Upload bloqueado por extensão PHP'
+        ];
+        
+        $error_code = $_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE;
+        $error_message = $error_messages[$error_code] ?? 'Erro desconhecido no upload';
+        
+        echo json_encode(['success' => false, 'error' => $error_message]);
     }
     exit;
 }
@@ -220,6 +296,15 @@ $users = $pdo->query('SELECT user_id, username FROM user_tokens ORDER BY usernam
     flex: 1;
 }
 
+.task-editor-footer {
+    padding: 20px 30px;
+    background: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
 .form-group {
     margin-bottom: 20px;
 }
@@ -238,11 +323,18 @@ $users = $pdo->query('SELECT user_id, username FROM user_tokens ORDER BY usernam
     border-radius: 8px;
     font-size: 14px;
     transition: border-color 0.3s;
+    box-sizing: border-box;
 }
 
 .form-control:focus {
     outline: none;
     border-color: #667eea;
+}
+
+textarea.form-control {
+    min-height: 120px;
+    resize: vertical;
+    font-family: monospace;
 }
 
 /* Editor Markdown */
@@ -252,32 +344,24 @@ $users = $pdo->query('SELECT user_id, username FROM user_tokens ORDER BY usernam
     margin-bottom: 10px;
     padding: 10px;
     background: #f5f5f5;
-    border-radius: 8px 8px 0 0;
-    border: 2px solid #e0e0e0;
-    border-bottom: none;
+    border-radius: 8px;
+    flex-wrap: wrap;
 }
 
-.md-btn {
+.markdown-btn {
+    padding: 5px 10px;
     background: white;
     border: 1px solid #ddd;
-    padding: 8px 12px;
-    border-radius: 5px;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 12px;
     transition: all 0.2s;
 }
 
-.md-btn:hover {
+.markdown-btn:hover {
     background: #667eea;
     color: white;
     border-color: #667eea;
-}
-
-#descritivo {
-    border-radius: 0 0 8px 8px;
-    border-top: none;
-    min-height: 200px;
-    font-family: 'Courier New', monospace;
 }
 
 /* Checklist */
@@ -285,22 +369,15 @@ $users = $pdo->query('SELECT user_id, username FROM user_tokens ORDER BY usernam
     border: 2px solid #e0e0e0;
     border-radius: 8px;
     padding: 15px;
-    background: #fafafa;
+    max-height: 300px;
+    overflow-y: auto;
 }
 
 .checklist-item {
     display: flex;
-    align-items: center;
     gap: 10px;
-    padding: 10px;
-    background: white;
-    border-radius: 6px;
-    margin-bottom: 8px;
-    transition: all 0.2s;
-}
-
-.checklist-item:hover {
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    margin-bottom: 10px;
+    align-items: center;
 }
 
 .checklist-item input[type="checkbox"] {
@@ -311,42 +388,45 @@ $users = $pdo->query('SELECT user_id, username FROM user_tokens ORDER BY usernam
 
 .checklist-item input[type="text"] {
     flex: 1;
-    border: none;
-    background: transparent;
-    padding: 5px;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
 }
 
 .checklist-item.checked input[type="text"] {
     text-decoration: line-through;
-    color: #999;
+    opacity: 0.6;
 }
 
 .checklist-item button {
-    background: #ff4444;
+    padding: 5px 10px;
+    background: #dc3545;
     color: white;
     border: none;
-    padding: 5px 10px;
     border-radius: 4px;
     cursor: pointer;
 }
 
 .btn-add-checklist {
-    background: #4CAF50;
+    margin-top: 10px;
+    padding: 8px 15px;
+    background: #28a745;
     color: white;
     border: none;
-    padding: 10px 20px;
     border-radius: 6px;
     cursor: pointer;
-    margin-top: 10px;
+    font-size: 13px;
+}
+
+.btn-add-checklist:hover {
+    background: #218838;
 }
 
 /* Ficheiros */
 .files-container {
-    border: 2px dashed #e0e0e0;
+    border: 2px solid #e0e0e0;
     border-radius: 8px;
-    padding: 20px;
-    text-align: center;
-    background: #fafafa;
+    padding: 15px;
 }
 
 .file-item {
@@ -354,24 +434,28 @@ $users = $pdo->query('SELECT user_id, username FROM user_tokens ORDER BY usernam
     justify-content: space-between;
     align-items: center;
     padding: 10px;
-    background: white;
+    background: #f8f9fa;
     border-radius: 6px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
 }
 
-.task-editor-footer {
-    padding: 20px 30px;
-    background: #f8f8f8;
-    border-top: 1px solid #e0e0e0;
+.file-item span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-item div {
     display: flex;
-    justify-content: flex-end;
-    gap: 10px;
+    gap: 5px;
 }
 
+/* Botões */
 .btn {
-    padding: 12px 30px;
+    padding: 10px 20px;
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
     font-size: 14px;
     font-weight: 600;
@@ -391,6 +475,24 @@ $users = $pdo->query('SELECT user_id, username FROM user_tokens ORDER BY usernam
 .btn-secondary {
     background: #6c757d;
     color: white;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+}
+
+.btn-sm {
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+.btn-danger {
+    background: #dc3545;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #c82333;
 }
 </style>
 
@@ -434,27 +536,26 @@ $users = $pdo->query('SELECT user_id, username FROM user_tokens ORDER BY usernam
                 <div class="form-group">
                     <label for="edit_estado">🎯 Estado</label>
                     <select id="edit_estado" name="estado" class="form-control">
-                        <option value="aberta">🟡 Aberta</option>
-                        <option value="em execução">🔵 Em Execução</option>
-                        <option value="suspensa">🟠 Suspensa</option>
-                        <option value="concluída">🟢 Concluída</option>
+                        <option value="aberta">Aberta</option>
+                        <option value="em execução">Em Execução</option>
+                        <option value="suspensa">Suspensa</option>
+                        <option value="concluída">Concluída</option>
                     </select>
                 </div>
                 
-                <!-- Editor Markdown -->
+                <!-- Descrição com Markdown -->
                 <div class="form-group">
-                    <label>📄 Descrição (Markdown)</label>
+                    <label for="edit_descritivo">📄 Descrição (Markdown)</label>
                     <div class="markdown-toolbar">
-                        <button type="button" class="md-btn" onclick="insertMarkdown('**', '**')" title="Negrito"><b>B</b></button>
-                        <button type="button" class="md-btn" onclick="insertMarkdown('*', '*')" title="Itálico"><i>I</i></button>
-                        <button type="button" class="md-btn" onclick="insertMarkdown('# ', '')" title="Título">H1</button>
-                        <button type="button" class="md-btn" onclick="insertMarkdown('## ', '')" title="Subtítulo">H2</button>
-                        <button type="button" class="md-btn" onclick="insertMarkdown('- ', '')" title="Lista">• Lista</button>
-                        <button type="button" class="md-btn" onclick="insertMarkdown('> ', '')" title="Citação">❝ Citação</button>
-                        <button type="button" class="md-btn" onclick="insertMarkdown('`', '`')" title="Código">{'</>'}</button>
-                        <button type="button" class="md-btn" onclick="insertMarkdown('[', '](url)')" title="Link">🔗 Link</button>
+                        <button type="button" class="markdown-btn" onclick="insertMarkdown('**', '**')"><b>B</b></button>
+                        <button type="button" class="markdown-btn" onclick="insertMarkdown('*', '*')"><i>I</i></button>
+                        <button type="button" class="markdown-btn" onclick="insertMarkdown('# ', '')">H1</button>
+                        <button type="button" class="markdown-btn" onclick="insertMarkdown('## ', '')">H2</button>
+                        <button type="button" class="markdown-btn" onclick="insertMarkdown('- ', '')">• List</button>
+                        <button type="button" class="markdown-btn" onclick="insertMarkdown('[', '](url)')">🔗 Link</button>
+                        <button type="button" class="markdown-btn" onclick="insertMarkdown('`', '`')">Code</button>
                     </div>
-                    <textarea id="descritivo" name="descritivo" class="form-control" rows="8"></textarea>
+                    <textarea id="edit_descritivo" name="descritivo" class="form-control"></textarea>
                 </div>
                 
                 <!-- Checklist -->
@@ -490,13 +591,12 @@ $users = $pdo->query('SELECT user_id, username FROM user_tokens ORDER BY usernam
 </div>
 
 <script>
-// Variável global para armazenar a checklist
+// Variáveis globais
 let checklistItems = [];
 let taskFiles = [];
 
 // Abrir editor
 function openTaskEditor(taskId) {
-    // Buscar dados da task
     fetch(`api/get_task_full.php?id=${taskId}`)
         .then(r => r.json())
         .then(data => {
@@ -504,7 +604,7 @@ function openTaskEditor(taskId) {
                 // Preencher formulário
                 document.getElementById('edit_todo_id').value = data.task.id;
                 document.getElementById('edit_titulo').value = data.task.titulo || '';
-                document.getElementById('descritivo').value = data.task.descritivo || '';
+                document.getElementById('edit_descritivo').value = data.task.descritivo || '';
                 document.getElementById('edit_data_limite').value = data.task.data_limite || '';
                 document.getElementById('edit_responsavel').value = data.task.responsavel || '';
                 document.getElementById('edit_estado').value = data.task.estado || 'aberta';
@@ -522,6 +622,10 @@ function openTaskEditor(taskId) {
             } else {
                 alert('Erro ao carregar task: ' + data.error);
             }
+        })
+        .catch(err => {
+            console.error(err);
+            alert('Erro ao carregar task');
         });
 }
 
@@ -532,7 +636,7 @@ function closeTaskEditor() {
 
 // Inserir markdown
 function insertMarkdown(before, after) {
-    const textarea = document.getElementById('descritivo');
+    const textarea = document.getElementById('edit_descritivo');
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const text = textarea.value;
@@ -540,20 +644,16 @@ function insertMarkdown(before, after) {
     
     const newText = text.substring(0, start) + before + selectedText + after + text.substring(end);
     textarea.value = newText;
-    
-    // Reposicionar cursor
-    const newPos = start + before.length + selectedText.length + after.length;
-    textarea.setSelectionRange(newPos, newPos);
     textarea.focus();
+    textarea.setSelectionRange(start + before.length, end + before.length);
 }
 
-// Adicionar item à checklist
-function addChecklistItem(text = '', checked = false) {
-    checklistItems.push({ text, checked });
+// Checklist functions
+function addChecklistItem() {
+    checklistItems.push({ text: '', checked: false });
     renderChecklist();
 }
 
-// Renderizar checklist
 function renderChecklist() {
     const container = document.getElementById('checklist-container');
     container.innerHTML = '';
@@ -608,6 +708,10 @@ function uploadFile() {
         } else {
             alert('Erro no upload: ' + data.error);
         }
+    })
+    .catch(err => {
+        console.error(err);
+        alert('Erro no upload');
     });
 }
 
@@ -634,25 +738,9 @@ function renderFiles() {
 function deleteFile(fileId) {
     if (!confirm('Eliminar este ficheiro?')) return;
     
-    fetch('edit_task.php', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: `action=delete_file&file_id=${fileId}`
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            taskFiles = taskFiles.filter(f => f.file_id !== fileId);
-            renderFiles();
-        }
-    });
-}
-
-// Guardar task
-function saveTask() {
-    const formData = new FormData(document.getElementById('task-editor-form'));
-    formData.append('action', 'save_task');
-    formData.append('checklist', JSON.stringify(checklistItems));
+    const formData = new FormData();
+    formData.append('action', 'delete_file');
+    formData.append('file_id', fileId);
     
     fetch('edit_task.php', {
         method: 'POST',
@@ -661,17 +749,55 @@ function saveTask() {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            alert('✅ Task guardada com sucesso!');
-            closeTaskEditor();
-            location.reload(); // Recarregar página
+            taskFiles = taskFiles.filter(f => f.file_id != fileId);
+            renderFiles();
         } else {
-            alert('Erro: ' + data.error);
+            alert('Erro ao eliminar: ' + data.error);
         }
     });
 }
 
-// Fechar com ESC
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeTaskEditor();
+// Guardar task
+function saveTask() {
+    const formData = new FormData();
+    formData.append('action', 'save_task');
+    formData.append('todo_id', document.getElementById('edit_todo_id').value);
+    formData.append('titulo', document.getElementById('edit_titulo').value);
+    formData.append('descritivo', document.getElementById('edit_descritivo').value);
+    formData.append('data_limite', document.getElementById('edit_data_limite').value);
+    formData.append('responsavel', document.getElementById('edit_responsavel').value);
+    formData.append('estado', document.getElementById('edit_estado').value);
+    
+    // Adicionar checklist
+    checklistItems.forEach((item, index) => {
+        formData.append(`checklist[${index}][text]`, item.text);
+        formData.append(`checklist[${index}][checked]`, item.checked ? '1' : '0');
+    });
+    
+    fetch('edit_task.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert('Task guardada com sucesso!');
+            closeTaskEditor();
+            location.reload();
+        } else {
+            alert('Erro ao guardar: ' + data.error);
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert('Erro ao guardar task');
+    });
+}
+
+// Fechar ao clicar fora
+document.addEventListener('click', function(e) {
+    if (e.target.id === 'task-editor-overlay') {
+        closeTaskEditor();
+    }
 });
 </script>

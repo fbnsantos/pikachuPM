@@ -31,6 +31,12 @@ try {
 
 // PROCESSAR UPLOAD DE FICHEIROS - VERSÃO CORRIGIDA
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload_file') {
+    // Aumentar limites temporariamente
+    @ini_set('upload_max_filesize', '50M');
+    @ini_set('post_max_size', '52M');
+    @ini_set('max_execution_time', '300');
+    @ini_set('memory_limit', '256M');
+    
     header('Content-Type: application/json');
     
     $todo_id = (int)$_POST['todo_id'];
@@ -229,6 +235,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 $users = $pdo->query('SELECT user_id, username FROM user_tokens ORDER BY username')->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
+<!-- Marked.js para renderizar Markdown -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
 <!-- CSS do Editor de Tasks -->
 <style>
 #task-editor-overlay {
@@ -334,10 +343,32 @@ $users = $pdo->query('SELECT user_id, username FROM user_tokens ORDER BY usernam
 textarea.form-control {
     min-height: 120px;
     resize: vertical;
-    font-family: monospace;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
 }
 
 /* Editor Markdown */
+.markdown-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.markdown-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #666;
+}
+
+.markdown-toggle input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
 .markdown-toolbar {
     display: flex;
     gap: 5px;
@@ -362,6 +393,65 @@ textarea.form-control {
     background: #667eea;
     color: white;
     border-color: #667eea;
+}
+
+/* Preview de Markdown */
+#markdown-preview {
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 15px;
+    min-height: 120px;
+    background: #fafafa;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+}
+
+#markdown-preview h1 { font-size: 2em; margin-top: 0; }
+#markdown-preview h2 { font-size: 1.5em; margin-top: 1em; }
+#markdown-preview h3 { font-size: 1.17em; margin-top: 1em; }
+#markdown-preview code {
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+}
+#markdown-preview pre {
+    background: #f0f0f0;
+    padding: 10px;
+    border-radius: 5px;
+    overflow-x: auto;
+}
+#markdown-preview blockquote {
+    border-left: 4px solid #667eea;
+    padding-left: 15px;
+    margin-left: 0;
+    color: #666;
+}
+#markdown-preview ul, #markdown-preview ol {
+    padding-left: 25px;
+}
+#markdown-preview a {
+    color: #667eea;
+    text-decoration: none;
+}
+#markdown-preview a:hover {
+    text-decoration: underline;
+}
+#markdown-preview img {
+    max-width: 100%;
+    height: auto;
+}
+#markdown-preview table {
+    border-collapse: collapse;
+    width: 100%;
+}
+#markdown-preview table td, #markdown-preview table th {
+    border: 1px solid #ddd;
+    padding: 8px;
+}
+#markdown-preview table th {
+    background-color: #f0f0f0;
+    font-weight: bold;
 }
 
 /* Checklist */
@@ -545,17 +635,31 @@ textarea.form-control {
                 
                 <!-- Descrição com Markdown -->
                 <div class="form-group">
-                    <label for="edit_descritivo">📄 Descrição (Markdown)</label>
-                    <div class="markdown-toolbar">
+                    <div class="markdown-header">
+                        <label for="edit_descritivo">📄 Descrição (Markdown)</label>
+                        <div class="markdown-toggle">
+                            <input type="checkbox" id="edit-mode-toggle" onchange="toggleEditMode()">
+                            <label for="edit-mode-toggle" style="margin: 0; font-weight: normal; cursor: pointer;">
+                                ✏️ Modo Edição
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div id="markdown-toolbar" class="markdown-toolbar" style="display: none;">
                         <button type="button" class="markdown-btn" onclick="insertMarkdown('**', '**')"><b>B</b></button>
                         <button type="button" class="markdown-btn" onclick="insertMarkdown('*', '*')"><i>I</i></button>
                         <button type="button" class="markdown-btn" onclick="insertMarkdown('# ', '')">H1</button>
                         <button type="button" class="markdown-btn" onclick="insertMarkdown('## ', '')">H2</button>
-                        <button type="button" class="markdown-btn" onclick="insertMarkdown('- ', '')">• List</button>
+                        <button type="button" class="markdown-btn" onclick="insertMarkdown('### ', '')">H3</button>
+                        <button type="button" class="markdown-btn" onclick="insertMarkdown('- ', '')">• Lista</button>
+                        <button type="button" class="markdown-btn" onclick="insertMarkdown('1. ', '')">1. Lista</button>
                         <button type="button" class="markdown-btn" onclick="insertMarkdown('[', '](url)')">🔗 Link</button>
                         <button type="button" class="markdown-btn" onclick="insertMarkdown('`', '`')">Code</button>
+                        <button type="button" class="markdown-btn" onclick="insertMarkdown('> ', '')">💬 Quote</button>
                     </div>
-                    <textarea id="edit_descritivo" name="descritivo" class="form-control"></textarea>
+                    
+                    <textarea id="edit_descritivo" name="descritivo" class="form-control" style="display: none;" oninput="updatePreview()"></textarea>
+                    <div id="markdown-preview"></div>
                 </div>
                 
                 <!-- Checklist -->
@@ -594,6 +698,7 @@ textarea.form-control {
 // Variáveis globais
 let checklistItems = [];
 let taskFiles = [];
+let isEditMode = false;
 
 // Abrir editor
 function openTaskEditor(taskId) {
@@ -617,6 +722,12 @@ function openTaskEditor(taskId) {
                 taskFiles = data.files || [];
                 renderFiles();
                 
+                // Iniciar em modo preview
+                isEditMode = false;
+                document.getElementById('edit-mode-toggle').checked = false;
+                updatePreview();
+                toggleEditMode();
+                
                 // Mostrar modal
                 document.getElementById('task-editor-overlay').style.display = 'block';
             } else {
@@ -634,6 +745,41 @@ function closeTaskEditor() {
     document.getElementById('task-editor-overlay').style.display = 'none';
 }
 
+// Alternar entre modo preview e edição
+function toggleEditMode() {
+    isEditMode = document.getElementById('edit-mode-toggle').checked;
+    const textarea = document.getElementById('edit_descritivo');
+    const preview = document.getElementById('markdown-preview');
+    const toolbar = document.getElementById('markdown-toolbar');
+    
+    if (isEditMode) {
+        // Modo Edição
+        textarea.style.display = 'block';
+        preview.style.display = 'none';
+        toolbar.style.display = 'flex';
+    } else {
+        // Modo Preview
+        textarea.style.display = 'none';
+        preview.style.display = 'block';
+        toolbar.style.display = 'none';
+        updatePreview();
+    }
+}
+
+// Atualizar preview do Markdown
+function updatePreview() {
+    const textarea = document.getElementById('edit_descritivo');
+    const preview = document.getElementById('markdown-preview');
+    const markdown = textarea.value;
+    
+    if (markdown.trim() === '') {
+        preview.innerHTML = '<em style="color: #999;">Sem descrição</em>';
+    } else {
+        // Usar marked.js para renderizar Markdown
+        preview.innerHTML = marked.parse(markdown);
+    }
+}
+
 // Inserir markdown
 function insertMarkdown(before, after) {
     const textarea = document.getElementById('edit_descritivo');
@@ -646,6 +792,7 @@ function insertMarkdown(before, after) {
     textarea.value = newText;
     textarea.focus();
     textarea.setSelectionRange(start + before.length, end + before.length);
+    updatePreview();
 }
 
 // Checklist functions

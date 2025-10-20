@@ -908,25 +908,41 @@ document.addEventListener('DOMContentLoaded', function() {
                     body: formData
                 })
                 .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Erro na resposta do servidor');
-                    }
-                    return response.json();
+                    console.log('Status:', response.status);
+                    console.log('Content-Type:', response.headers.get('content-type'));
+                    return response.text();
                 })
-                .then(data => {
-                    if (data.success) {
-                        // Sucesso - recarregar página imediatamente
-                        location.reload();
-                    } else {
-                        alert('Erro ao atualizar: ' + (data.error || 'Erro desconhecido'));
-                        // Recarregar mesmo com erro para verificar estado
+                .then(text => {
+                    console.log('Resposta recebida:', text.substring(0, 500));
+                    
+                    try {
+                        const data = JSON.parse(text);
+                        console.log('JSON parseado:', data);
+                        
+                        if (data.success) {
+                            console.log('✓ Sucesso! Recarregando...');
+                            location.reload();
+                        } else {
+                            console.error('✗ Erro retornado:', data.error);
+                            alert('Erro: ' + data.error);
+                            location.reload();
+                        }
+                    } catch (e) {
+                        console.error('✗ Erro ao fazer parse do JSON:', e);
+                        console.log('A resposta não é JSON válido. Provavelmente HTML da página.');
+                        console.log('Isso significa que o exit() não está a funcionar corretamente.');
+                        
+                        // Verificar se tem HTML no retorno
+                        if (text.includes('<!DOCTYPE') || text.includes('<html')) {
+                            alert('ERRO: A página inteira está a ser retornada. O código PHP não está a fazer exit() após o AJAX.');
+                        }
+                        
+                        // Recarregar mesmo assim
                         location.reload();
                     }
                 })
                 .catch(error => {
-                    console.error('Erro:', error);
-                    alert('Erro ao mover tarefa. A página será recarregada.');
-                    // Recarregar para mostrar estado correto
+                    console.error('✗ Erro de rede:', error);
                     location.reload();
                 });
             }

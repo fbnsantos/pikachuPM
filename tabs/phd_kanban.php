@@ -899,13 +899,27 @@ document.addEventListener('DOMContentLoaded', function() {
                     method: 'POST',
                     body: formData
                 })
-                .then(r => r.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Erro na resposta do servidor');
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.success) {
+                        // Sucesso - recarregar página imediatamente
                         location.reload();
                     } else {
-                        alert('Erro: ' + (data.error || 'Erro desconhecido'));
+                        alert('Erro ao atualizar: ' + (data.error || 'Erro desconhecido'));
+                        // Recarregar mesmo com erro para verificar estado
+                        location.reload();
                     }
+                })
+                .catch(error => {
+                    console.error('Erro:', error);
+                    alert('Erro ao mover tarefa. A página será recarregada.');
+                    // Recarregar para mostrar estado correto
+                    location.reload();
                 });
             }
         });

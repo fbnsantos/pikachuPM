@@ -221,7 +221,11 @@ function populateUserSelects() {
     users.forEach(user => {
         const option = document.createElement('option');
         option.value = user.username;
-        option.textContent = `${user.username} (${user.email || 'sem email'})`;
+        // Mostrar email apenas se existir e não for vazio
+        const displayText = user.email && user.email.trim() !== '' 
+            ? `${user.username} (${user.email})` 
+            : user.username;
+        option.textContent = displayText;
         responsibleSelect.appendChild(option);
     });
     
@@ -232,7 +236,11 @@ function populateUserSelects() {
     users.forEach(user => {
         const option = document.createElement('option');
         option.value = user.username;
-        option.textContent = `${user.username} (${user.email || 'sem email'})`;
+        // Mostrar email apenas se existir e não for vazio
+        const displayText = user.email && user.email.trim() !== '' 
+            ? `${user.username} (${user.email})` 
+            : user.username;
+        option.textContent = displayText;
         participantsSelect.appendChild(option);
     });
 }

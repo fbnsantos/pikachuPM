@@ -46,13 +46,30 @@ try {
         case 'get_users':
             // Buscar usuários da tabela user_tokens
             if (tableExists($pdo, 'user_tokens')) {
-                $stmt = $pdo->query("
-                    SELECT DISTINCT user_id, username, email 
-                    FROM user_tokens 
-                    WHERE username IS NOT NULL 
-                    ORDER BY username ASC
-                ");
+                // Verificar quais colunas existem
+                $userColumns = $pdo->query("SHOW COLUMNS FROM user_tokens")->fetchAll(PDO::FETCH_COLUMN);
+                
+                // Montar SELECT dinamicamente
+                $selectFields = ['user_id', 'username'];
+                if (in_array('email', $userColumns)) {
+                    $selectFields[] = 'email';
+                }
+                
+                $sql = "SELECT DISTINCT " . implode(', ', $selectFields) . " 
+                        FROM user_tokens 
+                        WHERE username IS NOT NULL 
+                        ORDER BY username ASC";
+                
+                $stmt = $pdo->query($sql);
                 $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                
+                // Adicionar email vazio se não existir
+                foreach ($users as &$user) {
+                    if (!isset($user['email'])) {
+                        $user['email'] = '';
+                    }
+                }
+                
                 echo json_encode($users);
             } else {
                 // Fallback: retornar usuário da sessão
@@ -79,19 +96,41 @@ try {
             if ($search) {
                 // Buscar em todas as colunas possíveis
                 $searchConditions = [];
-                if (in_array('name', $columns)) $searchConditions[] = "name LIKE :search";
-                if (in_array('identifier', $columns)) $searchConditions[] = "identifier LIKE :search";
-                if (in_array('description', $columns)) $searchConditions[] = "description LIKE :search";
-                if (in_array('short_name', $columns)) $searchConditions[] = "short_name LIKE :search";
-                if (in_array('title', $columns)) $searchConditions[] = "title LIKE :search";
+                $params = [];
+                $paramIndex = 0;
+                
+                if (in_array('name', $columns)) {
+                    $searchConditions[] = "name LIKE :search" . $paramIndex;
+                    $params["search" . $paramIndex] = "%$search%";
+                    $paramIndex++;
+                }
+                if (in_array('identifier', $columns)) {
+                    $searchConditions[] = "identifier LIKE :search" . $paramIndex;
+                    $params["search" . $paramIndex] = "%$search%";
+                    $paramIndex++;
+                }
+                if (in_array('description', $columns)) {
+                    $searchConditions[] = "description LIKE :search" . $paramIndex;
+                    $params["search" . $paramIndex] = "%$search%";
+                    $paramIndex++;
+                }
+                if (in_array('short_name', $columns)) {
+                    $searchConditions[] = "short_name LIKE :search" . $paramIndex;
+                    $params["search" . $paramIndex] = "%$search%";
+                    $paramIndex++;
+                }
+                if (in_array('title', $columns)) {
+                    $searchConditions[] = "title LIKE :search" . $paramIndex;
+                    $params["search" . $paramIndex] = "%$search%";
+                    $paramIndex++;
+                }
                 
                 if (!empty($searchConditions)) {
                     $sql .= " WHERE " . implode(" OR ", $searchConditions);
                 }
                 
                 $stmt = $pdo->prepare($sql);
-                $searchParam = "%$search%";
-                $stmt->execute(['search' => $searchParam]);
+                $stmt->execute($params);
             } else {
                 $stmt = $pdo->query($sql);
             }
@@ -100,9 +139,9 @@ try {
             
             // Processar participantes JSON
             foreach ($results as &$row) {
-                // Garantir que name existe
-                if (!isset($row['name'])) {
-                    $row['name'] = $row['title'] ?? $row['short_name'] ?? 'Unnamed';
+                // Garantir que name existe - usar short_name ou title como fallback
+                if (empty($row['name'])) {
+                    $row['name'] = $row['short_name'] ?? $row['title'] ?? 'Unnamed';
                 }
                 
                 if (isset($row['participants']) && $row['participants']) {

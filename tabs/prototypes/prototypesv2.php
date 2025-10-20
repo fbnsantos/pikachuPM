@@ -113,12 +113,12 @@
 
         .prototype-name {
             font-weight: 600;
-            font-size: 16px;
+            font-size: 14px;
             margin-bottom: 4px;
         }
 
         .prototype-meta {
-            font-size: 12px;
+            font-size: 11px;
             color: #64748b;
             display: flex;
             gap: 10px;
@@ -127,12 +127,13 @@
 
         .prototype-responsible {
             display: inline-block;
-            padding: 2px 8px;
+            padding: 3px 8px;
             background: #e0f2fe;
             border-radius: 4px;
-            font-size: 11px;
+            font-size: 10px;
             color: #0369a1;
             margin-top: 5px;
+            font-weight: 500;
         }
 
         /* Right Panel */
@@ -162,7 +163,7 @@
         }
 
         .detail-title {
-            font-size: 32px;
+            font-size: 28px;
             font-weight: 700;
             margin-bottom: 10px;
         }
@@ -182,7 +183,7 @@
         }
 
         .section h3 {
-            font-size: 18px;
+            font-size: 16px;
             margin-bottom: 15px;
             color: #1e293b;
             display: flex;
@@ -334,7 +335,7 @@
         }
 
         .info-value {
-            font-size: 16px;
+            font-size: 14px;
             color: #1a202c;
             min-height: 24px;
         }
@@ -363,12 +364,13 @@
         }
 
         .participant-badge {
-            padding: 2px 8px;
+            padding: 4px 10px;
             background: #fef3c7;
             color: #92400e;
             border-radius: 4px;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 600;
+            display: inline-block;
         }
 
         .section-header {
@@ -381,17 +383,18 @@
         .edit-btn {
             background: none;
             border: none;
-            font-size: 16px;
+            font-size: 18px;
             cursor: pointer;
-            padding: 4px 8px;
+            padding: 6px 10px;
             border-radius: 4px;
             transition: all 0.2s;
-            opacity: 0.6;
+            opacity: 0.5;
         }
 
         .edit-btn:hover {
             background: #e5e7eb;
             opacity: 1;
+            transform: scale(1.1);
         }
 
         .action-bar {

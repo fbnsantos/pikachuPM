@@ -200,11 +200,8 @@ async function selectPrototype(id) {
         renderPrototypeDetail();
         await loadUserStories(id);
         
-        // Atualizar lista visual
-        document.querySelectorAll('.prototype-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        event.target.closest('.prototype-item')?.classList.add('active');
+        // Atualizar lista visual - encontrar o item correto
+        applyFilters(); // Isto vai re-renderizar a lista com o item ativo
     } catch (error) {
         console.error('Error loading prototype:', error);
         alert('Failed to load prototype details');
@@ -241,6 +238,7 @@ function renderPrototypeDetail() {
         <div class="section">
             <div class="section-header">
                 <h3>📋 Basic Information</h3>
+                <button class="edit-btn" onclick="editBasicInfo()" title="Editar">✏️</button>
             </div>
             <div class="info-grid">
                 <div class="info-item">
@@ -262,6 +260,7 @@ function renderPrototypeDetail() {
         <div class="section">
             <div class="section-header">
                 <h3>👥 Participantes</h3>
+                <button class="edit-btn" onclick="editParticipants()" title="Editar">✏️</button>
             </div>
             <div class="participants-list">
                 ${participantsHtml}
@@ -279,6 +278,14 @@ function renderPrototypeDetail() {
             </div>
         </div>
     `;
+}
+
+function editBasicInfo() {
+    editPrototype();
+}
+
+function editParticipants() {
+    editPrototype();
 }
 
 function editPrototype() {

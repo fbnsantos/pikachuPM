@@ -852,7 +852,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('userSelector').addEventListener('change', function() {
         const userId = this.value;
         const currentUrl = new URL(window.location.href);
-        currentUrl.searchParams.set('tab', 'phd_kanboard');
+        currentUrl.searchParams.set('tab', 'phd_kanban');
         currentUrl.searchParams.set('user', userId);
         window.location.href = currentUrl.toString();
     });

@@ -34,7 +34,7 @@ try {
         // ===== PROTOTYPES =====
         case 'get_prototypes':
             $search = $_GET['search'] ?? '';
-            $sql = "SELECT * FROM prototypes ORDER BY name ASC" ;
+            $sql = "SELECT * FROM prototypes ORDER BY short_name ASC" ;
             if ($search) {
                 $sql .= " WHERE short_name LIKE ? OR title LIKE ?";
                 $stmt = $pdo->prepare($sql);

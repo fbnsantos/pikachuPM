@@ -146,7 +146,7 @@ function renderPrototypesList(list) {
             
         return `
             <div class="prototype-item ${currentPrototype?.id === p.id ? 'active' : ''}" 
-                 onclick="selectPrototype(${p.id})">
+                 data-id="${p.id}">
                 <div class="prototype-name">${escapeHtml(p.name)}</div>
                 <div class="prototype-meta">
                     ${p.identifier ? `<span>${escapeHtml(p.identifier)}</span>` : ''}
@@ -156,6 +156,14 @@ function renderPrototypesList(list) {
             </div>
         `;
     }).join('');
+    
+    // Adicionar event listeners aos items
+    document.querySelectorAll('.prototype-item').forEach(item => {
+        item.addEventListener('click', function() {
+            const id = parseInt(this.getAttribute('data-id'));
+            selectPrototype(id);
+        });
+    });
 }
 
 // ===== PROTOTYPES =====

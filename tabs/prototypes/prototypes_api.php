@@ -67,7 +67,12 @@ try {
             $search = $_GET['search'] ?? '';
             
             // Verificar quais colunas existem na tabela
-            $columns = $pdo->query("SHOW COLUMNS FROM prototypes")->fetchAll(PDO::FETCH_COLUMN);
+            try {
+                $columns = $pdo->query("SHOW COLUMNS FROM prototypes")->fetchAll(PDO::FETCH_COLUMN);
+            } catch (PDOException $e) {
+                echo json_encode(['error' => 'Table prototypes does not exist: ' . $e->getMessage()]);
+                break;
+            }
             
             $sql = "SELECT * FROM prototypes";
             
@@ -95,10 +100,27 @@ try {
             
             // Processar participantes JSON
             foreach ($results as &$row) {
+                // Garantir que name existe
+                if (!isset($row['name'])) {
+                    $row['name'] = $row['title'] ?? $row['short_name'] ?? 'Unnamed';
+                }
+                
                 if (isset($row['participants']) && $row['participants']) {
-                    $row['participants'] = json_decode($row['participants'], true) ?? [];
+                    $decoded = json_decode($row['participants'], true);
+                    $row['participants'] = is_array($decoded) ? $decoded : [];
                 } else {
                     $row['participants'] = [];
+                }
+                
+                // Garantir campos básicos
+                if (!isset($row['identifier'])) {
+                    $row['identifier'] = '';
+                }
+                if (!isset($row['description'])) {
+                    $row['description'] = '';
+                }
+                if (!isset($row['responsible'])) {
+                    $row['responsible'] = '';
                 }
             }
             

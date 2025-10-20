@@ -137,13 +137,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $stmt->bind_param('sssiissi', $titulo, $descritivo, $data_limite, $user_id, $responsavel, $estagio, $estado, $projeto_id);
         
         if ($stmt->execute()) {
-            $success_message = "Tarefa adicionada com sucesso!";
+            $stmt->close();
+            // Redirect para evitar resubmissão do formulário
+            $redirect_url = $_SERVER['PHP_SELF'] . '?tab=phd_kanban';
+            if (isset($_GET['user'])) {
+                $redirect_url .= '&user=' . intval($_GET['user']);
+            }
+            $redirect_url .= '&success=task_added';
+            header('Location: ' . $redirect_url);
+            exit;
         } else {
             $error_message = "Erro ao adicionar tarefa: " . $stmt->error;
+            $stmt->close();
         }
-        $stmt->close();
     } else {
         $error_message = "O título da tarefa é obrigatório.";
+    }
+}
+
+// Verificar se há mensagem de sucesso no URL
+if (isset($_GET['success'])) {
+    switch ($_GET['success']) {
+        case 'task_added':
+            $success_message = "Tarefa adicionada com sucesso!";
+            break;
+        case 'task_deleted':
+            $success_message = "Tarefa eliminada com sucesso!";
+            break;
+        case 'phd_info_saved':
+            $success_message = "Informações do doutoramento guardadas com sucesso!";
+            break;
+        case 'artigo_added':
+            $success_message = "Artigo adicionado com sucesso!";
+            break;
+        case 'artigo_updated':
+            $success_message = "Artigo atualizado com sucesso!";
+            break;
+        case 'artigo_deleted':
+            $success_message = "Artigo eliminado com sucesso!";
+            break;
     }
 }
 
@@ -179,11 +211,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $stmt->bind_param('ii', $task_id, $projeto_id);
     
     if ($stmt->execute()) {
-        $success_message = "Tarefa eliminada com sucesso!";
+        $stmt->close();
+        // Redirect para evitar resubmissão
+        $redirect_url = $_SERVER['PHP_SELF'] . '?tab=phd_kanban';
+        if (isset($_GET['user'])) {
+            $redirect_url .= '&user=' . intval($_GET['user']);
+        }
+        $redirect_url .= '&success=task_deleted';
+        header('Location: ' . $redirect_url);
+        exit;
     } else {
         $error_message = "Erro ao eliminar tarefa: " . $stmt->error;
+        $stmt->close();
     }
-    $stmt->close();
 }
 
 // Guardar/Atualizar informações do doutoramento
@@ -212,11 +252,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
     
     if ($stmt->execute()) {
-        $success_message = "Informações do doutoramento guardadas com sucesso!";
+        $stmt->close();
+        // Redirect
+        $redirect_url = $_SERVER['PHP_SELF'] . '?tab=phd_kanban';
+        if (isset($_GET['user'])) {
+            $redirect_url .= '&user=' . intval($_GET['user']);
+        }
+        $redirect_url .= '&success=phd_info_saved';
+        header('Location: ' . $redirect_url);
+        exit;
     } else {
         $error_message = "Erro ao guardar informações: " . $stmt->error;
+        $stmt->close();
     }
-    $stmt->close();
 }
 
 // Adicionar artigo
@@ -234,11 +282,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $stmt->bind_param('isssisss', $selected_user, $titulo, $autores, $revista, $ano, $link, $status, $tipo);
     
     if ($stmt->execute()) {
-        $success_message = "Artigo adicionado com sucesso!";
+        $stmt->close();
+        // Redirect
+        $redirect_url = $_SERVER['PHP_SELF'] . '?tab=phd_kanban';
+        if (isset($_GET['user'])) {
+            $redirect_url .= '&user=' . intval($_GET['user']);
+        }
+        $redirect_url .= '&success=artigo_added';
+        header('Location: ' . $redirect_url);
+        exit;
     } else {
         $error_message = "Erro ao adicionar artigo: " . $stmt->error;
+        $stmt->close();
     }
-    $stmt->close();
 }
 
 // Editar artigo
@@ -256,11 +312,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $stmt->bind_param('ssssissi', $titulo, $autores, $revista, $ano, $link, $status, $tipo, $artigo_id);
     
     if ($stmt->execute()) {
-        $success_message = "Artigo atualizado com sucesso!";
+        $stmt->close();
+        // Redirect
+        $redirect_url = $_SERVER['PHP_SELF'] . '?tab=phd_kanban';
+        if (isset($_GET['user'])) {
+            $redirect_url .= '&user=' . intval($_GET['user']);
+        }
+        $redirect_url .= '&success=artigo_updated';
+        header('Location: ' . $redirect_url);
+        exit;
     } else {
         $error_message = "Erro ao atualizar artigo: " . $stmt->error;
+        $stmt->close();
     }
-    $stmt->close();
 }
 
 // Eliminar artigo
@@ -271,11 +335,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $stmt->bind_param('i', $artigo_id);
     
     if ($stmt->execute()) {
-        $success_message = "Artigo eliminado com sucesso!";
+        $stmt->close();
+        // Redirect
+        $redirect_url = $_SERVER['PHP_SELF'] . '?tab=phd_kanban';
+        if (isset($_GET['user'])) {
+            $redirect_url .= '&user=' . intval($_GET['user']);
+        }
+        $redirect_url .= '&success=artigo_deleted';
+        header('Location: ' . $redirect_url);
+        exit;
     } else {
         $error_message = "Erro ao eliminar artigo: " . $stmt->error;
+        $stmt->close();
     }
-    $stmt->close();
 }
 
 // Buscar todos os utilizadores com prioridade para quem tem info de doutoramento

@@ -1,297 +1,368 @@
 <?php
-// prototypes_api.php - API atualizada com responsável e participantes
+// prototypes_api.php - Versão corrigida com nova estrutura
+session_start();
 header('Content-Type: application/json');
 
-// Configuração de banco de dados
-require_once '../../config/database.php';
+// Incluir configuração do projeto
+include_once __DIR__ . '/../../config.php';
 
-// Obter ação
+// Criar conexão PDO usando as variáveis do config.php
+try {
+    $pdo = new PDO(
+        "mysql:host=$db_host;dbname=$db_name;charset=utf8mb4",
+        $db_user,
+        $db_pass,
+        [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false
+        ]
+    );
+} catch (PDOException $e) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Database connection failed: ' . $e->getMessage()]);
+    exit;
+}
+
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
+// Verificar usuário na sessão
+$user_id = $_SESSION['user_id'] ?? null;
+$username = $_SESSION['username'] ?? 'guest';
+
 try {
-    switch ($action) {
+    switch($action) {
+        // ===== PROTOTYPES =====
         case 'get_prototypes':
-            getPrototypes();
+            $search = $_GET['search'] ?? '';
+            
+            // Verificar quais colunas existem na tabela
+            $columns = $pdo->query("SHOW COLUMNS FROM prototypes")->fetchAll(PDO::FETCH_COLUMN);
+            
+            $sql = "SELECT * FROM prototypes";
+            
+            if ($search) {
+                // Buscar em todas as colunas possíveis
+                $searchConditions = [];
+                if (in_array('name', $columns)) $searchConditions[] = "name LIKE :search";
+                if (in_array('identifier', $columns)) $searchConditions[] = "identifier LIKE :search";
+                if (in_array('description', $columns)) $searchConditions[] = "description LIKE :search";
+                if (in_array('short_name', $columns)) $searchConditions[] = "short_name LIKE :search";
+                if (in_array('title', $columns)) $searchConditions[] = "title LIKE :search";
+                
+                if (!empty($searchConditions)) {
+                    $sql .= " WHERE " . implode(" OR ", $searchConditions);
+                }
+                
+                $stmt = $pdo->prepare($sql);
+                $searchParam = "%$search%";
+                $stmt->execute(['search' => $searchParam]);
+            } else {
+                $stmt = $pdo->query($sql);
+            }
+            
+            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Processar participantes JSON
+            foreach ($results as &$row) {
+                if (isset($row['participants']) && $row['participants']) {
+                    $row['participants'] = json_decode($row['participants'], true) ?? [];
+                } else {
+                    $row['participants'] = [];
+                }
+            }
+            
+            echo json_encode($results);
             break;
+            
         case 'get_prototype':
-            getPrototype();
+            $id = $_GET['id'] ?? 0;
+            $stmt = $pdo->prepare("SELECT * FROM prototypes WHERE id = ?");
+            $stmt->execute([$id]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($result) {
+                // Decodificar participantes JSON
+                if (isset($result['participants']) && $result['participants']) {
+                    $result['participants'] = json_decode($result['participants'], true) ?? [];
+                } else {
+                    $result['participants'] = [];
+                }
+            }
+            
+            echo json_encode($result);
             break;
+            
         case 'create_prototype':
-            createPrototype();
+            // Verificar quais colunas existem
+            $columns = $pdo->query("SHOW COLUMNS FROM prototypes")->fetchAll(PDO::FETCH_COLUMN);
+            
+            // Campos da nova estrutura
+            $name = $_POST['name'] ?? '';
+            $identifier = $_POST['identifier'] ?? '';
+            $description = $_POST['description'] ?? '';
+            $responsible = $_POST['responsible'] ?? '';
+            $participants = $_POST['participants'] ?? '[]';
+            
+            if (empty($name)) {
+                echo json_encode(['success' => false, 'error' => 'Name is required']);
+                break;
+            }
+            
+            // Montar SQL dinamicamente baseado nas colunas existentes
+            $fields = [];
+            $values = [];
+            $params = [];
+            
+            if (in_array('name', $columns)) {
+                $fields[] = 'name';
+                $values[] = '?';
+                $params[] = $name;
+            }
+            
+            if (in_array('identifier', $columns)) {
+                $fields[] = 'identifier';
+                $values[] = '?';
+                $params[] = $identifier;
+            }
+            
+            if (in_array('description', $columns)) {
+                $fields[] = 'description';
+                $values[] = '?';
+                $params[] = $description;
+            }
+            
+            if (in_array('responsible', $columns)) {
+                $fields[] = 'responsible';
+                $values[] = '?';
+                $params[] = $responsible;
+            }
+            
+            if (in_array('participants', $columns)) {
+                $fields[] = 'participants';
+                $values[] = '?';
+                $params[] = $participants;
+            }
+            
+            $sql = "INSERT INTO prototypes (" . implode(', ', $fields) . ") 
+                    VALUES (" . implode(', ', $values) . ")";
+            
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            
+            echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
             break;
+            
         case 'update_prototype':
-            updatePrototype();
+            $id = $_POST['id'] ?? 0;
+            
+            if (empty($id)) {
+                echo json_encode(['success' => false, 'error' => 'ID is required']);
+                break;
+            }
+            
+            // Verificar quais colunas existem
+            $columns = $pdo->query("SHOW COLUMNS FROM prototypes")->fetchAll(PDO::FETCH_COLUMN);
+            
+            $name = $_POST['name'] ?? '';
+            $identifier = $_POST['identifier'] ?? '';
+            $description = $_POST['description'] ?? '';
+            $responsible = $_POST['responsible'] ?? '';
+            $participants = $_POST['participants'] ?? '[]';
+            
+            if (empty($name)) {
+                echo json_encode(['success' => false, 'error' => 'Name is required']);
+                break;
+            }
+            
+            // Montar SQL dinamicamente
+            $updates = [];
+            $params = [];
+            
+            if (in_array('name', $columns)) {
+                $updates[] = 'name = ?';
+                $params[] = $name;
+            }
+            
+            if (in_array('identifier', $columns)) {
+                $updates[] = 'identifier = ?';
+                $params[] = $identifier;
+            }
+            
+            if (in_array('description', $columns)) {
+                $updates[] = 'description = ?';
+                $params[] = $description;
+            }
+            
+            if (in_array('responsible', $columns)) {
+                $updates[] = 'responsible = ?';
+                $params[] = $responsible;
+            }
+            
+            if (in_array('participants', $columns)) {
+                $updates[] = 'participants = ?';
+                $params[] = $participants;
+            }
+            
+            if (in_array('updated_at', $columns)) {
+                $updates[] = 'updated_at = NOW()';
+            }
+            
+            $params[] = $id; // ID no final para o WHERE
+            
+            $sql = "UPDATE prototypes SET " . implode(', ', $updates) . " WHERE id = ?";
+            
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            
+            echo json_encode(['success' => true]);
             break;
+            
         case 'delete_prototype':
-            deletePrototype();
+            $id = $_POST['id'] ?? 0;
+            
+            // Começar transação
+            $pdo->beginTransaction();
+            
+            try {
+                // Deletar user stories associadas
+                $stmt1 = $pdo->prepare("DELETE FROM user_stories WHERE prototype_id = ?");
+                $stmt1->execute([$id]);
+                
+                // Deletar prototype
+                $stmt2 = $pdo->prepare("DELETE FROM prototypes WHERE id = ?");
+                $stmt2->execute([$id]);
+                
+                $pdo->commit();
+                echo json_encode(['success' => true]);
+            } catch (Exception $e) {
+                $pdo->rollback();
+                echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+            }
             break;
+            
+        // ===== USER STORIES =====
         case 'get_stories':
-            getUserStories();
+            $prototypeId = $_GET['prototype_id'] ?? 0;
+            
+            // Verificar quais colunas existem
+            $columns = $pdo->query("SHOW COLUMNS FROM user_stories")->fetchAll(PDO::FETCH_COLUMN);
+            
+            $sql = "SELECT * FROM user_stories WHERE prototype_id = ? ORDER BY created_at DESC";
+            
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([$prototypeId]);
+            
+            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Normalizar campo de prioridade
+            foreach ($results as &$row) {
+                if (isset($row['moscow_priority']) && !isset($row['priority'])) {
+                    $row['priority'] = $row['moscow_priority'];
+                }
+            }
+            
+            echo json_encode($results);
             break;
+            
         case 'create_story':
-            createUserStory();
+            $prototype_id = $_POST['prototype_id'] ?? 0;
+            $story_text = $_POST['story_text'] ?? '';
+            $priority = $_POST['priority'] ?? 'Should';
+            
+            if (empty($story_text)) {
+                echo json_encode(['success' => false, 'error' => 'Story text is required']);
+                break;
+            }
+            
+            // Verificar quais colunas existem
+            $columns = $pdo->query("SHOW COLUMNS FROM user_stories")->fetchAll(PDO::FETCH_COLUMN);
+            
+            $fields = ['prototype_id', 'story_text'];
+            $values = ['?', '?'];
+            $params = [$prototype_id, $story_text];
+            
+            if (in_array('priority', $columns)) {
+                $fields[] = 'priority';
+                $values[] = '?';
+                $params[] = $priority;
+            }
+            
+            if (in_array('moscow_priority', $columns)) {
+                $fields[] = 'moscow_priority';
+                $values[] = '?';
+                $params[] = $priority;
+            }
+            
+            $sql = "INSERT INTO user_stories (" . implode(', ', $fields) . ") 
+                    VALUES (" . implode(', ', $values) . ")";
+            
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            
+            echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
             break;
+            
         case 'update_story':
-            updateUserStory();
+            $id = $_POST['id'] ?? 0;
+            $story_text = $_POST['story_text'] ?? '';
+            $priority = $_POST['priority'] ?? 'Should';
+            
+            if (empty($story_text)) {
+                echo json_encode(['success' => false, 'error' => 'Story text is required']);
+                break;
+            }
+            
+            // Verificar quais colunas existem
+            $columns = $pdo->query("SHOW COLUMNS FROM user_stories")->fetchAll(PDO::FETCH_COLUMN);
+            
+            $updates = ['story_text = ?'];
+            $params = [$story_text];
+            
+            if (in_array('priority', $columns)) {
+                $updates[] = 'priority = ?';
+                $params[] = $priority;
+            }
+            
+            if (in_array('moscow_priority', $columns)) {
+                $updates[] = 'moscow_priority = ?';
+                $params[] = $priority;
+            }
+            
+            $params[] = $id;
+            
+            $sql = "UPDATE user_stories SET " . implode(', ', $updates) . " WHERE id = ?";
+            
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            
+            echo json_encode(['success' => true]);
             break;
+            
         case 'delete_story':
-            deleteUserStory();
+            $id = $_POST['id'] ?? 0;
+            
+            $stmt = $pdo->prepare("DELETE FROM user_stories WHERE id = ?");
+            $stmt->execute([$id]);
+            
+            echo json_encode(['success' => true]);
             break;
+            
         default:
-            echo json_encode(['error' => 'Invalid action']);
+            echo json_encode(['error' => 'Invalid action: ' . $action]);
     }
+    
+} catch (PDOException $e) {
+    http_response_code(500);
+    echo json_encode([
+        'error' => 'Database error: ' . $e->getMessage(),
+        'action' => $action
+    ]);
 } catch (Exception $e) {
-    echo json_encode(['error' => $e->getMessage()]);
-}
-
-// ===== PROTOTYPES =====
-function getPrototypes() {
-    global $conn;
-    
-    $search = $_GET['search'] ?? '';
-    
-    $sql = "SELECT id, name, identifier, description, responsible, participants, created_at, updated_at 
-            FROM prototypes";
-    
-    if ($search) {
-        $sql .= " WHERE name LIKE ? OR identifier LIKE ? OR description LIKE ?";
-        $stmt = $conn->prepare($sql);
-        $searchParam = "%$search%";
-        $stmt->bind_param("sss", $searchParam, $searchParam, $searchParam);
-    } else {
-        $stmt = $conn->prepare($sql);
-    }
-    
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    $prototypes = [];
-    while ($row = $result->fetch_assoc()) {
-        // Decodificar participantes JSON
-        $row['participants'] = $row['participants'] ? json_decode($row['participants'], true) : [];
-        $prototypes[] = $row;
-    }
-    
-    echo json_encode($prototypes);
-}
-
-function getPrototype() {
-    global $conn;
-    
-    $id = $_GET['id'] ?? 0;
-    
-    $stmt = $conn->prepare("SELECT * FROM prototypes WHERE id = ?");
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    if ($row = $result->fetch_assoc()) {
-        // Decodificar participantes JSON
-        $row['participants'] = $row['participants'] ? json_decode($row['participants'], true) : [];
-        echo json_encode($row);
-    } else {
-        echo json_encode(['error' => 'Prototype not found']);
-    }
-}
-
-function createPrototype() {
-    global $conn;
-    
-    $name = $_POST['name'] ?? '';
-    $identifier = $_POST['identifier'] ?? '';
-    $description = $_POST['description'] ?? '';
-    $responsible = $_POST['responsible'] ?? '';
-    $participants = $_POST['participants'] ?? '[]';
-    
-    if (empty($name)) {
-        echo json_encode(['success' => false, 'error' => 'Name is required']);
-        return;
-    }
-    
-    $stmt = $conn->prepare(
-        "INSERT INTO prototypes (name, identifier, description, responsible, participants, created_at, updated_at) 
-         VALUES (?, ?, ?, ?, ?, NOW(), NOW())"
-    );
-    
-    $stmt->bind_param("sssss", $name, $identifier, $description, $responsible, $participants);
-    
-    if ($stmt->execute()) {
-        echo json_encode([
-            'success' => true,
-            'id' => $conn->insert_id
-        ]);
-    } else {
-        echo json_encode([
-            'success' => false,
-            'error' => $stmt->error
-        ]);
-    }
-}
-
-function updatePrototype() {
-    global $conn;
-    
-    $id = $_POST['id'] ?? 0;
-    $name = $_POST['name'] ?? '';
-    $identifier = $_POST['identifier'] ?? '';
-    $description = $_POST['description'] ?? '';
-    $responsible = $_POST['responsible'] ?? '';
-    $participants = $_POST['participants'] ?? '[]';
-    
-    if (empty($name)) {
-        echo json_encode(['success' => false, 'error' => 'Name is required']);
-        return;
-    }
-    
-    $stmt = $conn->prepare(
-        "UPDATE prototypes 
-         SET name = ?, identifier = ?, description = ?, responsible = ?, participants = ?, updated_at = NOW() 
-         WHERE id = ?"
-    );
-    
-    $stmt->bind_param("sssssi", $name, $identifier, $description, $responsible, $participants, $id);
-    
-    if ($stmt->execute()) {
-        echo json_encode(['success' => true]);
-    } else {
-        echo json_encode([
-            'success' => false,
-            'error' => $stmt->error
-        ]);
-    }
-}
-
-function deletePrototype() {
-    global $conn;
-    
-    $id = $_POST['id'] ?? 0;
-    
-    // Começar transação para deletar prototype e suas stories
-    $conn->begin_transaction();
-    
-    try {
-        // Deletar user stories primeiro
-        $stmt1 = $conn->prepare("DELETE FROM prototype_user_stories WHERE prototype_id = ?");
-        $stmt1->bind_param("i", $id);
-        $stmt1->execute();
-        
-        // Deletar prototype
-        $stmt2 = $conn->prepare("DELETE FROM prototypes WHERE id = ?");
-        $stmt2->bind_param("i", $id);
-        $stmt2->execute();
-        
-        $conn->commit();
-        echo json_encode(['success' => true]);
-    } catch (Exception $e) {
-        $conn->rollback();
-        echo json_encode([
-            'success' => false,
-            'error' => $e->getMessage()
-        ]);
-    }
-}
-
-// ===== USER STORIES =====
-function getUserStories() {
-    global $conn;
-    
-    $prototype_id = $_GET['prototype_id'] ?? 0;
-    
-    $stmt = $conn->prepare(
-        "SELECT * FROM prototype_user_stories 
-         WHERE prototype_id = ? 
-         ORDER BY created_at DESC"
-    );
-    
-    $stmt->bind_param("i", $prototype_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    $stories = [];
-    while ($row = $result->fetch_assoc()) {
-        $stories[] = $row;
-    }
-    
-    echo json_encode($stories);
-}
-
-function createUserStory() {
-    global $conn;
-    
-    $prototype_id = $_POST['prototype_id'] ?? 0;
-    $story_text = $_POST['story_text'] ?? '';
-    $priority = $_POST['priority'] ?? 'Should';
-    
-    if (empty($story_text)) {
-        echo json_encode(['success' => false, 'error' => 'Story text is required']);
-        return;
-    }
-    
-    $stmt = $conn->prepare(
-        "INSERT INTO prototype_user_stories (prototype_id, story_text, priority, created_at) 
-         VALUES (?, ?, ?, NOW())"
-    );
-    
-    $stmt->bind_param("iss", $prototype_id, $story_text, $priority);
-    
-    if ($stmt->execute()) {
-        echo json_encode([
-            'success' => true,
-            'id' => $conn->insert_id
-        ]);
-    } else {
-        echo json_encode([
-            'success' => false,
-            'error' => $stmt->error
-        ]);
-    }
-}
-
-function updateUserStory() {
-    global $conn;
-    
-    $id = $_POST['id'] ?? 0;
-    $story_text = $_POST['story_text'] ?? '';
-    $priority = $_POST['priority'] ?? 'Should';
-    
-    if (empty($story_text)) {
-        echo json_encode(['success' => false, 'error' => 'Story text is required']);
-        return;
-    }
-    
-    $stmt = $conn->prepare(
-        "UPDATE prototype_user_stories 
-         SET story_text = ?, priority = ? 
-         WHERE id = ?"
-    );
-    
-    $stmt->bind_param("ssi", $story_text, $priority, $id);
-    
-    if ($stmt->execute()) {
-        echo json_encode(['success' => true]);
-    } else {
-        echo json_encode([
-            'success' => false,
-            'error' => $stmt->error
-        ]);
-    }
-}
-
-function deleteUserStory() {
-    global $conn;
-    
-    $id = $_POST['id'] ?? 0;
-    
-    $stmt = $conn->prepare("DELETE FROM prototype_user_stories WHERE id = ?");
-    $stmt->bind_param("i", $id);
-    
-    if ($stmt->execute()) {
-        echo json_encode(['success' => true]);
-    } else {
-        echo json_encode([
-            'success' => false,
-            'error' => $stmt->error
-        ]);
-    }
+    http_response_code(500);
+    echo json_encode([
+        'error' => 'Server error: ' . $e->getMessage(),
+        'action' => $action
+    ]);
 }
 ?>

@@ -21,13 +21,6 @@ $stage_to_estado_map = [
     'concluida' => 'concluída'
 ];
 
-$estado_to_stage_map = [
-    'aberta' => 'pensada',
-    'em execução' => 'execucao',
-    'suspensa' => 'espera',
-    'concluída' => 'concluida'
-];
-
 // Conectar ao banco de dados MySQL
 try {
     $db = new mysqli($db_host, $db_user, $db_pass, $db_name);
@@ -142,14 +135,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $error_message = "Erro ao atualizar estágio: " . $stmt->error;
         }
         $stmt->close();
-    } else {
-        if (isset($_POST['ajax'])) {
-            header('Content-Type: application/json');
-            echo json_encode(['success' => false, 'error' => 'Estágio inválido']);
-            $db->close();
-            exit;
-        }
-        $error_message = "Estágio inválido";
     }
 }
 
@@ -181,18 +166,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $notas = trim($_POST['notas']);
     $selected_user = intval($_POST['selected_user']);
     
-    // Verificar se já existe registro
     $stmt = $db->prepare('SELECT id FROM phd_info WHERE user_id = ?');
     $stmt->bind_param('i', $selected_user);
     $stmt->execute();
     $result = $stmt->get_result();
     
     if ($result->num_rows > 0) {
-        // Atualizar
         $stmt = $db->prepare('UPDATE phd_info SET data_inicio = ?, titulo_doutoramento = ?, orientador = ?, coorientador = ?, instituicao = ?, departamento = ?, link_tese = ?, notas = ? WHERE user_id = ?');
         $stmt->bind_param('ssssssssi', $data_inicio, $titulo, $orientador, $coorientador, $instituicao, $departamento, $link_tese, $notas, $selected_user);
     } else {
-        // Inserir
         $stmt = $db->prepare('INSERT INTO phd_info (user_id, data_inicio, titulo_doutoramento, orientador, coorientador, instituicao, departamento, link_tese, notas) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
         $stmt->bind_param('issssssss', $selected_user, $data_inicio, $titulo, $orientador, $coorientador, $instituicao, $departamento, $link_tese, $notas);
     }
@@ -217,7 +199,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $selected_user = intval($_POST['selected_user']);
     
     $stmt = $db->prepare('INSERT INTO phd_artigos (user_id, titulo, autores, revista_conferencia, ano, link, status, tipo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    $stmt->bind_param('isssssss', $selected_user, $titulo, $autores, $revista, $ano, $link, $status, $tipo);
+    $stmt->bind_param('isssisss', $selected_user, $titulo, $autores, $revista, $ano, $link, $status, $tipo);
     
     if ($stmt->execute()) {
         $success_message = "Artigo adicionado com sucesso!";
@@ -239,7 +221,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $tipo = $_POST['tipo_artigo_edit'];
     
     $stmt = $db->prepare('UPDATE phd_artigos SET titulo = ?, autores = ?, revista_conferencia = ?, ano = ?, link = ?, status = ?, tipo = ? WHERE id = ?');
-    $stmt->bind_param('sssisss', $titulo, $autores, $revista, $ano, $link, $status, $tipo, $artigo_id);
+    $stmt->bind_param('ssssissi', $titulo, $autores, $revista, $ano, $link, $status, $tipo, $artigo_id);
     
     if ($stmt->execute()) {
         $success_message = "Artigo atualizado com sucesso!";
@@ -264,7 +246,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $stmt->close();
 }
 
-// Buscar todos os utilizadores para dropdown
+// Buscar todos os utilizadores
 $all_users = [];
 $stmt = $db->query('SELECT user_id, username FROM user_tokens ORDER BY username');
 if ($stmt) {
@@ -274,7 +256,7 @@ if ($stmt) {
 }
 
 // Determinar utilizador selecionado
-$selected_user = $user_id; // Por padrão, o utilizador atual
+$selected_user = $user_id;
 if (isset($_GET['user']) && !empty($_GET['user'])) {
     $selected_user = intval($_GET['user']);
 }
@@ -290,7 +272,7 @@ if ($result->num_rows > 0) {
 }
 $stmt->close();
 
-// Buscar artigos do utilizador selecionado
+// Buscar artigos
 $artigos = [];
 $stmt = $db->prepare('SELECT * FROM phd_artigos WHERE user_id = ? ORDER BY ano DESC, titulo ASC');
 $stmt->bind_param('i', $selected_user);
@@ -301,7 +283,7 @@ while ($row = $result->fetch_assoc()) {
 }
 $stmt->close();
 
-// Buscar tarefas do projeto de doutoramento
+// Buscar tarefas
 $tasks_by_stage = [
     'pensada' => [],
     'execucao' => [],
@@ -314,14 +296,7 @@ $stmt = $db->prepare('
     FROM todos t 
     LEFT JOIN user_tokens u ON t.responsavel = u.user_id 
     WHERE t.projeto_id = ? AND (t.autor = ? OR t.responsavel = ?)
-    ORDER BY 
-        CASE t.estagio
-            WHEN "pensada" THEN 1
-            WHEN "execucao" THEN 2
-            WHEN "espera" THEN 3
-            WHEN "concluida" THEN 4
-        END,
-        t.data_limite ASC
+    ORDER BY t.data_limite ASC
 ');
 $projeto_id = PHD_PROJECT_ID;
 $stmt->bind_param('iii', $projeto_id, $selected_user, $selected_user);
@@ -369,10 +344,6 @@ $total_artigos = count($artigos);
     align-items: center;
 }
 
-.kanban-column-header .badge {
-    font-size: 0.8em;
-}
-
 .kanban-card {
     background: white;
     border-radius: 6px;
@@ -386,21 +357,6 @@ $total_artigos = count($artigos);
 .kanban-card:hover {
     box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     transform: translateY(-2px);
-}
-
-.kanban-card-title {
-    font-weight: 600;
-    margin-bottom: 8px;
-    color: #333;
-}
-
-.kanban-card-meta {
-    font-size: 0.85em;
-    color: #666;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 8px;
 }
 
 .stats-card {
@@ -430,44 +386,12 @@ $total_artigos = count($artigos);
     font-weight: bold;
 }
 
-.stat-label {
-    font-size: 0.9em;
-    opacity: 0.9;
-}
-
-.artigos-section {
-    background: #fff;
-    border-radius: 8px;
-    padding: 20px;
-    margin-top: 20px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
 .artigo-item {
     border-left: 3px solid #667eea;
     padding: 15px;
     margin-bottom: 15px;
     background: #f8f9fa;
     border-radius: 4px;
-}
-
-.artigo-title {
-    font-weight: bold;
-    color: #333;
-    margin-bottom: 8px;
-}
-
-.artigo-meta {
-    font-size: 0.9em;
-    color: #666;
-}
-
-.phd-info-section {
-    background: #fff;
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 @media (max-width: 1200px) {
@@ -485,7 +409,6 @@ $total_artigos = count($artigos);
 
 <div class="container-fluid mt-4">
     
-    <!-- Mensagens -->
     <?php if ($success_message): ?>
         <div class="alert alert-success alert-dismissible fade show">
             <?= htmlspecialchars($success_message) ?>
@@ -500,7 +423,6 @@ $total_artigos = count($artigos);
         </div>
     <?php endif; ?>
     
-    <!-- Header com seletor de utilizador -->
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2><i class="bi bi-mortarboard"></i> Gestão do Doutoramento</h2>
         <div class="d-flex gap-2">
@@ -517,17 +439,16 @@ $total_artigos = count($artigos);
         </div>
     </div>
     
-    <!-- Estatísticas -->
     <div class="stats-card">
-        <h4><i class="bi bi-graph-up"></i> Estatísticas do Doutoramento</h4>
+        <h4><i class="bi bi-graph-up"></i> Estatísticas</h4>
         <div class="stats-grid">
             <div class="stat-item">
                 <div class="stat-number"><?= $total_tasks ?></div>
-                <div class="stat-label">Total de Tarefas</div>
+                <div class="stat-label">Tarefas</div>
             </div>
             <div class="stat-item">
                 <div class="stat-number"><?= $completed_tasks ?></div>
-                <div class="stat-label">Tarefas Concluídas</div>
+                <div class="stat-label">Concluídas</div>
             </div>
             <div class="stat-item">
                 <div class="stat-number"><?= $progress_percentage ?>%</div>
@@ -540,119 +461,167 @@ $total_artigos = count($artigos);
         </div>
     </div>
     
-    <!-- Informações do Doutoramento -->
-    <div class="phd-info-section">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4><i class="bi bi-info-circle"></i> Informações do Doutoramento</h4>
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="bi bi-info-circle"></i> Informações do Doutoramento</h4>
             <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#phdInfoModal">
                 <i class="bi bi-pencil"></i> Editar
             </button>
         </div>
-        
-        <?php if ($phd_info): ?>
-            <div class="row">
-                <div class="col-md-6">
-                    <p><strong>Título:</strong> <?= htmlspecialchars($phd_info['titulo_doutoramento'] ?: 'N/A') ?></p>
-                    <p><strong>Data de Início:</strong> <?= $phd_info['data_inicio'] ? date('d/m/Y', strtotime($phd_info['data_inicio'])) : 'N/A' ?></p>
-                    <p><strong>Orientador:</strong> <?= htmlspecialchars($phd_info['orientador'] ?: 'N/A') ?></p>
-                    <p><strong>Coorientador:</strong> <?= htmlspecialchars($phd_info['coorientador'] ?: 'N/A') ?></p>
-                </div>
-                <div class="col-md-6">
-                    <p><strong>Instituição:</strong> <?= htmlspecialchars($phd_info['instituicao'] ?: 'N/A') ?></p>
-                    <p><strong>Departamento:</strong> <?= htmlspecialchars($phd_info['departamento'] ?: 'N/A') ?></p>
-                    <?php if ($phd_info['link_tese']): ?>
-                        <p><strong>Link da Tese:</strong> <a href="<?= htmlspecialchars($phd_info['link_tese']) ?>" target="_blank">Ver Documento</a></p>
-                    <?php endif; ?>
-                </div>
-                <?php if ($phd_info['notas']): ?>
-                    <div class="col-12 mt-2">
-                        <p><strong>Notas:</strong></p>
-                        <p class="text-muted"><?= nl2br(htmlspecialchars($phd_info['notas'])) ?></p>
+        <div class="card-body">
+            <?php if ($phd_info): ?>
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Título:</strong> <?= htmlspecialchars($phd_info['titulo_doutoramento'] ?: 'N/A') ?></p>
+                        <p><strong>Data de Início:</strong> <?= $phd_info['data_inicio'] ? date('d/m/Y', strtotime($phd_info['data_inicio'])) : 'N/A' ?></p>
+                        <p><strong>Orientador:</strong> <?= htmlspecialchars($phd_info['orientador'] ?: 'N/A') ?></p>
+                        <p><strong>Coorientador:</strong> <?= htmlspecialchars($phd_info['coorientador'] ?: 'N/A') ?></p>
                     </div>
+                    <div class="col-md-6">
+                        <p><strong>Instituição:</strong> <?= htmlspecialchars($phd_info['instituicao'] ?: 'N/A') ?></p>
+                        <p><strong>Departamento:</strong> <?= htmlspecialchars($phd_info['departamento'] ?: 'N/A') ?></p>
+                        <?php if ($phd_info['link_tese']): ?>
+                            <p><strong>Link:</strong> <a href="<?= htmlspecialchars($phd_info['link_tese']) ?>" target="_blank">Ver</a></p>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php else: ?>
+                <p class="text-muted">Nenhuma informação registada.</p>
+            <?php endif; ?>
+        </div>
+    </div>
+    
+    <h4 class="mt-4 mb-3"><i class="bi bi-kanban"></i> Quadro Kanban</h4>
+    <div class="kanban-board">
+        <?php 
+        $stage_info = [
+            'pensada' => ['title' => 'Pensadas', 'icon' => 'lightbulb', 'color' => 'secondary'],
+            'execucao' => ['title' => 'Em Execução', 'icon' => 'play-circle', 'color' => 'primary'],
+            'espera' => ['title' => 'Em Espera', 'icon' => 'pause-circle', 'color' => 'warning'],
+            'concluida' => ['title' => 'Concluídas', 'icon' => 'check-circle', 'color' => 'success']
+        ];
+        
+        foreach ($stage_info as $stage => $info): 
+            $tasks = $tasks_by_stage[$stage];
+        ?>
+        <div class="kanban-column" data-stage="<?= $stage ?>">
+            <div class="kanban-column-header">
+                <span><i class="bi bi-<?= $info['icon'] ?>"></i> <?= $info['title'] ?></span>
+                <span class="badge bg-<?= $info['color'] ?>"><?= count($tasks) ?></span>
+            </div>
+            
+            <div class="kanban-cards-container">
+                <?php if (empty($tasks)): ?>
+                    <p class="text-muted text-center">Nenhuma tarefa</p>
+                <?php else: ?>
+                    <?php foreach ($tasks as $task): ?>
+                        <div class="kanban-card" data-task-id="<?= $task['id'] ?>" draggable="true">
+                            <div style="font-weight: 600; margin-bottom: 8px;">
+                                <?= htmlspecialchars($task['titulo']) ?>
+                            </div>
+                            
+                            <?php if ($task['descritivo']): ?>
+                                <div class="text-muted" style="font-size: 0.85em; margin-bottom: 8px;">
+                                    <?= htmlspecialchars(mb_substr($task['descritivo'], 0, 100)) ?>
+                                    <?= mb_strlen($task['descritivo']) > 100 ? '...' : '' ?>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <div class="d-flex justify-content-between align-items-center mt-2">
+                                <small>
+                                    <?php if ($task['data_limite']): ?>
+                                        <i class="bi bi-calendar"></i> <?= date('d/m/Y', strtotime($task['data_limite'])) ?>
+                                    <?php endif; ?>
+                                </small>
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-outline-primary edit-task-btn" data-task-id="<?= $task['id'] ?>" title="Editar">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-danger delete-task-btn" data-task-id="<?= $task['id'] ?>" title="Eliminar">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
                 <?php endif; ?>
             </div>
+        </div>
         <?php endforeach; ?>
     </div>
     
-    <!-- Seção de Artigos -->
-    <div class="artigos-section mt-4">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4><i class="bi bi-file-text"></i> Artigos e Publicações</h4>
+    <div class="card mt-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="bi bi-file-text"></i> Artigos e Publicações</h4>
             <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addArtigoModal">
-                <i class="bi bi-plus-circle"></i> Adicionar Artigo
+                <i class="bi bi-plus-circle"></i> Adicionar
             </button>
         </div>
-        
-        <?php if (empty($artigos)): ?>
-            <p class="text-muted">Nenhum artigo registado.</p>
-        <?php else: ?>
-            <?php foreach ($artigos as $artigo): ?>
-                <div class="artigo-item">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div class="flex-grow-1">
-                            <div class="artigo-title"><?= htmlspecialchars($artigo['titulo']) ?></div>
-                            <div class="artigo-meta">
-                                <span><strong>Autores:</strong> <?= htmlspecialchars($artigo['autores']) ?></span><br>
-                                <span><strong>Revista/Conferência:</strong> <?= htmlspecialchars($artigo['revista_conferencia']) ?></span><br>
-                                <span><strong>Ano:</strong> <?= $artigo['ano'] ?></span> |
-                                <span><strong>Tipo:</strong> <?= htmlspecialchars($artigo['tipo']) ?></span> |
-                                <span><strong>Status:</strong> 
-                                    <span class="badge bg-<?= $artigo['status'] == 'publicado' ? 'success' : ($artigo['status'] == 'submetido' ? 'warning' : 'secondary') ?>">
+        <div class="card-body">
+            <?php if (empty($artigos)): ?>
+                <p class="text-muted">Nenhum artigo registado.</p>
+            <?php else: ?>
+                <?php foreach ($artigos as $artigo): ?>
+                    <div class="artigo-item">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <div style="font-weight: bold; margin-bottom: 8px;"><?= htmlspecialchars($artigo['titulo']) ?></div>
+                                <div style="font-size: 0.9em; color: #666;">
+                                    <strong>Autores:</strong> <?= htmlspecialchars($artigo['autores']) ?><br>
+                                    <strong>Revista:</strong> <?= htmlspecialchars($artigo['revista_conferencia']) ?><br>
+                                    <strong>Ano:</strong> <?= $artigo['ano'] ?> |
+                                    <strong>Tipo:</strong> <?= htmlspecialchars($artigo['tipo']) ?> |
+                                    <strong>Status:</strong> 
+                                    <span class="badge bg-<?= $artigo['status'] == 'publicado' ? 'success' : 'warning' ?>">
                                         <?= htmlspecialchars($artigo['status']) ?>
                                     </span>
-                                </span>
-                                <?php if ($artigo['link']): ?>
-                                    <br><a href="<?= htmlspecialchars($artigo['link']) ?>" target="_blank"><i class="bi bi-link-45deg"></i> Ver Artigo</a>
-                                <?php endif; ?>
+                                    <?php if ($artigo['link']): ?>
+                                        <br><a href="<?= htmlspecialchars($artigo['link']) ?>" target="_blank"><i class="bi bi-link"></i> Ver</a>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                            <div class="btn-group btn-group-sm">
+                                <button type="button" class="btn btn-outline-primary edit-artigo-btn" data-artigo-id="<?= $artigo['id'] ?>" title="Editar">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button type="button" class="btn btn-outline-danger delete-artigo-btn" data-artigo-id="<?= $artigo['id'] ?>" title="Eliminar">
+                                    <i class="bi bi-trash"></i>
+                                </button>
                             </div>
                         </div>
-                        <div class="d-flex gap-1">
-                            <button type="button" 
-                                    class="btn btn-sm btn-outline-primary edit-artigo-btn" 
-                                    data-artigo-id="<?= $artigo['id'] ?>"
-                                    title="Editar">
-                                <i class="bi bi-pencil"></i>
-                            </button>
-                            <button type="button" 
-                                    class="btn btn-sm btn-outline-danger delete-artigo-btn" 
-                                    data-artigo-id="<?= $artigo['id'] ?>"
-                                    title="Eliminar">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </div>
                     </div>
-                </div>
-            <?php endforeach; ?>
-        <?php endif; ?>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
     </div>
 </div>
 
-<!-- Modal para adicionar tarefa -->
+<!-- Modal Adicionar Tarefa -->
 <div class="modal fade" id="addTaskModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST">
                 <input type="hidden" name="action" value="add_task">
                 <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Nova Tarefa</h5>
+                    <h5 class="modal-title">Nova Tarefa</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label for="titulo" class="form-label">Título *</label>
-                        <input type="text" class="form-control" id="titulo" name="titulo" required>
+                        <label class="form-label">Título *</label>
+                        <input type="text" class="form-control" name="titulo" required>
                     </div>
                     <div class="mb-3">
-                        <label for="descritivo" class="form-label">Descrição</label>
-                        <textarea class="form-control" id="descritivo" name="descritivo" rows="3"></textarea>
+                        <label class="form-label">Descrição</label>
+                        <textarea class="form-control" name="descritivo" rows="3"></textarea>
                     </div>
                     <div class="mb-3">
-                        <label for="data_limite" class="form-label">Data Limite</label>
-                        <input type="date" class="form-control" id="data_limite" name="data_limite">
+                        <label class="form-label">Data Limite</label>
+                        <input type="date" class="form-control" name="data_limite">
                     </div>
                     <div class="mb-3">
-                        <label for="responsavel" class="form-label">Responsável</label>
-                        <select class="form-select" id="responsavel" name="responsavel">
+                        <label class="form-label">Responsável</label>
+                        <select class="form-select" name="responsavel">
                             <option value="">Nenhum</option>
                             <?php foreach ($all_users as $u): ?>
                                 <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $selected_user ? 'selected' : '' ?>>
@@ -662,8 +631,8 @@ $total_artigos = count($artigos);
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label for="estagio" class="form-label">Estágio Inicial</label>
-                        <select class="form-select" id="estagio" name="estagio">
+                        <label class="form-label">Estágio</label>
+                        <select class="form-select" name="estagio">
                             <option value="pensada">Pensada</option>
                             <option value="execucao">Em Execução</option>
                             <option value="espera">Em Espera</option>
@@ -673,14 +642,14 @@ $total_artigos = count($artigos);
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Adicionar Tarefa</button>
+                    <button type="submit" class="btn btn-primary">Adicionar</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
 
-<!-- Modal para editar informações do doutoramento -->
+<!-- Modal Editar Informações PhD -->
 <div class="modal fade" id="phdInfoModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -688,50 +657,49 @@ $total_artigos = count($artigos);
                 <input type="hidden" name="action" value="save_phd_info">
                 <input type="hidden" name="selected_user" value="<?= $selected_user ?>">
                 <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-info-circle"></i> Informações do Doutoramento</h5>
+                    <h5 class="modal-title">Informações do Doutoramento</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label for="titulo_doutoramento" class="form-label">Título do Doutoramento</label>
-                            <input type="text" class="form-control" id="titulo_doutoramento" name="titulo_doutoramento" 
+                            <label class="form-label">Título</label>
+                            <input type="text" class="form-control" name="titulo_doutoramento" 
                                    value="<?= htmlspecialchars($phd_info['titulo_doutoramento'] ?? '') ?>">
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label for="data_inicio" class="form-label">Data de Início</label>
-                            <input type="date" class="form-control" id="data_inicio" name="data_inicio" 
+                            <label class="form-label">Data de Início</label>
+                            <input type="date" class="form-control" name="data_inicio" 
                                    value="<?= $phd_info['data_inicio'] ?? '' ?>">
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label for="orientador" class="form-label">Orientador</label>
-                            <input type="text" class="form-control" id="orientador" name="orientador" 
+                            <label class="form-label">Orientador</label>
+                            <input type="text" class="form-control" name="orientador" 
                                    value="<?= htmlspecialchars($phd_info['orientador'] ?? '') ?>">
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label for="coorientador" class="form-label">Coorientador</label>
-                            <input type="text" class="form-control" id="coorientador" name="coorientador" 
+                            <label class="form-label">Coorientador</label>
+                            <input type="text" class="form-control" name="coorientador" 
                                    value="<?= htmlspecialchars($phd_info['coorientador'] ?? '') ?>">
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label for="instituicao" class="form-label">Instituição</label>
-                            <input type="text" class="form-control" id="instituicao" name="instituicao" 
+                            <label class="form-label">Instituição</label>
+                            <input type="text" class="form-control" name="instituicao" 
                                    value="<?= htmlspecialchars($phd_info['instituicao'] ?? '') ?>">
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label for="departamento" class="form-label">Departamento</label>
-                            <input type="text" class="form-control" id="departamento" name="departamento" 
+                            <label class="form-label">Departamento</label>
+                            <input type="text" class="form-control" name="departamento" 
                                    value="<?= htmlspecialchars($phd_info['departamento'] ?? '') ?>">
                         </div>
                         <div class="col-12 mb-3">
-                            <label for="link_tese" class="form-label">Link da Tese</label>
-                            <input type="url" class="form-control" id="link_tese" name="link_tese" 
-                                   value="<?= htmlspecialchars($phd_info['link_tese'] ?? '') ?>" 
-                                   placeholder="https://">
+                            <label class="form-label">Link da Tese</label>
+                            <input type="url" class="form-control" name="link_tese" 
+                                   value="<?= htmlspecialchars($phd_info['link_tese'] ?? '') ?>">
                         </div>
                         <div class="col-12 mb-3">
-                            <label for="notas" class="form-label">Notas</label>
-                            <textarea class="form-control" id="notas" name="notas" rows="4"><?= htmlspecialchars($phd_info['notas'] ?? '') ?></textarea>
+                            <label class="form-label">Notas</label>
+                            <textarea class="form-control" name="notas" rows="4"><?= htmlspecialchars($phd_info['notas'] ?? '') ?></textarea>
                         </div>
                     </div>
                 </div>
@@ -744,7 +712,7 @@ $total_artigos = count($artigos);
     </div>
 </div>
 
-<!-- Modal para adicionar artigo -->
+<!-- Modal Adicionar Artigo -->
 <div class="modal fade" id="addArtigoModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -752,44 +720,41 @@ $total_artigos = count($artigos);
                 <input type="hidden" name="action" value="add_artigo">
                 <input type="hidden" name="selected_user" value="<?= $selected_user ?>">
                 <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-file-text"></i> Adicionar Artigo</h5>
+                    <h5 class="modal-title">Adicionar Artigo</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label for="titulo_artigo" class="form-label">Título *</label>
-                        <input type="text" class="form-control" id="titulo_artigo" name="titulo_artigo" required>
+                        <label class="form-label">Título *</label>
+                        <input type="text" class="form-control" name="titulo_artigo" required>
                     </div>
                     <div class="mb-3">
-                        <label for="autores" class="form-label">Autores *</label>
-                        <input type="text" class="form-control" id="autores" name="autores" required 
-                               placeholder="Nome1, Nome2, Nome3">
+                        <label class="form-label">Autores *</label>
+                        <input type="text" class="form-control" name="autores" required>
                     </div>
                     <div class="row">
                         <div class="col-md-8 mb-3">
-                            <label for="revista_conferencia" class="form-label">Revista/Conferência</label>
-                            <input type="text" class="form-control" id="revista_conferencia" name="revista_conferencia">
+                            <label class="form-label">Revista/Conferência</label>
+                            <input type="text" class="form-control" name="revista_conferencia">
                         </div>
                         <div class="col-md-4 mb-3">
-                            <label for="ano" class="form-label">Ano</label>
-                            <input type="number" class="form-control" id="ano" name="ano" 
-                                   min="1900" max="2100" value="<?= date('Y') ?>">
+                            <label class="form-label">Ano</label>
+                            <input type="number" class="form-control" name="ano" value="<?= date('Y') ?>">
                         </div>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label for="tipo_artigo" class="form-label">Tipo</label>
-                            <select class="form-select" id="tipo_artigo" name="tipo_artigo">
+                            <label class="form-label">Tipo</label>
+                            <select class="form-select" name="tipo_artigo">
                                 <option value="artigo">Artigo</option>
                                 <option value="conferencia">Conferência</option>
-                                <option value="capitulo">Capítulo de Livro</option>
+                                <option value="capitulo">Capítulo</option>
                                 <option value="poster">Poster</option>
-                                <option value="outro">Outro</option>
                             </select>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label for="status_artigo" class="form-label">Status</label>
-                            <select class="form-select" id="status_artigo" name="status_artigo">
+                            <label class="form-label">Status</label>
+                            <select class="form-select" name="status_artigo">
                                 <option value="publicado">Publicado</option>
                                 <option value="submetido">Submetido</option>
                                 <option value="em_preparacao">Em Preparação</option>
@@ -798,9 +763,8 @@ $total_artigos = count($artigos);
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label for="link_artigo" class="form-label">Link</label>
-                        <input type="url" class="form-control" id="link_artigo" name="link_artigo" 
-                               placeholder="https://doi.org/...">
+                        <label class="form-label">Link</label>
+                        <input type="url" class="form-control" name="link_artigo">
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -812,7 +776,7 @@ $total_artigos = count($artigos);
     </div>
 </div>
 
-<!-- Modal para editar artigo -->
+<!-- Modal Editar Artigo -->
 <div class="modal fade" id="editArtigoModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -820,42 +784,41 @@ $total_artigos = count($artigos);
                 <input type="hidden" name="action" value="edit_artigo">
                 <input type="hidden" name="artigo_id" id="edit_artigo_id">
                 <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-pencil"></i> Editar Artigo</h5>
+                    <h5 class="modal-title">Editar Artigo</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label for="titulo_artigo_edit" class="form-label">Título *</label>
-                        <input type="text" class="form-control" id="titulo_artigo_edit" name="titulo_artigo_edit" required>
+                        <label class="form-label">Título *</label>
+                        <input type="text" class="form-control" name="titulo_artigo_edit" id="titulo_artigo_edit" required>
                     </div>
                     <div class="mb-3">
-                        <label for="autores_edit" class="form-label">Autores *</label>
-                        <input type="text" class="form-control" id="autores_edit" name="autores_edit" required>
+                        <label class="form-label">Autores *</label>
+                        <input type="text" class="form-control" name="autores_edit" id="autores_edit" required>
                     </div>
                     <div class="row">
                         <div class="col-md-8 mb-3">
-                            <label for="revista_conferencia_edit" class="form-label">Revista/Conferência</label>
-                            <input type="text" class="form-control" id="revista_conferencia_edit" name="revista_conferencia_edit">
+                            <label class="form-label">Revista/Conferência</label>
+                            <input type="text" class="form-control" name="revista_conferencia_edit" id="revista_conferencia_edit">
                         </div>
                         <div class="col-md-4 mb-3">
-                            <label for="ano_edit" class="form-label">Ano</label>
-                            <input type="number" class="form-control" id="ano_edit" name="ano_edit" min="1900" max="2100">
+                            <label class="form-label">Ano</label>
+                            <input type="number" class="form-control" name="ano_edit" id="ano_edit">
                         </div>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label for="tipo_artigo_edit" class="form-label">Tipo</label>
-                            <select class="form-select" id="tipo_artigo_edit" name="tipo_artigo_edit">
+                            <label class="form-label">Tipo</label>
+                            <select class="form-select" name="tipo_artigo_edit" id="tipo_artigo_edit">
                                 <option value="artigo">Artigo</option>
                                 <option value="conferencia">Conferência</option>
-                                <option value="capitulo">Capítulo de Livro</option>
+                                <option value="capitulo">Capítulo</option>
                                 <option value="poster">Poster</option>
-                                <option value="outro">Outro</option>
                             </select>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label for="status_artigo_edit" class="form-label">Status</label>
-                            <select class="form-select" id="status_artigo_edit" name="status_artigo_edit">
+                            <label class="form-label">Status</label>
+                            <select class="form-select" name="status_artigo_edit" id="status_artigo_edit">
                                 <option value="publicado">Publicado</option>
                                 <option value="submetido">Submetido</option>
                                 <option value="em_preparacao">Em Preparação</option>
@@ -864,13 +827,13 @@ $total_artigos = count($artigos);
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label for="link_artigo_edit" class="form-label">Link</label>
-                        <input type="url" class="form-control" id="link_artigo_edit" name="link_artigo_edit">
+                        <label class="form-label">Link</label>
+                        <input type="url" class="form-control" name="link_artigo_edit" id="link_artigo_edit">
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+                    <button type="submit" class="btn btn-primary">Salvar</button>
                 </div>
             </form>
         </div>
@@ -884,7 +847,7 @@ document.addEventListener('DOMContentLoaded', function() {
         window.location.href = '?tab=phd_kanboard&user=' + this.value;
     });
     
-    // Drag and Drop para Kanban
+    // Drag and Drop
     let draggedElement = null;
     
     document.querySelectorAll('.kanban-card').forEach(card => {
@@ -916,7 +879,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 const taskId = draggedElement.dataset.taskId;
                 const newStage = this.dataset.stage;
                 
-                // Atualizar via AJAX
                 const formData = new FormData();
                 formData.append('action', 'update_stage');
                 formData.append('task_id', taskId);
@@ -932,14 +894,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (data.success) {
                         location.reload();
                     } else {
-                        alert('Erro ao atualizar: ' + (data.error || 'Erro desconhecido'));
+                        alert('Erro: ' + (data.error || 'Erro desconhecido'));
                     }
                 });
             }
         });
     });
     
-    // Botões de editar tarefa - usar edit_task.php
+    // Botões de editar tarefa - redirecionar para edit_task.php
     document.querySelectorAll('.edit-task-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             const taskId = this.dataset.taskId;
@@ -969,14 +931,12 @@ document.addEventListener('DOMContentLoaded', function() {
         btn.addEventListener('click', function() {
             const artigoId = this.dataset.artigoId;
             
-            // Buscar dados do artigo
             fetch(`get_artigo_details.php?id=${artigoId}`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
                         const artigo = data.artigo;
                         
-                        // Preencher formulário
                         document.getElementById('edit_artigo_id').value = artigo.id;
                         document.getElementById('titulo_artigo_edit').value = artigo.titulo;
                         document.getElementById('autores_edit').value = artigo.autores;
@@ -986,11 +946,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         document.getElementById('tipo_artigo_edit').value = artigo.tipo || 'artigo';
                         document.getElementById('status_artigo_edit').value = artigo.status || 'publicado';
                         
-                        // Mostrar modal
                         const modal = new bootstrap.Modal(document.getElementById('editArtigoModal'));
                         modal.show();
                     } else {
-                        alert('Erro ao carregar dados do artigo: ' + data.error);
+                        alert('Erro ao carregar dados: ' + data.error);
                     }
                 })
                 .catch(error => {
@@ -1021,89 +980,4 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <?php
 $db->close();
-?>php else: ?>
-            <p class="text-muted">Nenhuma informação registada. Clique em "Editar" para adicionar.</p>
-        <?php endif; ?>
-    </div>
-    
-    <!-- Kanban Board -->
-    <h4 class="mt-4 mb-3"><i class="bi bi-kanban"></i> Quadro Kanban</h4>
-    <div class="kanban-board">
-        <?php 
-        $stage_info = [
-            'pensada' => ['title' => 'Pensadas', 'icon' => 'lightbulb', 'color' => 'secondary'],
-            'execucao' => ['title' => 'Em Execução', 'icon' => 'play-circle', 'color' => 'primary'],
-            'espera' => ['title' => 'Em Espera', 'icon' => 'pause-circle', 'color' => 'warning'],
-            'concluida' => ['title' => 'Concluídas', 'icon' => 'check-circle', 'color' => 'success']
-        ];
-        
-        foreach ($stage_info as $stage => $info): 
-            $tasks = $tasks_by_stage[$stage];
-        ?>
-        <div class="kanban-column" data-stage="<?= $stage ?>">
-            <div class="kanban-column-header">
-                <span>
-                    <i class="bi bi-<?= $info['icon'] ?>"></i>
-                    <?= $info['title'] ?>
-                </span>
-                <span class="badge bg-<?= $info['color'] ?>"><?= count($tasks) ?></span>
-            </div>
-            
-            <div class="kanban-cards-container">
-                <?php if (empty($tasks)): ?>
-                    <p class="text-muted text-center" style="font-size: 0.9em;">Nenhuma tarefa</p>
-                <?php else: ?>
-                    <?php foreach ($tasks as $task): ?>
-                        <div class="kanban-card" 
-                             data-task-id="<?= $task['id'] ?>" 
-                             draggable="true">
-                            <div class="kanban-card-title">
-                                <?= htmlspecialchars($task['titulo']) ?>
-                            </div>
-                            
-                            <?php if ($task['descritivo']): ?>
-                                <div class="text-muted" style="font-size: 0.85em; margin-bottom: 8px;">
-                                    <?= htmlspecialchars(mb_substr($task['descritivo'], 0, 100)) ?>
-                                    <?= mb_strlen($task['descritivo']) > 100 ? '...' : '' ?>
-                                </div>
-                            <?php endif; ?>
-                            
-                            <div class="kanban-card-meta">
-                                <div>
-                                    <?php if ($task['data_limite']): ?>
-                                        <small>
-                                            <i class="bi bi-calendar"></i>
-                                            <?= date('d/m/Y', strtotime($task['data_limite'])) ?>
-                                        </small>
-                                    <?php endif; ?>
-                                </div>
-                                <div>
-                                    <?php if ($task['responsavel_nome']): ?>
-                                        <small>
-                                            <i class="bi bi-person"></i>
-                                            <?= htmlspecialchars($task['responsavel_nome']) ?>
-                                        </small>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                            
-                            <div class="d-flex gap-1 mt-2">
-                                <button type="button" 
-                                        class="btn btn-sm btn-outline-primary edit-task-btn" 
-                                        data-task-id="<?= $task['id'] ?>"
-                                        title="Editar">
-                                    <i class="bi bi-pencil"></i>
-                                </button>
-                                <button type="button" 
-                                        class="btn btn-sm btn-outline-danger delete-task-btn" 
-                                        data-task-id="<?= $task['id'] ?>"
-                                        title="Eliminar">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </div>
-        </div>
-        <?
+?>

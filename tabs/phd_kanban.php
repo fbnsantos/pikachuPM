@@ -911,52 +911,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // Botões de editar tarefa - abrir em modal
+    // Botões de editar tarefa - usar função openTaskEditor
     document.querySelectorAll('.edit-task-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             const taskId = this.dataset.taskId;
-            
-            // Criar modal com iframe
-            const modalHtml = `
-                <div class="modal fade" id="editTaskIframeModal" tabindex="-1" data-bs-backdrop="static">
-                    <div class="modal-dialog modal-xl modal-fullscreen-lg-down">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title"><i class="bi bi-pencil"></i> Editar Tarefa</h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                            </div>
-                            <div class="modal-body p-0">
-                                <iframe 
-                                    src="edit_task.php?id=${taskId}" 
-                                    style="width: 100%; height: 70vh; border: none;"
-                                    onload="this.style.height = '70vh';">
-                                </iframe>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            // Remover modal anterior se existir
-            const oldModal = document.getElementById('editTaskIframeModal');
-            if (oldModal) {
-                oldModal.remove();
-            }
-            
-            // Adicionar novo modal
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-            
-            // Abrir modal
-            const modal = new bootstrap.Modal(document.getElementById('editTaskIframeModal'));
-            modal.show();
-            
-            // Recarregar página quando o modal fechar
-            document.getElementById('editTaskIframeModal').addEventListener('hidden.bs.modal', function() {
-                location.reload();
-            });
+            openTaskEditor(taskId);
         });
     });
     
@@ -1031,4 +990,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <?php
 $db->close();
+
+// Incluir editor universal de tasks
+include __DIR__ . '/../edit_task.php';
 ?>

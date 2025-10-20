@@ -1,176 +1,33 @@
-// prototypes.js - Atualizado com filtros e responsáveis
+// prototypes.js - VERSÃO SIMPLES com apenas ordenação alfabética
 let currentPrototype = null;
 let currentStory = null;
 let prototypes = [];
 let stories = [];
-let users = []; // Lista de usuários
-let currentUser = 'test'; // Pode ser obtido de uma sessão PHP
 
-// Caminho da API
 const API_PATH = window.PROTOTYPES_API_PATH || 'prototypes_api.php';
 
 // Inicialização
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('Prototypes JS loaded. API Path:', API_PATH);
-    loadUsers(); // Carregar usuários primeiro
+    console.log('Prototypes JS loaded');
     loadPrototypes();
     
-    // Event listeners
-    const searchInput = document.getElementById('searchInput');
-    if (searchInput) {
-        searchInput.addEventListener('input', (e) => {
-            applyFilters();
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+        loadPrototypes(e.target.value);
+    });
+    
+    // Event listener para ordenação alfabética
+    const sortCheck = document.getElementById('sortAlphabetical');
+    if (sortCheck) {
+        sortCheck.addEventListener('change', () => {
+            renderPrototypesList();
         });
-    }
-    
-    // Filtros
-    const filterAlphabetical = document.getElementById('filterAlphabetical');
-    if (filterAlphabetical) {
-        filterAlphabetical.addEventListener('change', applyFilters);
-    }
-    
-    const filterMyResponsible = document.getElementById('filterMyResponsible');
-    if (filterMyResponsible) {
-        filterMyResponsible.addEventListener('change', applyFilters);
-    }
-    
-    // Botões
-    const btnNewPrototype = document.getElementById('btnNewPrototype');
-    if (btnNewPrototype) {
-        btnNewPrototype.addEventListener('click', createNewPrototype);
-    }
-    
-    const btnClosePrototypeModal = document.getElementById('btnClosePrototypeModal');
-    if (btnClosePrototypeModal) {
-        btnClosePrototypeModal.addEventListener('click', closePrototypeModal);
-    }
-    
-    const btnSavePrototype = document.getElementById('btnSavePrototype');
-    if (btnSavePrototype) {
-        btnSavePrototype.addEventListener('click', savePrototype);
-    }
-    
-    const btnCancelPrototype = document.getElementById('btnCancelPrototype');
-    if (btnCancelPrototype) {
-        btnCancelPrototype.addEventListener('click', closePrototypeModal);
-    }
-    
-    const btnCloseStoryModal = document.getElementById('btnCloseStoryModal');
-    if (btnCloseStoryModal) {
-        btnCloseStoryModal.addEventListener('click', closeStoryModal);
-    }
-    
-    const btnSaveStory = document.getElementById('btnSaveStory');
-    if (btnSaveStory) {
-        btnSaveStory.addEventListener('click', saveStory);
-    }
-    
-    const btnCancelStory = document.getElementById('btnCancelStory');
-    if (btnCancelStory) {
-        btnCancelStory.addEventListener('click', closeStoryModal);
     }
 });
-
-// ===== CARREGAR USUÁRIOS =====
-async function loadUsers() {
-    try {
-        const response = await fetch(`${API_PATH}?action=get_users`);
-        users = await response.json();
-        console.log('Users loaded:', users);
-    } catch (error) {
-        console.error('Error loading users:', error);
-        users = [];
-    }
-}
-
-// ===== FILTROS =====
-function applyFilters() {
-    const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-    const alphabetical = document.getElementById('filterAlphabetical').checked;
-    const myResponsible = document.getElementById('filterMyResponsible').checked;
-    
-    let filtered = [...prototypes];
-    
-    // Filtro de busca
-    if (searchTerm) {
-        filtered = filtered.filter(p => 
-            (p.name && p.name.toLowerCase().includes(searchTerm)) ||
-            (p.description && p.description.toLowerCase().includes(searchTerm)) ||
-            (p.identifier && p.identifier.toLowerCase().includes(searchTerm))
-        );
-    }
-    
-    // Filtro "apenas meus"
-    if (myResponsible) {
-        filtered = filtered.filter(p => 
-            p.responsible && p.responsible.toLowerCase() === currentUser.toLowerCase()
-        );
-    }
-    
-    // Ordenação alfabética
-    if (alphabetical) {
-        filtered.sort((a, b) => {
-            const nameA = (a.name || '').toLowerCase();
-            const nameB = (b.name || '').toLowerCase();
-            return nameA.localeCompare(nameB);
-        });
-    } else {
-        // Ordenar por ID (ordem de criação) quando não alfabético
-        filtered.sort((a, b) => b.id - a.id);
-    }
-    
-    renderPrototypesList(filtered);
-}
-
-function renderPrototypesList(list) {
-    const listEl = document.getElementById('prototypesList');
-    
-    if (list.length === 0) {
-        listEl.innerHTML = `
-            <div class="empty-state">
-                <h3>No prototypes found</h3>
-                <p>Ajuste os filtros ou crie um novo protótipo</p>
-            </div>
-        `;
-        return;
-    }
-    
-    listEl.innerHTML = list.map(p => {
-        const responsibleBadge = p.responsible 
-            ? `<span class="prototype-responsible">👤 ${escapeHtml(p.responsible)}</span>` 
-            : '';
-        
-        const participantsCount = p.participants && p.participants.length > 0
-            ? `<span style="font-size: 11px;">👥 ${p.participants.length} participantes</span>`
-            : '';
-            
-        return `
-            <div class="prototype-item ${currentPrototype?.id === p.id ? 'active' : ''}" 
-                 data-id="${p.id}">
-                <div class="prototype-name">${escapeHtml(p.name)}</div>
-                <div class="prototype-meta">
-                    ${p.identifier ? `<span>${escapeHtml(p.identifier)}</span>` : ''}
-                    ${participantsCount}
-                </div>
-                ${responsibleBadge}
-            </div>
-        `;
-    }).join('');
-    
-    // Adicionar event listeners aos items
-    document.querySelectorAll('.prototype-item').forEach(item => {
-        item.addEventListener('click', function() {
-            const id = parseInt(this.getAttribute('data-id'));
-            selectPrototype(id);
-        });
-    });
-}
 
 // ===== PROTOTYPES =====
 async function loadPrototypes(search = '') {
     try {
         const url = `${API_PATH}?action=get_prototypes${search ? `&search=${encodeURIComponent(search)}` : ''}`;
-        console.log('Loading prototypes from:', url);
         const response = await fetch(url);
         
         if (!response.ok) {
@@ -178,16 +35,9 @@ async function loadPrototypes(search = '') {
         }
         
         prototypes = await response.json();
-        console.log('Prototypes loaded:', prototypes);
+        console.log('Prototypes loaded:', prototypes.length);
         
-        // Garantir que todos tenham arrays de participantes
-        prototypes = prototypes.map(p => ({
-            ...p,
-            participants: p.participants || [],
-            responsible: p.responsible || ''
-        }));
-        
-        applyFilters();
+        renderPrototypesList();
         
     } catch (error) {
         console.error('Error loading prototypes:', error);
@@ -195,118 +45,46 @@ async function loadPrototypes(search = '') {
     }
 }
 
-function createNewPrototype() {
-    currentPrototype = null;
-    document.getElementById('prototypeModalTitle').textContent = 'New Prototype';
-    document.getElementById('prototypeName').value = '';
-    document.getElementById('prototypeIdentifier').value = '';
-    document.getElementById('prototypeDescription').value = '';
+function renderPrototypesList() {
+    const listEl = document.getElementById('prototypesList');
     
-    // Preencher select de responsável
-    populateUserSelects();
-    document.getElementById('prototypeResponsible').value = '';
-    
-    // Limpar seleção de participantes
-    const participantsSelect = document.getElementById('prototypeParticipants');
-    Array.from(participantsSelect.options).forEach(opt => opt.selected = false);
-    
-    document.getElementById('prototypeModal').classList.add('active');
-}
-
-function populateUserSelects() {
-    // Preencher responsável
-    const responsibleSelect = document.getElementById('prototypeResponsible');
-    responsibleSelect.innerHTML = '<option value="">Selecione um responsável...</option>';
-    
-    users.forEach(user => {
-        const option = document.createElement('option');
-        option.value = user.username;
-        // Mostrar email apenas se existir e não for vazio
-        const displayText = user.email && user.email.trim() !== '' 
-            ? `${user.username} (${user.email})` 
-            : user.username;
-        option.textContent = displayText;
-        responsibleSelect.appendChild(option);
-    });
-    
-    // Preencher participantes
-    const participantsSelect = document.getElementById('prototypeParticipants');
-    participantsSelect.innerHTML = '';
-    
-    users.forEach(user => {
-        const option = document.createElement('option');
-        option.value = user.username;
-        // Mostrar email apenas se existir e não for vazio
-        const displayText = user.email && user.email.trim() !== '' 
-            ? `${user.username} (${user.email})` 
-            : user.username;
-        option.textContent = displayText;
-        participantsSelect.appendChild(option);
-    });
-}
-
-function closePrototypeModal() {
-    document.getElementById('prototypeModal').classList.remove('active');
-}
-
-async function savePrototype() {
-    const name = document.getElementById('prototypeName').value.trim();
-    const identifier = document.getElementById('prototypeIdentifier').value.trim();
-    const description = document.getElementById('prototypeDescription').value.trim();
-    const responsible = document.getElementById('prototypeResponsible').value;
-    
-    // Obter participantes selecionados
-    const participantsSelect = document.getElementById('prototypeParticipants');
-    const selectedParticipants = Array.from(participantsSelect.selectedOptions)
-        .map(opt => opt.value)
-        .filter(v => v);
-    
-    if (!name) {
-        alert('Please enter a prototype name');
+    if (prototypes.length === 0) {
+        listEl.innerHTML = `
+            <div class="empty-state">
+                <h3>No prototypes yet</h3>
+                <p>Create your first prototype to get started</p>
+            </div>
+        `;
         return;
     }
     
-    try {
-        const data = {
-            name,
-            identifier,
-            description,
-            responsible,
-            participants: JSON.stringify(selectedParticipants)
-        };
-        
-        if (currentPrototype) {
-            data.id = currentPrototype.id;
-        }
-        
-        const formData = new FormData();
-        formData.append('action', currentPrototype ? 'update_prototype' : 'create_prototype');
-        Object.entries(data).forEach(([key, value]) => {
-            formData.append(key, value);
+    // Criar cópia para ordenar
+    let displayPrototypes = [...prototypes];
+    
+    // Verificar se deve ordenar alfabeticamente
+    const sortCheck = document.getElementById('sortAlphabetical');
+    if (sortCheck && sortCheck.checked) {
+        displayPrototypes.sort((a, b) => {
+            const nameA = (a.short_name || a.title || a.name || '').toLowerCase();
+            const nameB = (b.short_name || b.title || b.name || '').toLowerCase();
+            return nameA.localeCompare(nameB);
         });
-        
-        const response = await fetch(API_PATH, {
-            method: 'POST',
-            body: formData
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            closePrototypeModal();
-            await loadPrototypes();
-            if (result.id) {
-                selectPrototype(result.id);
-            } else if (currentPrototype) {
-                selectPrototype(currentPrototype.id);
-            }
-        } else {
-            alert('Error: ' + (result.error || 'Unknown error'));
-        }
-    } catch (error) {
-        console.error('Error saving prototype:', error);
-        alert('Failed to save prototype');
     }
+    
+    listEl.innerHTML = displayPrototypes.map(p => {
+        const displayName = p.short_name || p.title || p.name || 'Unnamed';
+        
+        return `
+            <div class="prototype-item ${currentPrototype?.id === p.id ? 'active' : ''}" 
+                 onclick="selectPrototype(${p.id})">
+                <div class="prototype-name">${escapeHtml(displayName)}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function createNewPrototype() {
+    alert('Função criar protótipo - a implementar');
 }
 
 async function selectPrototype(id) {
@@ -314,15 +92,12 @@ async function selectPrototype(id) {
         const response = await fetch(`${API_PATH}?action=get_prototype&id=${id}`);
         currentPrototype = await response.json();
         
-        // Garantir arrays
-        currentPrototype.participants = currentPrototype.participants || [];
-        currentPrototype.responsible = currentPrototype.responsible || '';
-        
         renderPrototypeDetail();
         await loadUserStories(id);
         
-        // Atualizar lista visual - encontrar o item correto
-        applyFilters(); // Isto vai re-renderizar a lista com o item ativo
+        // Atualizar visual
+        renderPrototypesList();
+        
     } catch (error) {
         console.error('Error loading prototype:', error);
         alert('Failed to load prototype details');
@@ -332,59 +107,26 @@ async function selectPrototype(id) {
 function renderPrototypeDetail() {
     const panel = document.getElementById('detailPanel');
     
-    const participants = currentPrototype.participants || [];
-    const participantsHtml = participants.length > 0 
-        ? participants.map(p => `
-            <div class="participant-item">
-                <div class="participant-info">
-                    <span>👤 ${escapeHtml(p)}</span>
-                </div>
-            </div>
-        `).join('')
-        : '<p class="text-muted">Nenhum participante</p>';
+    const displayName = currentPrototype.short_name || currentPrototype.title || currentPrototype.name || 'Unnamed';
     
     panel.innerHTML = `
         <div class="detail-header">
             <div>
-                <h1 class="detail-title">${escapeHtml(currentPrototype.name)}</h1>
-                ${currentPrototype.identifier ? `<p style="color: #64748b; font-size: 14px;">ID: ${escapeHtml(currentPrototype.identifier)}</p>` : ''}
+                <h1 class="detail-title">${escapeHtml(displayName)}</h1>
             </div>
             <div class="detail-actions">
-                <button class="btn btn-primary" onclick="editPrototype()">✏️ Edit</button>
                 <button class="btn btn-danger" onclick="deletePrototype()">🗑️ Delete</button>
             </div>
         </div>
 
         <!-- Basic Information -->
         <div class="section">
-            <div class="section-header">
-                <h3>📋 Basic Information</h3>
-                <button class="edit-btn" onclick="editBasicInfo()" title="Editar">✏️</button>
-            </div>
+            <h3>📋 Basic Information</h3>
             <div class="info-grid">
                 <div class="info-item">
                     <div class="info-label">Description</div>
-                    <div class="info-value">${escapeHtml(currentPrototype.description || 'No description')}</div>
+                    <div class="info-value">${escapeHtml(currentPrototype.vision || currentPrototype.description || 'No description')}</div>
                 </div>
-                <div class="info-item">
-                    <div class="info-label">Responsável</div>
-                    <div class="info-value">
-                        ${currentPrototype.responsible 
-                            ? `<span class="participant-badge">👤 ${escapeHtml(currentPrototype.responsible)}</span>` 
-                            : '<span class="text-muted">Não definido</span>'}
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Participants -->
-        <div class="section">
-            <div class="section-header">
-                <h3>👥 Participantes</h3>
-                <button class="edit-btn" onclick="editParticipants()" title="Editar">✏️</button>
-            </div>
-            <div class="participants-list">
-                ${participantsHtml}
             </div>
         </div>
 
@@ -401,39 +143,8 @@ function renderPrototypeDetail() {
     `;
 }
 
-function editBasicInfo() {
-    editPrototype();
-}
-
-function editParticipants() {
-    editPrototype();
-}
-
-function editPrototype() {
-    document.getElementById('prototypeModalTitle').textContent = 'Edit Prototype';
-    document.getElementById('prototypeName').value = currentPrototype.name;
-    document.getElementById('prototypeIdentifier').value = currentPrototype.identifier || '';
-    document.getElementById('prototypeDescription').value = currentPrototype.description || '';
-    
-    // Preencher selects
-    populateUserSelects();
-    
-    // Selecionar responsável
-    document.getElementById('prototypeResponsible').value = currentPrototype.responsible || '';
-    
-    // Selecionar participantes
-    const participantsSelect = document.getElementById('prototypeParticipants');
-    const currentParticipants = currentPrototype.participants || [];
-    
-    Array.from(participantsSelect.options).forEach(opt => {
-        opt.selected = currentParticipants.includes(opt.value);
-    });
-    
-    document.getElementById('prototypeModal').classList.add('active');
-}
-
 async function deletePrototype() {
-    if (!confirm('Are you sure you want to delete this prototype? This action cannot be undone.')) {
+    if (!confirm('Are you sure you want to delete this prototype?')) {
         return;
     }
     
@@ -459,7 +170,7 @@ async function deletePrototype() {
             `;
             await loadPrototypes();
         } else {
-            alert('Error deleting prototype: ' + (result.error || 'Unknown error'));
+            alert('Error deleting prototype');
         }
     } catch (error) {
         console.error('Error deleting prototype:', error);
@@ -489,9 +200,8 @@ function renderUserStories() {
     container.innerHTML = stories.map(story => `
         <div class="story-item">
             <div class="story-header">
-                <span class="badge badge-info">${escapeHtml(story.priority)}</span>
+                <span class="badge badge-info">${escapeHtml(story.moscow_priority || story.priority || 'Should')}</span>
                 <div class="story-actions">
-                    <button class="btn btn-small btn-secondary" onclick="editStory(${story.id})">✏️</button>
                     <button class="btn btn-small btn-danger" onclick="deleteStory(${story.id})">🗑️</button>
                 </div>
             </div>
@@ -501,7 +211,6 @@ function renderUserStories() {
 }
 
 function createNewStory() {
-    currentStory = null;
     document.getElementById('storyModalTitle').textContent = 'New User Story';
     document.getElementById('storyText').value = '';
     document.getElementById('storyPriority').value = 'Should';
@@ -510,16 +219,6 @@ function createNewStory() {
 
 function closeStoryModal() {
     document.getElementById('storyModal').classList.remove('active');
-}
-
-async function editStory(id) {
-    currentStory = stories.find(s => s.id === id);
-    if (!currentStory) return;
-    
-    document.getElementById('storyModalTitle').textContent = 'Edit User Story';
-    document.getElementById('storyText').value = currentStory.story_text;
-    document.getElementById('storyPriority').value = currentStory.priority;
-    document.getElementById('storyModal').classList.add('active');
 }
 
 async function saveStory() {
@@ -533,14 +232,10 @@ async function saveStory() {
     
     try {
         const formData = new FormData();
-        formData.append('action', currentStory ? 'update_story' : 'create_story');
+        formData.append('action', 'create_story');
         formData.append('prototype_id', currentPrototype.id);
         formData.append('story_text', text);
         formData.append('priority', priority);
-        
-        if (currentStory) {
-            formData.append('id', currentStory.id);
-        }
         
         const response = await fetch(API_PATH, {
             method: 'POST',
@@ -553,7 +248,7 @@ async function saveStory() {
             closeStoryModal();
             await loadUserStories(currentPrototype.id);
         } else {
-            alert('Error: ' + (result.error || 'Unknown error'));
+            alert('Error saving story');
         }
     } catch (error) {
         console.error('Error saving story:', error);
@@ -581,7 +276,7 @@ async function deleteStory(id) {
         if (result.success) {
             await loadUserStories(currentPrototype.id);
         } else {
-            alert('Error: ' + (result.error || 'Unknown error'));
+            alert('Error deleting story');
         }
     } catch (error) {
         console.error('Error deleting story:', error);

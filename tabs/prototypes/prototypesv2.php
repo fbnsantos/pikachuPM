@@ -468,18 +468,18 @@
             <h2>Prototypes</h2>
             <div class="search-box">
                 <input type="text" id="searchInput" placeholder="Search prototypes...">
-                <button class="btn btn-primary" onclick="createNewPrototype()">+ New</button>
+                <button class="btn btn-primary" id="btnNewPrototype">+ New</button>
             </div>
         </div>
 
         <!-- Filtros -->
         <div class="filters-box">
             <div class="filter-item">
-                <input type="checkbox" id="filterAlphabetical" onchange="applyFilters()">
+                <input type="checkbox" id="filterAlphabetical">
                 <label for="filterAlphabetical">Ordenar alfabeticamente</label>
             </div>
             <div class="filter-item">
-                <input type="checkbox" id="filterMyResponsible" onchange="applyFilters()">
+                <input type="checkbox" id="filterMyResponsible">
                 <label for="filterMyResponsible">Apenas meus protótipos</label>
             </div>
         </div>
@@ -506,7 +506,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="prototypeModalTitle">New Prototype</h3>
-            <button class="close-modal" onclick="closePrototypeModal()">&times;</button>
+            <button class="close-modal" id="btnClosePrototypeModal">&times;</button>
         </div>
         <div class="form-group">
             <label>Name</label>
@@ -536,8 +536,8 @@
             </small>
         </div>
         <div class="action-bar">
-            <button class="btn btn-primary" onclick="savePrototype()">Save</button>
-            <button class="btn btn-secondary" onclick="closePrototypeModal()">Cancel</button>
+            <button class="btn btn-primary" id="btnSavePrototype">Save</button>
+            <button class="btn btn-secondary" id="btnCancelPrototype">Cancel</button>
         </div>
     </div>
 </div>
@@ -547,7 +547,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="storyModalTitle">New User Story</h3>
-            <button class="close-modal" onclick="closeStoryModal()">&times;</button>
+            <button class="close-modal" id="btnCloseStoryModal">&times;</button>
         </div>
         <div class="form-group">
             <label>Story Text</label>
@@ -563,8 +563,8 @@
             </select>
         </div>
         <div class="action-bar">
-            <button class="btn btn-primary" onclick="saveStory()">Save Story</button>
-            <button class="btn btn-secondary" onclick="closeStoryModal()">Cancel</button>
+            <button class="btn btn-primary" id="btnSaveStory">Save Story</button>
+            <button class="btn btn-secondary" id="btnCancelStory">Cancel</button>
         </div>
     </div>
 </div>
@@ -576,5 +576,13 @@
     
     // Ajustar caminho da API dinamicamente
     window.PROTOTYPES_API_PATH = basePath + 'prototypes_api.php';
+    
+    // Carregar o script dinamicamente
+    const script = document.createElement('script');
+    script.src = basePath + 'prototypes.js';
+    script.onerror = function() {
+        console.error('Erro ao carregar prototypes.js de:', basePath + 'prototypes.js');
+        alert('Erro ao carregar JavaScript. Verifique se o arquivo tabs/prototypes/prototypes.js existe.');
+    };
+    document.body.appendChild(script);
 </script>
-<script src="<?php echo (strpos($_SERVER['REQUEST_URI'], 'tab=') !== false) ? 'tabs/prototypes/' : ''; ?>prototypes.js"></script>

@@ -15,9 +15,60 @@ document.addEventListener('DOMContentLoaded', () => {
     loadUsers(); // Carregar usuários primeiro
     loadPrototypes();
     
-    document.getElementById('searchInput').addEventListener('input', (e) => {
-        applyFilters();
-    });
+    // Event listeners
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            applyFilters();
+        });
+    }
+    
+    // Filtros
+    const filterAlphabetical = document.getElementById('filterAlphabetical');
+    if (filterAlphabetical) {
+        filterAlphabetical.addEventListener('change', applyFilters);
+    }
+    
+    const filterMyResponsible = document.getElementById('filterMyResponsible');
+    if (filterMyResponsible) {
+        filterMyResponsible.addEventListener('change', applyFilters);
+    }
+    
+    // Botões
+    const btnNewPrototype = document.getElementById('btnNewPrototype');
+    if (btnNewPrototype) {
+        btnNewPrototype.addEventListener('click', createNewPrototype);
+    }
+    
+    const btnClosePrototypeModal = document.getElementById('btnClosePrototypeModal');
+    if (btnClosePrototypeModal) {
+        btnClosePrototypeModal.addEventListener('click', closePrototypeModal);
+    }
+    
+    const btnSavePrototype = document.getElementById('btnSavePrototype');
+    if (btnSavePrototype) {
+        btnSavePrototype.addEventListener('click', savePrototype);
+    }
+    
+    const btnCancelPrototype = document.getElementById('btnCancelPrototype');
+    if (btnCancelPrototype) {
+        btnCancelPrototype.addEventListener('click', closePrototypeModal);
+    }
+    
+    const btnCloseStoryModal = document.getElementById('btnCloseStoryModal');
+    if (btnCloseStoryModal) {
+        btnCloseStoryModal.addEventListener('click', closeStoryModal);
+    }
+    
+    const btnSaveStory = document.getElementById('btnSaveStory');
+    if (btnSaveStory) {
+        btnSaveStory.addEventListener('click', saveStory);
+    }
+    
+    const btnCancelStory = document.getElementById('btnCancelStory');
+    if (btnCancelStory) {
+        btnCancelStory.addEventListener('click', closeStoryModal);
+    }
 });
 
 // ===== CARREGAR USUÁRIOS =====

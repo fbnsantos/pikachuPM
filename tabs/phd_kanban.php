@@ -73,7 +73,45 @@ try {
     die("Erro ao conectar à base de dados: " . $e->getMessage());
 }
 
-// Processar ações
+// ============================================
+// PROCESSAR PEDIDOS AJAX PRIMEIRO (ANTES DE QUALQUER OUTPUT)
+// ============================================
+
+// Atualizar estágio da tarefa (via AJAX)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_stage' && isset($_POST['ajax'])) {
+    header('Content-Type: application/json');
+    
+    $task_id = intval($_POST['task_id']);
+    $new_stage = $_POST['new_stage'];
+    
+    $valid_stages = ['pensada', 'execucao', 'espera', 'concluida'];
+    
+    if (!in_array($new_stage, $valid_stages)) {
+        echo json_encode(['success' => false, 'error' => 'Estágio inválido']);
+        $db->close();
+        exit;
+    }
+    
+    $new_estado = $stage_to_estado_map[$new_stage];
+    $stmt = $db->prepare('UPDATE todos SET estagio = ?, estado = ? WHERE id = ? AND projeto_id = ?');
+    $projeto_id = PHD_PROJECT_ID;
+    $stmt->bind_param('ssii', $new_stage, $new_estado, $task_id, $projeto_id);
+    
+    if ($stmt->execute()) {
+        echo json_encode(['success' => true]);
+    } else {
+        echo json_encode(['success' => false, 'error' => $stmt->error]);
+    }
+    
+    $stmt->close();
+    $db->close();
+    exit; // IMPORTANTE: Parar execução aqui
+}
+
+// ============================================
+// PROCESSAR AÇÕES NORMAIS (COM REDIRECT)
+// ============================================
+
 $success_message = '';
 $error_message = '';
 $user_id = $_SESSION['user_id'];
@@ -103,8 +141,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Atualizar estágio da tarefa (via AJAX ou POST)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_stage') {
+// Atualizar estágio da tarefa (via POST normal, não AJAX)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_stage' && !isset($_POST['ajax'])) {
     $task_id = intval($_POST['task_id']);
     $new_stage = $_POST['new_stage'];
     
@@ -116,32 +154,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $stmt->bind_param('ssii', $new_stage, $new_estado, $task_id, $projeto_id);
         
         if ($stmt->execute()) {
-            if (isset($_POST['ajax'])) {
-                header('Content-Type: application/json');
-                echo json_encode(['success' => true]);
-                $stmt->close();
-                $db->close();
-                exit;
-            }
             $success_message = "Estágio atualizado com sucesso!";
         } else {
-            if (isset($_POST['ajax'])) {
-                header('Content-Type: application/json');
-                echo json_encode(['success' => false, 'error' => $stmt->error]);
-                $stmt->close();
-                $db->close();
-                exit;
-            }
             $error_message = "Erro ao atualizar estágio: " . $stmt->error;
         }
         $stmt->close();
     } else {
-        if (isset($_POST['ajax'])) {
-            header('Content-Type: application/json');
-            echo json_encode(['success' => false, 'error' => 'Estágio inválido']);
-            $db->close();
-            exit;
-        }
         $error_message = "Estágio inválido";
     }
 }

@@ -135,6 +135,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $error_message = "Erro ao atualizar estágio: " . $stmt->error;
         }
         $stmt->close();
+    } else {
+        if (isset($_POST['ajax'])) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'Estágio inválido']);
+            $db->close();
+            exit;
+        }
+        $error_message = "Estágio inválido";
     }
 }
 

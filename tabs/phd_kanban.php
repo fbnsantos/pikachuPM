@@ -566,7 +566,7 @@ $total_artigos = count($artigos);
             </div>
             <div class="stat-item">
                 <div class="stat-number"><?= $total_artigos ?></div>
-                <div class="stat-label">Artigos</div>
+                <div class="stat-label">KPIs</div>
             </div>
         </div>
     </div>

@@ -246,9 +246,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $stmt->close();
 }
 
-// Buscar todos os utilizadores
+// Buscar todos os utilizadores com prioridade para quem tem info de doutoramento
 $all_users = [];
-$stmt = $db->query('SELECT user_id, username FROM user_tokens ORDER BY username');
+$stmt = $db->query('
+    SELECT ut.user_id, ut.username,
+           CASE WHEN pi.id IS NOT NULL THEN 1 ELSE 0 END as has_phd_info
+    FROM user_tokens ut 
+    LEFT JOIN phd_info pi ON ut.user_id = pi.user_id
+    ORDER BY has_phd_info DESC, ut.username ASC
+');
 if ($stmt) {
     while ($row = $stmt->fetch_assoc()) {
         $all_users[] = $row;
@@ -429,7 +435,7 @@ $total_artigos = count($artigos);
             <select class="form-select" id="userSelector" style="width: 250px;">
                 <?php foreach ($all_users as $u): ?>
                     <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $selected_user ? 'selected' : '' ?>>
-                        <?= htmlspecialchars($u['username']) ?>
+                        <?= $u['has_phd_info'] ? '⭐ ' : '' ?><?= htmlspecialchars($u['username']) ?>
                     </option>
                 <?php endforeach; ?>
             </select>
@@ -844,7 +850,11 @@ $total_artigos = count($artigos);
 document.addEventListener('DOMContentLoaded', function() {
     // Seletor de utilizador
     document.getElementById('userSelector').addEventListener('change', function() {
-        window.location.href = '?tab=phd_kanboard&user=' + this.value;
+        const userId = this.value;
+        const currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.set('tab', 'phd_kanboard');
+        currentUrl.searchParams.set('user', userId);
+        window.location.href = currentUrl.toString();
     });
     
     // Drag and Drop

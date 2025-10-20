@@ -258,6 +258,25 @@
             font-family: inherit;
         }
 
+        .form-group select[multiple] {
+            height: auto;
+            min-height: 150px;
+        }
+
+        .form-group select[multiple] option {
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+
+        .form-group select[multiple] option:hover {
+            background: #e5e7eb;
+        }
+
+        .form-group select[multiple] option:checked {
+            background: #3b82f6;
+            color: white;
+        }
+
         .form-group textarea {
             resize: vertical;
             min-height: 100px;
@@ -512,11 +531,18 @@
             </div>
             <div class="form-group">
                 <label>Responsável</label>
-                <input type="text" id="prototypeResponsible" placeholder="Nome do responsável">
+                <select id="prototypeResponsible">
+                    <option value="">Selecione um responsável...</option>
+                </select>
             </div>
             <div class="form-group">
-                <label>Participantes (separados por vírgula)</label>
-                <input type="text" id="prototypeParticipants" placeholder="João, Maria, Pedro">
+                <label>Participantes</label>
+                <select id="prototypeParticipants" multiple size="8">
+                    <option value="">Carregando usuários...</option>
+                </select>
+                <small style="color: #64748b; font-size: 12px; margin-top: 5px; display: block;">
+                    Segure Ctrl (Windows) ou Cmd (Mac) para selecionar múltiplos
+                </small>
             </div>
             <div class="action-bar">
                 <button class="btn btn-primary" onclick="savePrototype()">Save</button>

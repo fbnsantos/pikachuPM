@@ -3,6 +3,7 @@ let currentPrototype = null;
 let currentStory = null;
 let prototypes = [];
 let stories = [];
+let users = []; // Lista de usuários
 let currentUser = 'test'; // Pode ser obtido de uma sessão PHP
 
 // Caminho da API
@@ -11,12 +12,25 @@ const API_PATH = window.PROTOTYPES_API_PATH || 'prototypes_api.php';
 // Inicialização
 document.addEventListener('DOMContentLoaded', () => {
     console.log('Prototypes JS loaded. API Path:', API_PATH);
+    loadUsers(); // Carregar usuários primeiro
     loadPrototypes();
     
     document.getElementById('searchInput').addEventListener('input', (e) => {
         applyFilters();
     });
 });
+
+// ===== CARREGAR USUÁRIOS =====
+async function loadUsers() {
+    try {
+        const response = await fetch(`${API_PATH}?action=get_users`);
+        users = await response.json();
+        console.log('Users loaded:', users);
+    } catch (error) {
+        console.error('Error loading users:', error);
+        users = [];
+    }
+}
 
 // ===== FILTROS =====
 function applyFilters() {
@@ -29,7 +43,7 @@ function applyFilters() {
     // Filtro de busca
     if (searchTerm) {
         filtered = filtered.filter(p => 
-            p.name.toLowerCase().includes(searchTerm) ||
+            (p.name && p.name.toLowerCase().includes(searchTerm)) ||
             (p.description && p.description.toLowerCase().includes(searchTerm)) ||
             (p.identifier && p.identifier.toLowerCase().includes(searchTerm))
         );
@@ -44,7 +58,14 @@ function applyFilters() {
     
     // Ordenação alfabética
     if (alphabetical) {
-        filtered.sort((a, b) => a.name.localeCompare(b.name));
+        filtered.sort((a, b) => {
+            const nameA = (a.name || '').toLowerCase();
+            const nameB = (b.name || '').toLowerCase();
+            return nameA.localeCompare(nameB);
+        });
+    } else {
+        // Ordenar por ID (ordem de criação) quando não alfabético
+        filtered.sort((a, b) => b.id - a.id);
     }
     
     renderPrototypesList(filtered);
@@ -121,9 +142,40 @@ function createNewPrototype() {
     document.getElementById('prototypeName').value = '';
     document.getElementById('prototypeIdentifier').value = '';
     document.getElementById('prototypeDescription').value = '';
+    
+    // Preencher select de responsável
+    populateUserSelects();
     document.getElementById('prototypeResponsible').value = '';
-    document.getElementById('prototypeParticipants').value = '';
+    
+    // Limpar seleção de participantes
+    const participantsSelect = document.getElementById('prototypeParticipants');
+    Array.from(participantsSelect.options).forEach(opt => opt.selected = false);
+    
     document.getElementById('prototypeModal').classList.add('active');
+}
+
+function populateUserSelects() {
+    // Preencher responsável
+    const responsibleSelect = document.getElementById('prototypeResponsible');
+    responsibleSelect.innerHTML = '<option value="">Selecione um responsável...</option>';
+    
+    users.forEach(user => {
+        const option = document.createElement('option');
+        option.value = user.username;
+        option.textContent = `${user.username} (${user.email || 'sem email'})`;
+        responsibleSelect.appendChild(option);
+    });
+    
+    // Preencher participantes
+    const participantsSelect = document.getElementById('prototypeParticipants');
+    participantsSelect.innerHTML = '';
+    
+    users.forEach(user => {
+        const option = document.createElement('option');
+        option.value = user.username;
+        option.textContent = `${user.username} (${user.email || 'sem email'})`;
+        participantsSelect.appendChild(option);
+    });
 }
 
 function closePrototypeModal() {
@@ -134,18 +186,18 @@ async function savePrototype() {
     const name = document.getElementById('prototypeName').value.trim();
     const identifier = document.getElementById('prototypeIdentifier').value.trim();
     const description = document.getElementById('prototypeDescription').value.trim();
-    const responsible = document.getElementById('prototypeResponsible').value.trim();
-    const participantsStr = document.getElementById('prototypeParticipants').value.trim();
+    const responsible = document.getElementById('prototypeResponsible').value;
+    
+    // Obter participantes selecionados
+    const participantsSelect = document.getElementById('prototypeParticipants');
+    const selectedParticipants = Array.from(participantsSelect.selectedOptions)
+        .map(opt => opt.value)
+        .filter(v => v);
     
     if (!name) {
         alert('Please enter a prototype name');
         return;
     }
-    
-    // Processar participantes
-    const participants = participantsStr 
-        ? participantsStr.split(',').map(p => p.trim()).filter(p => p)
-        : [];
     
     try {
         const data = {
@@ -153,7 +205,7 @@ async function savePrototype() {
             identifier,
             description,
             responsible,
-            participants: JSON.stringify(participants)
+            participants: JSON.stringify(selectedParticipants)
         };
         
         if (currentPrototype) {
@@ -178,6 +230,8 @@ async function savePrototype() {
             await loadPrototypes();
             if (result.id) {
                 selectPrototype(result.id);
+            } else if (currentPrototype) {
+                selectPrototype(currentPrototype.id);
             }
         } else {
             alert('Error: ' + (result.error || 'Unknown error'));
@@ -293,9 +347,21 @@ function editPrototype() {
     document.getElementById('prototypeName').value = currentPrototype.name;
     document.getElementById('prototypeIdentifier').value = currentPrototype.identifier || '';
     document.getElementById('prototypeDescription').value = currentPrototype.description || '';
+    
+    // Preencher selects
+    populateUserSelects();
+    
+    // Selecionar responsável
     document.getElementById('prototypeResponsible').value = currentPrototype.responsible || '';
-    document.getElementById('prototypeParticipants').value = 
-        (currentPrototype.participants || []).join(', ');
+    
+    // Selecionar participantes
+    const participantsSelect = document.getElementById('prototypeParticipants');
+    const currentParticipants = currentPrototype.participants || [];
+    
+    Array.from(participantsSelect.options).forEach(opt => {
+        opt.selected = currentParticipants.includes(opt.value);
+    });
+    
     document.getElementById('prototypeModal').classList.add('active');
 }
 

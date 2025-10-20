@@ -30,8 +30,38 @@ $action = $_GET['action'] ?? $_POST['action'] ?? '';
 $user_id = $_SESSION['user_id'] ?? null;
 $username = $_SESSION['username'] ?? 'guest';
 
+// Função helper para verificar se tabela existe
+function tableExists($pdo, $table) {
+    try {
+        $result = $pdo->query("SHOW TABLES LIKE '$table'");
+        return $result->rowCount() > 0;
+    } catch (PDOException $e) {
+        return false;
+    }
+}
+
 try {
     switch($action) {
+        // ===== USERS =====
+        case 'get_users':
+            // Buscar usuários da tabela user_tokens
+            if (tableExists($pdo, 'user_tokens')) {
+                $stmt = $pdo->query("
+                    SELECT DISTINCT user_id, username, email 
+                    FROM user_tokens 
+                    WHERE username IS NOT NULL 
+                    ORDER BY username ASC
+                ");
+                $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                echo json_encode($users);
+            } else {
+                // Fallback: retornar usuário da sessão
+                echo json_encode([
+                    ['user_id' => $user_id ?? 1, 'username' => $username, 'email' => '']
+                ]);
+            }
+            break;
+        
         // ===== PROTOTYPES =====
         case 'get_prototypes':
             $search = $_GET['search'] ?? '';

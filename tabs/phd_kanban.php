@@ -79,6 +79,12 @@ try {
 
 // Atualizar estágio da tarefa (via AJAX)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_stage' && isset($_POST['ajax'])) {
+    
+    // Limpar qualquer output buffer que possa existir
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
+    
     header('Content-Type: application/json');
     
     $task_id = intval($_POST['task_id']);
@@ -919,48 +925,25 @@ document.addEventListener('DOMContentLoaded', function() {
                 formData.append('action', 'update_stage');
                 formData.append('task_id', taskId);
                 formData.append('new_stage', newStage);
-                formData.append('ajax', '1');
                 
-                fetch(window.location.href, {
+                fetch('phd_kanban_ajax.php', {
                     method: 'POST',
                     body: formData
                 })
-                .then(response => {
-                    console.log('Status:', response.status);
-                    console.log('Content-Type:', response.headers.get('content-type'));
-                    return response.text();
-                })
-                .then(text => {
-                    console.log('Resposta recebida:', text.substring(0, 500));
-                    
-                    try {
-                        const data = JSON.parse(text);
-                        console.log('JSON parseado:', data);
-                        
-                        if (data.success) {
-                            console.log('✓ Sucesso! Recarregando...');
-                            location.reload();
-                        } else {
-                            console.error('✗ Erro retornado:', data.error);
-                            alert('Erro: ' + data.error);
-                            location.reload();
-                        }
-                    } catch (e) {
-                        console.error('✗ Erro ao fazer parse do JSON:', e);
-                        console.log('A resposta não é JSON válido. Provavelmente HTML da página.');
-                        console.log('Isso significa que o exit() não está a funcionar corretamente.');
-                        
-                        // Verificar se tem HTML no retorno
-                        if (text.includes('<!DOCTYPE') || text.includes('<html')) {
-                            alert('ERRO: A página inteira está a ser retornada. O código PHP não está a fazer exit() após o AJAX.');
-                        }
-                        
-                        // Recarregar mesmo assim
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Sucesso - recarregar página
+                        location.reload();
+                    } else {
+                        console.error('Erro:', data.error);
+                        alert('Erro ao mover tarefa: ' + data.error);
                         location.reload();
                     }
                 })
                 .catch(error => {
-                    console.error('✗ Erro de rede:', error);
+                    console.error('Erro de rede:', error);
+                    alert('Erro de conexão. A tarefa pode ter sido movida. Recarregando...');
                     location.reload();
                 });
             }

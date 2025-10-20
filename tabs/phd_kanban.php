@@ -662,44 +662,106 @@ $total_artigos = count($artigos);
     
     <div class="card mt-4">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="bi bi-file-text"></i> Artigos e Publicações</h4>
+            <h4 class="mb-0"><i class="bi bi-journal-code"></i> Produção Científica</h4>
             <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addArtigoModal">
                 <i class="bi bi-plus-circle"></i> Adicionar
             </button>
         </div>
         <div class="card-body">
             <?php if (empty($artigos)): ?>
-                <p class="text-muted">Nenhum artigo registado.</p>
+                <p class="text-muted">Nenhuma produção científica registada.</p>
             <?php else: ?>
-                <?php foreach ($artigos as $artigo): ?>
-                    <div class="artigo-item">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div class="flex-grow-1">
-                                <div style="font-weight: bold; margin-bottom: 8px;"><?= htmlspecialchars($artigo['titulo']) ?></div>
-                                <div style="font-size: 0.9em; color: #666;">
-                                    <strong>Autores:</strong> <?= htmlspecialchars($artigo['autores']) ?><br>
-                                    <strong>Revista:</strong> <?= htmlspecialchars($artigo['revista_conferencia']) ?><br>
-                                    <strong>Ano:</strong> <?= $artigo['ano'] ?> |
-                                    <strong>Tipo:</strong> <?= htmlspecialchars($artigo['tipo']) ?> |
-                                    <strong>Status:</strong> 
-                                    <span class="badge bg-<?= $artigo['status'] == 'publicado' ? 'success' : 'warning' ?>">
-                                        <?= htmlspecialchars($artigo['status']) ?>
-                                    </span>
-                                    <?php if ($artigo['link']): ?>
-                                        <br><a href="<?= htmlspecialchars($artigo['link']) ?>" target="_blank"><i class="bi bi-link"></i> Ver</a>
-                                    <?php endif; ?>
+                <?php 
+                // Agrupar por tipo
+                $artigos_por_tipo = [
+                    'artigo' => [],
+                    'conferencia' => [],
+                    'codigo' => [],
+                    'dataset' => [],
+                    'patente' => [],
+                    'capitulo' => [],
+                    'poster' => [],
+                    'outro' => []
+                ];
+                
+                foreach ($artigos as $artigo) {
+                    $tipo = $artigo['tipo'] ?: 'outro';
+                    if (isset($artigos_por_tipo[$tipo])) {
+                        $artigos_por_tipo[$tipo][] = $artigo;
+                    } else {
+                        $artigos_por_tipo['outro'][] = $artigo;
+                    }
+                }
+                
+                $tipo_icons = [
+                    'artigo' => 'file-text',
+                    'conferencia' => 'calendar-event',
+                    'codigo' => 'code-slash',
+                    'dataset' => 'database',
+                    'patente' => 'award',
+                    'capitulo' => 'book',
+                    'poster' => 'image',
+                    'outro' => 'file-earmark'
+                ];
+                
+                $tipo_labels = [
+                    'artigo' => 'Artigos',
+                    'conferencia' => 'Conferências',
+                    'codigo' => 'Código',
+                    'dataset' => 'Datasets',
+                    'patente' => 'Patentes',
+                    'capitulo' => 'Capítulos',
+                    'poster' => 'Posters',
+                    'outro' => 'Outros'
+                ];
+                
+                foreach ($artigos_por_tipo as $tipo => $items):
+                    if (empty($items)) continue;
+                ?>
+                    <h5 class="mt-3 mb-3">
+                        <i class="bi bi-<?= $tipo_icons[$tipo] ?>"></i> 
+                        <?= $tipo_labels[$tipo] ?> 
+                        <span class="badge bg-secondary"><?= count($items) ?></span>
+                    </h5>
+                    
+                    <?php foreach ($items as $artigo): ?>
+                        <div class="artigo-item">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex-grow-1">
+                                    <div style="font-weight: bold; margin-bottom: 8px;"><?= htmlspecialchars($artigo['titulo']) ?></div>
+                                    <div style="font-size: 0.9em; color: #666;">
+                                        <?php if ($artigo['autores']): ?>
+                                            <strong>Autores:</strong> <?= htmlspecialchars($artigo['autores']) ?><br>
+                                        <?php endif; ?>
+                                        <?php if ($artigo['revista_conferencia']): ?>
+                                            <strong><?= in_array($tipo, ['codigo', 'dataset']) ? 'Repositório:' : 'Publicado em:' ?></strong> 
+                                            <?= htmlspecialchars($artigo['revista_conferencia']) ?><br>
+                                        <?php endif; ?>
+                                        <?php if ($artigo['ano']): ?>
+                                            <strong>Ano:</strong> <?= $artigo['ano'] ?> | 
+                                        <?php endif; ?>
+                                        <strong>Status:</strong> 
+                                        <span class="badge bg-<?= $artigo['status'] == 'publicado' ? 'success' : ($artigo['status'] == 'submetido' ? 'warning' : 'secondary') ?>">
+                                            <?= htmlspecialchars($artigo['status']) ?>
+                                        </span>
+                                        <?php if ($artigo['link']): ?>
+                                            <br><a href="<?= htmlspecialchars($artigo['link']) ?>" target="_blank">
+                                                <i class="bi bi-link"></i> <?= in_array($tipo, ['codigo', 'dataset']) ? 'Aceder ao repositório' : 'Ver publicação' ?>
+                                            </a>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-outline-primary edit-artigo-btn" data-artigo-id="<?= $artigo['id'] ?>" title="Editar">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-danger delete-artigo-btn" data-artigo-id="<?= $artigo['id'] ?>" title="Eliminar">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
                                 </div>
                             </div>
-                            <div class="btn-group btn-group-sm">
-                                <button type="button" class="btn btn-outline-primary edit-artigo-btn" data-artigo-id="<?= $artigo['id'] ?>" title="Editar">
-                                    <i class="bi bi-pencil"></i>
-                                </button>
-                                <button type="button" class="btn btn-outline-danger delete-artigo-btn" data-artigo-id="<?= $artigo['id'] ?>" title="Eliminar">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </div>
                         </div>
-                    </div>
+                    <?php endforeach; ?>
                 <?php endforeach; ?>
             <?php endif; ?>
         </div>
@@ -830,22 +892,38 @@ $total_artigos = count($artigos);
                 <input type="hidden" name="action" value="add_artigo">
                 <input type="hidden" name="selected_user" value="<?= $selected_user ?>">
                 <div class="modal-header">
-                    <h5 class="modal-title">Adicionar Artigo</h5>
+                    <h5 class="modal-title">Adicionar Produção Científica</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Tipo *</label>
+                        <select class="form-select" name="tipo_artigo" id="tipo_artigo_add" onchange="updateFieldLabels('add')">
+                            <option value="artigo">Artigo Científico</option>
+                            <option value="conferencia">Conferência</option>
+                            <option value="codigo">Código/Software</option>
+                            <option value="dataset">Dataset</option>
+                            <option value="patente">Patente</option>
+                            <option value="capitulo">Capítulo de Livro</option>
+                            <option value="poster">Poster</option>
+                            <option value="outro">Outro</option>
+                        </select>
+                    </div>
                     <div class="mb-3">
                         <label class="form-label">Título *</label>
                         <input type="text" class="form-control" name="titulo_artigo" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Autores *</label>
-                        <input type="text" class="form-control" name="autores" required>
+                        <label class="form-label" id="autores_label_add">Autores *</label>
+                        <input type="text" class="form-control" name="autores" required 
+                               placeholder="Nome1, Nome2, Nome3">
+                        <small class="text-muted" id="autores_help_add">Separe os nomes por vírgulas</small>
                     </div>
                     <div class="row">
                         <div class="col-md-8 mb-3">
-                            <label class="form-label">Revista/Conferência</label>
-                            <input type="text" class="form-control" name="revista_conferencia">
+                            <label class="form-label" id="revista_label_add">Revista/Conferência</label>
+                            <input type="text" class="form-control" name="revista_conferencia" id="revista_add">
+                            <small class="text-muted" id="revista_help_add">Ex: Nature, IEEE, arXiv</small>
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Ano</label>
@@ -853,28 +931,23 @@ $total_artigos = count($artigos);
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Tipo</label>
-                            <select class="form-select" name="tipo_artigo">
-                                <option value="artigo">Artigo</option>
-                                <option value="conferencia">Conferência</option>
-                                <option value="capitulo">Capítulo</option>
-                                <option value="poster">Poster</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6 mb-3">
+                        <div class="col-md-12 mb-3">
                             <label class="form-label">Status</label>
                             <select class="form-select" name="status_artigo">
                                 <option value="publicado">Publicado</option>
                                 <option value="submetido">Submetido</option>
                                 <option value="em_preparacao">Em Preparação</option>
                                 <option value="aceite">Aceite</option>
+                                <option value="em_desenvolvimento">Em Desenvolvimento</option>
+                                <option value="disponivel">Disponível</option>
                             </select>
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Link</label>
-                        <input type="url" class="form-control" name="link_artigo">
+                        <label class="form-label" id="link_label_add">Link/URL</label>
+                        <input type="url" class="form-control" name="link_artigo" id="link_add"
+                               placeholder="https://">
+                        <small class="text-muted" id="link_help_add">DOI, GitHub, Zenodo, etc.</small>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -894,22 +967,37 @@ $total_artigos = count($artigos);
                 <input type="hidden" name="action" value="edit_artigo">
                 <input type="hidden" name="artigo_id" id="edit_artigo_id">
                 <div class="modal-header">
-                    <h5 class="modal-title">Editar Artigo</h5>
+                    <h5 class="modal-title">Editar Produção Científica</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Tipo *</label>
+                        <select class="form-select" name="tipo_artigo_edit" id="tipo_artigo_edit" onchange="updateFieldLabels('edit')">
+                            <option value="artigo">Artigo Científico</option>
+                            <option value="conferencia">Conferência</option>
+                            <option value="codigo">Código/Software</option>
+                            <option value="dataset">Dataset</option>
+                            <option value="patente">Patente</option>
+                            <option value="capitulo">Capítulo de Livro</option>
+                            <option value="poster">Poster</option>
+                            <option value="outro">Outro</option>
+                        </select>
+                    </div>
                     <div class="mb-3">
                         <label class="form-label">Título *</label>
                         <input type="text" class="form-control" name="titulo_artigo_edit" id="titulo_artigo_edit" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Autores *</label>
+                        <label class="form-label" id="autores_label_edit">Autores *</label>
                         <input type="text" class="form-control" name="autores_edit" id="autores_edit" required>
+                        <small class="text-muted" id="autores_help_edit">Separe os nomes por vírgulas</small>
                     </div>
                     <div class="row">
                         <div class="col-md-8 mb-3">
-                            <label class="form-label">Revista/Conferência</label>
+                            <label class="form-label" id="revista_label_edit">Revista/Conferência</label>
                             <input type="text" class="form-control" name="revista_conferencia_edit" id="revista_conferencia_edit">
+                            <small class="text-muted" id="revista_help_edit">Ex: Nature, IEEE, arXiv</small>
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Ano</label>
@@ -917,28 +1005,22 @@ $total_artigos = count($artigos);
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Tipo</label>
-                            <select class="form-select" name="tipo_artigo_edit" id="tipo_artigo_edit">
-                                <option value="artigo">Artigo</option>
-                                <option value="conferencia">Conferência</option>
-                                <option value="capitulo">Capítulo</option>
-                                <option value="poster">Poster</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6 mb-3">
+                        <div class="col-md-12 mb-3">
                             <label class="form-label">Status</label>
                             <select class="form-select" name="status_artigo_edit" id="status_artigo_edit">
                                 <option value="publicado">Publicado</option>
                                 <option value="submetido">Submetido</option>
                                 <option value="em_preparacao">Em Preparação</option>
                                 <option value="aceite">Aceite</option>
+                                <option value="em_desenvolvimento">Em Desenvolvimento</option>
+                                <option value="disponivel">Disponível</option>
                             </select>
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Link</label>
+                        <label class="form-label" id="link_label_edit">Link/URL</label>
                         <input type="url" class="form-control" name="link_artigo_edit" id="link_artigo_edit">
+                        <small class="text-muted" id="link_help_edit">DOI, GitHub, Zenodo, etc.</small>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -951,6 +1033,70 @@ $total_artigos = count($artigos);
 </div>
 
 <script>
+// Função para atualizar labels baseado no tipo selecionado
+function updateFieldLabels(mode) {
+    const tipo = document.getElementById('tipo_artigo_' + mode).value;
+    
+    const labels = {
+        autores: {
+            codigo: 'Autores/Desenvolvedores *',
+            dataset: 'Autores/Criadores *',
+            patente: 'Inventores *',
+            default: 'Autores *'
+        },
+        revista: {
+            codigo: 'Repositório',
+            dataset: 'Repositório',
+            patente: 'Escritório de Patentes',
+            conferencia: 'Conferência',
+            default: 'Revista/Publicação'
+        },
+        link: {
+            codigo: 'Link (GitHub, GitLab, etc.)',
+            dataset: 'Link (Zenodo, Figshare, etc.)',
+            patente: 'Link/Número da Patente',
+            default: 'Link/DOI'
+        },
+        revista_help: {
+            codigo: 'Ex: GitHub, GitLab, Bitbucket',
+            dataset: 'Ex: Zenodo, Figshare, OSF',
+            patente: 'Ex: INPI, EPO, USPTO',
+            default: 'Ex: Nature, IEEE, arXiv'
+        },
+        link_help: {
+            codigo: 'URL do repositório',
+            dataset: 'URL do repositório de dados',
+            patente: 'URL ou número oficial',
+            default: 'DOI, arXiv, ou URL'
+        }
+    };
+    
+    // Atualizar label de autores
+    document.getElementById('autores_label_' + mode).textContent = 
+        labels.autores[tipo] || labels.autores.default;
+    
+    // Atualizar label de revista
+    document.getElementById('revista_label_' + mode).textContent = 
+        labels.revista[tipo] || labels.revista.default;
+    
+    // Atualizar placeholder de revista
+    const revistaField = document.getElementById(mode === 'add' ? 'revista_add' : 'revista_conferencia_edit');
+    if (revistaField) {
+        revistaField.placeholder = labels.revista[tipo] || labels.revista.default;
+    }
+    
+    // Atualizar label de link
+    document.getElementById('link_label_' + mode).textContent = 
+        labels.link[tipo] || labels.link.default;
+    
+    // Atualizar help text
+    document.getElementById('revista_help_' + mode).textContent = 
+        labels.revista_help[tipo] || labels.revista_help.default;
+    
+    document.getElementById('link_help_' + mode).textContent = 
+        labels.link_help[tipo] || labels.link_help.default;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // Seletor de utilizador
     document.getElementById('userSelector').addEventListener('change', function() {

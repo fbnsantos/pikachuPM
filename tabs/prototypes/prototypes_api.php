@@ -58,8 +58,8 @@ try {
             $stmt = $pdo->prepare("
                 INSERT INTO prototypes (short_name, title, vision, target_group, needs, 
                                        product_description, business_goals, sentence, 
-                                       repo_links, documentation_links)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                       repo_links, documentation_links, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
                 $data['short_name'], $data['title'], $data['vision'],

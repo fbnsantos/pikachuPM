@@ -279,9 +279,10 @@ $total_days = $interval->days;
 .gantt-row {
     display: flex;
     align-items: center;
-    min-height: 60px;
+    min-height: var(--gantt-row-height, 60px);
     border-bottom: 1px solid #e9ecef;
     position: relative;
+    transition: min-height 0.3s ease;
 }
 
 .gantt-row:hover {
@@ -294,33 +295,38 @@ $total_days = $interval->days;
     font-weight: 500;
     border-right: 2px solid #dee2e6;
     flex-shrink: 0;
+    font-size: var(--gantt-label-font-size, 1rem);
+    transition: all 0.3s ease;
 }
 
 .gantt-row-label-name {
-    font-size: 1rem;
+    font-size: var(--gantt-label-name-size, 1rem);
     margin-bottom: 5px;
     color: #212529;
+    transition: font-size 0.3s ease;
 }
 
 .gantt-row-label-info {
-    font-size: 0.85rem;
+    font-size: var(--gantt-label-info-size, 0.85rem);
     color: #6c757d;
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
+    transition: font-size 0.3s ease;
 }
 
 .gantt-row-timeline {
     flex: 1;
     position: relative;
-    height: 60px;
+    height: var(--gantt-timeline-height, 60px);
     display: flex;
+    transition: height 0.3s ease;
 }
 
 .gantt-bar {
     position: absolute;
-    height: 36px;
-    top: 12px;
+    height: var(--gantt-bar-height, 36px);
+    top: calc((var(--gantt-timeline-height, 60px) - var(--gantt-bar-height, 36px)) / 2);
     border-radius: 4px;
     cursor: pointer;
     transition: all 0.2s;
@@ -328,7 +334,7 @@ $total_days = $interval->days;
     align-items: center;
     padding: 0 10px;
     color: white;
-    font-size: 0.85rem;
+    font-size: var(--gantt-bar-font-size, 0.85rem);
     font-weight: 500;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
@@ -530,6 +536,75 @@ $total_days = $interval->days;
     100% { transform: rotate(360deg); }
 }
 
+/* Densidade Normal (padrão) */
+.gantt-container.density-normal {
+    --gantt-row-height: 60px;
+    --gantt-timeline-height: 60px;
+    --gantt-bar-height: 36px;
+    --gantt-label-font-size: 1rem;
+    --gantt-label-name-size: 1rem;
+    --gantt-label-info-size: 0.85rem;
+    --gantt-bar-font-size: 0.85rem;
+}
+
+/* Densidade Média (metade) */
+.gantt-container.density-medium {
+    --gantt-row-height: 40px;
+    --gantt-timeline-height: 40px;
+    --gantt-bar-height: 24px;
+    --gantt-label-font-size: 0.9rem;
+    --gantt-label-name-size: 0.9rem;
+    --gantt-label-info-size: 0.75rem;
+    --gantt-bar-font-size: 0.75rem;
+}
+
+/* Densidade Compacta (1/4) */
+.gantt-container.density-compact {
+    --gantt-row-height: 30px;
+    --gantt-timeline-height: 30px;
+    --gantt-bar-height: 18px;
+    --gantt-label-font-size: 0.8rem;
+    --gantt-label-name-size: 0.8rem;
+    --gantt-label-info-size: 0.7rem;
+    --gantt-bar-font-size: 0.7rem;
+}
+
+/* Ajustes para densidade compacta */
+.gantt-container.density-compact .gantt-row-label {
+    padding: 5px 10px;
+}
+
+.gantt-container.density-compact .gantt-row-label-name {
+    margin-bottom: 2px;
+}
+
+.gantt-container.density-compact .gantt-row-label-info {
+    gap: 5px;
+}
+
+.gantt-container.density-compact .gantt-bar-content {
+    gap: 4px;
+}
+
+.gantt-container.density-compact .gantt-bar-progress {
+    padding: 1px 4px;
+    font-size: 0.65rem;
+}
+
+/* Ajustes para densidade média */
+.gantt-container.density-medium .gantt-row-label {
+    padding: 8px 12px;
+}
+
+.gantt-container.density-medium .gantt-row-label-name {
+    margin-bottom: 3px;
+}
+
+.gantt-container.density-medium .gantt-bar-progress {
+    padding: 1px 5px;
+    font-size: 0.7rem;
+}
+
 .gantt-bar.estado-aberta {
     background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
 }
@@ -655,7 +730,7 @@ $total_days = $interval->days;
 </style>
 
 <div class="container-fluid">
-    <div class="gantt-container">
+    <div class="gantt-container density-normal" id="ganttContainer">
         <div class="gantt-header">
             <div>
                 <h2 class="mb-0">
@@ -668,6 +743,14 @@ $total_days = $interval->days;
             
             <div class="gantt-filters">
                 <div class="row g-2">
+                    <div class="col-auto">
+                        <select class="form-select form-select-sm" id="densitySelect" onchange="changeDensity()" title="Densidade das linhas">
+                            <option value="normal">📏 Normal</option>
+                            <option value="medium">📏 Média (1/2)</option>
+                            <option value="compact">📏 Compacta (1/4)</option>
+                        </select>
+                    </div>
+                    
                     <div class="col-auto">
                         <select class="form-select form-select-sm" id="viewRange" onchange="updateFilters()">
                             <option value="semana" <?= $view_range === 'semana' ? 'selected' : '' ?>>📅 Semana</option>
@@ -1208,6 +1291,38 @@ function updateFilters() {
     
     window.location.href = url;
 }
+
+// Função para mudar a densidade
+function changeDensity() {
+    const density = document.getElementById('densitySelect').value;
+    const container = document.getElementById('ganttContainer');
+    
+    // Remover classes antigas
+    container.classList.remove('density-normal', 'density-medium', 'density-compact');
+    
+    // Adicionar nova classe
+    container.classList.add('density-' + density);
+    
+    // Salvar preferência no localStorage
+    localStorage.setItem('gantt-density', density);
+    
+    console.log('📏 Densidade alterada para:', density);
+}
+
+// Carregar densidade salva ao carregar a página
+document.addEventListener('DOMContentLoaded', function() {
+    const savedDensity = localStorage.getItem('gantt-density');
+    if (savedDensity) {
+        const densitySelect = document.getElementById('densitySelect');
+        const container = document.getElementById('ganttContainer');
+        
+        densitySelect.value = savedDensity;
+        container.classList.remove('density-normal', 'density-medium', 'density-compact');
+        container.classList.add('density-' + savedDensity);
+        
+        console.log('📏 Densidade carregada:', savedDensity);
+    }
+});
 
 // Variável global para armazenar o ID da sprint sendo editada
 let currentEditingSprintId = null;

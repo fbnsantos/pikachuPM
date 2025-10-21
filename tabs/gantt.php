@@ -22,69 +22,6 @@ try {
     die("<div class='alert alert-danger'>Erro de conexão à base de dados: " . htmlspecialchars($e->getMessage()) . "</div>");
 }
 
-// ===== PROCESSAR AJAX ANTES DE QUALQUER OUTPUT =====
-// Processar atualização de datas via AJAX
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_sprint_dates') {
-    header('Content-Type: application/json');
-    
-    try {
-        $sprint_id = intval($_POST['sprint_id'] ?? 0);
-        $data_inicio = $_POST['data_inicio'] ?? null;
-        $data_fim = $_POST['data_fim'] ?? null;
-        
-        if (!$sprint_id) {
-            echo json_encode(['success' => false, 'message' => 'ID da sprint inválido']);
-            exit;
-        }
-        
-        if (!$data_inicio || !$data_fim) {
-            echo json_encode(['success' => false, 'message' => 'Datas não fornecidas']);
-            exit;
-        }
-        
-        // Validar formato das datas
-        $start = DateTime::createFromFormat('Y-m-d', $data_inicio);
-        $end = DateTime::createFromFormat('Y-m-d', $data_fim);
-        
-        if (!$start || !$end) {
-            echo json_encode(['success' => false, 'message' => 'Formato de data inválido']);
-            exit;
-        }
-        
-        if ($start > $end) {
-            echo json_encode(['success' => false, 'message' => 'Data de início não pode ser posterior à data de fim']);
-            exit;
-        }
-        
-        // Atualizar no banco de dados
-        $stmt = $pdo->prepare("UPDATE sprints SET data_inicio = ?, data_fim = ?, updated_at = NOW() WHERE id = ?");
-        $result = $stmt->execute([$data_inicio, $data_fim, $sprint_id]);
-        
-        if ($result) {
-            echo json_encode([
-                'success' => true, 
-                'message' => 'Datas atualizadas com sucesso',
-                'sprint_id' => $sprint_id,
-                'data_inicio' => $data_inicio,
-                'data_fim' => $data_fim
-            ]);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Erro ao executar atualização no banco']);
-        }
-        exit;
-        
-    } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Erro no banco de dados: ' . $e->getMessage()]);
-        exit;
-    } catch (Exception $e) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Erro: ' . $e->getMessage()]);
-        exit;
-    }
-}
-// ===== FIM DO PROCESSAMENTO AJAX =====
-
 // Verificar se a tabela sprints existe
 function sprintTableExists($pdo) {
     try {
@@ -1004,6 +941,26 @@ document.addEventListener('DOMContentLoaded', function() {
     const tooltip = document.getElementById('sprintTooltip');
     const ganttBars = document.querySelectorAll('.gantt-bar');
     
+    // ===== FUNÇÃO SHOWNOTIFICATION =====
+    window.showNotification = function(message, type = 'info') {
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type} alert-dismissible fade show`;
+        alert.style.position = 'fixed';
+        alert.style.top = '20px';
+        alert.style.right = '20px';
+        alert.style.zIndex = '9999';
+        alert.style.minWidth = '300px';
+        alert.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        document.body.appendChild(alert);
+        
+        setTimeout(() => {
+            alert.remove();
+        }, 5000);
+    };
+    
     // ===== TOOLTIP =====
     ganttBars.forEach(bar => {
         bar.addEventListener('mouseenter', function(e) {
@@ -1315,7 +1272,7 @@ function saveDates() {
     formData.append('data_inicio', startDate);
     formData.append('data_fim', endDate);
     
-    fetch(window.location.href, {
+    fetch('gantt_ajax.php', {
         method: 'POST',
         body: formData
     })

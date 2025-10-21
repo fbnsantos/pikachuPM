@@ -1,13 +1,11 @@
 <?php
-/**
- * gantt.php - Visualização Gantt das Sprints
- * 
- * Este arquivo exibe um diagrama de Gantt das sprints com:
- * - Visualização temporal das sprints
- * - Responsáveis por cada sprint
- * - Estado das sprints (aberta, pausa, fechada)
- * - Link para detalhes da sprint ao clicar
- */
+// tabs/gantt.php - Visualização Gantt das Sprints
+// 
+// Este arquivo exibe um diagrama de Gantt das sprints com:
+// - Visualização temporal das sprints
+// - Responsáveis por cada sprint
+// - Estado das sprints (aberta, pausa, fechada)
+// - Link para detalhes da sprint ao clicar
 
 if (!isset($_SESSION['username'])) {
     header('Location: login.php');
@@ -24,25 +22,7 @@ try {
     die("<div class='alert alert-danger'>Erro de conexão à base de dados: " . htmlspecialchars($e->getMessage()) . "</div>");
 }
 
-// Verificar se a tabela sprints existe
-function sprintTableExists($pdo) {
-    try {
-        $result = $pdo->query("SHOW TABLES LIKE 'sprints'");
-        return $result->rowCount() > 0;
-    } catch (PDOException $e) {
-        return false;
-    }
-}
-
-if (!sprintTableExists($pdo)) {
-    echo '<div class="alert alert-warning">
-            <i class="bi bi-exclamation-triangle"></i>
-            A tabela de sprints não existe. Por favor, acesse o módulo 
-            <a href="?tab=sprints">Sprints</a> primeiro para criar as tabelas necessárias.
-          </div>';
-    return;
-}
-
+// ===== PROCESSAR AJAX ANTES DE QUALQUER OUTPUT =====
 // Processar atualização de datas via AJAX
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_sprint_dates') {
     header('Content-Type: application/json');
@@ -102,6 +82,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         echo json_encode(['success' => false, 'message' => 'Erro: ' . $e->getMessage()]);
         exit;
     }
+}
+// ===== FIM DO PROCESSAMENTO AJAX =====
+
+// Verificar se a tabela sprints existe
+function sprintTableExists($pdo) {
+    try {
+        $result = $pdo->query("SHOW TABLES LIKE 'sprints'");
+        return $result->rowCount() > 0;
+    } catch (PDOException $e) {
+        return false;
+    }
+}
+
+if (!sprintTableExists($pdo)) {
+    echo '<div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle"></i>
+            A tabela de sprints não existe. Por favor, acesse o módulo 
+            <a href="?tab=sprints">Sprints</a> primeiro para criar as tabelas necessárias.
+          </div>';
+    return;
 }
 
 // Obter filtros
@@ -1303,6 +1303,11 @@ function saveDates() {
     // Mostrar overlay de loading
     document.getElementById('loadingOverlay').classList.add('show');
     
+    console.log('📤 Enviando requisição para atualizar datas...');
+    console.log('Sprint ID:', currentEditingSprintId);
+    console.log('Data início:', startDate);
+    console.log('Data fim:', endDate);
+    
     // Atualizar no servidor
     const formData = new FormData();
     formData.append('action', 'update_sprint_dates');
@@ -1315,23 +1320,29 @@ function saveDates() {
         body: formData
     })
     .then(response => {
+        console.log('📥 Resposta recebida. Status:', response.status);
         if (!response.ok) {
             throw new Error('Erro na resposta do servidor: ' + response.status);
         }
         return response.text();
     })
     .then(text => {
+        console.log('📄 Conteúdo da resposta (primeiros 500 chars):', text.substring(0, 500));
+        
         // Tentar fazer parse do JSON
         try {
             const data = JSON.parse(text);
+            console.log('✅ JSON parseado com sucesso:', data);
             
             if (data.success) {
+                console.log('🎉 Sucesso! Recarregando página...');
                 // Sucesso - recarregar página
                 setTimeout(() => {
                     window.location.reload(true);
                 }, 300);
             } else {
                 // Erro retornado pelo servidor
+                console.error('❌ Servidor retornou erro:', data.message);
                 document.getElementById('loadingOverlay').classList.remove('show');
                 showNotification('Erro ao salvar: ' + (data.message || 'Erro desconhecido'), 'danger');
                 saveBtn.disabled = false;
@@ -1339,21 +1350,30 @@ function saveDates() {
             }
         } catch (e) {
             // Resposta não é JSON válido
-            console.error('Resposta não é JSON:', text);
-            throw new Error('Resposta inválida do servidor');
-        }
-    })
-    .catch(error => {
-        console.error('Erro:', error);
-        document.getElementById('loadingOverlay').classList.remove('show');
-        
-        // Mostrar mensagem e recarregar para verificar se salvou
-        if (confirm('Ocorreu um erro. Deseja recarregar a página para verificar se as datas foram salvas?')) {
-            window.location.reload(true);
-        } else {
+            console.error('❌ Erro ao fazer parse do JSON:', e);
+            console.error('❌ Resposta completa:', text);
+            
+            // Verificar se a resposta contém HTML (sinal de que algo deu errado)
+            if (text.includes('<!DOCTYPE') || text.includes('<html')) {
+                console.error('❌ Servidor retornou HTML em vez de JSON!');
+                document.getElementById('loadingOverlay').classList.remove('show');
+                showNotification('Erro: Servidor retornou HTML em vez de JSON. Verifique os logs.', 'danger');
+            } else {
+                throw new Error('Resposta inválida do servidor');
+            }
+            
             saveBtn.disabled = false;
             saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Salvar';
         }
+    })
+    .catch(error => {
+        console.error('❌ Erro na requisição:', error);
+        document.getElementById('loadingOverlay').classList.remove('show');
+        
+        // Mostrar mensagem e recarregar para verificar se salvou
+        showNotification('Erro: ' + error.message + '. Verifique o console para mais detalhes.', 'danger');
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Salvar';
     });
 }
 

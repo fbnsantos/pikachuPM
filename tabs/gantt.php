@@ -55,7 +55,7 @@ function tableExists($pdo, $tableName) {
 $show_closed = isset($_GET['show_closed']) && $_GET['show_closed'] === '1';
 $filter_my_sprints = isset($_GET['filter_my_sprints']) && $_GET['filter_my_sprints'] === '1';
 $filter_user_id = isset($_GET['filter_user_id']) && !empty($_GET['filter_user_id']) ? $_GET['filter_user_id'] : null;
-$filter_prototipo = isset($_GET['filter_prototipo']) && !empty($_GET['filter_prototipo']) ? intval($_GET['filter_prototipo']) : null;
+$filter_prototipo = isset($_GET['filter_prototipo']) && !empty($_GET['filter_prototipo']) ? $_GET['filter_prototipo'] : null;
 $order_by = $_GET['order_by'] ?? 'inicio'; // 'inicio' ou 'fim'
 $view_range = $_GET['view_range'] ?? 'mes'; // 'semana', 'mes', 'trimestre'
 $current_user_id = $_SESSION['user_id'] ?? null;
@@ -129,39 +129,6 @@ try {
     }
     
     // Ordenação: sprints sem datas aparecem no fim
-    if ($order_by === 'fim') {
-        $query .= " ORDER BY 
-                    CASE WHEN s.data_fim IS NULL THEN 1 ELSE 0 END,
-                    s.data_fim ASC,
-                    s.created_at DESC";
-    } else {
-        $query .= " ORDER BY 
-                    CASE WHEN s.data_inicio IS NULL THEN 1 ELSE 0 END,
-                    s.data_inicio ASC,
-                    s.created_at DESC";
-    }
-    
-    // Debug: Log da query
-    error_log("Gantt Query: " . $query);
-    error_log("Gantt Params: " . json_encode($params));
-    
-    $stmt = $pdo->prepare($query);
-    $stmt->execute($params);
-    $sprints = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-} catch (PDOException $e) {
-    error_log("ERRO ao buscar sprints: " . $e->getMessage());
-    error_log("Query: " . $query);
-    error_log("Params: " . json_encode($params));
-    
-    // Mostrar erro amigável ao usuário
-    echo '<div class="alert alert-danger">
-            <i class="bi bi-exclamation-triangle"></i>
-            <strong>Erro ao carregar sprints:</strong> ' . htmlspecialchars($e->getMessage()) . '
-            <br><small>Verifique os logs do servidor para mais detalhes.</small>
-          </div>';
-    $sprints = [];
-}
     if ($order_by === 'fim') {
         $query .= " ORDER BY 
                     CASE WHEN s.data_fim IS NULL THEN 1 ELSE 0 END,

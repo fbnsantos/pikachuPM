@@ -43,8 +43,32 @@ if (!sprintTableExists($pdo)) {
     return;
 }
 
+// Processar atualização de datas via AJAX
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_sprint_dates') {
+    try {
+        $sprint_id = $_POST['sprint_id'] ?? 0;
+        $data_inicio = $_POST['data_inicio'] ?? null;
+        $data_fim = $_POST['data_fim'] ?? null;
+        
+        if ($sprint_id && $data_inicio && $data_fim) {
+            $stmt = $pdo->prepare("UPDATE sprints SET data_inicio = ?, data_fim = ? WHERE id = ?");
+            $stmt->execute([$data_inicio, $data_fim, $sprint_id]);
+            
+            echo json_encode(['success' => true, 'message' => 'Datas atualizadas com sucesso']);
+            exit;
+        }
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Erro ao atualizar: ' . $e->getMessage()]);
+        exit;
+    }
+}
+
 // Obter filtros
 $show_closed = isset($_GET['show_closed']) && $_GET['show_closed'] === '1';
+$filter_my_sprints = isset($_GET['filter_my_sprints']) && $_GET['filter_my_sprints'] === '1';
+$order_by = $_GET['order_by'] ?? 'inicio'; // 'inicio' ou 'fim'
+$view_range = $_GET['view_range'] ?? 'mes'; // 'semana', 'mes', 'trimestre'
 $current_user_id = $_SESSION['user_id'] ?? null;
 
 // Buscar sprints
@@ -55,16 +79,35 @@ try {
                DATEDIFF(s.data_fim, CURDATE()) as dias_restantes
         FROM sprints s
         LEFT JOIN user_tokens u ON s.responsavel_id = u.user_id
+        WHERE 1=1
     ";
     
+    $params = [];
+    
     if (!$show_closed) {
-        $query .= " WHERE s.estado != 'fechada'";
+        $query .= " AND s.estado != 'fechada'";
     }
     
-    $query .= " ORDER BY s.data_inicio ASC, s.created_at DESC";
+    if ($filter_my_sprints && $current_user_id) {
+        $query .= " AND s.responsavel_id = ?";
+        $params[] = $current_user_id;
+    }
+    
+    // Ordenação: sprints sem datas aparecem no fim
+    if ($order_by === 'fim') {
+        $query .= " ORDER BY 
+                    CASE WHEN s.data_fim IS NULL THEN 1 ELSE 0 END,
+                    s.data_fim ASC,
+                    s.created_at DESC";
+    } else {
+        $query .= " ORDER BY 
+                    CASE WHEN s.data_inicio IS NULL THEN 1 ELSE 0 END,
+                    s.data_inicio ASC,
+                    s.created_at DESC";
+    }
     
     $stmt = $pdo->prepare($query);
-    $stmt->execute();
+    $stmt->execute($params);
     $sprints = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     // Calcular estatísticas para cada sprint
@@ -123,16 +166,45 @@ foreach ($sprints as $sprint) {
 // Se não houver datas, usar período padrão
 if ($min_date === null) {
     $min_date = clone $today;
-    $min_date->modify('-1 month');
+    switch ($view_range) {
+        case 'semana':
+            $min_date->modify('-1 week');
+            break;
+        case 'trimestre':
+            $min_date->modify('-1 month');
+            break;
+        default: // mes
+            $min_date->modify('-2 weeks');
+    }
 }
 if ($max_date === null) {
     $max_date = clone $today;
-    $max_date->modify('+2 months');
+    switch ($view_range) {
+        case 'semana':
+            $max_date->modify('+2 weeks');
+            break;
+        case 'trimestre':
+            $max_date->modify('+3 months');
+            break;
+        default: // mes
+            $max_date->modify('+6 weeks');
+    }
 }
 
-// Adicionar margem ao período
-$min_date->modify('-1 week');
-$max_date->modify('+1 week');
+// Adicionar margem ao período baseado no view_range
+switch ($view_range) {
+    case 'semana':
+        $min_date->modify('-3 days');
+        $max_date->modify('+3 days');
+        break;
+    case 'trimestre':
+        $min_date->modify('-1 week');
+        $max_date->modify('+1 week');
+        break;
+    default: // mes
+        $min_date->modify('-1 week');
+        $max_date->modify('+1 week');
+}
 
 // Calcular número de dias
 $interval = $min_date->diff($max_date);
@@ -276,6 +348,34 @@ $total_days = $interval->days;
     z-index: 10;
 }
 
+.gantt-bar.dragging {
+    opacity: 0.7;
+    cursor: move;
+}
+
+.gantt-bar-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 8px;
+    cursor: ew-resize;
+    z-index: 2;
+}
+
+.gantt-bar-resize-handle.left {
+    left: 0;
+    border-left: 3px solid rgba(255,255,255,0.5);
+}
+
+.gantt-bar-resize-handle.right {
+    right: 0;
+    border-right: 3px solid rgba(255,255,255,0.5);
+}
+
+.gantt-bar-resize-handle:hover {
+    background: rgba(255,255,255,0.2);
+}
+
 .gantt-bar.estado-aberta {
     background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
 }
@@ -408,23 +508,55 @@ $total_days = $interval->days;
                     <i class="bi bi-calendar-range"></i> Gantt de Sprints
                 </h2>
                 <p class="text-muted mb-0 mt-1">
-                    Visualização temporal das sprints
+                    Visualização temporal das sprints - Arraste para mover, redimensione pelas bordas
                 </p>
             </div>
             
             <div class="gantt-filters">
-                <div class="form-check form-switch">
-                    <input class="form-check-input" type="checkbox" id="showClosedSprints" 
-                           <?= $show_closed ? 'checked' : '' ?>
-                           onchange="window.location.href='?tab=gantt&show_closed=' + (this.checked ? '1' : '0')">
-                    <label class="form-check-label" for="showClosedSprints">
-                        Mostrar sprints fechadas
-                    </label>
+                <div class="row g-2">
+                    <div class="col-auto">
+                        <select class="form-select form-select-sm" id="viewRange" onchange="updateFilters()">
+                            <option value="semana" <?= $view_range === 'semana' ? 'selected' : '' ?>>📅 Semana</option>
+                            <option value="mes" <?= $view_range === 'mes' ? 'selected' : '' ?>>📅 Mês</option>
+                            <option value="trimestre" <?= $view_range === 'trimestre' ? 'selected' : '' ?>>📅 Trimestre</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-auto">
+                        <select class="form-select form-select-sm" id="orderBy" onchange="updateFilters()">
+                            <option value="inicio" <?= $order_by === 'inicio' ? 'selected' : '' ?>>Ordenar por Início</option>
+                            <option value="fim" <?= $order_by === 'fim' ? 'selected' : '' ?>>Ordenar por Fim</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-auto">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="filterMySprints" 
+                                   <?= $filter_my_sprints ? 'checked' : '' ?>
+                                   onchange="updateFilters()">
+                            <label class="form-check-label" for="filterMySprints">
+                                Apenas minhas sprints
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="col-auto">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="showClosedSprints" 
+                                   <?= $show_closed ? 'checked' : '' ?>
+                                   onchange="updateFilters()">
+                            <label class="form-check-label" for="showClosedSprints">
+                                Mostrar fechadas
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="col-auto">
+                        <a href="?tab=sprints" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-list-task"></i> Ver Lista
+                        </a>
+                    </div>
                 </div>
-                
-                <a href="?tab=sprints" class="btn btn-outline-primary btn-sm">
-                    <i class="bi bi-list-task"></i> Ver Lista de Sprints
-                </a>
             </div>
         </div>
         
@@ -525,7 +657,6 @@ $total_days = $interval->days;
                                     
                                     <div class="gantt-bar <?= $estado_class ?>"
                                          style="left: <?= $left_percent ?>%; width: <?= $width_percent ?>%;"
-                                         onclick="window.location.href='?tab=sprints&sprint_id=<?= $sprint['id'] ?>'"
                                          data-sprint-id="<?= $sprint['id'] ?>"
                                          data-sprint-nome="<?= htmlspecialchars($sprint['nome']) ?>"
                                          data-sprint-inicio="<?= $sprint['data_inicio'] ?>"
@@ -533,6 +664,9 @@ $total_days = $interval->days;
                                          data-sprint-estado="<?= ucfirst($sprint['estado']) ?>"
                                          data-sprint-responsavel="<?= htmlspecialchars($sprint['responsavel_nome'] ?? 'N/A') ?>"
                                          data-sprint-progresso="<?= $sprint['percentagem'] ?>%">
+                                        
+                                        <div class="gantt-bar-resize-handle left" data-direction="left"></div>
+                                        
                                         <div class="gantt-bar-content">
                                             <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                                                 <?= htmlspecialchars($sprint['nome']) ?>
@@ -543,6 +677,8 @@ $total_days = $interval->days;
                                                 </span>
                                             <?php endif; ?>
                                         </div>
+                                        
+                                        <div class="gantt-bar-resize-handle right" data-direction="right"></div>
                                     </div>
                                 <?php endif; ?>
                             </div>
@@ -591,8 +727,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const tooltip = document.getElementById('sprintTooltip');
     const ganttBars = document.querySelectorAll('.gantt-bar');
     
+    // ===== TOOLTIP =====
     ganttBars.forEach(bar => {
         bar.addEventListener('mouseenter', function(e) {
+            if (this.classList.contains('dragging')) return;
+            
             const nome = this.dataset.sprintNome;
             const inicio = this.dataset.sprintInicio;
             const fim = this.dataset.sprintFim;
@@ -614,7 +753,11 @@ document.addEventListener('DOMContentLoaded', function() {
             updateTooltipPosition(e);
         });
         
-        bar.addEventListener('mousemove', updateTooltipPosition);
+        bar.addEventListener('mousemove', function(e) {
+            if (!this.classList.contains('dragging')) {
+                updateTooltipPosition(e);
+            }
+        });
         
         bar.addEventListener('mouseleave', function() {
             tooltip.classList.remove('show');
@@ -634,5 +777,194 @@ document.addEventListener('DOMContentLoaded', function() {
         const date = new Date(dateStr + 'T00:00:00');
         return date.toLocaleDateString('pt-PT', { day: '2-digit', month: 'short', year: 'numeric' });
     }
+    
+    // ===== DRAG & DROP E RESIZE =====
+    const minDate = new Date('<?= $min_date->format('Y-m-d') ?>');
+    const totalDays = <?= $total_days ?>;
+    
+    let isDragging = false;
+    let isResizing = false;
+    let resizeDirection = null;
+    let currentBar = null;
+    let startX = 0;
+    let startLeft = 0;
+    let startWidth = 0;
+    let timelineRect = null;
+    
+    ganttBars.forEach(bar => {
+        // Click para abrir detalhes (apenas se não estiver arrastando)
+        bar.addEventListener('click', function(e) {
+            if (!isDragging && !isResizing && !e.target.classList.contains('gantt-bar-resize-handle')) {
+                window.location.href = '?tab=sprints&sprint_id=' + this.dataset.sprintId;
+            }
+        });
+        
+        // Drag da barra inteira
+        bar.addEventListener('mousedown', function(e) {
+            if (e.target.classList.contains('gantt-bar-resize-handle')) return;
+            
+            isDragging = true;
+            currentBar = this;
+            startX = e.clientX;
+            startLeft = parseFloat(this.style.left);
+            
+            const timeline = this.closest('.gantt-row-timeline');
+            timelineRect = timeline.getBoundingClientRect();
+            
+            this.classList.add('dragging');
+            tooltip.classList.remove('show');
+            
+            e.preventDefault();
+        });
+        
+        // Resize handles
+        const handles = bar.querySelectorAll('.gantt-bar-resize-handle');
+        handles.forEach(handle => {
+            handle.addEventListener('mousedown', function(e) {
+                isResizing = true;
+                resizeDirection = this.dataset.direction;
+                currentBar = this.closest('.gantt-bar');
+                startX = e.clientX;
+                startLeft = parseFloat(currentBar.style.left);
+                startWidth = parseFloat(currentBar.style.width);
+                
+                const timeline = currentBar.closest('.gantt-row-timeline');
+                timelineRect = timeline.getBoundingClientRect();
+                
+                currentBar.classList.add('dragging');
+                tooltip.classList.remove('show');
+                
+                e.stopPropagation();
+                e.preventDefault();
+            });
+        });
+    });
+    
+    document.addEventListener('mousemove', function(e) {
+        if (!isDragging && !isResizing) return;
+        
+        const deltaX = e.clientX - startX;
+        const deltaPercent = (deltaX / timelineRect.width) * 100;
+        
+        if (isDragging) {
+            // Mover a barra
+            let newLeft = startLeft + deltaPercent;
+            newLeft = Math.max(0, Math.min(100 - parseFloat(currentBar.style.width), newLeft));
+            currentBar.style.left = newLeft + '%';
+            
+        } else if (isResizing) {
+            // Redimensionar a barra
+            if (resizeDirection === 'left') {
+                let newLeft = startLeft + deltaPercent;
+                let newWidth = startWidth - deltaPercent;
+                
+                if (newLeft >= 0 && newWidth >= 2) {
+                    currentBar.style.left = newLeft + '%';
+                    currentBar.style.width = newWidth + '%';
+                }
+            } else if (resizeDirection === 'right') {
+                let newWidth = startWidth + deltaPercent;
+                let maxWidth = 100 - startLeft;
+                
+                if (newWidth >= 2 && newWidth <= maxWidth) {
+                    currentBar.style.width = newWidth + '%';
+                }
+            }
+        }
+        
+        e.preventDefault();
+    });
+    
+    document.addEventListener('mouseup', function(e) {
+        if (isDragging || isResizing) {
+            if (currentBar) {
+                currentBar.classList.remove('dragging');
+                
+                // Calcular novas datas
+                const left = parseFloat(currentBar.style.left);
+                const width = parseFloat(currentBar.style.width);
+                
+                const startDays = Math.round((left / 100) * totalDays);
+                const durationDays = Math.round((width / 100) * totalDays);
+                
+                const newStartDate = new Date(minDate);
+                newStartDate.setDate(newStartDate.getDate() + startDays);
+                
+                const newEndDate = new Date(newStartDate);
+                newEndDate.setDate(newEndDate.getDate() + durationDays - 1);
+                
+                const sprintId = currentBar.dataset.sprintId;
+                const startDateStr = newStartDate.toISOString().split('T')[0];
+                const endDateStr = newEndDate.toISOString().split('T')[0];
+                
+                // Atualizar no servidor
+                updateSprintDates(sprintId, startDateStr, endDateStr);
+            }
+            
+            isDragging = false;
+            isResizing = false;
+            resizeDirection = null;
+            currentBar = null;
+        }
+    });
+    
+    function updateSprintDates(sprintId, startDate, endDate) {
+        const formData = new FormData();
+        formData.append('action', 'update_sprint_dates');
+        formData.append('sprint_id', sprintId);
+        formData.append('data_inicio', startDate);
+        formData.append('data_fim', endDate);
+        
+        fetch(window.location.href, {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.text())
+        .then(data => {
+            // Atualizar os dados da barra
+            const bar = document.querySelector(`[data-sprint-id="${sprintId}"]`);
+            if (bar) {
+                bar.dataset.sprintInicio = startDate;
+                bar.dataset.sprintFim = endDate;
+            }
+            
+            // Mostrar notificação de sucesso
+            showNotification('Datas atualizadas com sucesso!', 'success');
+        })
+        .catch(error => {
+            console.error('Erro ao atualizar:', error);
+            showNotification('Erro ao atualizar as datas', 'danger');
+            // Recarregar a página em caso de erro
+            setTimeout(() => location.reload(), 1500);
+        });
+    }
+    
+    function showNotification(message, type) {
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type} alert-dismissible fade show`;
+        alert.style.position = 'fixed';
+        alert.style.top = '20px';
+        alert.style.right = '20px';
+        alert.style.zIndex = '9999';
+        alert.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        document.body.appendChild(alert);
+        
+        setTimeout(() => {
+            alert.remove();
+        }, 3000);
+    }
 });
+
+// Função para atualizar filtros
+function updateFilters() {
+    const viewRange = document.getElementById('viewRange').value;
+    const orderBy = document.getElementById('orderBy').value;
+    const filterMy = document.getElementById('filterMySprints').checked ? '1' : '0';
+    const showClosed = document.getElementById('showClosedSprints').checked ? '1' : '0';
+    
+    window.location.href = `?tab=gantt&view_range=${viewRange}&order_by=${orderBy}&filter_my_sprints=${filterMy}&show_closed=${showClosed}`;
+}
 </script>

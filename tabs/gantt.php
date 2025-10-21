@@ -41,6 +41,16 @@ if (!sprintTableExists($pdo)) {
     return;
 }
 
+// Função auxiliar para verificar se tabela existe
+function tableExists($pdo, $tableName) {
+    try {
+        $result = $pdo->query("SHOW TABLES LIKE '$tableName'");
+        return $result->rowCount() > 0;
+    } catch (PDOException $e) {
+        return false;
+    }
+}
+
 // Obter filtros
 $show_closed = isset($_GET['show_closed']) && $_GET['show_closed'] === '1';
 $filter_my_sprints = isset($_GET['filter_my_sprints']) && $_GET['filter_my_sprints'] === '1';
@@ -57,16 +67,23 @@ try {
     $users = [];
 }
 
-// Obter lista de protótipos únicos para o filtro
-try {
-    $prototipos = $pdo->query("
-        SELECT DISTINCT prototipo 
-        FROM sprints 
-        WHERE prototipo IS NOT NULL AND prototipo != '' 
-        ORDER BY prototipo
-    ")->fetchAll(PDO::FETCH_COLUMN);
-} catch (PDOException $e) {
-    $prototipos = [];
+// Verificar se existe tabela prototypes e sprint_prototypes
+$has_prototypes = tableExists($pdo, 'prototypes') && tableExists($pdo, 'sprint_prototypes');
+
+// Obter lista de protótipos únicos associados às sprints
+$prototipos = [];
+if ($has_prototypes) {
+    try {
+        $prototipos = $pdo->query("
+            SELECT DISTINCT p.id, p.short_name, p.title
+            FROM prototypes p
+            INNER JOIN sprint_prototypes sp ON p.id = sp.prototype_id
+            ORDER BY p.short_name
+        ")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log("Erro ao buscar protótipos: " . $e->getMessage());
+        $prototipos = [];
+    }
 }
 
 // Buscar sprints
@@ -77,8 +94,16 @@ try {
                DATEDIFF(s.data_fim, CURDATE()) as dias_restantes
         FROM sprints s
         LEFT JOIN user_tokens u ON s.responsavel_id = u.user_id
-        WHERE 1=1
     ";
+    
+    // Se filtrar por protótipo, fazer JOIN com sprint_prototypes
+    if ($filter_prototipo && $has_prototypes) {
+        $query .= "
+        INNER JOIN sprint_prototypes sp ON s.id = sp.sprint_id
+        ";
+    }
+    
+    $query .= " WHERE 1=1 ";
     
     $params = [];
     
@@ -98,8 +123,8 @@ try {
     }
     
     // Filtro: protótipo específico
-    if ($filter_prototipo) {
-        $query .= " AND s.prototipo = ?";
+    if ($filter_prototipo && $has_prototypes) {
+        $query .= " AND sp.prototype_id = ?";
         $params[] = $filter_prototipo;
     }
     
@@ -789,8 +814,11 @@ $total_days = $interval->days;
                         <select class="form-select form-select-sm" id="filterPrototipo" onchange="updateFilters()">
                             <option value="">🔧 Todos os protótipos</option>
                             <?php foreach ($prototipos as $prototipo): ?>
-                                <option value="<?= htmlspecialchars($prototipo) ?>" <?= $filter_prototipo === $prototipo ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($prototipo) ?>
+                                <option value="<?= $prototipo['id'] ?>" <?= $filter_prototipo == $prototipo['id'] ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($prototipo['short_name']) ?>
+                                    <?php if (!empty($prototipo['title'])): ?>
+                                        - <?= htmlspecialchars($prototipo['title']) ?>
+                                    <?php endif; ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -997,10 +1025,22 @@ $total_days = $interval->days;
                     <div class="gantt-legend-color" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);"></div>
                     <span>Fechada</span>
                 </div>
-                <?php if ($filter_prototipo): ?>
+                <?php if ($filter_prototipo): 
+                    // Buscar nome do protótipo selecionado
+                    $prototipo_nome = '';
+                    foreach ($prototipos as $p) {
+                        if ($p['id'] == $filter_prototipo) {
+                            $prototipo_nome = $p['short_name'];
+                            if (!empty($p['title'])) {
+                                $prototipo_nome .= ' - ' . $p['title'];
+                            }
+                            break;
+                        }
+                    }
+                ?>
                 <div class="gantt-legend-item" style="margin-left: 20px; color: #0d6efd;">
                     <i class="bi bi-funnel-fill"></i>
-                    <span><strong>Protótipo:</strong> <?= htmlspecialchars($filter_prototipo) ?> (<?= count($sprints_with_dates) ?> sprint<?= count($sprints_with_dates) != 1 ? 's' : '' ?>)</span>
+                    <span><strong>Protótipo:</strong> <?= htmlspecialchars($prototipo_nome) ?> (<?= count($sprints_with_dates) ?> sprint<?= count($sprints_with_dates) != 1 ? 's' : '' ?>)</span>
                 </div>
                 <?php endif; ?>
                 <div class="gantt-legend-item" style="margin-left: auto;">

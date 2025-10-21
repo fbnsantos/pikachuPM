@@ -45,21 +45,61 @@ if (!sprintTableExists($pdo)) {
 
 // Processar atualização de datas via AJAX
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_sprint_dates') {
+    header('Content-Type: application/json');
+    
     try {
-        $sprint_id = $_POST['sprint_id'] ?? 0;
+        $sprint_id = intval($_POST['sprint_id'] ?? 0);
         $data_inicio = $_POST['data_inicio'] ?? null;
         $data_fim = $_POST['data_fim'] ?? null;
         
-        if ($sprint_id && $data_inicio && $data_fim) {
-            $stmt = $pdo->prepare("UPDATE sprints SET data_inicio = ?, data_fim = ? WHERE id = ?");
-            $stmt->execute([$data_inicio, $data_fim, $sprint_id]);
-            
-            echo json_encode(['success' => true, 'message' => 'Datas atualizadas com sucesso']);
+        if (!$sprint_id) {
+            echo json_encode(['success' => false, 'message' => 'ID da sprint inválido']);
             exit;
         }
+        
+        if (!$data_inicio || !$data_fim) {
+            echo json_encode(['success' => false, 'message' => 'Datas não fornecidas']);
+            exit;
+        }
+        
+        // Validar formato das datas
+        $start = DateTime::createFromFormat('Y-m-d', $data_inicio);
+        $end = DateTime::createFromFormat('Y-m-d', $data_fim);
+        
+        if (!$start || !$end) {
+            echo json_encode(['success' => false, 'message' => 'Formato de data inválido']);
+            exit;
+        }
+        
+        if ($start > $end) {
+            echo json_encode(['success' => false, 'message' => 'Data de início não pode ser posterior à data de fim']);
+            exit;
+        }
+        
+        // Atualizar no banco de dados
+        $stmt = $pdo->prepare("UPDATE sprints SET data_inicio = ?, data_fim = ?, updated_at = NOW() WHERE id = ?");
+        $result = $stmt->execute([$data_inicio, $data_fim, $sprint_id]);
+        
+        if ($result) {
+            echo json_encode([
+                'success' => true, 
+                'message' => 'Datas atualizadas com sucesso',
+                'sprint_id' => $sprint_id,
+                'data_inicio' => $data_inicio,
+                'data_fim' => $data_fim
+            ]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Erro ao executar atualização no banco']);
+        }
+        exit;
+        
     } catch (PDOException $e) {
         http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Erro ao atualizar: ' . $e->getMessage()]);
+        echo json_encode(['success' => false, 'message' => 'Erro no banco de dados: ' . $e->getMessage()]);
+        exit;
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Erro: ' . $e->getMessage()]);
         exit;
     }
 }
@@ -507,6 +547,52 @@ $total_days = $interval->days;
     background: #218838;
 }
 
+.date-picker-footer .btn-save:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.3);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.loading-overlay.show {
+    display: flex;
+}
+
+.loading-spinner {
+    background: white;
+    padding: 30px;
+    border-radius: 8px;
+    text-align: center;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.loading-spinner .spinner {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #0d6efd;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 15px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
 .gantt-bar.estado-aberta {
     background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
 }
@@ -895,10 +981,18 @@ $total_days = $interval->days;
             <button class="btn-cancel" onclick="closeDatePicker()">
                 <i class="bi bi-x-circle"></i> Cancelar
             </button>
-            <button class="btn-save" onclick="saveDates()">
+            <button class="btn-save" id="saveDatesBtn" onclick="saveDates()">
                 <i class="bi bi-check-circle"></i> Salvar
             </button>
         </div>
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay" class="loading-overlay">
+    <div class="loading-spinner">
+        <div class="spinner"></div>
+        <div>Salvando datas...</div>
     </div>
 </div>
 
@@ -1187,6 +1281,7 @@ function closeDatePicker() {
 function saveDates() {
     const startDate = document.getElementById('sprintStartDate').value;
     const endDate = document.getElementById('sprintEndDate').value;
+    const saveBtn = document.getElementById('saveDatesBtn');
     
     if (!startDate || !endDate) {
         alert('Por favor, preencha ambas as datas.');
@@ -1197,6 +1292,16 @@ function saveDates() {
         alert('A data de início não pode ser posterior à data de término.');
         return;
     }
+    
+    // Desabilitar botão e mostrar loading
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Salvando...';
+    
+    // Fechar modal
+    closeDatePicker();
+    
+    // Mostrar overlay de loading
+    document.getElementById('loadingOverlay').classList.add('show');
     
     // Atualizar no servidor
     const formData = new FormData();
@@ -1209,21 +1314,47 @@ function saveDates() {
         method: 'POST',
         body: formData
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showNotification('Datas definidas com sucesso! Recarregando...', 'success');
-            setTimeout(() => location.reload(), 1000);
-        } else {
-            showNotification('Erro ao salvar: ' + data.message, 'danger');
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Erro na resposta do servidor: ' + response.status);
+        }
+        return response.text();
+    })
+    .then(text => {
+        // Tentar fazer parse do JSON
+        try {
+            const data = JSON.parse(text);
+            
+            if (data.success) {
+                // Sucesso - recarregar página
+                setTimeout(() => {
+                    window.location.reload(true);
+                }, 300);
+            } else {
+                // Erro retornado pelo servidor
+                document.getElementById('loadingOverlay').classList.remove('show');
+                showNotification('Erro ao salvar: ' + (data.message || 'Erro desconhecido'), 'danger');
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Salvar';
+            }
+        } catch (e) {
+            // Resposta não é JSON válido
+            console.error('Resposta não é JSON:', text);
+            throw new Error('Resposta inválida do servidor');
         }
     })
     .catch(error => {
         console.error('Erro:', error);
-        showNotification('Erro ao comunicar com o servidor', 'danger');
+        document.getElementById('loadingOverlay').classList.remove('show');
+        
+        // Mostrar mensagem e recarregar para verificar se salvou
+        if (confirm('Ocorreu um erro. Deseja recarregar a página para verificar se as datas foram salvas?')) {
+            window.location.reload(true);
+        } else {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Salvar';
+        }
     });
-    
-    closeDatePicker();
 }
 
 // Fechar modal ao clicar fora

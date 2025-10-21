@@ -20,6 +20,7 @@ $tabs = [
     'prototypes/prototypesv2' => 'Prototypes',
     'projectos' => 'Projects',
     'sprints' => 'Sprints',
+    'gantt' => 'Gantt',
     'todos' => 'To Do',
     'phd_kanban' => 'PhD plan',
     'equipa' => 'Daily Meeting',

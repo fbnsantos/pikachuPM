@@ -1214,7 +1214,13 @@ let currentEditingSprintId = null;
 
 // Função para abrir o modal de definir datas
 function openDatePicker(sprintId, sprintName) {
+    console.log('🔓 Abrindo modal para definir datas');
+    console.log('Sprint ID recebido:', sprintId, '(tipo:', typeof sprintId, ')');
+    console.log('Sprint Nome:', sprintName);
+    
     currentEditingSprintId = sprintId;
+    console.log('currentEditingSprintId definido como:', currentEditingSprintId);
+    
     document.getElementById('datePickerSprintName').textContent = sprintName;
     
     // Definir data de início como hoje e término como daqui a 2 semanas
@@ -1231,7 +1237,8 @@ function openDatePicker(sprintId, sprintName) {
 // Função para fechar o modal
 function closeDatePicker() {
     document.getElementById('datePickerModal').classList.remove('show');
-    currentEditingSprintId = null;
+    // NÃO resetar o currentEditingSprintId aqui, pois ainda precisamos dele no saveDates
+    // currentEditingSprintId = null; // ← REMOVIDO
 }
 
 // Função para salvar as datas
@@ -1261,9 +1268,19 @@ function saveDates() {
     document.getElementById('loadingOverlay').classList.add('show');
     
     console.log('📤 Enviando requisição para atualizar datas...');
-    console.log('Sprint ID:', currentEditingSprintId);
+    console.log('Sprint ID:', currentEditingSprintId, '(tipo:', typeof currentEditingSprintId, ')');
     console.log('Data início:', startDate);
     console.log('Data fim:', endDate);
+    
+    // Verificar se o sprint_id é válido
+    if (!currentEditingSprintId || currentEditingSprintId === 'null' || currentEditingSprintId === 'undefined') {
+        console.error('❌ Sprint ID inválido!');
+        document.getElementById('loadingOverlay').classList.remove('show');
+        showNotification('Erro: ID da sprint não foi definido corretamente.', 'danger');
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Salvar';
+        return;
+    }
     
     // Atualizar no servidor
     const formData = new FormData();
@@ -1271,6 +1288,12 @@ function saveDates() {
     formData.append('sprint_id', currentEditingSprintId);
     formData.append('data_inicio', startDate);
     formData.append('data_fim', endDate);
+    
+    // Log do FormData
+    console.log('📦 FormData a ser enviado:');
+    for (let pair of formData.entries()) {
+        console.log('  -', pair[0] + ':', pair[1]);
+    }
     
     fetch('gantt_ajax.php', {
         method: 'POST',
@@ -1293,6 +1316,8 @@ function saveDates() {
             
             if (data.success) {
                 console.log('🎉 Sucesso! Recarregando página...');
+                // Resetar o ID antes de recarregar
+                currentEditingSprintId = null;
                 // Sucesso - recarregar página
                 setTimeout(() => {
                     window.location.reload(true);

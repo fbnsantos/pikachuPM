@@ -816,9 +816,6 @@ $total_days = $interval->days;
                             <?php foreach ($prototipos as $prototipo): ?>
                                 <option value="<?= $prototipo['id'] ?>" <?= $filter_prototipo == $prototipo['id'] ? 'selected' : '' ?>>
                                     <?= htmlspecialchars($prototipo['short_name']) ?>
-                                    <?php if (!empty($prototipo['title'])): ?>
-                                        - <?= htmlspecialchars($prototipo['title']) ?>
-                                    <?php endif; ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>

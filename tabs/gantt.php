@@ -45,6 +45,7 @@ if (!sprintTableExists($pdo)) {
 $show_closed = isset($_GET['show_closed']) && $_GET['show_closed'] === '1';
 $filter_my_sprints = isset($_GET['filter_my_sprints']) && $_GET['filter_my_sprints'] === '1';
 $filter_user_id = isset($_GET['filter_user_id']) && !empty($_GET['filter_user_id']) ? $_GET['filter_user_id'] : null;
+$filter_prototipo = isset($_GET['filter_prototipo']) && !empty($_GET['filter_prototipo']) ? $_GET['filter_prototipo'] : null;
 $order_by = $_GET['order_by'] ?? 'inicio'; // 'inicio' ou 'fim'
 $view_range = $_GET['view_range'] ?? 'mes'; // 'semana', 'mes', 'trimestre'
 $current_user_id = $_SESSION['user_id'] ?? null;
@@ -54,6 +55,18 @@ try {
     $users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     $users = [];
+}
+
+// Obter lista de protótipos únicos para o filtro
+try {
+    $prototipos = $pdo->query("
+        SELECT DISTINCT prototipo 
+        FROM sprints 
+        WHERE prototipo IS NOT NULL AND prototipo != '' 
+        ORDER BY prototipo
+    ")->fetchAll(PDO::FETCH_COLUMN);
+} catch (PDOException $e) {
+    $prototipos = [];
 }
 
 // Buscar sprints
@@ -82,6 +95,12 @@ try {
     elseif ($filter_user_id) {
         $query .= " AND s.responsavel_id = ?";
         $params[] = $filter_user_id;
+    }
+    
+    // Filtro: protótipo específico
+    if ($filter_prototipo) {
+        $query .= " AND s.prototipo = ?";
+        $params[] = $filter_prototipo;
     }
     
     // Ordenação: sprints sem datas aparecem no fim
@@ -767,6 +786,17 @@ $total_days = $interval->days;
                     </div>
                     
                     <div class="col-auto">
+                        <select class="form-select form-select-sm" id="filterPrototipo" onchange="updateFilters()">
+                            <option value="">🔧 Todos os protótipos</option>
+                            <?php foreach ($prototipos as $prototipo): ?>
+                                <option value="<?= htmlspecialchars($prototipo) ?>" <?= $filter_prototipo === $prototipo ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($prototipo) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="col-auto">
                         <select class="form-select form-select-sm" id="filterUser" onchange="updateFilters()">
                             <option value="">👥 Todos os responsáveis</option>
                             <?php foreach ($users as $user): ?>
@@ -967,6 +997,12 @@ $total_days = $interval->days;
                     <div class="gantt-legend-color" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);"></div>
                     <span>Fechada</span>
                 </div>
+                <?php if ($filter_prototipo): ?>
+                <div class="gantt-legend-item" style="margin-left: 20px; color: #0d6efd;">
+                    <i class="bi bi-funnel-fill"></i>
+                    <span><strong>Protótipo:</strong> <?= htmlspecialchars($filter_prototipo) ?> (<?= count($sprints_with_dates) ?> sprint<?= count($sprints_with_dates) != 1 ? 's' : '' ?>)</span>
+                </div>
+                <?php endif; ?>
                 <div class="gantt-legend-item" style="margin-left: auto;">
                     <i class="bi bi-info-circle"></i>
                     <span>Clique em uma sprint para ver detalhes</span>
@@ -1280,6 +1316,7 @@ function updateFilters() {
     const viewRange = document.getElementById('viewRange').value;
     const orderBy = document.getElementById('orderBy').value;
     const filterUser = document.getElementById('filterUser').value;
+    const filterPrototipo = document.getElementById('filterPrototipo').value;
     const filterMy = document.getElementById('filterMySprints').checked ? '1' : '0';
     const showClosed = document.getElementById('showClosedSprints').checked ? '1' : '0';
     
@@ -1287,6 +1324,10 @@ function updateFilters() {
     
     if (filterUser) {
         url += `&filter_user_id=${filterUser}`;
+    }
+    
+    if (filterPrototipo) {
+        url += `&filter_prototipo=${encodeURIComponent(filterPrototipo)}`;
     }
     
     window.location.href = url;

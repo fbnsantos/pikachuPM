@@ -14,7 +14,14 @@ if (!isset($_SESSION['username'])) {
     exit;
 }
 
-include_once __DIR__ . '/../config.php';
+// Incluir config do projeto que já deve ter a variável $pdo definida
+// O config.php é incluído no index.php antes de carregar os tabs
+global $pdo;
+
+// Se o $pdo não estiver disponível, tentar incluir o config
+if (!isset($pdo)) {
+    include_once __DIR__ . '/../config.php';
+}
 
 // Verificar se a tabela sprints existe
 function sprintTableExists($pdo) {
@@ -24,6 +31,15 @@ function sprintTableExists($pdo) {
     } catch (PDOException $e) {
         return false;
     }
+}
+
+// Verificar se $pdo está definido
+if (!isset($pdo)) {
+    echo '<div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle"></i>
+            Erro de conexão à base de dados. Por favor, verifique a configuração.
+          </div>';
+    return;
 }
 
 if (!sprintTableExists($pdo)) {
@@ -453,8 +469,10 @@ $total_days = $interval->days;
                             echo '<div class="' . implode(' ', $classes) . '" style="width: ' . $day_width . '%;">';
                             echo '<div style="font-size: 0.75rem;">' . $current_date->format('d') . '</div>';
                             if ($current_date->format('d') == '01' || $current_date == $min_date) {
+                                $months_pt = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+                                $month_index = (int)$current_date->format('n') - 1;
                                 echo '<div style="font-size: 0.7rem; color: #6c757d;">' . 
-                                     ucfirst(strftime('%b', $current_date->getTimestamp())) . '</div>';
+                                     $months_pt[$month_index] . '</div>';
                             }
                             echo '</div>';
                             

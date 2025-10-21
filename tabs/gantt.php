@@ -67,9 +67,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 // Obter filtros
 $show_closed = isset($_GET['show_closed']) && $_GET['show_closed'] === '1';
 $filter_my_sprints = isset($_GET['filter_my_sprints']) && $_GET['filter_my_sprints'] === '1';
+$filter_user_id = isset($_GET['filter_user_id']) && !empty($_GET['filter_user_id']) ? $_GET['filter_user_id'] : null;
 $order_by = $_GET['order_by'] ?? 'inicio'; // 'inicio' ou 'fim'
 $view_range = $_GET['view_range'] ?? 'mes'; // 'semana', 'mes', 'trimestre'
 $current_user_id = $_SESSION['user_id'] ?? null;
+
+// Obter lista de usuários para o filtro
+try {
+    $users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $users = [];
+}
 
 // Buscar sprints
 try {
@@ -88,9 +96,15 @@ try {
         $query .= " AND s.estado != 'fechada'";
     }
     
+    // Filtro: minhas sprints (tem prioridade sobre filtro de pessoa específica)
     if ($filter_my_sprints && $current_user_id) {
         $query .= " AND s.responsavel_id = ?";
         $params[] = $current_user_id;
+    }
+    // Filtro: sprints de pessoa específica
+    elseif ($filter_user_id) {
+        $query .= " AND s.responsavel_id = ?";
+        $params[] = $filter_user_id;
     }
     
     // Ordenação: sprints sem datas aparecem no fim
@@ -376,6 +390,123 @@ $total_days = $interval->days;
     background: rgba(255,255,255,0.2);
 }
 
+.gantt-no-dates {
+    padding: 10px;
+    text-align: center;
+    color: #6c757d;
+    font-style: italic;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.gantt-no-dates-btn {
+    padding: 4px 12px;
+    font-size: 0.85rem;
+    background: #0d6efd;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.gantt-no-dates-btn:hover {
+    background: #0b5ed7;
+}
+
+.date-picker-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+}
+
+.date-picker-modal.show {
+    display: flex;
+}
+
+.date-picker-content {
+    background: white;
+    padding: 25px;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    max-width: 400px;
+    width: 90%;
+}
+
+.date-picker-header {
+    font-size: 1.2rem;
+    font-weight: bold;
+    margin-bottom: 20px;
+    color: #212529;
+}
+
+.date-picker-body {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.date-picker-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.date-picker-field label {
+    font-weight: 500;
+    color: #495057;
+}
+
+.date-picker-field input {
+    padding: 8px 12px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 0.95rem;
+}
+
+.date-picker-footer {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    justify-content: flex-end;
+}
+
+.date-picker-footer button {
+    padding: 8px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    transition: background 0.2s;
+}
+
+.date-picker-footer .btn-cancel {
+    background: #6c757d;
+    color: white;
+}
+
+.date-picker-footer .btn-cancel:hover {
+    background: #5a6268;
+}
+
+.date-picker-footer .btn-save {
+    background: #28a745;
+    color: white;
+}
+
+.date-picker-footer .btn-save:hover {
+    background: #218838;
+}
+
 .gantt-bar.estado-aberta {
     background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
 }
@@ -530,12 +661,23 @@ $total_days = $interval->days;
                     </div>
                     
                     <div class="col-auto">
+                        <select class="form-select form-select-sm" id="filterUser" onchange="updateFilters()">
+                            <option value="">👥 Todos os responsáveis</option>
+                            <?php foreach ($users as $user): ?>
+                                <option value="<?= $user['user_id'] ?>" <?= $filter_user_id == $user['user_id'] ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($user['username']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="col-auto">
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="filterMySprints" 
                                    <?= $filter_my_sprints ? 'checked' : '' ?>
                                    onchange="updateFilters()">
                             <label class="form-check-label" for="filterMySprints">
-                                Apenas minhas sprints
+                                Apenas minhas
                             </label>
                         </div>
                     </div>
@@ -546,7 +688,7 @@ $total_days = $interval->days;
                                    <?= $show_closed ? 'checked' : '' ?>
                                    onchange="updateFilters()">
                             <label class="form-check-label" for="showClosedSprints">
-                                Mostrar fechadas
+                                Fechadas
                             </label>
                         </div>
                     </div>
@@ -680,6 +822,15 @@ $total_days = $interval->days;
                                         
                                         <div class="gantt-bar-resize-handle right" data-direction="right"></div>
                                     </div>
+                                <?php else: ?>
+                                    <!-- Sprint sem datas - mostrar botão para definir -->
+                                    <div class="gantt-no-dates">
+                                        <i class="bi bi-calendar-x"></i>
+                                        <span>Sem datas definidas</span>
+                                        <button class="gantt-no-dates-btn" onclick="openDatePicker(<?= $sprint['id'] ?>, '<?= htmlspecialchars($sprint['nome']) ?>')">
+                                            <i class="bi bi-plus-circle"></i> Definir Datas
+                                        </button>
+                                    </div>
                                 <?php endif; ?>
                             </div>
                         </div>
@@ -716,6 +867,38 @@ $total_days = $interval->days;
                 </div>
             </div>
         <?php endif; ?>
+    </div>
+</div>
+
+<!-- Modal para definir datas -->
+<div id="datePickerModal" class="date-picker-modal">
+    <div class="date-picker-content">
+        <div class="date-picker-header">
+            <i class="bi bi-calendar-plus"></i> Definir Datas da Sprint
+        </div>
+        <div id="datePickerSprintName" style="color: #6c757d; margin-bottom: 15px; font-size: 0.9rem;"></div>
+        <div class="date-picker-body">
+            <div class="date-picker-field">
+                <label for="sprintStartDate">
+                    <i class="bi bi-calendar-event"></i> Data de Início
+                </label>
+                <input type="date" id="sprintStartDate" required>
+            </div>
+            <div class="date-picker-field">
+                <label for="sprintEndDate">
+                    <i class="bi bi-calendar-check"></i> Data de Término
+                </label>
+                <input type="date" id="sprintEndDate" required>
+            </div>
+        </div>
+        <div class="date-picker-footer">
+            <button class="btn-cancel" onclick="closeDatePicker()">
+                <i class="bi bi-x-circle"></i> Cancelar
+            </button>
+            <button class="btn-save" onclick="saveDates()">
+                <i class="bi bi-check-circle"></i> Salvar
+            </button>
+        </div>
     </div>
 </div>
 
@@ -962,9 +1145,99 @@ document.addEventListener('DOMContentLoaded', function() {
 function updateFilters() {
     const viewRange = document.getElementById('viewRange').value;
     const orderBy = document.getElementById('orderBy').value;
+    const filterUser = document.getElementById('filterUser').value;
     const filterMy = document.getElementById('filterMySprints').checked ? '1' : '0';
     const showClosed = document.getElementById('showClosedSprints').checked ? '1' : '0';
     
-    window.location.href = `?tab=gantt&view_range=${viewRange}&order_by=${orderBy}&filter_my_sprints=${filterMy}&show_closed=${showClosed}`;
+    let url = `?tab=gantt&view_range=${viewRange}&order_by=${orderBy}&filter_my_sprints=${filterMy}&show_closed=${showClosed}`;
+    
+    if (filterUser) {
+        url += `&filter_user_id=${filterUser}`;
+    }
+    
+    window.location.href = url;
 }
+
+// Variável global para armazenar o ID da sprint sendo editada
+let currentEditingSprintId = null;
+
+// Função para abrir o modal de definir datas
+function openDatePicker(sprintId, sprintName) {
+    currentEditingSprintId = sprintId;
+    document.getElementById('datePickerSprintName').textContent = sprintName;
+    
+    // Definir data de início como hoje e término como daqui a 2 semanas
+    const today = new Date();
+    const twoWeeksLater = new Date(today);
+    twoWeeksLater.setDate(twoWeeksLater.getDate() + 14);
+    
+    document.getElementById('sprintStartDate').value = today.toISOString().split('T')[0];
+    document.getElementById('sprintEndDate').value = twoWeeksLater.toISOString().split('T')[0];
+    
+    document.getElementById('datePickerModal').classList.add('show');
+}
+
+// Função para fechar o modal
+function closeDatePicker() {
+    document.getElementById('datePickerModal').classList.remove('show');
+    currentEditingSprintId = null;
+}
+
+// Função para salvar as datas
+function saveDates() {
+    const startDate = document.getElementById('sprintStartDate').value;
+    const endDate = document.getElementById('sprintEndDate').value;
+    
+    if (!startDate || !endDate) {
+        alert('Por favor, preencha ambas as datas.');
+        return;
+    }
+    
+    if (new Date(startDate) > new Date(endDate)) {
+        alert('A data de início não pode ser posterior à data de término.');
+        return;
+    }
+    
+    // Atualizar no servidor
+    const formData = new FormData();
+    formData.append('action', 'update_sprint_dates');
+    formData.append('sprint_id', currentEditingSprintId);
+    formData.append('data_inicio', startDate);
+    formData.append('data_fim', endDate);
+    
+    fetch(window.location.href, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('Datas definidas com sucesso! Recarregando...', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showNotification('Erro ao salvar: ' + data.message, 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        showNotification('Erro ao comunicar com o servidor', 'danger');
+    });
+    
+    closeDatePicker();
+}
+
+// Fechar modal ao clicar fora
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('datePickerModal');
+    if (e.target === modal) {
+        closeDatePicker();
+    }
+});
+
+// Fechar modal com ESC
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeDatePicker();
+    }
+});
 </script>

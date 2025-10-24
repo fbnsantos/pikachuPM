@@ -23,6 +23,7 @@ $tabs = [
     'gantt' => 'Gantt',
     'todos' => 'To Do',
     'phd_kanban' => 'PhD plan',
+    'leads' => 'Leads V2',
     'equipa' => 'Daily Meeting',
     'calendar' => 'Calendar',
     'oportunidades' => 'Leads',

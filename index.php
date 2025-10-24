@@ -2,10 +2,18 @@
 ob_start();
 // index.php
 session_start();
+
+// Configurar timeout de sessão para 24 horas (86400 segundos)
+ini_set('session.gc_maxlifetime', 86400);
+ini_set('session.cookie_lifetime', 86400);
+
 if (!isset($_SESSION['username'])) {
     header('Location: login.php');
     exit;
 }
+
+// Definir timezone
+date_default_timezone_set('Europe/Lisbon');
 
 
 
@@ -139,17 +147,18 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             background: #f0f0f0; 
             display: flex; 
             flex-wrap: wrap;
-            gap: 10px; 
-            padding: 10px 20px;
+            gap: 5px; 
+            padding: 8px 15px;
             border-bottom: 1px solid #ddd;
         }
         nav a { 
             text-decoration: none; 
-            padding: 8px 12px; 
+            padding: 6px 10px; 
             background: #ddd; 
-            border-radius: 5px;
+            border-radius: 4px;
             color: #333;
             transition: all 0.2s ease;
+            font-size: 0.9em;
         }
         nav a:hover {
             background: #ccc;
@@ -167,13 +176,14 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
         
         .menu-link {
             text-decoration: none; 
-            padding: 8px 12px; 
+            padding: 6px 10px; 
             background: #ddd; 
-            border-radius: 5px;
+            border-radius: 4px;
             color: #333;
             transition: all 0.2s ease;
             display: inline-block;
             cursor: pointer;
+            font-size: 0.9em;
         }
         
         .menu-link:hover {
@@ -198,11 +208,11 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             top: 100%;
             left: 0;
             background-color: #2c3e50;
-            min-width: 180px;
+            min-width: 160px;
             box-shadow: 0px 8px 20px rgba(0,0,0,0.3);
             z-index: 1000;
-            border-radius: 6px;
-            margin-top: 5px;
+            border-radius: 4px;
+            margin-top: 4px;
             overflow: hidden;
         }
         
@@ -226,11 +236,12 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             display: block;
             color: white !important;
             background-color: transparent !important;
-            padding: 10px 16px;
+            padding: 8px 12px;
             text-decoration: none;
             transition: background-color 0.2s;
             border-bottom: 1px solid rgba(255,255,255,0.1);
             border-radius: 0;
+            font-size: 0.85em;
         }
         
         .submenu a:last-child {
@@ -495,6 +506,8 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             <p>
                 ID: <?= $_SESSION['user_id'] ?> 
                 <span class="timer-badge" id="session-time"><?= tempoSessao() ?></span>
+                <span class="timer-badge" id="current-time"><?= date('H:i:s') ?></span>
+                <span class="timer-badge" id="logout-countdown" title="Tempo até logout automático">24h</span>
                 
                 <label class="auto-toggle">
                     <input type="checkbox" id="auto-toggle-check" <?= $autoAlternar ? 'checked' : '' ?>>
@@ -778,6 +791,64 @@ document.addEventListener('DOMContentLoaded', function() {
             let minutes = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
             let secs = (seconds % 60).toString().padStart(2, '0');
             sessionTimeEl.textContent = `${hours}:${minutes}:${secs}`;
+        }, 1000);
+    }
+
+    // ===== RELÓGIO E COUNTDOWN DE LOGOUT =====
+    const currentTimeEl = document.getElementById('current-time');
+    const logoutCountdownEl = document.getElementById('logout-countdown');
+    const SESSION_TIMEOUT = 86400; // 24 horas em segundos
+    
+    // Atualizar relógio a cada segundo
+    if (currentTimeEl) {
+        setInterval(() => {
+            const now = new Date();
+            const hours = now.getHours().toString().padStart(2, '0');
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const seconds = now.getSeconds().toString().padStart(2, '0');
+            currentTimeEl.textContent = `${hours}:${minutes}:${seconds}`;
+        }, 1000);
+    }
+    
+    // Atualizar countdown de logout
+    if (logoutCountdownEl && sessionTimeEl) {
+        setInterval(() => {
+            // Obter tempo de sessão atual em segundos
+            let timeParts = sessionTimeEl.textContent.split(':');
+            let sessionSeconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseInt(timeParts[2]);
+            
+            // Calcular tempo restante até logout
+            let remainingSeconds = SESSION_TIMEOUT - sessionSeconds;
+            
+            if (remainingSeconds <= 0) {
+                logoutCountdownEl.textContent = 'Sessão expirada';
+                logoutCountdownEl.style.backgroundColor = 'rgba(220, 53, 69, 0.3)';
+                // Redirecionar para logout após 3 segundos
+                setTimeout(() => {
+                    window.location.href = 'logout.php';
+                }, 3000);
+            } else {
+                let hours = Math.floor(remainingSeconds / 3600);
+                let minutes = Math.floor((remainingSeconds % 3600) / 60);
+                
+                // Formatar display
+                if (hours > 0) {
+                    logoutCountdownEl.textContent = `${hours}h ${minutes}m`;
+                } else if (minutes > 0) {
+                    logoutCountdownEl.textContent = `${minutes}m`;
+                } else {
+                    logoutCountdownEl.textContent = `${remainingSeconds}s`;
+                }
+                
+                // Mudar cor quando faltar menos de 1 hora
+                if (remainingSeconds < 3600) {
+                    logoutCountdownEl.style.backgroundColor = 'rgba(255, 193, 7, 0.3)';
+                }
+                // Mudar para vermelho quando faltar menos de 10 minutos
+                if (remainingSeconds < 600) {
+                    logoutCountdownEl.style.backgroundColor = 'rgba(220, 53, 69, 0.3)';
+                }
+            }
         }, 1000);
     }
 

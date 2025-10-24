@@ -157,8 +157,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Criar nova task na tabela todos
                 $stmt = $pdo->prepare("
-                    INSERT INTO todos (titulo, descritivo, estado, autor, projeto_id, criado_em)
-                    VALUES (?, ?, 'aberta', ?, NULL, NOW())
+                    INSERT INTO todos (titulo, descritivo, estado, autor, projeto_id)
+                    VALUES (?, ?, 'aberta', ?, NULL)
                 ");
                 $stmt->execute([
                     $_POST['kanban_titulo'],

@@ -56,28 +56,30 @@ if ($tables_check == 0) {
             FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
-    
-    // Verificar se tabela todos existe antes de criar lead_tasks
-    $todos_exists = $pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 0;
-    
-    if ($todos_exists) {
-        // Criar tabela lead_tasks apenas se todos existir
-        $check_lead_tasks = $pdo->query("SHOW TABLES LIKE 'lead_tasks'")->rowCount();
-        if ($check_lead_tasks == 0) {
-            $pdo->exec("
-                CREATE TABLE lead_tasks (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    lead_id INT NOT NULL,
-                    todo_id INT NOT NULL,
-                    coluna ENUM('todo', 'doing', 'done') DEFAULT 'todo',
-                    posicao INT DEFAULT 0,
-                    adicionado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
-                    FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE,
-                    UNIQUE KEY unique_lead_task (lead_id, todo_id)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            ");
-        }
+}
+
+// Criar tabela lead_tasks separadamente (após verificar que todos existe)
+$todos_exists = $pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 0;
+$lead_tasks_check = $pdo->query("SHOW TABLES LIKE 'lead_tasks'")->rowCount();
+
+if ($todos_exists && $lead_tasks_check == 0) {
+    try {
+        $pdo->exec("
+            CREATE TABLE lead_tasks (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                lead_id INT NOT NULL,
+                todo_id INT NOT NULL,
+                coluna ENUM('todo', 'doing', 'done') DEFAULT 'todo',
+                posicao INT DEFAULT 0,
+                adicionado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
+                FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE,
+                UNIQUE KEY unique_lead_task (lead_id, todo_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+    } catch (PDOException $e) {
+        // Se houver erro ao criar, não bloquear a página
+        error_log("Erro ao criar lead_tasks: " . $e->getMessage());
     }
 }
 
@@ -85,7 +87,7 @@ $current_user_id = $_SESSION['user_id'] ?? null;
 $message = $_GET['message'] ?? '';
 $messageType = $_GET['type'] ?? 'success';
 
-// Verificar se módulo todos está disponível
+// Verificar se módulo todos está disponível (APÓS tentativa de criação de lead_tasks)
 $todos_module_available = $pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 0;
 $lead_tasks_available = $pdo->query("SHOW TABLES LIKE 'lead_tasks'")->rowCount() > 0;
 

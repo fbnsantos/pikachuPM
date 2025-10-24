@@ -29,15 +29,51 @@ $tabs = [
     'oportunidades' => 'Leads',
     'search' => 'Search',
     'links' => 'Links',
-    'prototypes' => 'Prototypes_v1',
-    'projecto' => 'Projects_1',
-    'milestone' => 'milestones',
+    'old' => [
+        'label' => 'Old',
+        'submenu' => [
+            'prototypes' => 'Prototypes_v1',
+            'projecto' => 'Projects_1',
+            'milestone' => 'Milestones'
+        ]
+    ],
     'admin' => 'Administration',
 ];
 
 $tabSelecionada = $_GET['tab'] ?? 'dashboard';
-if (!array_key_exists($tabSelecionada, $tabs)) {
+
+// Validar se a tab existe (incluindo submenus)
+$tabValida = false;
+foreach ($tabs as $key => $value) {
+    if ($key === $tabSelecionada) {
+        $tabValida = true;
+        break;
+    }
+    if (is_array($value) && isset($value['submenu'])) {
+        if (array_key_exists($tabSelecionada, $value['submenu'])) {
+            $tabValida = true;
+            break;
+        }
+    }
+}
+
+if (!$tabValida) {
     $tabSelecionada = 'dashboard';
+}
+
+// Função auxiliar para obter o título da tab
+function getTituloTab($tabs, $tabSelecionada) {
+    foreach ($tabs as $key => $value) {
+        if ($key === $tabSelecionada) {
+            return is_array($value) ? $value['label'] : $value;
+        }
+        if (is_array($value) && isset($value['submenu'])) {
+            if (array_key_exists($tabSelecionada, $value['submenu'])) {
+                return $value['submenu'][$tabSelecionada];
+            }
+        }
+    }
+    return 'Painel Principal';
 }
 
 // Verificar se alternância automática está ativada - com configuração por usuário
@@ -79,7 +115,7 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
-    <title>Área Redmine<?= $tabSelecionada ? ' - ' . $tabs[$tabSelecionada] : '' ?></title>
+    <title>Área Redmine<?= $tabSelecionada ? ' - ' . getTituloTab($tabs, $tabSelecionada) : '' ?></title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
@@ -120,6 +156,93 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
         nav a.active { 
             background: #0d6efd; 
             color: white; 
+        }
+        
+        /* Estilos para submenu */
+        .menu-item {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .menu-link {
+            text-decoration: none; 
+            padding: 8px 12px; 
+            background: #ddd; 
+            border-radius: 5px;
+            color: #333;
+            transition: all 0.2s ease;
+            display: inline-block;
+            cursor: pointer;
+        }
+        
+        .menu-link:hover {
+            background: #ccc;
+        }
+        
+        .menu-link.active {
+            background: #0d6efd; 
+            color: white;
+        }
+        
+        .menu-link.has-submenu::after {
+            content: ' ▼';
+            font-size: 0.7em;
+            margin-left: 4px;
+            opacity: 0.7;
+        }
+        
+        .submenu {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background-color: #2c3e50;
+            min-width: 180px;
+            box-shadow: 0px 8px 20px rgba(0,0,0,0.3);
+            z-index: 1000;
+            border-radius: 6px;
+            margin-top: 5px;
+            overflow: hidden;
+        }
+        
+        .menu-item:hover .submenu {
+            display: block;
+            animation: slideDown 0.2s ease-out;
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .submenu a {
+            display: block;
+            color: white !important;
+            background-color: transparent !important;
+            padding: 10px 16px;
+            text-decoration: none;
+            transition: background-color 0.2s;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            border-radius: 0;
+        }
+        
+        .submenu a:last-child {
+            border-bottom: none;
+        }
+        
+        .submenu a:hover {
+            background-color: #34495e !important;
+        }
+        
+        .submenu a.active {
+            background-color: #3498db !important;
+            font-weight: 600;
         }
         main { 
             flex-grow: 1;
@@ -387,10 +510,26 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
 </header>
 
 <nav>
-    <?php foreach ($tabs as $id => $label): ?>
-        <a href="?tab=<?= $id ?>" class="<?= $tabSelecionada === $id ? 'active' : '' ?>">
-            <?= htmlspecialchars($label) ?>
-        </a>
+    <?php foreach ($tabs as $id => $value): ?>
+        <?php if (is_array($value) && isset($value['submenu'])): ?>
+            <!-- Item com submenu -->
+            <div class="menu-item">
+                <span class="menu-link has-submenu"><?= htmlspecialchars($value['label']) ?></span>
+                <div class="submenu">
+                    <?php foreach ($value['submenu'] as $subId => $subLabel): ?>
+                        <a href="?tab=<?= urlencode($subId) ?>" 
+                           class="<?= $tabSelecionada === $subId ? 'active' : '' ?>">
+                            <?= htmlspecialchars($subLabel) ?>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        <?php else: ?>
+            <!-- Item normal -->
+            <a href="?tab=<?= urlencode($id) ?>" class="<?= $tabSelecionada === $id ? 'active' : '' ?>">
+                <?= htmlspecialchars($value) ?>
+            </a>
+        <?php endif; ?>
     <?php endforeach; ?>
 </nav>
 

@@ -755,36 +755,7 @@ function renderContentFrame($content, $height = 450) {
                 <span>Avisos</span>
             </div>
             
-            <div class="notices-content">
-                <?php if (!empty($notices)): ?>
-                <div class="notices-scroller">
-                    <?php foreach ($notices as $notice): ?>
-                    <div class="notice-item notice-priority-<?= $notice['priority'] ?>">
-                        <div class="notice-text"><?= htmlspecialchars($notice['text']) ?></div>
-                        <div class="notice-meta">
-                            Por: <?= htmlspecialchars($notice['added_by']) ?> | 
-                            <?= date('d/m/Y H:i', strtotime($notice['added_at'])) ?>
-                        </div>
-                    </div>
-                    <?php endforeach; ?>
-                    
-                    <!-- Repetir os mesmos avisos para scroll contínuo -->
-                    <?php foreach ($notices as $notice): ?>
-                    <div class="notice-item notice-priority-<?= $notice['priority'] ?>">
-                        <div class="notice-text"><?= htmlspecialchars($notice['text']) ?></div>
-                        <div class="notice-meta">
-                            Por: <?= htmlspecialchars($notice['added_by']) ?> | 
-                            <?= date('d/m/Y H:i', strtotime($notice['added_at'])) ?>
-                        </div>
-                    </div>
-                    <?php endforeach; ?>
-                </div>
-                <?php else: ?>
-                <div class="p-3 text-center">
-                    <em>Não há avisos no momento.</em>
-                </div>
-                <?php endif; ?>
-            </div>
+
         </div>
         
         <?php if ($displayMode === 'single' && $content): ?>

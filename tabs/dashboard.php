@@ -749,14 +749,7 @@ function renderContentFrame($content, $height = 450) {
             </div>
         <?php endif; ?>
         
-        <!-- Avisos no topo -->
-        <div class="notices-container">
-            <div class="notices-title">
-                <span>Avisos</span>
-            </div>
-            
 
-        </div>
         
         <?php if ($displayMode === 'single' && $content): ?>
             <div class="content-container">

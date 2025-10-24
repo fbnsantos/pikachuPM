@@ -148,6 +148,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
                 
             case 'add_kanban_item':
+                // Verificar se tabela todos existe
+                if ($pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() == 0) {
+                    $message = "Erro: Tabela 'todos' não existe!";
+                    $messageType = 'danger';
+                    break;
+                }
+                
                 // Criar nova task na tabela todos
                 $stmt = $pdo->prepare("
                     INSERT INTO todos (titulo, descritivo, estado, autor, projeto_id, criado_em)
@@ -256,17 +263,27 @@ if ($selected_lead_id) {
         $stmt->execute([$selected_lead_id]);
         $lead_links = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        // Buscar tasks do kanban
-        $stmt = $pdo->prepare("
-            SELECT lt.id as lead_task_id, lt.coluna, lt.posicao,
-                   t.id as todo_id, t.titulo, t.estado, t.descritivo
-            FROM lead_tasks lt
-            JOIN todos t ON lt.todo_id = t.id
-            WHERE lt.lead_id = ?
-            ORDER BY lt.posicao ASC, lt.adicionado_em ASC
-        ");
-        $stmt->execute([$selected_lead_id]);
-        $lead_kanban = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Buscar tasks do kanban (verificar se tabela existe)
+        $lead_kanban = [];
+        $lead_tasks_exists = $pdo->query("SHOW TABLES LIKE 'lead_tasks'")->rowCount() > 0;
+        
+        if ($lead_tasks_exists) {
+            try {
+                $stmt = $pdo->prepare("
+                    SELECT lt.id as lead_task_id, lt.coluna, lt.posicao,
+                           t.id as todo_id, t.titulo, t.estado, t.descritivo
+                    FROM lead_tasks lt
+                    JOIN todos t ON lt.todo_id = t.id
+                    WHERE lt.lead_id = ?
+                    ORDER BY lt.posicao ASC, lt.adicionado_em ASC
+                ");
+                $stmt->execute([$selected_lead_id]);
+                $lead_kanban = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (PDOException $e) {
+                // Se houver erro, deixa array vazio
+                $lead_kanban = [];
+            }
+        }
     }
 }
 
@@ -867,16 +884,21 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
 <?php 
 // Buscar todas as tasks disponíveis
 $all_todos = [];
-if ($pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 0) {
-    $all_todos = $pdo->query("
-        SELECT t.id, t.titulo, t.estado, u.username as autor_nome
-        FROM todos t
-        LEFT JOIN user_tokens u ON t.autor = u.user_id
-        ORDER BY t.criado_em DESC
-        LIMIT 100
-    ")->fetchAll(PDO::FETCH_ASSOC);
+if ($selected_lead && $pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 0) {
+    try {
+        $all_todos = $pdo->query("
+            SELECT t.id, t.titulo, t.estado, u.username as autor_nome
+            FROM todos t
+            LEFT JOIN user_tokens u ON t.autor = u.user_id
+            ORDER BY t.criado_em DESC
+            LIMIT 100
+        ")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $all_todos = [];
+    }
 }
 
+if ($selected_lead):
 foreach (['todo', 'doing', 'done'] as $col): 
 ?>
 <div class="modal fade" id="addKanbanModal<?= $col ?>" tabindex="-1">
@@ -953,8 +975,9 @@ foreach (['todo', 'doing', 'done'] as $col):
     </div>
 </div>
 <?php endforeach; ?>
+<?php endif; // Fim do if($selected_lead) ?>
 
-<?php endif; ?>
+<?php endif; // Fim do if($selected_lead) para todos os modais ?>
 
 <?php
 // Incluir editor universal no final da página

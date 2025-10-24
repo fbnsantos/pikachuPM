@@ -507,12 +507,14 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
                 ID: <?= $_SESSION['user_id'] ?> 
                 <span class="timer-badge" id="session-time"><?= tempoSessao() ?></span>
                 <span class="timer-badge" id="current-time"><?= date('H:i:s') ?></span>
-                <span class="timer-badge" id="logout-countdown" title="Tempo até logout automático">24h</span>
                 
                 <label class="auto-toggle">
                     <input type="checkbox" id="auto-toggle-check" <?= $autoAlternar ? 'checked' : '' ?>>
                     Alternar Dashboard/Calendário
                 </label>
+            </p>
+            <p style="margin: 2px 0 0 0; font-size: 0.75em; opacity: 0.8;">
+                <span id="logout-countdown" title="Tempo até logout automático">Logout em: 24h</span>
             </p>
             <p class="mt-2">
                 <a href="logout.php" class="logout-btn">
@@ -821,8 +823,8 @@ document.addEventListener('DOMContentLoaded', function() {
             let remainingSeconds = SESSION_TIMEOUT - sessionSeconds;
             
             if (remainingSeconds <= 0) {
-                logoutCountdownEl.textContent = 'Sessão expirada';
-                logoutCountdownEl.style.backgroundColor = 'rgba(220, 53, 69, 0.3)';
+                logoutCountdownEl.textContent = 'Logout em: Sessão expirada';
+                logoutCountdownEl.style.color = '#dc3545';
                 // Redirecionar para logout após 3 segundos
                 setTimeout(() => {
                     window.location.href = 'logout.php';
@@ -833,20 +835,22 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // Formatar display
                 if (hours > 0) {
-                    logoutCountdownEl.textContent = `${hours}h ${minutes}m`;
+                    logoutCountdownEl.textContent = `Logout em: ${hours}h ${minutes}m`;
                 } else if (minutes > 0) {
-                    logoutCountdownEl.textContent = `${minutes}m`;
+                    logoutCountdownEl.textContent = `Logout em: ${minutes}m`;
                 } else {
-                    logoutCountdownEl.textContent = `${remainingSeconds}s`;
+                    logoutCountdownEl.textContent = `Logout em: ${remainingSeconds}s`;
                 }
                 
                 // Mudar cor quando faltar menos de 1 hora
                 if (remainingSeconds < 3600) {
-                    logoutCountdownEl.style.backgroundColor = 'rgba(255, 193, 7, 0.3)';
+                    logoutCountdownEl.style.color = '#ffc107';
+                } else {
+                    logoutCountdownEl.style.color = 'inherit';
                 }
                 // Mudar para vermelho quando faltar menos de 10 minutos
                 if (remainingSeconds < 600) {
-                    logoutCountdownEl.style.backgroundColor = 'rgba(220, 53, 69, 0.3)';
+                    logoutCountdownEl.style.color = '#dc3545';
                 }
             }
         }, 1000);

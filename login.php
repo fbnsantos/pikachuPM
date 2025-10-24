@@ -144,7 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
   <div class="login-container">
-    <h2>Login com Redmine</h2>
+    <h2>Login no PikachuPM (INESC TEC login)</h2>
     <?php if ($erro): ?>
       <p class="error"><?= htmlspecialchars($erro) ?></p>
     <?php endif; ?>

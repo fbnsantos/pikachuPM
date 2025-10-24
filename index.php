@@ -102,6 +102,37 @@ if ($_SESSION['username'] === 'test') {
 // Determinar se precisamos fazer nova configuração de temporizadores
 $reiniciarTemporizadores = isset($_GET['reset_timers']) && $_GET['reset_timers'] === 'true';
 
+// Carregar avisos da tabela notices (SQLite)
+$notices = [];
+try {
+    $dbFile = __DIR__ . '/tabs/database/content.db';
+    
+    if (file_exists($dbFile)) {
+        $db = new SQLite3($dbFile);
+        $db->enableExceptions(true);
+        
+        // Buscar avisos ativos ordenados por prioridade e data
+        $result = $db->query('
+            SELECT id, text, added_by, added_at, priority 
+            FROM notices 
+            WHERE active = 1 
+            ORDER BY priority DESC, added_at DESC 
+            LIMIT 3
+        ');
+        
+        if ($result) {
+            while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+                $notices[] = $row;
+            }
+        }
+        
+        $db->close();
+    }
+} catch (Exception $e) {
+    // Silenciosamente falhar se a tabela não existir ou houver erro
+    error_log("Erro ao carregar notices: " . $e->getMessage());
+}
+
 function tempoSessao() {
     if (!isset($_SESSION['inicio'])) {
         $_SESSION['inicio'] = time();
@@ -139,16 +170,72 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
         }
         header, nav, main { padding: 20px; }
         header { 
-            background: #222; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white; 
-            padding: 15px 20px;
+            padding: 12px 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        
+        /* Estilos para área de avisos */
+        .notices-container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin-top: 8px;
+            border-left: 4px solid #ffc107;
+            animation: slideIn 0.5s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .notices-container .notice-item {
+            display: flex;
+            align-items: center;
+            padding: 4px 0;
+            font-size: 0.9em;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .notices-container .notice-item:last-child {
+            border-bottom: none;
+        }
+        
+        .notices-container .notice-icon {
+            margin-right: 8px;
+            font-size: 1.1em;
+        }
+        
+        .notices-container .notice-text {
+            flex: 1;
+        }
+        
+        .notices-container .notice-date {
+            font-size: 0.85em;
+            opacity: 0.8;
+            margin-left: 10px;
+        }
+        
+        .no-notices {
+            opacity: 0.7;
+            font-style: italic;
+            font-size: 0.85em;
         }
         nav { 
             background: #f0f0f0; 
             display: flex; 
             flex-wrap: wrap;
             gap: 5px; 
-            padding: 8px 15px;
+            padding: 6px 15px;
             border-bottom: 1px solid #ddd;
         }
         nav a { 
@@ -264,18 +351,30 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
         .header-container {
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 15px;
         }
         .header-left {
             display: flex;
             align-items: center;
+            flex: 1;
+            min-width: 250px;
         }
         .logo {
-            height: 40px;
+            height: 45px;
             margin-right: 15px;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+            transition: transform 0.3s ease;
+        }
+        .logo:hover {
+            transform: scale(1.1) rotate(5deg);
         }
         .header-title {
             margin: 0;
+            font-size: 1.4em;
+            font-weight: 600;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
         .header-info {
             display: flex;
@@ -286,27 +385,39 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             margin: 0;
         }
         .timer-badge {
-            font-family: monospace;
-            font-size: 1.1em;
-            padding: 3px 10px;
-            border-radius: 10px;
-            background-color: rgba(255,255,255,0.2);
-            margin-left: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 1em;
+            padding: 4px 10px;
+            border-radius: 6px;
+            background: linear-gradient(135deg, rgba(255,255,255,0.2), rgba(255,255,255,0.1));
+            margin-left: 8px;
+            border: 1px solid rgba(255,255,255,0.3);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+        .timer-badge:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
         .auto-toggle {
-            margin-left: 15px;
+            margin-left: 12px;
             display: flex;
             align-items: center;
-            background-color: rgba(255,255,255,0.1);
-            padding: 5px 10px;
+            background: linear-gradient(135deg, rgba(255,255,255,0.15), rgba(255,255,255,0.05));
+            padding: 5px 12px;
             border-radius: 20px;
             cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255,255,255,0.2);
         }
         .auto-toggle:hover {
-            background-color: rgba(255,255,255,0.2);
+            background: linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0.15));
+            transform: translateY(-1px);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
         }
         .auto-toggle input {
-            margin-right: 5px;
+            margin-right: 6px;
+            cursor: pointer;
         }
         .refresh-info {
             position: fixed;
@@ -355,6 +466,45 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             color: white;
             text-decoration: underline;
         }
+        
+        /* Responsividade para header */
+        @media (max-width: 992px) {
+            .header-container {
+                flex-direction: column;
+            }
+            .header-left {
+                width: 100%;
+            }
+            .header-info {
+                width: 100%;
+                align-items: flex-start;
+                margin-top: 10px;
+            }
+            .notices-container {
+                font-size: 0.85em;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .logo {
+                height: 35px;
+            }
+            .header-title {
+                font-size: 1.1em;
+            }
+            .notices-container {
+                padding: 6px 10px;
+            }
+            .notice-item {
+                flex-wrap: wrap;
+            }
+            .notice-date {
+                width: 100%;
+                margin-left: 28px;
+                margin-top: 2px;
+            }
+        }
+        
         /* Estilo para a notificação de reunião */
         .meeting-notification {
             position: fixed;
@@ -500,7 +650,36 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
     <div class="header-container">
         <div class="header-left">
             <img src="images/pikachu_logo.png" alt="PikachuPM Logo" class="logo">
-            <h1 class="header-title">Bem-vindo, <?= htmlspecialchars($_SESSION['username']) ?></h1>
+            <div>
+                <h1 class="header-title">Bem-vindo, <?= htmlspecialchars($_SESSION['username']) ?></h1>
+                
+                <?php if (!empty($notices)): ?>
+                <div class="notices-container">
+                    <?php foreach ($notices as $notice): ?>
+                        <div class="notice-item">
+                            <span class="notice-icon">
+                                <?php 
+                                    // Ícone baseado na prioridade
+                                    $priority = isset($notice['priority']) ? intval($notice['priority']) : 0;
+                                    if ($priority >= 2) echo '🔴'; // Urgente
+                                    elseif ($priority == 1) echo '🟡'; // Importante
+                                    else echo 'ℹ️'; // Normal
+                                ?>
+                            </span>
+                            <span class="notice-text">
+                                <?= htmlspecialchars($notice['text'] ?? '') ?>
+                                <?php if (!empty($notice['added_by'])): ?>
+                                    <small style="opacity: 0.7;"> - <?= htmlspecialchars($notice['added_by']) ?></small>
+                                <?php endif; ?>
+                            </span>
+                            <?php if (isset($notice['added_at'])): ?>
+                                <span class="notice-date"><?= date('d/m H:i', strtotime($notice['added_at'])) ?></span>
+                            <?php endif; ?>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+            </div>
         </div>
         <div class="header-info">
             <p>

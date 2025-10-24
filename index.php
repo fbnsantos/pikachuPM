@@ -124,6 +124,7 @@ $tituloTab = getTituloTab($tabs, $tabSelecionada);
     <title>Área Redmine<?= $tabSelecionada ? ' - ' . htmlspecialchars($tituloTab) : '' ?></title>
     <link rel="stylesheet" href="styles.css">
     <style>
+        /* Reset básico */
         * {
             margin: 0;
             padding: 0;
@@ -133,49 +134,91 @@ $tituloTab = getTituloTab($tabs, $tabSelecionada);
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #f5f5f5;
+            min-height: 100vh;
         }
 
+        /* Header */
         header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 1rem 2rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 1rem 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
         }
 
         header h1 {
             font-size: 1.5rem;
             margin-bottom: 1rem;
+            font-weight: 600;
         }
 
+        /* Navegação */
         nav {
             display: flex;
             flex-wrap: wrap;
-            gap: 5px;
+            gap: 3px;
             align-items: center;
-            background-color: rgba(0,0,0,0.1);
+            background-color: rgba(0,0,0,0.15);
             padding: 0.5rem;
             border-radius: 8px;
         }
 
-        /* Estilos para o menu */
+        /* Estilos para menu items */
         .menu-item {
             position: relative;
             display: inline-block;
         }
         
+        .menu-link {
+            display: inline-block;
+            padding: 0.6rem 1rem;
+            color: white;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            white-space: nowrap;
+            cursor: pointer;
+            background-color: transparent;
+        }
+        
+        .menu-link:hover {
+            background-color: rgba(255,255,255,0.2);
+            transform: translateY(-1px);
+        }
+        
+        .menu-link.active {
+            background-color: rgba(255,255,255,0.3);
+            font-weight: 600;
+        }
+
+        .menu-link.has-submenu::after {
+            content: ' ▼';
+            font-size: 0.65em;
+            margin-left: 4px;
+            opacity: 0.8;
+        }
+
+        /* Submenu */
         .submenu {
             display: none;
             position: absolute;
+            top: 100%;
+            left: 0;
             background-color: #2c3e50;
-            min-width: 200px;
-            box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.3);
+            min-width: 180px;
+            box-shadow: 0px 8px 20px rgba(0,0,0,0.3);
             z-index: 1000;
-            border-radius: 4px;
+            border-radius: 6px;
             margin-top: 5px;
-            animation: fadeIn 0.2s ease-in;
+            overflow: hidden;
         }
 
-        @keyframes fadeIn {
+        .menu-item:hover .submenu {
+            display: block;
+            animation: slideDown 0.2s ease-out;
+        }
+
+        @keyframes slideDown {
             from {
                 opacity: 0;
                 transform: translateY(-10px);
@@ -187,21 +230,16 @@ $tituloTab = getTituloTab($tabs, $tabSelecionada);
         }
         
         .submenu a {
-            color: white;
-            padding: 12px 16px;
-            text-decoration: none;
             display: block;
-            border-bottom: 1px solid #34495e;
+            color: white;
+            padding: 0.75rem 1.2rem;
+            text-decoration: none;
             transition: background-color 0.2s;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
         }
         
         .submenu a:last-child {
             border-bottom: none;
-            border-radius: 0 0 4px 4px;
-        }
-
-        .submenu a:first-child {
-            border-radius: 4px 4px 0 0;
         }
         
         .submenu a:hover {
@@ -210,55 +248,54 @@ $tituloTab = getTituloTab($tabs, $tabSelecionada);
 
         .submenu a.active {
             background-color: #3498db;
-            font-weight: bold;
-        }
-        
-        .menu-item:hover .submenu {
-            display: block;
-        }
-        
-        .menu-link.has-submenu::after {
-            content: ' ▼';
-            font-size: 0.7em;
-            margin-left: 3px;
-        }
-        
-        .menu-link {
-            cursor: pointer;
-            display: inline-block;
-            padding: 10px 15px;
-            color: white;
-            text-decoration: none;
-            transition: all 0.3s;
-            border-radius: 4px;
-            font-size: 0.9rem;
-            white-space: nowrap;
-        }
-        
-        .menu-link:hover {
-            background-color: rgba(255,255,255,0.2);
-        }
-        
-        .menu-link.active {
-            background-color: rgba(255,255,255,0.3);
-            font-weight: bold;
+            font-weight: 600;
         }
 
+        /* Botão de logout */
+        .logout-link {
+            margin-left: auto;
+            background-color: rgba(220, 53, 69, 0.7);
+        }
+
+        .logout-link:hover {
+            background-color: rgba(220, 53, 69, 0.9);
+        }
+
+        /* Session info */
         .session-info {
-            margin-top: 0.5rem;
+            margin-top: 0.75rem;
             font-size: 0.9rem;
-            opacity: 0.9;
+            opacity: 0.95;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
         }
 
+        .session-info label {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .session-info input[type="checkbox"] {
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Main content */
         main {
             padding: 2rem;
-            max-width: 1400px;
+            max-width: 100%;
             margin: 0 auto;
         }
 
+        /* Alerts */
         .alert {
             padding: 1rem;
-            border-radius: 4px;
+            border-radius: 6px;
             margin-bottom: 1rem;
         }
 
@@ -268,47 +305,97 @@ $tituloTab = getTituloTab($tabs, $tabSelecionada);
             color: #856404;
         }
 
-        .logout-link {
-            margin-left: auto;
-            background-color: rgba(220, 53, 69, 0.8);
-        }
-
-        .logout-link:hover {
-            background-color: rgba(220, 53, 69, 1);
+        /* Contador para reunião/calendário */
+        #contador-display {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: rgba(0,0,0,0.8);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            z-index: 999;
+            font-size: 0.9rem;
+            min-width: 200px;
         }
 
         /* Responsividade */
+        @media (max-width: 992px) {
+            header h1 {
+                font-size: 1.3rem;
+            }
+
+            nav {
+                gap: 2px;
+            }
+
+            .menu-link {
+                padding: 0.5rem 0.8rem;
+                font-size: 0.85rem;
+            }
+        }
+
         @media (max-width: 768px) {
             header {
                 padding: 1rem;
             }
 
             header h1 {
-                font-size: 1.2rem;
+                font-size: 1.1rem;
             }
 
             nav {
                 flex-direction: column;
                 align-items: stretch;
+                gap: 2px;
             }
 
-            .menu-link {
-                width: 100%;
-                text-align: center;
-            }
-
+            .menu-link,
             .menu-item {
                 width: 100%;
+                text-align: center;
             }
 
             .submenu {
                 position: static;
                 width: 100%;
                 margin-top: 0;
+                display: none;
+            }
+
+            .menu-item.active-mobile .submenu {
+                display: block;
+            }
+
+            .logout-link {
+                margin-left: 0;
             }
 
             main {
                 padding: 1rem;
+            }
+
+            #contador-display {
+                bottom: 10px;
+                right: 10px;
+                font-size: 0.8rem;
+                padding: 0.75rem 1rem;
+                min-width: 150px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            header h1 {
+                font-size: 1rem;
+            }
+
+            .menu-link {
+                font-size: 0.8rem;
+            }
+
+            .session-info {
+                font-size: 0.8rem;
             }
         }
     </style>
@@ -342,15 +429,18 @@ $tituloTab = getTituloTab($tabs, $tabSelecionada);
             <a href="logout.php" class="menu-link logout-link">Sair</a>
         </nav>
         <div class="session-info">
-            Tempo de sessão: <span id="session-time"><?= tempoSessao() ?></span>
+            <span>Tempo de sessão: <strong id="session-time"><?= tempoSessao() ?></strong></span>
             <?php if ($_SESSION['username'] === 'test'): ?>
-                | <label style="cursor: pointer;">
+                <label>
                     <input type="checkbox" id="auto-toggle" <?= $autoAlternar ? 'checked' : '' ?>>
-                    Auto-alternar
+                    <span>Auto-alternar</span>
                 </label>
             <?php endif; ?>
         </div>
     </header>
+
+    <!-- Contador de transição (visível apenas quando necessário) -->
+    <div id="contador-display" style="display: none;"></div>
 
     <main>
         <?php
@@ -365,6 +455,14 @@ $tituloTab = getTituloTab($tabs, $tabSelecionada);
     </main>
 
     <script>
+        // ===== CONFIGURAÇÕES GLOBAIS =====
+        const HORA_REUNIAO_EQUIPA = '<?= $HORA_REUNIAO_EQUIPA ?>';
+        const HORA_TRANSICAO_CALENDARIO = '<?= $HORA_TRANSICAO_CALENDARIO ?>';
+        const TEMPO_REFRESH_CALENDARIO = <?= $tempoRefreshCalendario ?> * 1000; // Converter para ms
+        const TEMPO_ALTERNANCIA_ABAS = <?= $tempoAlternanciaAbas ?> * 1000; // Converter para ms
+        const USUARIO_ATUAL = '<?= $_SESSION['username'] ?>';
+        const REINICIAR_TEMPORIZADORES = <?= $reiniciarTemporizadores ? 'true' : 'false' ?>;
+
         // ===== FUNÇÕES AUXILIARES =====
         function getLocalStorage(key, defaultValue) {
             try {
@@ -401,12 +499,12 @@ $tituloTab = getTituloTab($tabs, $tabSelecionada);
             }, 1000);
         }
 
-        // ===== AUTO-ALTERNÂNCIA (para usuário test) =====
+        // ===== SISTEMA DE AUTO-ALTERNÂNCIA =====
         const autoToggleEl = document.getElementById('auto-toggle');
-        const usuarioAtual = '<?= $_SESSION['username'] ?>';
+        let autoAlternarAtivo = getLocalStorage('auto_alternar', <?= $autoAlternar ? 'true' : 'false' ?>);
         
-        if (autoToggleEl && usuarioAtual === 'test') {
-            let autoAlternarAtivo = getLocalStorage('auto_alternar', <?= $autoAlternar ? 'true' : 'false' ?>);
+        if (autoToggleEl) {
+            autoToggleEl.checked = autoAlternarAtivo;
             
             autoToggleEl.addEventListener('change', function() {
                 autoAlternarAtivo = this.checked;
@@ -414,21 +512,119 @@ $tituloTab = getTituloTab($tabs, $tabSelecionada);
                 document.cookie = `auto_alternar=${autoAlternarAtivo}; max-age=${60*60*24*30}; path=/; SameSite=Strict`;
                 
                 if (autoAlternarAtivo) {
-                    alert('Auto-alternância ativada!');
+                    configurarProximaAlternancia();
+                    iniciarTimerUnificado();
                 } else {
-                    alert('Auto-alternância desativada!');
+                    setLocalStorage('proxima_alternancia', null);
+                    atualizarInterfaceContador();
                 }
+            });
+            
+            if (USUARIO_ATUAL === 'test' && autoToggleEl.checked) {
+                if (!getLocalStorage('proxima_alternancia', null)) {
+                    configurarProximaAlternancia();
+                }
+            }
+        }
+
+        // ===== FUNÇÕES DE ALTERNÂNCIA =====
+        function configurarProximaAlternancia() {
+            const agora = new Date();
+            const horaAtual = agora.getHours().toString().padStart(2, '0') + ':' + agora.getMinutes().toString().padStart(2, '0');
+            
+            let proximaAlternancia;
+            
+            if (horaAtual < HORA_REUNIAO_EQUIPA) {
+                proximaAlternancia = {
+                    tipo: 'reuniao',
+                    hora: HORA_REUNIAO_EQUIPA,
+                    tab_destino: 'equipa'
+                };
+            } else if (horaAtual < HORA_TRANSICAO_CALENDARIO) {
+                proximaAlternancia = {
+                    tipo: 'calendario',
+                    hora: HORA_TRANSICAO_CALENDARIO,
+                    tab_destino: 'calendar'
+                };
+            } else {
+                proximaAlternancia = null;
+            }
+            
+            setLocalStorage('proxima_alternancia', proximaAlternancia);
+            return proximaAlternancia;
+        }
+
+        function iniciarTimerUnificado() {
+            const contadorEl = document.getElementById('contador-display');
+            
+            setInterval(() => {
+                if (!autoAlternarAtivo) {
+                    if (contadorEl) contadorEl.style.display = 'none';
+                    return;
+                }
+                
+                const proximaAlternancia = getLocalStorage('proxima_alternancia', null);
+                
+                if (!proximaAlternancia) {
+                    if (contadorEl) contadorEl.style.display = 'none';
+                    return;
+                }
+                
+                const agora = new Date();
+                const [horaAlvo, minutoAlvo] = proximaAlternancia.hora.split(':').map(Number);
+                const alvo = new Date();
+                alvo.setHours(horaAlvo, minutoAlvo, 0, 0);
+                
+                const diferenca = Math.floor((alvo - agora) / 1000);
+                
+                if (diferenca <= 0) {
+                    window.location.href = `?tab=${proximaAlternancia.tab_destino}`;
+                    return;
+                }
+                
+                const minutos = Math.floor(diferenca / 60);
+                const segundos = diferenca % 60;
+                
+                if (contadorEl) {
+                    contadorEl.style.display = 'block';
+                    contadorEl.innerHTML = `
+                        <div><strong>${proximaAlternancia.tipo === 'reuniao' ? '📅 Reunião de Equipa' : '📆 Calendário'}</strong></div>
+                        <div>Transição em: ${minutos}:${segundos.toString().padStart(2, '0')}</div>
+                    `;
+                }
+            }, 1000);
+        }
+
+        function atualizarInterfaceContador() {
+            const contadorEl = document.getElementById('contador-display');
+            if (contadorEl) {
+                contadorEl.style.display = 'none';
+            }
+        }
+
+        // ===== MENU MOBILE =====
+        if (window.innerWidth <= 768) {
+            document.querySelectorAll('.menu-item').forEach(item => {
+                item.addEventListener('click', function(e) {
+                    if (e.target.classList.contains('has-submenu')) {
+                        e.preventDefault();
+                        this.classList.toggle('active-mobile');
+                    }
+                });
             });
         }
 
-        // ===== ATUALIZAÇÃO PERIÓDICA =====
-        // Atualizar a página a cada 5 minutos para manter a sessão ativa
+        // ===== MANTER SESSÃO ATIVA =====
         setInterval(() => {
-            console.log('Mantendo sessão ativa...');
             fetch(window.location.href, { method: 'HEAD' }).catch(err => {
                 console.error('Erro ao manter sessão:', err);
             });
         }, 300000); // 5 minutos
+
+        // ===== INICIAR SISTEMA =====
+        if (autoAlternarAtivo && USUARIO_ATUAL === 'test') {
+            iniciarTimerUnificado();
+        }
     </script>
 </body>
 </html>

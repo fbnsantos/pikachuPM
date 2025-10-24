@@ -57,29 +57,37 @@ if ($tables_check == 0) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     
-    // Verificar se tabela todos existe
+    // Verificar se tabela todos existe antes de criar lead_tasks
     $todos_exists = $pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 0;
     
     if ($todos_exists) {
-        $pdo->exec("
-            CREATE TABLE lead_tasks (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                lead_id INT NOT NULL,
-                todo_id INT NOT NULL,
-                coluna ENUM('todo', 'doing', 'done') DEFAULT 'todo',
-                posicao INT DEFAULT 0,
-                adicionado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
-                FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE,
-                UNIQUE KEY unique_lead_task (lead_id, todo_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        ");
+        // Criar tabela lead_tasks apenas se todos existir
+        $check_lead_tasks = $pdo->query("SHOW TABLES LIKE 'lead_tasks'")->rowCount();
+        if ($check_lead_tasks == 0) {
+            $pdo->exec("
+                CREATE TABLE lead_tasks (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    lead_id INT NOT NULL,
+                    todo_id INT NOT NULL,
+                    coluna ENUM('todo', 'doing', 'done') DEFAULT 'todo',
+                    posicao INT DEFAULT 0,
+                    adicionado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
+                    FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE,
+                    UNIQUE KEY unique_lead_task (lead_id, todo_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+        }
     }
 }
 
 $current_user_id = $_SESSION['user_id'] ?? null;
 $message = $_GET['message'] ?? '';
 $messageType = $_GET['type'] ?? 'success';
+
+// Verificar se módulo todos está disponível
+$todos_module_available = $pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 0;
+$lead_tasks_available = $pdo->query("SHOW TABLES LIKE 'lead_tasks'")->rowCount() > 0;
 
 // Processar ações
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -148,9 +156,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
                 
             case 'add_kanban_item':
-                // Verificar se tabela todos existe
+                // Verificar se tabelas necessárias existem
                 if ($pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() == 0) {
-                    $message = "Erro: Tabela 'todos' não existe!";
+                    $message = "Erro: Tabela 'todos' não existe! Por favor, acesse o módulo ToDos primeiro.";
+                    $messageType = 'danger';
+                    break;
+                }
+                
+                if ($pdo->query("SHOW TABLES LIKE 'lead_tasks'")->rowCount() == 0) {
+                    $message = "Erro: Tabela 'lead_tasks' não existe! Recarregue a página para criar as tabelas.";
                     $messageType = 'danger';
                     break;
                 }
@@ -393,6 +407,21 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
     <?php if ($message): ?>
         <div class="alert alert-<?= $messageType ?> alert-dismissible fade show">
             <?= htmlspecialchars($message) ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    <?php endif; ?>
+    
+    <?php if (!$todos_module_available): ?>
+        <div class="alert alert-warning alert-dismissible fade show">
+            <i class="bi bi-exclamation-triangle"></i>
+            <strong>Atenção:</strong> O módulo <strong>ToDos</strong> não está instalado. 
+            O Kanban board não estará disponível até que você acesse o módulo <a href="?tab=todos" class="alert-link">ToDos</a> primeiro.
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    <?php elseif (!$lead_tasks_available): ?>
+        <div class="alert alert-info alert-dismissible fade show">
+            <i class="bi bi-info-circle"></i>
+            A tabela de associação de tasks será criada automaticamente. Por favor, <a href="javascript:location.reload()" class="alert-link">recarregue a página</a>.
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
     <?php endif; ?>
@@ -676,9 +705,15 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                         </div>
                                     <?php endforeach; ?>
                                     
-                                    <button class="btn btn-sm btn-outline-secondary w-100 mt-2" data-bs-toggle="modal" data-bs-target="#addKanbanModal<?= $coluna_id ?>">
+                                    <button class="btn btn-sm btn-outline-secondary w-100 mt-2" 
+                                            data-bs-toggle="modal" 
+                                            data-bs-target="#addKanbanModal<?= $coluna_id ?>"
+                                            <?= !$todos_module_available || !$lead_tasks_available ? 'disabled' : '' ?>>
                                         <i class="bi bi-plus"></i> Adicionar
                                     </button>
+                                    <?php if (!$todos_module_available || !$lead_tasks_available): ?>
+                                        <small class="text-muted d-block mt-1">Módulo ToDos necessário</small>
+                                    <?php endif; ?>
                                 </div>
                             <?php endforeach; ?>
                         </div>

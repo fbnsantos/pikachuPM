@@ -57,17 +57,24 @@ if ($tables_check == 0) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     
-    $pdo->exec("
-        CREATE TABLE lead_kanban (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            lead_id INT NOT NULL,
-            titulo VARCHAR(255) NOT NULL,
-            coluna ENUM('todo', 'doing', 'done') DEFAULT 'todo',
-            posicao INT DEFAULT 0,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    ");
+    // Verificar se tabela todos existe
+    $todos_exists = $pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 0;
+    
+    if ($todos_exists) {
+        $pdo->exec("
+            CREATE TABLE lead_tasks (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                lead_id INT NOT NULL,
+                todo_id INT NOT NULL,
+                coluna ENUM('todo', 'doing', 'done') DEFAULT 'todo',
+                posicao INT DEFAULT 0,
+                adicionado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
+                FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE,
+                UNIQUE KEY unique_lead_task (lead_id, todo_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+    }
 }
 
 $current_user_id = $_SESSION['user_id'] ?? null;
@@ -141,21 +148,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
                 
             case 'add_kanban_item':
-                $stmt = $pdo->prepare("INSERT INTO lead_kanban (lead_id, titulo, coluna) VALUES (?, ?, ?)");
-                $stmt->execute([$_POST['lead_id'], $_POST['kanban_titulo'], $_POST['kanban_coluna']]);
-                $message = "Item adicionado ao Kanban!";
+                // Criar nova task na tabela todos
+                $stmt = $pdo->prepare("
+                    INSERT INTO todos (titulo, descritivo, estado, autor, projeto_id, criado_em)
+                    VALUES (?, ?, 'aberta', ?, NULL, NOW())
+                ");
+                $stmt->execute([
+                    $_POST['kanban_titulo'],
+                    'Task criada para lead: ' . $_POST['lead_id'],
+                    $current_user_id
+                ]);
+                $todo_id = $pdo->lastInsertId();
+                
+                // Associar task ao lead
+                $stmt = $pdo->prepare("INSERT INTO lead_tasks (lead_id, todo_id, coluna) VALUES (?, ?, ?)");
+                $stmt->execute([$_POST['lead_id'], $todo_id, $_POST['kanban_coluna']]);
+                $message = "Task adicionada ao Kanban!";
+                break;
+            
+            case 'associate_existing_task':
+                // Associar task existente ao lead
+                $stmt = $pdo->prepare("INSERT IGNORE INTO lead_tasks (lead_id, todo_id, coluna) VALUES (?, ?, ?)");
+                $stmt->execute([$_POST['lead_id'], $_POST['todo_id'], $_POST['kanban_coluna']]);
+                $message = "Task associada ao Lead!";
                 break;
                 
             case 'update_kanban_item':
-                $stmt = $pdo->prepare("UPDATE lead_kanban SET coluna=? WHERE id=?");
+                $stmt = $pdo->prepare("UPDATE lead_tasks SET coluna=? WHERE id=?");
                 $stmt->execute([$_POST['kanban_coluna'], $_POST['kanban_id']]);
-                $message = "Item movido!";
+                $message = "Task movida!";
                 break;
                 
-            case 'delete_kanban_item':
-                $stmt = $pdo->prepare("DELETE FROM lead_kanban WHERE id=?");
+            case 'remove_kanban_item':
+                $stmt = $pdo->prepare("DELETE FROM lead_tasks WHERE id=?");
                 $stmt->execute([$_POST['kanban_id']]);
-                $message = "Item removido do Kanban!";
+                $message = "Task removida do Kanban!";
                 break;
         }
         
@@ -229,8 +256,15 @@ if ($selected_lead_id) {
         $stmt->execute([$selected_lead_id]);
         $lead_links = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        // Buscar itens do kanban
-        $stmt = $pdo->prepare("SELECT * FROM lead_kanban WHERE lead_id = ? ORDER BY posicao ASC, criado_em ASC");
+        // Buscar tasks do kanban
+        $stmt = $pdo->prepare("
+            SELECT lt.id as lead_task_id, lt.coluna, lt.posicao,
+                   t.id as todo_id, t.titulo, t.estado, t.descritivo
+            FROM lead_tasks lt
+            JOIN todos t ON lt.todo_id = t.id
+            WHERE lt.lead_id = ?
+            ORDER BY lt.posicao ASC, lt.adicionado_em ASC
+        ");
         $stmt->execute([$selected_lead_id]);
         $lead_kanban = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -567,20 +601,39 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                     
                                     <?php foreach ($items as $item): ?>
                                         <div class="kanban-item">
-                                            <div class="d-flex justify-content-between align-items-start">
-                                                <div class="flex-grow-1"><?= htmlspecialchars($item['titulo']) ?></div>
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <div class="flex-grow-1">
+                                                    <strong><?= htmlspecialchars($item['titulo']) ?></strong>
+                                                    <?php if ($item['descritivo']): ?>
+                                                        <div class="small text-muted mt-1">
+                                                            <?= htmlspecialchars(substr($item['descritivo'], 0, 50)) ?>
+                                                            <?= strlen($item['descritivo']) > 50 ? '...' : '' ?>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                    <div class="small mt-1">
+                                                        <span class="badge bg-<?= $item['estado'] == 'aberta' ? 'warning' : ($item['estado'] == 'em_progresso' ? 'info' : 'success') ?>">
+                                                            <?= ucfirst(str_replace('_', ' ', $item['estado'])) ?>
+                                                        </span>
+                                                    </div>
+                                                </div>
                                                 <div class="dropdown">
                                                     <button class="btn btn-sm btn-link" data-bs-toggle="dropdown">
                                                         <i class="bi bi-three-dots-vertical"></i>
                                                     </button>
                                                     <ul class="dropdown-menu">
+                                                        <li>
+                                                            <button class="dropdown-item edit-task-btn" data-task-id="<?= $item['todo_id'] ?>" onclick="openTaskEditor(<?= $item['todo_id'] ?>)">
+                                                                <i class="bi bi-pencil"></i> Editar Task
+                                                            </button>
+                                                        </li>
+                                                        <li><hr class="dropdown-divider"></li>
                                                         <?php foreach ($colunas as $col_id => $col_info): ?>
                                                             <?php if ($col_id != $coluna_id): ?>
                                                                 <li>
                                                                     <form method="post" class="dropdown-item">
                                                                         <input type="hidden" name="action" value="update_kanban_item">
                                                                         <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
-                                                                        <input type="hidden" name="kanban_id" value="<?= $item['id'] ?>">
+                                                                        <input type="hidden" name="kanban_id" value="<?= $item['lead_task_id'] ?>">
                                                                         <input type="hidden" name="kanban_coluna" value="<?= $col_id ?>">
                                                                         <button type="submit" class="btn btn-link p-0 text-decoration-none text-dark">
                                                                             <i class="bi <?= $col_info['icon'] ?>"></i> Mover para <?= $col_info['nome'] ?>
@@ -591,12 +644,12 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                                         <?php endforeach; ?>
                                                         <li><hr class="dropdown-divider"></li>
                                                         <li>
-                                                            <form method="post" class="dropdown-item" onsubmit="return confirm('Remover este item?')">
-                                                                <input type="hidden" name="action" value="delete_kanban_item">
+                                                            <form method="post" class="dropdown-item" onsubmit="return confirm('Remover esta task do lead?')">
+                                                                <input type="hidden" name="action" value="remove_kanban_item">
                                                                 <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
-                                                                <input type="hidden" name="kanban_id" value="<?= $item['id'] ?>">
+                                                                <input type="hidden" name="kanban_id" value="<?= $item['lead_task_id'] ?>">
                                                                 <button type="submit" class="btn btn-link p-0 text-decoration-none text-danger">
-                                                                    <i class="bi bi-trash"></i> Remover
+                                                                    <i class="bi bi-trash"></i> Remover do Lead
                                                                 </button>
                                                             </form>
                                                         </li>
@@ -811,29 +864,91 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
 </div>
 
 <!-- Modals para Adicionar Itens ao Kanban (um para cada coluna) -->
-<?php foreach (['todo', 'doing', 'done'] as $col): ?>
+<?php 
+// Buscar todas as tasks disponíveis
+$all_todos = [];
+if ($pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 0) {
+    $all_todos = $pdo->query("
+        SELECT t.id, t.titulo, t.estado, u.username as autor_nome
+        FROM todos t
+        LEFT JOIN user_tokens u ON t.autor = u.user_id
+        ORDER BY t.criado_em DESC
+        LIMIT 100
+    ")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+foreach (['todo', 'doing', 'done'] as $col): 
+?>
 <div class="modal fade" id="addKanbanModal<?= $col ?>" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="post">
-                <input type="hidden" name="action" value="add_kanban_item">
-                <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
-                <input type="hidden" name="kanban_coluna" value="<?= $col ?>">
-                <div class="modal-header">
-                    <h5 class="modal-title">Adicionar Item</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Título do Item</label>
-                        <input type="text" name="kanban_titulo" class="form-control" required>
+            <div class="modal-header">
+                <h5 class="modal-title">Adicionar Task</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <ul class="nav nav-tabs mb-3" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="nova-task-tab-<?= $col ?>" data-bs-toggle="tab" data-bs-target="#nova-task-<?= $col ?>" type="button">
+                            <i class="bi bi-plus-circle"></i> Criar Nova Task
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="associar-task-tab-<?= $col ?>" data-bs-toggle="tab" data-bs-target="#associar-task-<?= $col ?>" type="button">
+                            <i class="bi bi-link-45deg"></i> Associar Task Existente
+                        </button>
+                    </li>
+                </ul>
+                
+                <div class="tab-content">
+                    <!-- Tab: Criar Nova Task -->
+                    <div class="tab-pane fade show active" id="nova-task-<?= $col ?>">
+                        <form method="post">
+                            <input type="hidden" name="action" value="add_kanban_item">
+                            <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
+                            <input type="hidden" name="kanban_coluna" value="<?= $col ?>">
+                            <div class="mb-3">
+                                <label class="form-label">Título da Task</label>
+                                <input type="text" name="kanban_titulo" class="form-control" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="bi bi-plus"></i> Criar e Adicionar
+                            </button>
+                        </form>
+                    </div>
+                    
+                    <!-- Tab: Associar Task Existente -->
+                    <div class="tab-pane fade" id="associar-task-<?= $col ?>">
+                        <form method="post">
+                            <input type="hidden" name="action" value="associate_existing_task">
+                            <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
+                            <input type="hidden" name="kanban_coluna" value="<?= $col ?>">
+                            <div class="mb-3">
+                                <label class="form-label">Selecionar Task</label>
+                                <select name="todo_id" class="form-select" required size="8">
+                                    <?php if (empty($all_todos)): ?>
+                                        <option disabled>Nenhuma task disponível</option>
+                                    <?php else: ?>
+                                        <?php foreach ($all_todos as $todo): ?>
+                                            <option value="<?= $todo['id'] ?>">
+                                                #<?= $todo['id'] ?> - <?= htmlspecialchars($todo['titulo']) ?>
+                                                (<?= ucfirst(str_replace('_', ' ', $todo['estado'])) ?>)
+                                                <?php if ($todo['autor_nome']): ?>
+                                                    - <?= htmlspecialchars($todo['autor_nome']) ?>
+                                                <?php endif; ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </select>
+                                <small class="text-muted">Mostrando últimas 100 tasks</small>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100" <?= empty($all_todos) ? 'disabled' : '' ?>>
+                                <i class="bi bi-link-45deg"></i> Associar Task
+                            </button>
+                        </form>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Adicionar</button>
-                </div>
-            </form>
+            </div>
         </div>
     </div>
 </div>

@@ -222,13 +222,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Obter filtros
 $filter_my_leads = isset($_GET['filter_my_leads']) ? $_GET['filter_my_leads'] === '1' : false;
 $filter_involved = isset($_GET['filter_involved']) ? $_GET['filter_involved'] === '1' : false;
+$order_by = isset($_GET['order_by']) ? $_GET['order_by'] : 'relevancia'; // relevancia, dias_fim, titulo
 $selected_lead_id = $_GET['lead_id'] ?? null;
 
 // Buscar leads
 $query = "
     SELECT DISTINCT l.*, u.username as responsavel_nome,
            CASE WHEN l.responsavel_id = ? THEN 1 ELSE 0 END as is_responsible,
-           CASE WHEN lm.user_id IS NOT NULL THEN 1 ELSE 0 END as is_member
+           CASE WHEN lm.user_id IS NOT NULL THEN 1 ELSE 0 END as is_member,
+           DATEDIFF(l.data_fim, CURDATE()) as dias_restantes
     FROM leads l
     LEFT JOIN user_tokens u ON l.responsavel_id = u.user_id
     LEFT JOIN lead_members lm ON l.id = lm.lead_id AND lm.user_id = ?
@@ -246,7 +248,22 @@ if ($filter_my_leads) {
     $params[] = $current_user_id;
 }
 
-$query .= " ORDER BY l.estado ASC, l.relevancia DESC, l.data_fim ASC";
+// Ordenação
+switch ($order_by) {
+    case 'dias_fim':
+        $query .= " ORDER BY 
+                    CASE WHEN l.data_fim IS NULL THEN 1 ELSE 0 END,
+                    l.data_fim ASC, 
+                    l.estado ASC";
+        break;
+    case 'titulo':
+        $query .= " ORDER BY l.titulo ASC";
+        break;
+    case 'relevancia':
+    default:
+        $query .= " ORDER BY l.estado ASC, l.relevancia DESC, l.data_fim ASC";
+        break;
+}
 
 $stmt = $pdo->prepare($query);
 $stmt->execute($params);
@@ -438,16 +455,35 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
     <!-- Filtros -->
     <div class="card mb-3">
         <div class="card-body">
-            <div class="d-flex gap-2 flex-wrap">
-                <a href="?tab=leads" class="btn btn-sm <?= !$filter_my_leads && !$filter_involved ? 'btn-primary' : 'btn-outline-primary' ?>">
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+                <div class="me-3">
+                    <strong>Filtrar:</strong>
+                </div>
+                <a href="?tab=leads&order_by=<?= $order_by ?>" class="btn btn-sm <?= !$filter_my_leads && !$filter_involved ? 'btn-primary' : 'btn-outline-primary' ?>">
                     <i class="bi bi-list-ul"></i> Todos os Leads
                 </a>
-                <a href="?tab=leads&filter_my_leads=1" class="btn btn-sm <?= $filter_my_leads ? 'btn-primary' : 'btn-outline-primary' ?>">
-                    <i class="bi bi-person-check"></i> Meus Leads (Responsável)
+                <a href="?tab=leads&filter_my_leads=1&order_by=<?= $order_by ?>" class="btn btn-sm <?= $filter_my_leads ? 'btn-primary' : 'btn-outline-primary' ?>">
+                    <i class="bi bi-person-check"></i> Meus Leads
                 </a>
-                <a href="?tab=leads&filter_involved=1" class="btn btn-sm <?= $filter_involved ? 'btn-primary' : 'btn-outline-primary' ?>">
+                <a href="?tab=leads&filter_involved=1&order_by=<?= $order_by ?>" class="btn btn-sm <?= $filter_involved ? 'btn-primary' : 'btn-outline-primary' ?>">
                     <i class="bi bi-people"></i> Estou Envolvido
                 </a>
+                
+                <div class="ms-auto d-flex gap-2 align-items-center">
+                    <strong>Ordenar:</strong>
+                    <a href="?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&order_by=relevancia" 
+                       class="btn btn-sm <?= $order_by == 'relevancia' ? 'btn-success' : 'btn-outline-success' ?>">
+                        <i class="bi bi-star"></i> Relevância
+                    </a>
+                    <a href="?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&order_by=dias_fim" 
+                       class="btn btn-sm <?= $order_by == 'dias_fim' ? 'btn-success' : 'btn-outline-success' ?>">
+                        <i class="bi bi-calendar-event"></i> Dias Restantes
+                    </a>
+                    <a href="?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&order_by=titulo" 
+                       class="btn btn-sm <?= $order_by == 'titulo' ? 'btn-success' : 'btn-outline-success' ?>">
+                        <i class="bi bi-sort-alpha-down"></i> Título
+                    </a>
+                </div>
             </div>
         </div>
     </div>
@@ -465,7 +501,7 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
             <?php else: ?>
                 <?php foreach ($leads as $lead): ?>
                     <div class="lead-item <?= $lead['estado'] ?> <?= $selected_lead_id == $lead['id'] ? 'active' : '' ?>" 
-                         onclick="window.location.href='?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&lead_id=<?= $lead['id'] ?>'">
+                         onclick="window.location.href='?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&order_by=<?= $order_by ?>&lead_id=<?= $lead['id'] ?>'">
                         <div class="d-flex justify-content-between align-items-start mb-2">
                             <strong class="flex-grow-1"><?= htmlspecialchars($lead['titulo']) ?></strong>
                             <span class="badge relevancia-badge bg-<?= $lead['relevancia'] >= 8 ? 'danger' : ($lead['relevancia'] >= 5 ? 'warning' : 'secondary') ?>">
@@ -486,6 +522,30 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                         <div class="small text-muted mt-1">
                             <?php if ($lead['data_fim']): ?>
                                 <i class="bi bi-calendar"></i> <?= date('d/m/Y', strtotime($lead['data_fim'])) ?>
+                                
+                                <?php if ($lead['dias_restantes'] !== null): ?>
+                                    <?php if ($lead['dias_restantes'] < 0): ?>
+                                        <span class="badge bg-danger ms-2">
+                                            <i class="bi bi-exclamation-triangle"></i> Atrasado <?= abs($lead['dias_restantes']) ?> dias
+                                        </span>
+                                    <?php elseif ($lead['dias_restantes'] == 0): ?>
+                                        <span class="badge bg-warning ms-2">
+                                            <i class="bi bi-clock"></i> Hoje
+                                        </span>
+                                    <?php elseif ($lead['dias_restantes'] <= 3): ?>
+                                        <span class="badge bg-warning ms-2">
+                                            <i class="bi bi-clock"></i> <?= $lead['dias_restantes'] ?> dias
+                                        </span>
+                                    <?php elseif ($lead['dias_restantes'] <= 7): ?>
+                                        <span class="badge bg-info ms-2">
+                                            <i class="bi bi-clock"></i> <?= $lead['dias_restantes'] ?> dias
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="badge bg-secondary ms-2">
+                                            <i class="bi bi-clock"></i> <?= $lead['dias_restantes'] ?> dias
+                                        </span>
+                                    <?php endif; ?>
+                                <?php endif; ?>
                             <?php endif; ?>
                             
                             <span class="badge bg-<?= $lead['estado'] == 'aberta' ? 'success' : 'secondary' ?> ms-2">

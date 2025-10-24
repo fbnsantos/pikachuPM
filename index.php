@@ -23,18 +23,19 @@ $tabs = [
     'gantt' => 'Gantt',
     'todos' => 'To Do',
     'phd_kanban' => 'PhD plan',
-    'leads' => 'Leads V2',
+    'leads' => 'Leads',
     'equipa' => 'Daily Meeting',
     'calendar' => 'Calendar',
-    'oportunidades' => 'Leads',
-    'search' => 'Search',
     'links' => 'Links',
     'old' => [
         'label' => 'Old',
         'submenu' => [
             'prototypes' => 'Prototypes_v1',
             'projecto' => 'Projects_1',
+            'search' => 'Search Redmine',
+            'oportunidades' => 'Leads',
             'milestone' => 'Milestones'
+            
         ]
     ],
     'admin' => 'Administration',

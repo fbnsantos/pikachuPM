@@ -222,6 +222,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Obter filtros
 $filter_my_leads = isset($_GET['filter_my_leads']) ? $_GET['filter_my_leads'] === '1' : false;
 $filter_involved = isset($_GET['filter_involved']) ? $_GET['filter_involved'] === '1' : false;
+$show_closed = isset($_GET['show_closed']) ? $_GET['show_closed'] === '1' : false;
 $order_by = isset($_GET['order_by']) ? $_GET['order_by'] : 'relevancia'; // relevancia, dias_fim, titulo
 $selected_lead_id = $_GET['lead_id'] ?? null;
 
@@ -238,6 +239,11 @@ $query = "
 ";
 
 $params = [$current_user_id, $current_user_id];
+
+// Filtrar leads fechadas por padrão
+if (!$show_closed) {
+    $query .= " AND l.estado != 'fechada'";
+}
 
 if ($filter_my_leads) {
     $query .= " AND l.responsavel_id = ?";
@@ -459,27 +465,38 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                 <div class="me-3">
                     <strong>Filtrar:</strong>
                 </div>
-                <a href="?tab=leads&order_by=<?= $order_by ?>" class="btn btn-sm <?= !$filter_my_leads && !$filter_involved ? 'btn-primary' : 'btn-outline-primary' ?>">
+                <a href="?tab=leads&order_by=<?= $order_by ?><?= $show_closed ? '&show_closed=1' : '' ?>" class="btn btn-sm <?= !$filter_my_leads && !$filter_involved ? 'btn-primary' : 'btn-outline-primary' ?>">
                     <i class="bi bi-list-ul"></i> Todos os Leads
                 </a>
-                <a href="?tab=leads&filter_my_leads=1&order_by=<?= $order_by ?>" class="btn btn-sm <?= $filter_my_leads ? 'btn-primary' : 'btn-outline-primary' ?>">
+                <a href="?tab=leads&filter_my_leads=1&order_by=<?= $order_by ?><?= $show_closed ? '&show_closed=1' : '' ?>" class="btn btn-sm <?= $filter_my_leads ? 'btn-primary' : 'btn-outline-primary' ?>">
                     <i class="bi bi-person-check"></i> Meus Leads
                 </a>
-                <a href="?tab=leads&filter_involved=1&order_by=<?= $order_by ?>" class="btn btn-sm <?= $filter_involved ? 'btn-primary' : 'btn-outline-primary' ?>">
+                <a href="?tab=leads&filter_involved=1&order_by=<?= $order_by ?><?= $show_closed ? '&show_closed=1' : '' ?>" class="btn btn-sm <?= $filter_involved ? 'btn-primary' : 'btn-outline-primary' ?>">
                     <i class="bi bi-people"></i> Estou Envolvido
                 </a>
                 
+                <div class="vr"></div>
+                
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="showClosedCheck" 
+                           <?= $show_closed ? 'checked' : '' ?>
+                           onchange="window.location.href='?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&order_by=<?= $order_by ?><?= $show_closed ? '' : '&show_closed=1' ?><?= $selected_lead_id ? '&lead_id='.$selected_lead_id : '' ?>'">
+                    <label class="form-check-label" for="showClosedCheck">
+                        Mostrar Fechadas
+                    </label>
+                </div>
+                
                 <div class="ms-auto d-flex gap-2 align-items-center">
                     <strong>Ordenar:</strong>
-                    <a href="?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&order_by=relevancia" 
+                    <a href="?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&order_by=relevancia<?= $show_closed ? '&show_closed=1' : '' ?>" 
                        class="btn btn-sm <?= $order_by == 'relevancia' ? 'btn-success' : 'btn-outline-success' ?>">
                         <i class="bi bi-star"></i> Relevância
                     </a>
-                    <a href="?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&order_by=dias_fim" 
+                    <a href="?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&order_by=dias_fim<?= $show_closed ? '&show_closed=1' : '' ?>" 
                        class="btn btn-sm <?= $order_by == 'dias_fim' ? 'btn-success' : 'btn-outline-success' ?>">
                         <i class="bi bi-calendar-event"></i> Dias Restantes
                     </a>
-                    <a href="?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&order_by=titulo" 
+                    <a href="?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&order_by=titulo<?= $show_closed ? '&show_closed=1' : '' ?>" 
                        class="btn btn-sm <?= $order_by == 'titulo' ? 'btn-success' : 'btn-outline-success' ?>">
                         <i class="bi bi-sort-alpha-down"></i> Título
                     </a>
@@ -501,7 +518,7 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
             <?php else: ?>
                 <?php foreach ($leads as $lead): ?>
                     <div class="lead-item <?= $lead['estado'] ?> <?= $selected_lead_id == $lead['id'] ? 'active' : '' ?>" 
-                         onclick="window.location.href='?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&order_by=<?= $order_by ?>&lead_id=<?= $lead['id'] ?>'">
+                         onclick="window.location.href='?tab=leads<?= $filter_my_leads ? '&filter_my_leads=1' : '' ?><?= $filter_involved ? '&filter_involved=1' : '' ?>&order_by=<?= $order_by ?><?= $show_closed ? '&show_closed=1' : '' ?>&lead_id=<?= $lead['id'] ?>'">>
                         <div class="d-flex justify-content-between align-items-start mb-2">
                             <strong class="flex-grow-1"><?= htmlspecialchars($lead['titulo']) ?></strong>
                             <span class="badge relevancia-badge bg-<?= $lead['relevancia'] >= 8 ? 'danger' : ($lead['relevancia'] >= 5 ? 'warning' : 'secondary') ?>">

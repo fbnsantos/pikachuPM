@@ -1,1135 +1,1306 @@
 <?php
-// Configurar conexão com a base de dados SQLite
-$dbFile = __DIR__ . '/database/content.db';
-$isNewDB = !file_exists($dbFile);
+ob_start();
+// index.php
+session_start();
 
-// Garantir que a pasta da base de dados existe
-if (!file_exists(dirname($dbFile))) {
-    mkdir(dirname($dbFile), 0755, true);
-}
+// Configurar timeout de sessão para 24 horas (86400 segundos)
+ini_set('session.gc_maxlifetime', 86400);
+ini_set('session.cookie_lifetime', 86400);
 
-// Definir layout padrão e salvar preferências
-$displayMode = isset($_GET['display_mode']) ? $_GET['display_mode'] : (isset($_COOKIE['display_mode']) ? $_COOKIE['display_mode'] : 'dual');
-setcookie('display_mode', $displayMode, time() + (86400 * 30), "/"); // Cookie válido por 30 dias
-
-try {
-    $db = new SQLite3($dbFile);
-    $db->enableExceptions(true);
-
-    // Criar tabela de conteúdo se não existir
-    $db->exec('
-        CREATE TABLE IF NOT EXISTS content (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT NOT NULL,
-            url TEXT NOT NULL UNIQUE,
-            title TEXT NOT NULL,
-            added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            last_shown DATETIME,
-            active INTEGER DEFAULT 1
-        );
-    ');
-    
-    // Criar tabela de avisos se não existir
-    $db->exec('
-        CREATE TABLE IF NOT EXISTS notices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            text TEXT NOT NULL,
-            added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            added_by TEXT,
-            priority INTEGER DEFAULT 0,
-            active INTEGER DEFAULT 1
-        );
-    ');
-
-    // Adicionar exemplos apenas se o banco de dados for novo
-    if ($isNewDB) {
-        // Adicionar alguns exemplos para demonstração
-        $db->exec("
-            INSERT INTO content (type, url, title) VALUES 
-            ('youtube', 'https://www.youtube.com/embed/dQw4w9WgXcQ', 'Rick Astley - Never Gonna Give You Up'),
-            ('youtube', 'https://www.youtube.com/embed/jNQXAC9IVRw', 'Me at the zoo'),
-            ('youtube', 'https://www.youtube.com/embed/9bZkp7q19f0', 'PSY - GANGNAM STYLE'),
-            ('youtube', 'https://www.youtube.com/embed/kJQP7kiw5Fk', 'Luis Fonsi - Despacito ft. Daddy Yankee'),
-            ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866123456789012345', 'Post do LinkedIn Exemplo 1'),
-            ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866987654321098765', 'Post do LinkedIn Exemplo 2'),
-            ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866123456789054321', 'Post do LinkedIn Exemplo 3'),
-            ('linkedin', 'https://www.linkedin.com/embed/feed/update/urn:li:share:6866987654321012345', 'Post do LinkedIn Exemplo 4')
-        ");
-        
-        // Adicionar avisos de exemplo
-        $db->exec("
-            INSERT INTO notices (text, added_by, priority) VALUES
-            ('Bem-vindo ao novo dashboard! Aqui você pode visualizar conteúdos de YouTube e LinkedIn.', 'Admin', 1),
-            ('Reunião semanal da equipe amanhã às 10:00.', 'Gerente', 2),
-            ('Nova versão do sistema será lançada na próxima sexta-feira.', 'Desenvolvimento', 1)
-        ");
-    }
-
-    // Verificar se a tabela de avisos está vazia e adicionar um aviso padrão
-    $result = $db->query('SELECT COUNT(*) as count FROM notices');
-    $row = $result->fetchArray(SQLITE3_ASSOC);
-    if ($row['count'] == 0) {
-        $db->exec("
-            INSERT INTO notices (text, added_by, priority) VALUES
-            ('Bem-vindo ao novo dashboard com sistema de avisos! Clique no botão + para adicionar novos avisos.', 'Sistema', 1)
-        ");
-    }
-
-    // Processar operações CRUD para conteúdo
-    $message = '';
-    
-    // Adicionar novo conteúdo
-    if (isset($_POST['action']) && $_POST['action'] === 'add') {
-        $type = $_POST['type'] ?? '';
-        $url = $_POST['url'] ?? '';
-        $title = $_POST['title'] ?? '';
-        
-        if (!empty($type) && !empty($url) && !empty($title)) {
-            // Formatar a URL corretamente
-            if ($type === 'youtube') {
-                // Converter URL normal para URL de embed
-                if (strpos($url, 'youtube.com/watch?v=') !== false) {
-                    $videoId = substr($url, strpos($url, 'v=') + 2);
-                    if (strpos($videoId, '&') !== false) {
-                        $videoId = substr($videoId, 0, strpos($videoId, '&'));
-                    }
-                    $url = "https://www.youtube.com/embed/$videoId";
-                } elseif (strpos($url, 'youtu.be/') !== false) {
-                    $videoId = substr($url, strrpos($url, '/') + 1);
-                    $url = "https://www.youtube.com/embed/$videoId";
-                }
-            } elseif ($type === 'linkedin') {
-                // Verificar se a URL já está no formato de embed
-                if (strpos($url, 'linkedin.com/embed') === false && strpos($url, 'urn:li:share:') === false) {
-                    // Extrair o ID do post se possível
-                    if (preg_match('/activity-(\d+)/', $url, $matches)) {
-                        $url = "https://www.linkedin.com/embed/feed/update/urn:li:activity:" . $matches[1];
-                    }
-                }
-            }
-            
-            try {
-                $stmt = $db->prepare('INSERT INTO content (type, url, title) VALUES (:type, :url, :title)');
-                $stmt->bindValue(':type', $type, SQLITE3_TEXT);
-                $stmt->bindValue(':url', $url, SQLITE3_TEXT);
-                $stmt->bindValue(':title', $title, SQLITE3_TEXT);
-                $stmt->execute();
-                $message = "Novo conteúdo adicionado com sucesso!";
-            } catch (Exception $e) {
-                if (strpos($e->getMessage(), 'UNIQUE constraint failed') !== false) {
-                    $message = "Erro: Este URL já existe na base de dados.";
-                } else {
-                    $message = "Erro ao adicionar: " . $e->getMessage();
-                }
-            }
-        } else {
-            $message = "Erro: Todos os campos são obrigatórios.";
-        }
-    }
-    
-    // Remover conteúdo
-    if (isset($_POST['action']) && $_POST['action'] === 'delete' && isset($_POST['id'])) {
-        $id = intval($_POST['id']);
-        $stmt = $db->prepare('DELETE FROM content WHERE id = :id');
-        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
-        $stmt->execute();
-        $message = "Conteúdo removido com sucesso!";
-    }
-    
-    // Ativar/Desativar conteúdo
-    if (isset($_POST['action']) && $_POST['action'] === 'toggle' && isset($_POST['id'])) {
-        $id = intval($_POST['id']);
-        $active = isset($_POST['active']) ? 1 : 0;
-        $stmt = $db->prepare('UPDATE content SET active = :active WHERE id = :id');
-        $stmt->bindValue(':active', $active, SQLITE3_INTEGER);
-        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
-        $stmt->execute();
-        $message = "Status alterado com sucesso!";
-    }
-    
-    // Processar operações CRUD para avisos
-    
-    // Adicionar novo aviso
-    if (isset($_POST['action']) && $_POST['action'] === 'add_notice') {
-        $text = $_POST['notice_text'] ?? '';
-        $added_by = $_POST['notice_by'] ?? 'Usuário';
-        $priority = intval($_POST['notice_priority'] ?? 0);
-        
-        if (!empty($text)) {
-            try {
-                $stmt = $db->prepare('INSERT INTO notices (text, added_by, priority) VALUES (:text, :added_by, :priority)');
-                $stmt->bindValue(':text', $text, SQLITE3_TEXT);
-                $stmt->bindValue(':added_by', $added_by, SQLITE3_TEXT);
-                $stmt->bindValue(':priority', $priority, SQLITE3_INTEGER);
-                $stmt->execute();
-                $message = "Novo aviso adicionado com sucesso!";
-            } catch (Exception $e) {
-                $message = "Erro ao adicionar aviso: " . $e->getMessage();
-            }
-        } else {
-            $message = "Erro: O texto do aviso é obrigatório.";
-        }
-    }
-    
-    // Remover aviso
-    if (isset($_POST['action']) && $_POST['action'] === 'delete_notice' && isset($_POST['notice_id'])) {
-        $id = intval($_POST['notice_id']);
-        $stmt = $db->prepare('DELETE FROM notices WHERE id = :id');
-        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
-        $stmt->execute();
-        $message = "Aviso removido com sucesso!";
-    }
-    
-    // Função para obter conteúdo aleatório por tipo
-    function getRandomContent($db, $type) {
-        $stmt = $db->prepare('
-            SELECT * FROM content 
-            WHERE active = 1 AND type = :type
-            ORDER BY RANDOM() 
-            LIMIT 1
-        ');
-        $stmt->bindValue(':type', $type, SQLITE3_TEXT);
-        $result = $stmt->execute();
-        $content = $result->fetchArray(SQLITE3_ASSOC);
-        
-        // Atualizar última exibição
-        if ($content) {
-            $stmt = $db->prepare('UPDATE content SET last_shown = CURRENT_TIMESTAMP WHERE id = :id');
-            $stmt->bindValue(':id', $content['id'], SQLITE3_INTEGER);
-            $stmt->execute();
-        }
-        
-        return $content;
-    }
-    
-    // Função para obter múltiplos conteúdos aleatórios por tipo
-    function getMultipleRandomContent($db, $type, $count) {
-        $contents = [];
-        $stmt = $db->prepare('
-            SELECT * FROM content 
-            WHERE active = 1 AND type = :type
-            ORDER BY RANDOM() 
-            LIMIT :count
-        ');
-        $stmt->bindValue(':type', $type, SQLITE3_TEXT);
-        $stmt->bindValue(':count', $count, SQLITE3_INTEGER);
-        $result = $stmt->execute();
-        
-        while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
-            $contents[] = $row;
-            
-            // Atualizar última exibição
-            $updateStmt = $db->prepare('UPDATE content SET last_shown = CURRENT_TIMESTAMP WHERE id = :id');
-            $updateStmt->bindValue(':id', $row['id'], SQLITE3_INTEGER);
-            $updateStmt->execute();
-        }
-        
-        return $contents;
-    }
-    
-    // Buscar avisos ativos
-    $notices = [];
-    $stmt = $db->prepare('SELECT * FROM notices WHERE active = 1 ORDER BY priority DESC, added_at DESC');
-    $result = $stmt->execute();
-    while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
-        $notices[] = $row;
-    }
-    
-    // Buscar conteúdo com base no modo de exibição selecionado
-    switch ($displayMode) {
-        case 'quad':
-            $youtubeContents = getMultipleRandomContent($db, 'youtube', 2);
-            $linkedinContents = getMultipleRandomContent($db, 'linkedin', 2);
-            $content = null; // Não será usado no modo quad
-            $youtubeContent = null;
-            $linkedinContent = null;
-            break;
-            
-        case 'single':
-            // Selecionar conteúdo aleatório para exibir (apenas ativos)
-            $stmt = $db->prepare('
-                SELECT * FROM content 
-                WHERE active = 1 
-                ORDER BY RANDOM() 
-                LIMIT 1
-            ');
-            $result = $stmt->execute();
-            $content = $result->fetchArray(SQLITE3_ASSOC);
-            
-            // Atualizar última exibição
-            if ($content) {
-                $stmt = $db->prepare('UPDATE content SET last_shown = CURRENT_TIMESTAMP WHERE id = :id');
-                $stmt->bindValue(':id', $content['id'], SQLITE3_INTEGER);
-                $stmt->execute();
-            }
-            
-            $youtubeContent = null;
-            $linkedinContent = null;
-            $youtubeContents = null;
-            $linkedinContents = null;
-            break;
-            
-        case 'dual':
-        default:
-            $youtubeContent = getRandomContent($db, 'youtube');
-            $linkedinContent = getRandomContent($db, 'linkedin');
-            $content = null; // Não será usado no modo dual
-            $youtubeContents = null;
-            $linkedinContents = null;
-            break;
-    }
-    
-    // Buscar todos os conteúdos para a tabela de gestão
-    $allContent = [];
-    $result = $db->query('SELECT * FROM content ORDER BY added_at DESC');
-    while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
-        $allContent[] = $row;
-    }
-    
-} catch (Exception $e) {
-    echo "Erro na base de dados: " . $e->getMessage();
+if (!isset($_SESSION['username'])) {
+    header('Location: login.php');
     exit;
 }
 
-// Função para renderizar um frame de conteúdo
-function renderContentFrame($content, $height = 450) {
-    if (!$content) return '<div class="content-frame" style="display: flex; align-items: center; justify-content: center; background-color: #f8f9fa; height: '.$height.'px;">
-        <p>Nenhum conteúdo disponível.</p>
-    </div>';
+// Definir timezone
+date_default_timezone_set('Europe/Lisbon');
+
+
+
+// Definição dos horários para reuniões e transições
+$HORA_REUNIAO_EQUIPA = "11:26"; // formato HH:MM - Hora para iniciar contagem para reunião
+$HORA_TRANSICAO_CALENDARIO = "12:00"; // formato HH:MM - Hora para transição para o calendário
+
+// Tabs disponíveis
+$tabs = [
+    'dashboard' => 'Painel Principal',
+    'bomlist/bomlist'  => 'Boom list',
+    'prototypes/prototypesv2' => 'Prototypes',
+    'projectos' => 'Projects',
+    'sprints' => 'Sprints',
+    'gantt' => 'Gantt',
+    'todos' => 'To Do',
+    'phd_kanban' => 'PhD plan',
+    'leads' => 'Leads',
+    'equipa' => 'Daily Meeting',
+    'calendar' => 'Calendar',
+    'links' => 'Links',
+    'old' => [
+        'label' => 'Old',
+        'submenu' => [
+            'prototypes' => 'Prototypes_v1',
+            'projecto' => 'Projects_1',
+            'search' => 'Search Redmine',
+            'oportunidades' => 'Leads',
+            'milestone' => 'Milestones'
+            
+        ]
+    ],
+    'admin' => 'Administration',
+];
+
+$tabSelecionada = $_GET['tab'] ?? 'dashboard';
+
+// Validar se a tab existe (incluindo submenus)
+$tabValida = false;
+foreach ($tabs as $key => $value) {
+    if ($key === $tabSelecionada) {
+        $tabValida = true;
+        break;
+    }
+    if (is_array($value) && isset($value['submenu'])) {
+        if (array_key_exists($tabSelecionada, $value['submenu'])) {
+            $tabValida = true;
+            break;
+        }
+    }
+}
+
+if (!$tabValida) {
+    $tabSelecionada = 'dashboard';
+}
+
+// Função auxiliar para obter o título da tab
+function getTituloTab($tabs, $tabSelecionada) {
+    foreach ($tabs as $key => $value) {
+        if ($key === $tabSelecionada) {
+            return is_array($value) ? $value['label'] : $value;
+        }
+        if (is_array($value) && isset($value['submenu'])) {
+            if (array_key_exists($tabSelecionada, $value['submenu'])) {
+                return $value['submenu'][$tabSelecionada];
+            }
+        }
+    }
+    return 'Painel Principal';
+}
+
+// Verificar se alternância automática está ativada - com configuração por usuário
+if ($_SESSION['username'] === 'test') {
+    // Para o usuário 'test', ativar por padrão se não estiver definido
+    $autoAlternar = isset($_COOKIE['auto_alternar']) ? $_COOKIE['auto_alternar'] === 'true' : true;
     
-    $html = '<div class="content-info">
-        <div>
-            <span class="content-title">'.htmlspecialchars($content['title']).'</span>
-            <span class="content-type '.htmlspecialchars($content['type']).'">
-                '.htmlspecialchars($content['type']).'
-            </span>
-        </div>
-    </div>';
+    // Se não existe cookie, definir como true para o usuário test
+    if (!isset($_COOKIE['auto_alternar'])) {
+        setcookie('auto_alternar', 'true', time() + (86400 * 30), '/', '', false, true);
+    }
+} else {
+    // Para outros usuários, usar a configuração normal
+    $autoAlternar = isset($_COOKIE['auto_alternar']) ? $_COOKIE['auto_alternar'] === 'true' : false;
+}
+
+// Determinar se precisamos fazer nova configuração de temporizadores
+$reiniciarTemporizadores = isset($_GET['reset_timers']) && $_GET['reset_timers'] === 'true';
+
+// Carregar avisos da tabela notices (SQLite)
+$notices = [];
+try {
+    // Determinar o caminho correto do banco de dados
+    // O dashboard.php cria o banco em tabs/database/content.db
+    $dbFile = __DIR__ . '/tabs/database/content.db';
     
-    if ($content['type'] === 'youtube') {
-        $html .= '<iframe 
-            class="content-frame"
-            src="'.htmlspecialchars($content['url']).'?autoplay=1&mute=1"
-            title="'.htmlspecialchars($content['title']).'"
-            frameborder="0"
-            style="height: '.$height.'px;"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowfullscreen>
-        </iframe>';
-    } elseif ($content['type'] === 'linkedin') {
-        $html .= '<iframe 
-            class="content-frame"
-            src="'.htmlspecialchars($content['url']).'"
-            title="'.htmlspecialchars($content['title']).'"
-            frameborder="0"
-            style="height: '.$height.'px;"
-            allowfullscreen>
-        </iframe>';
-    } else {
-        $html .= '<div class="content-frame" style="display: flex; align-items: center; justify-content: center; background-color: #f8f9fa; height: '.$height.'px;">
-            <p>Tipo de conteúdo não suportado.</p>
-        </div>';
+    // Se o arquivo de banco não existe ainda, criar estrutura básica
+    if (!file_exists($dbFile)) {
+        $dbDir = dirname($dbFile);
+        if (!file_exists($dbDir)) {
+            mkdir($dbDir, 0755, true);
+        }
+        
+        // Criar banco e tabelas
+        $db = new SQLite3($dbFile);
+        $db->enableExceptions(true);
+        
+        // Criar tabela de avisos
+        $db->exec('
+            CREATE TABLE IF NOT EXISTS notices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                added_by TEXT,
+                priority INTEGER DEFAULT 0,
+                active INTEGER DEFAULT 1
+            );
+        ');
+        
+        // Adicionar aviso de boas-vindas
+        $db->exec("
+            INSERT INTO notices (text, added_by, priority, active) VALUES
+            ('Bem-vindo! Configure seus avisos na aba Dashboard.', 'Sistema', 0, 1)
+        ");
+        
+        $db->close();
     }
     
-    return $html;
+    // Agora carregar os avisos
+    if (file_exists($dbFile)) {
+        $db = new SQLite3($dbFile);
+        $db->enableExceptions(true);
+        
+        // Buscar avisos ativos ordenados por prioridade e data
+        $result = $db->query('
+            SELECT id, text, added_by, added_at, priority 
+            FROM notices 
+            WHERE active = 1 
+            ORDER BY priority DESC, added_at DESC 
+            LIMIT 3
+        ');
+        
+        if ($result) {
+            while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+                $notices[] = $row;
+            }
+        }
+        
+        $db->close();
+    }
+} catch (Exception $e) {
+    // Silenciosamente falhar se houver erro
+    error_log("Erro ao carregar notices: " . $e->getMessage());
 }
+
+function tempoSessao() {
+    if (!isset($_SESSION['inicio'])) {
+        $_SESSION['inicio'] = time();
+    }
+    $duração = time() - $_SESSION['inicio'];
+    return gmdate("H:i:s", $duração);
+}
+
+// Configurações de tempo (em segundos) personalizadas por usuário
+if ($_SESSION['username'] === 'test') {
+    $tempoRefreshCalendario = 40; // 40 segundos para o usuário 'test'
+} else {
+    $tempoRefreshCalendario = 600; // 600 segundos (10 minutos) para outros usuários
+}
+
+$tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual para todos)
 ?>
 
 <!DOCTYPE html>
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
+    <title>Área Redmine<?= $tabSelecionada ? ' - ' . getTituloTab($tabs, $tabSelecionada) : '' ?></title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Conteúdo Multimídia</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <style>
-        body {
-            background-color: #f9f9f9;
-        }
-        
-        .header-container {
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            min-height: 100vh;
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
+            flex-direction: column;
+        }
+        header, nav, main { padding: 20px; }
+        header { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; 
+            padding: 12px 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
         }
         
-        .page-title {
-            font-size: 1.4rem;
-            margin: 0;
-            color: #666;
-            font-weight: 400;
-        }
-        
-        .content-container {
-            width: 100%;
-            margin: 0 auto 20px;
-            border: 1px solid #ddd;
-            border-radius: 10px;
-            box-shadow: 0 0 15px rgba(0,0,0,0.1);
-            background: white;
-            overflow: hidden;
-        }
-        
-        .content-frame {
-            width: 100%;
-            border: none;
-            border-radius: 0 0 8px 8px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }
-        
-        .content-info {
-            padding: 10px 15px;
-            background-color: #f8f9fa;
-            border-bottom: 1px solid #eee;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .content-title {
-            font-size: 1.1em;
-            font-weight: bold;
-            margin-right: 10px;
-        }
-        
-        .content-type {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 4px;
-            font-size: 0.75em;
-            font-weight: bold;
-            text-transform: uppercase;
-        }
-        
-        .youtube {
-            background-color: #FF0000;
-            color: white;
-        }
-        
-        .linkedin {
-            background-color: #0077B5;
-            color: white;
-        }
-        
-        .section-card {
-            margin-top: 30px;
-            margin-bottom: 30px;
-            border: 1px solid #ddd;
-            border-radius: 10px;
-            background-color: #f9f9f9;
-            overflow: hidden;
-        }
-        
-        .section-header {
-            background-color: #f0f0f0;
-            padding: 15px 20px;
-            border-bottom: 1px solid #ddd;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            cursor: pointer;
-        }
-        
-        .section-header h2 {
-            margin: 0;
-            font-size: 1.5rem;
-            font-weight: 500;
-            color: #333;
-        }
-        
-        .section-content {
-            padding: 20px;
-        }
-        
-        .form-group {
-            margin-bottom: 15px;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-        }
-        
-        .form-group input, .form-group select {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-        
-        .btn {
-            padding: 8px 15px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-        
-        .btn-primary {
-            background-color: #0d6efd;
-            color: white;
-        }
-        
-        .btn-danger {
-            background-color: #dc3545;
-            color: white;
-        }
-        
-        .btn-circle {
-            width: 34px;
-            height: 34px;
-            padding: 6px 0;
-            border-radius: 17px;
-            text-align: center;
-            font-size: 16px;
-            line-height: 1.42;
-            margin-left: 8px;
-        }
-        
-        .btn-settings {
-            color: #666;
-            background-color: transparent;
-            border: none;
-            font-size: 1.2rem;
-            transition: color 0.2s;
-            padding: 5px;
-        }
-        
-        .btn-settings:hover {
-            color: #333;
-        }
-        
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        
-        table th, table td {
-            padding: 10px;
-            border: 1px solid #ddd;
-            text-align: left;
-        }
-        
-        table th {
-            background-color: #f2f2f2;
-        }
-        
-        .alert {
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 4px;
-        }
-        
-        .alert-success {
-            background-color: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        
-        .alert-danger {
-            background-color: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        
-        .toggle-switch {
-            position: relative;
-            display: inline-block;
-            width: 50px;
-            height: 24px;
-        }
-        
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-        
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #ccc;
-            transition: .4s;
-            border-radius: 34px;
-        }
-        
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 16px;
-            width: 16px;
-            left: 4px;
-            bottom: 4px;
-            background-color: white;
-            transition: .4s;
-            border-radius: 50%;
-        }
-        
-        input:checked + .slider {
-            background-color: #2196F3;
-        }
-        
-        input:checked + .slider:before {
-            transform: translateX(26px);
-        }
-        
-        .countdown {
-            font-size: 1.2em;
-            font-weight: bold;
-            margin-left: 15px;
-        }
-        
-        .display-options {
-            background-color: #f0f8ff;
-            border: 1px solid #d0e5ff;
-            border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 20px;
-            display: none;
-        }
-        
-        .display-option {
-            display: inline-block;
-            margin-right: 20px;
-            padding: 8px 15px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            background-color: white;
-            cursor: pointer;
-        }
-        
-        .display-option:hover {
-            background-color: #f0f0f0;
-        }
-        
-        .display-option input {
-            margin-right: 5px;
-        }
-        
-        .display-option-selected {
-            border-color: #007bff;
-            background-color: #e6f2ff;
-        }
-        
-        .row-cols-2 > * {
-            padding: 10px;
-        }
-        
-        .notices-table {
-            width: 100%;
-        }
-        
-        .notices-table th, .notices-table td {
-            padding: 8px 12px;
-            text-align: left;
-            border: 1px solid #ddd;
-        }
-        
-        .notices-table th {
-            background-color: #f2f2f2;
-        }
-        
+        /* Estilos para área de avisos */
         .notices-container {
-            background-color: #fffcf5;
-            border: 1px solid #ffe8a8;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
             border-radius: 8px;
-            padding: 10px 15px;
-            margin-bottom: 20px;
-            position: relative;
-            max-height: 100px; /* 10% da altura aproximadamente */
-            overflow: hidden;
+            padding: 8px 12px;
+            margin-top: 8px;
+            border-left: 4px solid #ffc107;
+            animation: slideIn 0.5s ease-out;
         }
         
-        .notices-title {
-            font-weight: bold;
-            margin-bottom: 5px;
-            color: #856404;
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .notices-container .notice-item {
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            padding: 4px 0;
+            font-size: 0.9em;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
         
-        .notices-content {
-            height: 60px;
-            overflow: hidden;
-            position: relative;
-        }
-        
-        .notices-scroller {
-            position: absolute;
-            width: 100%;
-            animation: scroll-y 15s linear infinite;
-            padding-right: 15px;
-        }
-        
-        .notice-item {
-            padding: 5px 0;
-            border-bottom: 1px dotted #ffe8a8;
-        }
-        
-        .notice-item:last-child {
+        .notices-container .notice-item:last-child {
             border-bottom: none;
         }
         
-        .notice-priority-0 { background-color: transparent; }
-        .notice-priority-1 { background-color: rgba(255, 243, 205, 0.5); }
-        .notice-priority-2 { background-color: rgba(248, 215, 218, 0.5); }
-        
-        .notice-text {
-            font-size: 0.95em;
+        .notices-container .notice-icon {
+            margin-right: 8px;
+            font-size: 1.1em;
         }
         
-        .notice-meta {
-            font-size: 0.75em;
-            color: #856404;
+        .notices-container .notice-text {
+            flex: 1;
+        }
+        
+        .notices-container .notice-date {
+            font-size: 0.85em;
+            opacity: 0.8;
+            margin-left: 10px;
+        }
+        
+        .no-notices {
+            opacity: 0.7;
+            font-style: italic;
+            font-size: 0.85em;
+        }
+        nav { 
+            background: #f0f0f0; 
+            display: flex; 
+            flex-wrap: wrap;
+            gap: 5px; 
+            padding: 6px 15px;
+            border-bottom: 1px solid #ddd;
+        }
+        nav a { 
+            text-decoration: none; 
+            padding: 6px 10px; 
+            background: #ddd; 
+            border-radius: 4px;
+            color: #333;
+            transition: all 0.2s ease;
+            font-size: 0.9em;
+        }
+        nav a:hover {
+            background: #ccc;
+        }
+        nav a.active { 
+            background: #0d6efd; 
+            color: white; 
+        }
+        
+        /* Estilos para submenu */
+        .menu-item {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .menu-link {
+            text-decoration: none; 
+            padding: 6px 10px; 
+            background: #ddd; 
+            border-radius: 4px;
+            color: #333;
+            transition: all 0.2s ease;
+            display: inline-block;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+        
+        .menu-link:hover {
+            background: #ccc;
+        }
+        
+        .menu-link.active {
+            background: #0d6efd; 
+            color: white;
+        }
+        
+        .menu-link.has-submenu::after {
+            content: ' ▼';
+            font-size: 0.7em;
+            margin-left: 4px;
             opacity: 0.7;
         }
         
-        .notice-form {
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 1px solid #ddd;
+        .submenu {
             display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background-color: #2c3e50;
+            min-width: 160px;
+            box-shadow: 0px 8px 20px rgba(0,0,0,0.3);
+            z-index: 1000;
+            border-radius: 4px;
+            margin-top: 4px;
+            overflow: hidden;
         }
         
-        .rotate-icon {
+        .menu-item:hover .submenu {
+            display: block;
+            animation: slideDown 0.2s ease-out;
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .submenu a {
+            display: block;
+            color: white !important;
+            background-color: transparent !important;
+            padding: 8px 12px;
+            text-decoration: none;
+            transition: background-color 0.2s;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            border-radius: 0;
+            font-size: 0.85em;
+        }
+        
+        .submenu a:last-child {
+            border-bottom: none;
+        }
+        
+        .submenu a:hover {
+            background-color: #34495e !important;
+        }
+        
+        .submenu a.active {
+            background-color: #3498db !important;
+            font-weight: 600;
+        }
+        main { 
+            flex-grow: 1;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            flex: 1;
+            min-width: 250px;
+        }
+        .logo {
+            height: 45px;
+            margin-right: 15px;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
             transition: transform 0.3s ease;
         }
-        
-        .rotate-icon.open {
-            transform: rotate(180deg);
+        .logo:hover {
+            transform: scale(1.1) rotate(5deg);
+        }
+        .header-title {
+            margin: 0;
+            font-size: 1.4em;
+            font-weight: 600;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .header-info {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+        .header-info p {
+            margin: 0;
+        }
+        .timer-badge {
+            font-family: 'Courier New', monospace;
+            font-size: 1em;
+            padding: 4px 10px;
+            border-radius: 6px;
+            background: linear-gradient(135deg, rgba(255,255,255,0.2), rgba(255,255,255,0.1));
+            margin-left: 8px;
+            border: 1px solid rgba(255,255,255,0.3);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+        .timer-badge:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .auto-toggle {
+            margin-left: 12px;
+            display: flex;
+            align-items: center;
+            background: linear-gradient(135deg, rgba(255,255,255,0.15), rgba(255,255,255,0.05));
+            padding: 5px 12px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .auto-toggle:hover {
+            background: linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0.15));
+            transform: translateY(-1px);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+        .auto-toggle input {
+            margin-right: 6px;
+            cursor: pointer;
+        }
+        .refresh-info {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            z-index: 1000;
+        }
+        .countdown {
+            font-family: monospace;
+            font-weight: bold;
+            margin-left: 5px;
+        }
+        .logout-btn {
+            color: #ffcccc;
+            text-decoration: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            border: 1px solid #ffcccc;
+            transition: all 0.2s ease;
+        }
+        .logout-btn:hover {
+            background-color: #ffcccc;
+            color: #222;
+        }
+        footer { 
+            background-color: #222; 
+            color: #999; 
+            padding: 10px 20px; 
+            text-align: center; 
+            font-size: 0.8em; 
+            border-top: 1px solid #444;
+            margin-top: auto; /* Isso garante que o rodapé fique na parte inferior */
         }
         
-        @keyframes scroll-y {
-            0% { top: 0; }
-            100% { top: -100%; }
+        footer a {
+            color: #bbb;
+            text-decoration: none;
+        }
+        
+        footer a:hover {
+            color: white;
+            text-decoration: underline;
+        }
+        
+        /* Responsividade para header */
+        @media (max-width: 992px) {
+            .header-container {
+                flex-direction: column;
+            }
+            .header-left {
+                width: 100%;
+            }
+            .header-info {
+                width: 100%;
+                align-items: flex-start;
+                margin-top: 10px;
+            }
+            .notices-container {
+                font-size: 0.85em;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .logo {
+                height: 35px;
+            }
+            .header-title {
+                font-size: 1.1em;
+            }
+            .notices-container {
+                padding: 6px 10px;
+            }
+            .notice-item {
+                flex-wrap: wrap;
+            }
+            .notice-date {
+                width: 100%;
+                margin-left: 28px;
+                margin-top: 2px;
+            }
+        }
+        
+        /* Estilo para a notificação de reunião */
+        .meeting-notification {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px 30px;
+            background-color: #dc3545;
+            color: white;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            z-index: 9999;
+            text-align: center;
+            font-size: 1.2em;
+            font-weight: bold;
+            display: none;
+        }
+        .meeting-notification.show {
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% {
+                transform: translate(-50%, -50%) scale(1);
+            }
+            50% {
+                transform: translate(-50%, -50%) scale(1.05);
+            }
+            100% {
+                transform: translate(-50%, -50%) scale(1);
+            }
+        }
+        
+        /* Animação de pulsação para o relógio */
+        @keyframes pulse-clock {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        .pulse {
+            animation: pulse-clock 0.7s infinite;
+        }
+        
+        /* Estilo para o relógio grande com contagem regressiva */
+        .countdown-clock {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            color: white;
+            display: none;
+        }
+        .countdown-time {
+            font-size: 32rem; /* Aumentado para 4x o tamanho anterior */
+            font-weight: bold;
+            font-family: 'Digital-7', Arial, sans-serif;
+            margin-bottom: 2rem;
+            color: #ff5252;
+            text-shadow: 0 0 20px rgba(255, 82, 82, 0.7);
+            line-height: 1;
+        }
+        .countdown-message {
+            font-size: 4rem; /* Também aumentado para manter a proporção */
+            margin-bottom: 3rem;
+        }
+        .countdown-progress {
+            width: 80%; /* Aumentado para ocupar mais espaço horizontal */
+            height: 40px; /* Barra de progresso mais alta */
+            background-color: #333;
+            border-radius: 20px;
+            overflow: hidden;
+            margin-top: 2rem;
+        }
+        .countdown-bar {
+            height: 100%;
+            background-color: #ff5252;
+            border-radius: 10px;
+            transition: width 1s linear;
+        }
+ 
+    </style>
+    <!-- Estilos adicionais para garantir centralização perfeita do relógio -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@700&display=swap');
+        
+        /* Ajuste para que o relógio não bloqueie o resto da interface */
+        .countdown-clock {
+            position: fixed;
+            top: 50px; /* Distância do topo para não cobrir a barra de navegação */
+            right: 50px; /* Posicionado à direita */
+            width: auto; /* Largura automática baseada no conteúdo */
+            height: auto; /* Altura automática baseada no conteúdo */
+            z-index: 1000; /* Acima de outros conteúdos, mas não deve bloquear interações */
+            background-color: rgba(0, 0, 0, 0.8);
+            border-radius: 15px;
+            padding: 15px 25px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            pointer-events: none; /* Permite clicar através do relógio */
+            display: none; /* Inicialmente oculto */
+        }
+        
+        .countdown-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .countdown-time {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 4rem; /* Tamanho reduzido para não ocupar todo o espaço */
+            line-height: 1;
+            margin: 0;
+            padding: 0;
+            color: #ff5252;
+            text-shadow: 0 0 10px rgba(255, 82, 82, 0.7);
+        }
+        .countdown-message {
+            font-size: 1rem; /* Tamanho reduzido */
+            margin-bottom: 5px;
+            color: white;
+        }
+        .countdown-progress {
+            width: 100%; /* Ocupar todo o espaço disponível */
+            height: 10px; /* Altura reduzida */
+            background-color: #333;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-top: 5px;
         }
     </style>
 </head>
 <body>
-    <div class="container mt-4">
-        <div class="header-container">
-            <h1 class="page-title">Dashboard</h1>
-            <div>
-                <button type="button" class="btn-settings" id="settings-btn" title="Configurações de exibição">
-                    <i class="bi bi-gear"></i>
-                </button>
-            </div>
-        </div>
-        
-        <div id="display-options" class="display-options">
-            <h5 class="mb-3">Modo de Exibição:</h5>
-            <form id="displayForm" method="get" action="">
-                <label class="display-option <?= $displayMode === 'single' ? 'display-option-selected' : '' ?>">
-                    <input type="radio" name="display_mode" value="single" <?= $displayMode === 'single' ? 'checked' : '' ?> onchange="this.form.submit()">
-                    Um bloco aleatório
-                </label>
-                <label class="display-option <?= $displayMode === 'dual' ? 'display-option-selected' : '' ?>">
-                    <input type="radio" name="display_mode" value="dual" <?= $displayMode === 'dual' ? 'checked' : '' ?> onchange="this.form.submit()">
-                    Dois blocos lado a lado
-                </label>
-                <label class="display-option <?= $displayMode === 'quad' ? 'display-option-selected' : '' ?>">
-                    <input type="radio" name="display_mode" value="quad" <?= $displayMode === 'quad' ? 'checked' : '' ?> onchange="this.form.submit()">
-                    Quatro blocos (2x2)
-                </label>
-            </form>
-        </div>
-        
-        <?php if (!empty($message)): ?>
-            <div class="alert <?= strpos($message, 'Erro') !== false ? 'alert-danger' : 'alert-success' ?>">
-                <?= htmlspecialchars($message) ?>
-            </div>
-        <?php endif; ?>
-        
 
-        
-        <?php if ($displayMode === 'single' && $content): ?>
-            <div class="content-container">
-                <div class="content-info">
-                    <div>
-                        <span class="content-title"><?= htmlspecialchars($content['title']) ?></span>
-                        <span class="content-type <?= htmlspecialchars($content['type']) ?>">
-                            <?= htmlspecialchars($content['type']) ?>
-                        </span>
-                    </div>
-                    <span class="countdown" id="countdown">60</span>
-                </div>
+<header>
+    <div class="header-container">
+        <div class="header-left">
+            <img src="images/pikachu_logo.png" alt="PikachuPM Logo" class="logo">
+            <div>
+                <h1 class="header-title">Bem-vindo, <?= htmlspecialchars($_SESSION['username']) ?></h1>
                 
-                <?php if ($content['type'] === 'youtube'): ?>
-                    <iframe 
-                        class="content-frame"
-                        src="<?= htmlspecialchars($content['url']) ?>?autoplay=1&mute=1"
-                        title="<?= htmlspecialchars($content['title']) ?>"
-                        height="450"
-                        frameborder="0"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowfullscreen>
-                    </iframe>
-                <?php elseif ($content['type'] === 'linkedin'): ?>
-                    <iframe 
-                        class="content-frame"
-                        src="<?= htmlspecialchars($content['url']) ?>"
-                        title="<?= htmlspecialchars($content['title']) ?>"
-                        height="450"
-                        frameborder="0"
-                        allowfullscreen>
-                    </iframe>
-                <?php else: ?>
-                    <div class="content-frame" style="display: flex; align-items: center; justify-content: center; background-color: #f8f9fa; height: 450px;">
-                        <p>Tipo de conteúdo não suportado.</p>
-                    </div>
-                <?php endif; ?>
-            </div>
-        <?php elseif ($displayMode === 'dual'): ?>
-            <div class="row row-cols-2">
-                <div class="col">
-                    <div class="content-container h-100">
-                        <?= renderContentFrame($youtubeContent, 400) ?>
-                    </div>
-                </div>
-                <div class="col">
-                    <div class="content-container h-100">
-                        <?= renderContentFrame($linkedinContent, 400) ?>
-                    </div>
-                </div>
-            </div>
-            <div class="text-center mt-2">
-                <span class="countdown" id="countdown">60</span>
-            </div>
-        <?php elseif ($displayMode === 'quad'): ?>
-            <div class="row row-cols-2">
-                <?php if (isset($youtubeContents) && is_array($youtubeContents)): ?>
-                    <?php foreach ($youtubeContents as $ytContent): ?>
-                    <div class="col mb-3">
-                        <div class="content-container h-100">
-                            <?= renderContentFrame($ytContent, 350) ?>
+                <?php if (!empty($notices)): ?>
+                <div class="notices-container">
+                    <?php foreach ($notices as $notice): ?>
+                        <div class="notice-item">
+                            <span class="notice-icon">
+                                <?php 
+                                    // Ícone baseado na prioridade
+                                    $priority = isset($notice['priority']) ? intval($notice['priority']) : 0;
+                                    if ($priority >= 2) echo '🔴'; // Urgente
+                                    elseif ($priority == 1) echo '🟡'; // Importante
+                                    else echo 'ℹ️'; // Normal
+                                ?>
+                            </span>
+                            <span class="notice-text">
+                                <?= htmlspecialchars($notice['text'] ?? '') ?>
+                                <?php if (!empty($notice['added_by'])): ?>
+                                    <small style="opacity: 0.7;"> - <?= htmlspecialchars($notice['added_by']) ?></small>
+                                <?php endif; ?>
+                            </span>
+                            <?php if (isset($notice['added_at'])): ?>
+                                <span class="notice-date"><?= date('d/m H:i', strtotime($notice['added_at'])) ?></span>
+                            <?php endif; ?>
                         </div>
-                    </div>
                     <?php endforeach; ?>
-                <?php endif; ?>
-                
-                <?php if (isset($linkedinContents) && is_array($linkedinContents)): ?>
-                    <?php foreach ($linkedinContents as $liContent): ?>
-                    <div class="col mb-3">
-                        <div class="content-container h-100">
-                            <?= renderContentFrame($liContent, 350) ?>
-                        </div>
-                    </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </div>
-            <div class="text-center mt-2">
-                <span class="countdown" id="countdown">60</span>
-            </div>
-        <?php else: ?>
-            <div class="content-container">
-                <div style="display: flex; align-items: center; justify-content: center; height: 450px; background-color: #f8f9fa;">
-                    <p>Nenhum conteúdo disponível. Adicione conteúdo abaixo.</p>
                 </div>
-            </div>
-        <?php endif; ?>
-        
-        <!-- Seção de Gerenciamento de Conteúdo -->
-        <div class="section-card">
-            <div class="section-header" onclick="toggleSection('content-section')">
-                <h2><i class="bi bi-collection-play"></i> Gerenciar Conteúdo</h2>
-                <i class="bi bi-chevron-down rotate-icon" id="content-section-icon"></i>
-            </div>
-            
-            <div class="section-content" id="content-section" style="display: none;">
-                <form method="post" action="">
-                    <div style="display: flex; gap: 15px;">
-                        <div class="form-group" style="flex: 1;">
-                            <label for="type">Tipo:</label>
-                            <select name="type" id="type" required>
-                                <option value="">Selecione...</option>
-                                <option value="youtube">YouTube</option>
-                                <option value="linkedin">LinkedIn</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group" style="flex: 2;">
-                            <label for="url">URL:</label>
-                            <input type="url" name="url" id="url" required placeholder="https://...">
-                        </div>
-                        
-                        <div class="form-group" style="flex: 2;">
-                            <label for="title">Título:</label>
-                            <input type="text" name="title" id="title" required>
-                        </div>
-                    </div>
-                    
-                    <input type="hidden" name="action" value="add">
-                    <button type="submit" class="btn btn-primary">Adicionar Conteúdo</button>
-                </form>
-                
-                <h3 class="mt-4">Conteúdo Disponível</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Tipo</th>
-                            <th>Título</th>
-                            <th>URL</th>
-                            <th>Adicionado em</th>
-                            <th>Última exibição</th>
-                            <th>Ativo</th>
-                            <th>Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($allContent as $item): ?>
-                            <tr>
-                                <td><?= $item['id'] ?></td>
-                                <td>
-                                    <span class="content-type <?= htmlspecialchars($item['type']) ?>">
-                                        <?= htmlspecialchars($item['type']) ?>
-                                    </span>
-                                </td>
-                                <td><?= htmlspecialchars($item['title']) ?></td>
-                                <td>
-                                    <a href="<?= htmlspecialchars($item['url']) ?>" target="_blank">
-                                        <?= htmlspecialchars(substr($item['url'], 0, 30)) ?>...
-                                    </a>
-                                </td>
-                                <td><?= $item['added_at'] ?></td>
-                                <td><?= $item['last_shown'] ?: 'Nunca' ?></td>
-                                <td>
-                                    <form method="post" action="" class="toggle-form">
-                                        <input type="hidden" name="action" value="toggle">
-                                        <input type="hidden" name="id" value="<?= $item['id'] ?>">
-                                        <label class="toggle-switch">
-                                            <input type="checkbox" name="active" value="1" <?= $item['active'] ? 'checked' : '' ?> 
-                                                onchange="this.form.submit()">
-                                            <span class="slider"></span>
-                                        </label>
-                                    </form>
-                                </td>
-                                <td>
-                                    <form method="post" action="" onsubmit="return confirm('Tem certeza que deseja excluir este item?');">
-                                        <input type="hidden" name="action" value="delete">
-                                        <input type="hidden" name="id" value="<?= $item['id'] ?>">
-                                        <button type="submit" class="btn btn-danger">Excluir</button>
-                                    </form>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+                <?php endif; ?>
             </div>
         </div>
-        
-        <!-- Seção de Gerenciamento de Avisos -->
-        <div class="section-card">
-            <div class="section-header" onclick="toggleSection('notices-section')">
-                <h2><i class="bi bi-bell"></i> Gerenciar Avisos</h2>
-                <i class="bi bi-chevron-down rotate-icon" id="notices-section-icon"></i>
-            </div>
-            
-            <div class="section-content" id="notices-section" style="display: none;">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h3 class="m-0">Avisos Ativos</h3>
-                    <button type="button" class="btn btn-primary" onclick="toggleNoticeForm()">
-                        <i class="bi bi-plus"></i> Novo Aviso
-                    </button>
-                </div>
+        <div class="header-info">
+            <p>
+                ID: <?= $_SESSION['user_id'] ?> 
+                <span class="timer-badge" id="session-time"><?= tempoSessao() ?></span>
+                <span class="timer-badge" id="current-time"><?= date('H:i:s') ?></span>
                 
-                <div id="notice-form" style="display: none;">
-                    <form method="post" action="" class="bg-light p-3 rounded mb-4 border">
-                        <div class="mb-3">
-                            <label for="notice_text" class="form-label">Texto do aviso:</label>
-                            <textarea class="form-control" id="notice_text" name="notice_text" rows="2" required></textarea>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label for="notice_by" class="form-label">Autor:</label>
-                                    <input type="text" class="form-control" id="notice_by" name="notice_by" value="Usuário">
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label for="notice_priority" class="form-label">Prioridade:</label>
-                                    <select class="form-select" id="notice_priority" name="notice_priority">
-                                        <option value="0">Normal</option>
-                                        <option value="1">Importante</option>
-                                        <option value="2">Urgente</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                        <input type="hidden" name="action" value="add_notice">
-                        <div class="text-end">
-                            <button type="button" class="btn btn-secondary" onclick="toggleNoticeForm()">Cancelar</button>
-                            <button type="submit" class="btn btn-primary">Adicionar</button>
-                        </div>
-                    </form>
-                </div>
-                
-                <?php if (empty($notices)): ?>
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> Não há avisos no momento.
-                    </div>
-                <?php else: ?>
-                    <table class="notices-table">
-                        <thead>
-                            <tr>
-                                <th width="50">ID</th>
-                                <th>Texto</th>
-                                <th width="150">Autor</th>
-                                <th width="150">Data</th>
-                                <th width="100">Prioridade</th>
-                                <th width="100">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($notices as $notice): ?>
-                                <tr class="notice-priority-<?= $notice['priority'] ?>">
-                                    <td><?= $notice['id'] ?></td>
-                                    <td><?= htmlspecialchars($notice['text']) ?></td>
-                                    <td><?= htmlspecialchars($notice['added_by']) ?></td>
-                                    <td><?= date('d/m/Y H:i', strtotime($notice['added_at'])) ?></td>
-                                    <td>
-                                        <?php 
-                                        switch($notice['priority']) {
-                                            case 0: echo "Normal"; break;
-                                            case 1: echo "Importante"; break;
-                                            case 2: echo "Urgente"; break;
-                                            default: echo "Normal";
-                                        }
-                                        ?>
-                                    </td>
-                                    <td>
-                                        <form method="post" action="" class="d-inline" onsubmit="return confirm('Tem certeza que deseja excluir este aviso?');">
-                                            <input type="hidden" name="action" value="delete_notice">
-                                            <input type="hidden" name="notice_id" value="<?= $notice['id'] ?>">
-                                            <button type="submit" class="btn btn-sm btn-danger">
-                                                <i class="bi bi-trash"></i> Excluir
-                                            </button>
-                                        </form>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                <?php endif; ?>
-            </div>
+                <label class="auto-toggle">
+                    <input type="checkbox" id="auto-toggle-check" <?= $autoAlternar ? 'checked' : '' ?>>
+                    Alternar Dashboard/Calendário
+                </label>
+            </p>
+            <p style="margin: 2px 0 0 0; font-size: 0.75em; opacity: 0.8;">
+                <span id="logout-countdown" title="Tempo até logout automático">Logout em: 24h</span>
+            </p>
+            <p class="mt-2">
+                <a href="logout.php" class="logout-btn">
+                    <i class="bi bi-box-arrow-right"></i> Sair
+                </a>
+            </p>
         </div>
     </div>
+</header>
 
-    <script>
-        // Contador regressivo
-        let countdown = 60;
-        const countdownElement = document.getElementById('countdown');
+<nav>
+    <?php foreach ($tabs as $id => $value): ?>
+        <?php if (is_array($value) && isset($value['submenu'])): ?>
+            <!-- Item com submenu -->
+            <div class="menu-item">
+                <span class="menu-link has-submenu"><?= htmlspecialchars($value['label']) ?></span>
+                <div class="submenu">
+                    <?php foreach ($value['submenu'] as $subId => $subLabel): ?>
+                        <a href="?tab=<?= urlencode($subId) ?>" 
+                           class="<?= $tabSelecionada === $subId ? 'active' : '' ?>">
+                            <?= htmlspecialchars($subLabel) ?>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        <?php else: ?>
+            <!-- Item normal -->
+            <a href="?tab=<?= urlencode($id) ?>" class="<?= $tabSelecionada === $id ? 'active' : '' ?>">
+                <?= htmlspecialchars($value) ?>
+            </a>
+        <?php endif; ?>
+    <?php endforeach; ?>
+</nav>
+
+<main>
+    <?php
+    $ficheiroTab = "tabs/$tabSelecionada.php";
+    if (file_exists($ficheiroTab)) {
+        include $ficheiroTab;
+    } else {
+        echo "<p>Conteúdo indisponível.</p>";
+    }
+    ?>
+</main>
+
+<footer>
+    <div class="container">
+        <p>PikachuPM V0.3 alpha &copy; <?php echo date("Y"); ?> | Produzido por <a href="mailto:fbnsantos@fbnsantos.com">Filipe Neves dos Santos</a></p>
+    </div>
+</footer>
+
+<div id="refresh-info" class="refresh-info" style="display: none;">
+    <div id="refresh-info-content"></div>
+</div>
+
+<!-- Elemento para notificação de reunião -->
+<div id="meeting-notification" class="meeting-notification">
+    <div>HORA DA REUNIÃO DIÁRIA!</div>
+    <div>Redirecionando para a página de Reunião...</div>
+</div>
+
+<!-- Elemento para o relógio de contagem regressiva não-bloqueante -->
+<div id="countdown-clock" class="countdown-clock">
+    <div class="countdown-container">
+        <div class="countdown-message">PREPARAR PARA REUNIÃO</div>
+        <div id="countdown-time" class="countdown-time">02:00</div>
+        <div class="countdown-progress">
+            <div id="countdown-bar" class="countdown-bar" style="width: 100%;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Elemento de áudio para alerta sonoro -->
+<audio id="alert-sound" loop>
+    <source src="https://www.soundjay.com/buttons/sounds/button-09.mp3" type="audio/mpeg">
+    <!-- Fallback para navegadores que não suportam o formato MP3 -->
+    <source src="https://www.soundjay.com/buttons/sounds/button-09.ogg" type="audio/ogg">
+</audio>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // ===== CONFIGURAÇÃO BÁSICA =====
+    const tabAtual = '<?= $tabSelecionada ?>';
+    const tempoRefreshCalendario = <?= $tempoRefreshCalendario ?>;
+    const tempoAlternanciaAbas = <?= $tempoAlternanciaAbas ?>;
+    const reiniciarTemporizadores = <?= $reiniciarTemporizadores ? 'true' : 'false' ?>;
+    const usuarioAtual = '<?= $_SESSION['username'] ?>';
+    
+    // Horários de reunião e transição definidos no PHP
+    const HORA_REUNIAO_EQUIPA = '<?= $HORA_REUNIAO_EQUIPA ?>'; // formato "HH:MM"
+    const HORA_TRANSICAO_CALENDARIO = '<?= $HORA_TRANSICAO_CALENDARIO ?>'; // formato "HH:MM"
+    
+    // Extrair horas e minutos para comparações
+    const [horaReuniao, minutosReuniao] = HORA_REUNIAO_EQUIPA.split(':').map(Number);
+    const [horaCalendario, minutosCalendario] = HORA_TRANSICAO_CALENDARIO.split(':').map(Number);
+
+    // Exibir informações de configuração no console (para debug)
+    console.log(`Configurações para ${usuarioAtual}:`);
+    console.log(`- Tempo de refresh do calendário: ${tempoRefreshCalendario}s`);
+    console.log(`- Tempo de alternância entre abas: ${tempoAlternanciaAbas}s`);
+    console.log(`- Alternância automática: ${<?= $autoAlternar ? 'true' : 'false' ?>}`);
+    console.log(`- Horário reunião equipa: ${HORA_REUNIAO_EQUIPA}`);
+    console.log(`- Horário transição calendário: ${HORA_TRANSICAO_CALENDARIO}`);
+
+    // Elementos DOM importantes
+    const autoToggleEl = document.getElementById('auto-toggle-check');
+    const refreshInfoEl = document.getElementById('refresh-info');
+    const refreshInfoContentEl = document.getElementById('refresh-info-content');
+    const sessionTimeEl = document.getElementById('session-time');
+    const meetingNotificationEl = document.getElementById('meeting-notification');
+    const alertSoundEl = document.getElementById('alert-sound');
+
+    // ===== FUNÇÃO DE CONTROLE DE REUNIÃO DIÁRIA =====
+    // Variáveis para controlar o estado da contagem regressiva
+    let countdownActive = false;
+    let countdownStartTime = 0;
+    let countdownDuration = 120; // 120 segundos = 2 minutos
+    let countdownInterval;
+    const countdownClockEl = document.getElementById('countdown-clock');
+    const countdownTimeEl = document.getElementById('countdown-time');
+    const countdownBarEl = document.getElementById('countdown-bar');
+    
+    // Função para iniciar a contagem regressiva de 120 segundos
+    function iniciarContagemRegressiva() {
+        // Só iniciar se não estiver já ativa
+        if (countdownActive) return;
         
-        if (countdownElement) {
-            const timer = setInterval(() => {
-                countdown--;
-                countdownElement.textContent = countdown;
+        countdownActive = true;
+        countdownStartTime = Date.now();
+        
+        // Exibir o relógio de contagem
+        countdownClockEl.style.display = 'block';
+        
+        // Iniciar som de alerta
+        if (alertSoundEl) {
+            alertSoundEl.volume = 0.5; // Volume a 50%
+            alertSoundEl.loop = true;  // Repetir o som
+            alertSoundEl.play()
+                .catch(error => console.error('Erro ao tocar alerta sonoro:', error));
+        }
+        
+        // Iniciar intervalo para atualizar a contagem a cada 100ms (para movimento mais suave)
+        countdownInterval = setInterval(() => {
+            atualizarContagemRegressiva();
+        }, 100);
+        
+        // Registrar no console que a contagem começou
+        console.log('Contagem regressiva iniciada às', new Date().toLocaleTimeString());
+    }
+    
+    // Função para atualizar a contagem regressiva
+    function atualizarContagemRegressiva() {
+        const tempoDecorrido = (Date.now() - countdownStartTime) / 1000; // em segundos
+        const tempoRestante = countdownDuration - tempoDecorrido;
+        
+        if (tempoRestante <= 0) {
+            // Tempo acabou
+            finalizarContagemRegressiva();
+            return;
+        }
+        
+        // Atualizar display do tempo
+        const minutos = Math.floor(tempoRestante / 60);
+        const segundos = Math.floor(tempoRestante % 60);
+        // Garantir sempre 2 dígitos para manter o alinhamento
+        countdownTimeEl.textContent = `${minutos.toString().padStart(2, '0')}:${segundos.toString().padStart(2, '0')}`;
+        
+        // Atualizar barra de progresso
+        const porcentagemRestante = (tempoRestante / countdownDuration) * 100;
+        countdownBarEl.style.width = `${porcentagemRestante}%`;
+        
+        // Mudar a cor do relógio para vermelho mais intenso quando faltarem 30 segundos
+        if (tempoRestante <= 30) {
+            countdownTimeEl.style.color = '#ff0000';
+            countdownTimeEl.style.textShadow = '0 0 30px rgba(255, 0, 0, 0.9)';
+            
+            // Pulsar o relógio nos últimos 30 segundos
+            if (!countdownTimeEl.classList.contains('pulse')) {
+                countdownTimeEl.classList.add('pulse');
+            }
+        }
+    }
+    
+    // Função para finalizar a contagem regressiva
+    function finalizarContagemRegressiva() {
+        clearInterval(countdownInterval);
+        countdownActive = false;
+        
+        // Parar o som
+        if (alertSoundEl) {
+            alertSoundEl.pause();
+            alertSoundEl.currentTime = 0;
+        }
+        
+        // Esconder o relógio
+        countdownClockEl.style.display = 'none';
+        
+        // Redirecionar para a tab equipa
+        window.location.href = addParamsToUrl({
+            'tab': 'equipa',
+            'reset_timers': 'true'
+        });
+    }
+    
+    function verificarHorarioReunioes() {
+        const agora = new Date();
+        const hora = agora.getHours();
+        const minutos = agora.getMinutes();
+        const segundos = agora.getSeconds();
+        
+        // Verificar se é hora de iniciar contagem regressiva (usando variáveis globais)
+        if (hora === horaReuniao && minutos === minutosReuniao && segundos === 0) {
+            iniciarContagemRegressiva();
+            return true;
+        }
+        
+        // Verificar se é hora de ir para calendário (usando variáveis globais)
+        if (hora === horaCalendario && minutos === minutosCalendario && segundos <= 1) {
+            // Redirecionar para a tab calendário
+            window.location.href = addParamsToUrl({
+                'tab': 'calendar',
+                'reset_timers': 'true'
+            });
+            
+            return true;
+        }
+        
+        return countdownActive; // Retorna true se a contagem regressiva estiver ativa
+    }
+
+    // ===== UTILITÁRIOS =====
+    // Função para adicionar parâmetros à URL atual
+    function addParamsToUrl(params) {
+        const url = new URL(window.location.href);
+        Object.keys(params).forEach(key => {
+            if (params[key] !== null) {
+                url.searchParams.set(key, params[key]);
+            } else {
+                url.searchParams.delete(key);
+            }
+        });
+        return url.toString();
+    }
+
+    // Funções para manipular localStorage
+    function getLocalStorage(key, defaultValue) {
+        try {
+            const value = localStorage.getItem(key);
+            return value !== null ? JSON.parse(value) : defaultValue;
+        } catch (e) {
+            console.error('Erro ao ler localStorage:', e);
+            return defaultValue;
+        }
+    }
+
+    function setLocalStorage(key, value) {
+        try {
+            localStorage.setItem(key, JSON.stringify(value));
+            return true;
+        } catch (e) {
+            console.error('Erro ao escrever localStorage:', e);
+            return false;
+        }
+    }
+
+    // ===== TEMPORIZADOR DE SESSÃO =====
+    // Atualizar o tempo de sessão a cada segundo
+    if (sessionTimeEl) {
+        let timeParts = sessionTimeEl.textContent.split(':');
+        let seconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseInt(timeParts[2]);
+        
+        setInterval(() => {
+            seconds++;
+            let hours = Math.floor(seconds / 3600).toString().padStart(2, '0');
+            let minutes = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+            let secs = (seconds % 60).toString().padStart(2, '0');
+            sessionTimeEl.textContent = `${hours}:${minutes}:${secs}`;
+        }, 1000);
+    }
+
+    // ===== RELÓGIO E COUNTDOWN DE LOGOUT =====
+    const currentTimeEl = document.getElementById('current-time');
+    const logoutCountdownEl = document.getElementById('logout-countdown');
+    const SESSION_TIMEOUT = 86400; // 24 horas em segundos
+    
+    // Atualizar relógio a cada segundo
+    if (currentTimeEl) {
+        setInterval(() => {
+            const now = new Date();
+            const hours = now.getHours().toString().padStart(2, '0');
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const seconds = now.getSeconds().toString().padStart(2, '0');
+            currentTimeEl.textContent = `${hours}:${minutes}:${seconds}`;
+        }, 1000);
+    }
+    
+    // Atualizar countdown de logout
+    if (logoutCountdownEl && sessionTimeEl) {
+        setInterval(() => {
+            // Obter tempo de sessão atual em segundos
+            let timeParts = sessionTimeEl.textContent.split(':');
+            let sessionSeconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseInt(timeParts[2]);
+            
+            // Calcular tempo restante até logout
+            let remainingSeconds = SESSION_TIMEOUT - sessionSeconds;
+            
+            if (remainingSeconds <= 0) {
+                logoutCountdownEl.textContent = 'Logout em: Sessão expirada';
+                logoutCountdownEl.style.color = '#dc3545';
+                // Redirecionar para logout após 3 segundos
+                setTimeout(() => {
+                    window.location.href = 'logout.php';
+                }, 3000);
+            } else {
+                let hours = Math.floor(remainingSeconds / 3600);
+                let minutes = Math.floor((remainingSeconds % 3600) / 60);
                 
-                if (countdown <= 0) {
-                    clearInterval(timer);
-                    window.location.reload(); // Recarregar para exibir próximo conteúdo
-                }
-            }, 1000);
-        }
-        
-        // Botão de configurações
-        document.getElementById('settings-btn').addEventListener('click', function() {
-            const displayOptions = document.getElementById('display-options');
-            if (displayOptions.style.display === 'none' || displayOptions.style.display === '') {
-                displayOptions.style.display = 'block';
-            } else {
-                displayOptions.style.display = 'none';
-            }
-        });
-        
-        // Estilização para opções de exibição
-        document.querySelectorAll('.display-option').forEach(option => {
-            option.addEventListener('click', function() {
-                document.querySelectorAll('.display-option').forEach(opt => {
-                    opt.classList.remove('display-option-selected');
-                });
-                this.classList.add('display-option-selected');
-                this.querySelector('input').checked = true;
-            });
-        });
-        
-        // Função para exibir/ocultar seções
-        function toggleSection(sectionId) {
-            const section = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId + '-icon');
-            
-            if (section.style.display === 'none') {
-                section.style.display = 'block';
-                icon.classList.add('open');
-            } else {
-                section.style.display = 'none';
-                icon.classList.remove('open');
-            }
-        }
-        
-        // Função para exibir/ocultar formulário de aviso
-        function toggleNoticeForm() {
-            const form = document.getElementById('notice-form');
-            form.style.display = form.style.display === 'none' ? 'block' : 'none';
-        }
-        
-        // Ajuda com extração de ID para YouTube
-        const urlInput = document.getElementById('url');
-        const typeSelect = document.getElementById('type');
-        
-        if (urlInput && typeSelect) {
-            typeSelect.addEventListener('change', function() {
-                const selectedType = this.value;
-                if (selectedType === 'youtube') {
-                    urlInput.placeholder = "https://www.youtube.com/watch?v=VIDEOID ou https://youtu.be/VIDEOID";
-                } else if (selectedType === 'linkedin') {
-                    urlInput.placeholder = "https://www.linkedin.com/posts/... ou https://www.linkedin.com/feed/update/...";
+                // Formatar display
+                if (hours > 0) {
+                    logoutCountdownEl.textContent = `Logout em: ${hours}h ${minutes}m`;
+                } else if (minutes > 0) {
+                    logoutCountdownEl.textContent = `Logout em: ${minutes}m`;
                 } else {
-                    urlInput.placeholder = "https://...";
+                    logoutCountdownEl.textContent = `Logout em: ${remainingSeconds}s`;
                 }
-            });
+                
+                // Mudar cor quando faltar menos de 1 hora
+                if (remainingSeconds < 3600) {
+                    logoutCountdownEl.style.color = '#ffc107';
+                } else {
+                    logoutCountdownEl.style.color = 'inherit';
+                }
+                // Mudar para vermelho quando faltar menos de 10 minutos
+                if (remainingSeconds < 600) {
+                    logoutCountdownEl.style.color = '#dc3545';
+                }
+            }
+        }, 1000);
+    }
+
+    // ===== SISTEMA UNIFICADO DE TEMPORIZADORES =====
+    // Esta é a grande mudança - um único sistema central que gerencia todos os temporizadores
+    
+    // 1. Determinar se devemos alternar automaticamente
+    let autoAlternarAtivo = getLocalStorage('auto_alternar', <?= $autoAlternar ? 'true' : 'false' ?>);
+    if (autoToggleEl) {
+        autoToggleEl.checked = autoAlternarAtivo;
+        
+        // Salvar estado do checkbox quando alterado
+        autoToggleEl.addEventListener('change', function() {
+            autoAlternarAtivo = this.checked;
+            setLocalStorage('auto_alternar', autoAlternarAtivo);
+            document.cookie = `auto_alternar=${autoAlternarAtivo}; max-age=${60*60*24*30}; path=/; SameSite=Strict`;
+            
+            if (autoAlternarAtivo) {
+                // Se a alternância for ativada, definir próxima alternância
+                configurarProximaAlternancia();
+                iniciarTimerUnificado();
+            } else {
+                // Se desativar, limpar dados de alternância
+                setLocalStorage('proxima_alternancia', null);
+                atualizarInterfaceContador();
+            }
+        });
+        
+        // Se for usuário 'test' e checkbox estiver marcado, iniciar timers automaticamente
+        if (usuarioAtual === 'test' && autoToggleEl.checked) {
+            // Acionar ação como se o usuário tivesse clicado
+            if (!getLocalStorage('proxima_alternancia', null)) {
+                configurarProximaAlternancia();
+            }
+        }
+    }
+    
+    // 2. Configurar próxima alternância (timestamp absoluto)
+    function configurarProximaAlternancia() {
+        // Calcular timestamp da próxima alternância (agora + 60 segundos)
+        const proximaAlternancia = Date.now() + (tempoAlternanciaAbas * 1000);
+        setLocalStorage('proxima_alternancia', proximaAlternancia);
+        console.log('Próxima alternância configurada para:', new Date(proximaAlternancia));
+    }
+    
+    // 3. Configurar próximo refresh (timestamp absoluto)
+    function configurarProximoRefresh() {
+        if (tabAtual === 'calendar') {
+            const proximoRefresh = Date.now() + (tempoRefreshCalendario * 1000);
+            setLocalStorage('proximo_refresh', proximoRefresh);
+            console.log('Próximo refresh configurado para:', new Date(proximoRefresh));
+        } else {
+            setLocalStorage('proximo_refresh', null);
+        }
+    }
+    
+    // 4. Iniciar timer unificado
+    let timerUnificadoInterval;
+    
+    function iniciarTimerUnificado() {
+        // Limpar intervalo existente
+        if (timerUnificadoInterval) {
+            clearInterval(timerUnificadoInterval);
         }
         
-        // Ajustar a velocidade da animação com base na quantidade de avisos
-        function adjustScrollSpeed() {
-            const noticesScroller = document.querySelector('.notices-scroller');
-            if (noticesScroller) {
-                const noticeItems = document.querySelectorAll('.notice-item');
-                if (noticeItems.length > 0) {
-                    // Calcular a altura total do conteúdo
-                    let totalHeight = 0;
-                    noticeItems.forEach(item => {
-                        totalHeight += item.offsetHeight;
-                    });
+        // Criar novo intervalo que verifica ambos os temporizadores
+        timerUnificadoInterval = setInterval(() => {
+            // Primeiro, verificar se é hora das reuniões (11:20 ou 12:00)
+            if (verificarHorarioReunioes()) {
+                // Se for hora de reunião, não executar o resto das verificações
+                return;
+            }
+            
+            const agora = Date.now();
+            
+            // Verificar alternância automática
+            if (autoAlternarAtivo) {
+                const proximaAlternancia = getLocalStorage('proxima_alternancia', null);
+                if (proximaAlternancia && agora >= proximaAlternancia) {
+                    // Limpar intervalo para evitar ações duplicadas
+                    clearInterval(timerUnificadoInterval);
                     
-                    // Ajustar a duração da animação baseado na quantidade de conteúdo
-                    // Metade dos avisos (porque repetimos para scroll contínuo)
-                    const uniqueNotices = Math.max(1, noticeItems.length / 2);
-                    const duration = Math.max(10, uniqueNotices * 5); // Mínimo 10s, 5s por aviso
+                    // Executar alternância
+                    if (tabAtual === 'dashboard') {
+                        window.location.href = addParamsToUrl({
+                            'tab': 'calendar',
+                            'reset_timers': 'true'
+                        });
+                    } else if (tabAtual === 'calendar') {
+                        window.location.href = addParamsToUrl({
+                            'tab': 'dashboard',
+                            'reset_timers': 'true'
+                        });
+                    } else {
+                        window.location.href = addParamsToUrl({
+                            'tab': 'dashboard',
+                            'reset_timers': 'true'
+                        });
+                    }
+                    return;
+                }
+            }
+            
+            // Verificar refresh do calendário
+            if (tabAtual === 'calendar') {
+                const proximoRefresh = getLocalStorage('proximo_refresh', null);
+                if (proximoRefresh && agora >= proximoRefresh) {
+                    // Configurar próximo refresh
+                    configurarProximoRefresh();
                     
-                    noticesScroller.style.animationDuration = duration + 's';
+                    // Recarregar apenas o conteúdo do calendário sem navegar
+                    // Isso é melhor que recarregar a página toda
+                    fetch(window.location.href)
+                        .then(response => response.text())
+                        .then(html => {
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(html, 'text/html');
+                            const newMainContent = doc.querySelector('main').innerHTML;
+                            document.querySelector('main').innerHTML = newMainContent;
+                            console.log('Conteúdo do calendário atualizado via AJAX');
+                        })
+                        .catch(error => {
+                            console.error('Erro ao atualizar calendário:', error);
+                            // Em caso de erro, recorrer ao método tradicional
+                            window.location.reload();
+                        });
+                }
+            }
+            
+            // Atualizar interface
+            atualizarInterfaceContador();
+        }, 1000);
+    }
+    
+    // 5. Atualizar interface com contadores
+    function atualizarInterfaceContador() {
+        const agora = Date.now();
+        let conteudoInfo = [];
+        
+        // Verificar alternância automática
+        if (autoAlternarAtivo) {
+            const proximaAlternancia = getLocalStorage('proxima_alternancia', null);
+            if (proximaAlternancia) {
+                const segundosRestantes = Math.max(0, Math.ceil((proximaAlternancia - agora) / 1000));
+                const textoAlternancia = tabAtual === 'dashboard' ? 'Mudando para Calendário' : 
+                    (tabAtual === 'calendar' ? 'Mudando para Dashboard' : '');
+                
+                if (textoAlternancia) {
+                    conteudoInfo.push(`${textoAlternancia} em <span class="countdown">${segundosRestantes}</span>s`);
                 }
             }
         }
         
-        // Executar quando a página estiver carregada
-        document.addEventListener('DOMContentLoaded', function() {
-            // Ajustar velocidade do scroll
-            adjustScrollSpeed();
+        // Verificar refresh do calendário
+        if (tabAtual === 'calendar') {
+            const proximoRefresh = getLocalStorage('proximo_refresh', null);
+            if (proximoRefresh) {
+                const segundosRestantes = Math.max(0, Math.ceil((proximoRefresh - agora) / 1000));
+                conteudoInfo.push(`Auto refresh em <span class="countdown">${segundosRestantes}</span>s`);
+            }
+        }
+        
+        // Adicionar informação sobre os horários de reunião
+        const horaAtual = new Date();
+        const hora = horaAtual.getHours();
+        const minutos = horaAtual.getMinutes();
+        
+        // Calcular tempo até próxima reunião (11:20 ou 12:00)
+        let segundosAteReuniaoEquipa = 0;
+        let segundosAteReuniaoCalendario = 0;
+        
+        // Calcular segundos até a hora da reunião (usando variáveis globais)
+        if (hora < horaReuniao || (hora === horaReuniao && minutos < minutosReuniao)) {
+            const horaReuniaoEquipa = new Date();
+            horaReuniaoEquipa.setHours(horaReuniao, minutosReuniao, 0, 0);
+            segundosAteReuniaoEquipa = Math.floor((horaReuniaoEquipa - horaAtual) / 1000);
             
-            // As seções de gerenciamento começam recolhidas por padrão
-            // Os valores já estão definidos como style="display: none;" no HTML
-        });
-    </script>
+            if (segundosAteReuniaoEquipa > 0 && segundosAteReuniaoEquipa < 300) { // Mostrar apenas se faltarem menos de 5 minutos
+                conteudoInfo.push(`Contagem para reunião em <span class="countdown">${Math.floor(segundosAteReuniaoEquipa / 60)}:${(segundosAteReuniaoEquipa % 60).toString().padStart(2, '0')}</span>`);
+            }
+        }
+        
+        // Calcular segundos até a hora de transição para calendário (usando variáveis globais)
+        if ((hora === horaReuniao && minutos >= minutosReuniao) || 
+            (hora > horaReuniao && hora < horaCalendario) || 
+            (hora === horaCalendario && minutos < minutosCalendario)) {
+            const horaReuniaoCalendario = new Date();
+            horaReuniaoCalendario.setHours(horaCalendario, minutosCalendario, 0, 0);
+            segundosAteReuniaoCalendario = Math.floor((horaReuniaoCalendario - horaAtual) / 1000);
+            
+            if (segundosAteReuniaoCalendario > 0 && segundosAteReuniaoCalendario < 300) { // Mostrar apenas se faltarem menos de 5 minutos
+                conteudoInfo.push(`Transição para Calendário em <span class="countdown">${Math.floor(segundosAteReuniaoCalendario / 60)}:${(segundosAteReuniaoCalendario % 60).toString().padStart(2, '0')}</span>`);
+            }
+        }
+        
+        // Atualizar elemento de informação
+        if (conteudoInfo.length > 0 && refreshInfoEl && refreshInfoContentEl) {
+            refreshInfoContentEl.innerHTML = conteudoInfo.join('<br>');
+            refreshInfoEl.style.display = 'block';
+        } else if (refreshInfoEl) {
+            refreshInfoEl.style.display = 'none';
+        }
+    }
+    
+    // ===== INICIALIZAÇÃO =====
+    // Se é uma nova visita ou reset explícito, configurar temporizadores
+    if (reiniciarTemporizadores || tabAtual !== getLocalStorage('ultima_tab', null)) {
+        console.log('Configurando novos temporizadores');
+        
+        // Salvar tab atual
+        setLocalStorage('ultima_tab', tabAtual);
+        
+        // Configurar temporizadores se necessário
+        if (autoAlternarAtivo) {
+            configurarProximaAlternancia();
+        }
+        
+        if (tabAtual === 'calendar') {
+            configurarProximoRefresh();
+        }
+    }
+    
+    // Iniciar timer unificado (sempre)
+    iniciarTimerUnificado();
+    
+    // Carregar áudio antecipadamente
+    if (alertSoundEl) {
+        alertSoundEl.load();
+    }
+});
+</script>
+
 </body>
 </html>
+<?php
+ob_end_flush(); // Libera o buffer
+?>

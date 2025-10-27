@@ -69,7 +69,7 @@ if ($todos_exists && $lead_tasks_check == 0) {
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 lead_id INT NOT NULL,
                 todo_id INT NOT NULL,
-                coluna ENUM('aberta', 'em_execucao', 'suspensa', 'concluida') DEFAULT 'aberta',
+                coluna ENUM('aberta', 'em execução', 'suspensa', 'concluída') DEFAULT 'aberta',
                 posicao INT DEFAULT 0,
                 adicionado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
@@ -90,6 +90,83 @@ $messageType = $_GET['type'] ?? 'success';
 // Verificar se módulo todos está disponível (APÓS tentativa de criação de lead_tasks)
 $todos_module_available = $pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 0;
 $lead_tasks_available = $pdo->query("SHOW TABLES LIKE 'lead_tasks'")->rowCount() > 0;
+
+// Função para detectar estrutura da coluna e converter valores
+function detectarEConverterColuna($pdo, $valor_novo) {
+    static $estrutura_cache = null;
+    static $mapa_conversao = null;
+    
+    // Cache da detecção
+    if ($estrutura_cache === null) {
+        try {
+            $result = $pdo->query("SHOW COLUMNS FROM lead_tasks LIKE 'coluna'")->fetch(PDO::FETCH_ASSOC);
+            if ($result) {
+                $type = $result['Type'];
+                // Verificar se ainda está com estrutura antiga (sem espaços/acentos)
+                if (strpos($type, 'todo') !== false || strpos($type, 'doing') !== false || strpos($type, 'em_execucao') !== false) {
+                    $estrutura_cache = 'antiga';
+                    $mapa_conversao = [
+                        'aberta' => 'todo',
+                        'em execução' => 'doing',
+                        'suspensa' => 'todo', // Mapear para 'todo' já que não existe na estrutura antiga
+                        'concluída' => 'done'
+                    ];
+                } else {
+                    $estrutura_cache = 'nova';
+                    $mapa_conversao = null; // Não precisa converter
+                }
+            }
+        } catch (PDOException $e) {
+            $estrutura_cache = 'nova'; // Assumir nova em caso de erro
+        }
+    }
+    
+    // Se for estrutura antiga, converter
+    if ($estrutura_cache === 'antiga' && isset($mapa_conversao[$valor_novo])) {
+        return $mapa_conversao[$valor_novo];
+    }
+    
+    // Caso contrário, retornar o valor original
+    return $valor_novo;
+}
+
+// Função reversa: converter valores do banco para valores do código
+function converterColunaReverso($pdo, $valor_banco) {
+    static $estrutura_cache = null;
+    static $mapa_reverso = null;
+    
+    // Cache da detecção
+    if ($estrutura_cache === null) {
+        try {
+            $result = $pdo->query("SHOW COLUMNS FROM lead_tasks LIKE 'coluna'")->fetch(PDO::FETCH_ASSOC);
+            if ($result) {
+                $type = $result['Type'];
+                // Verificar se ainda está com estrutura antiga (sem espaços/acentos)
+                if (strpos($type, 'todo') !== false || strpos($type, 'doing') !== false || strpos($type, 'em_execucao') !== false) {
+                    $estrutura_cache = 'antiga';
+                    $mapa_reverso = [
+                        'todo' => 'aberta',
+                        'doing' => 'em execução',
+                        'done' => 'concluída'
+                    ];
+                } else {
+                    $estrutura_cache = 'nova';
+                    $mapa_reverso = null; // Não precisa converter
+                }
+            }
+        } catch (PDOException $e) {
+            $estrutura_cache = 'nova';
+        }
+    }
+    
+    // Se for estrutura antiga, converter de volta
+    if ($estrutura_cache === 'antiga' && isset($mapa_reverso[$valor_banco])) {
+        return $mapa_reverso[$valor_banco];
+    }
+    
+    // Caso contrário, retornar o valor original
+    return $valor_banco;
+}
 
 // Processar ações
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -184,21 +261,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $todo_id = $pdo->lastInsertId();
                 
                 // Associar task ao lead
+                $coluna_valor = detectarEConverterColuna($pdo, $_POST['kanban_coluna']);
                 $stmt = $pdo->prepare("INSERT INTO lead_tasks (lead_id, todo_id, coluna) VALUES (?, ?, ?)");
-                $stmt->execute([$_POST['lead_id'], $todo_id, $_POST['kanban_coluna']]);
+                $stmt->execute([$_POST['lead_id'], $todo_id, $coluna_valor]);
                 $message = "Task adicionada ao Kanban!";
                 break;
             
             case 'associate_existing_task':
                 // Associar task existente ao lead
+                $coluna_valor = detectarEConverterColuna($pdo, $_POST['kanban_coluna']);
                 $stmt = $pdo->prepare("INSERT IGNORE INTO lead_tasks (lead_id, todo_id, coluna) VALUES (?, ?, ?)");
-                $stmt->execute([$_POST['lead_id'], $_POST['todo_id'], $_POST['kanban_coluna']]);
+                $stmt->execute([$_POST['lead_id'], $_POST['todo_id'], $coluna_valor]);
                 $message = "Task associada ao Lead!";
                 break;
                 
             case 'update_kanban_item':
+                $coluna_valor = detectarEConverterColuna($pdo, $_POST['kanban_coluna']);
                 $stmt = $pdo->prepare("UPDATE lead_tasks SET coluna=? WHERE id=?");
-                $stmt->execute([$_POST['kanban_coluna'], $_POST['kanban_id']]);
+                $stmt->execute([$coluna_valor, $_POST['kanban_id']]);
                 $message = "Task movida!";
                 break;
                 
@@ -318,6 +398,12 @@ if ($selected_lead_id) {
                 ");
                 $stmt->execute([$selected_lead_id]);
                 $lead_kanban = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                
+                // Converter valores de coluna para o formato esperado pelo código
+                foreach ($lead_kanban as &$item) {
+                    $item['coluna'] = converterColunaReverso($pdo, $item['coluna']);
+                }
+                unset($item); // Limpar referência
             } catch (PDOException $e) {
                 // Se houver erro, deixa array vazio
                 $lead_kanban = [];
@@ -734,9 +820,9 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                             <?php
                             $colunas = [
                                 'aberta' => ['nome' => 'Aberta', 'icon' => 'bi-circle'],
-                                'em_execucao' => ['nome' => 'Em Execução', 'icon' => 'bi-arrow-clockwise'],
+                                'em execução' => ['nome' => 'Em Execução', 'icon' => 'bi-arrow-clockwise'],
                                 'suspensa' => ['nome' => 'Suspensa', 'icon' => 'bi-pause-circle'],
-                                'concluida' => ['nome' => 'Concluída', 'icon' => 'bi-check-circle-fill']
+                                'concluída' => ['nome' => 'Concluída', 'icon' => 'bi-check-circle-fill']
                             ];
                             
                             foreach ($colunas as $coluna_id => $coluna_info):
@@ -1038,7 +1124,7 @@ if ($selected_lead && $pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 0) {
 }
 
 if ($selected_lead):
-foreach (['aberta', 'em_execucao', 'suspensa', 'concluida'] as $col): 
+foreach (['aberta', 'em execução', 'suspensa', 'concluída'] as $col): 
 ?>
 <div class="modal fade" id="addKanbanModal<?= $col ?>" tabindex="-1">
     <div class="modal-dialog">

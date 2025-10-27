@@ -318,6 +318,111 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
                 
+            case 'generate_sprint_tasks':
+                // Gerar automaticamente as tarefas padrão de uma sprint
+                if ($checkTodos) {
+                    try {
+                        $sprint_id = (int)$_POST['sprint_id'];
+                        $current_user_id = $_SESSION['user_id'] ?? null;
+                        
+                        if (!$current_user_id) {
+                            throw new Exception('Sessão expirada. Por favor, faça login novamente.');
+                        }
+                        
+                        // Definir as tarefas padrão da sprint
+                        $default_tasks = [
+                            [
+                                'titulo' => '🏁 Sprint Planning',
+                                'descritivo' => "Objetivo: Definir o que será feito e como.\n\nChecklist:\n• Definir o objetivo da sprint (Sprint Goal).\n• Selecionar as user stories ou tarefas a realizar (a partir do backlog).\n• Estimar o esforço e distribuir responsabilidades pela equipa.\n• Identificar dependências, riscos e recursos necessários.",
+                                'estado' => 'aberta'
+                            ],
+                            [
+                                'titulo' => '🔧 Desenvolvimento (Execução da Sprint)',
+                                'descritivo' => "Objetivo: Executar as tarefas planeadas e gerar um incremento funcional.\n\nChecklist:\n• Implementar as funcionalidades definidas.\n• Garantir integração entre módulos (hardware, software, documentação, etc.).\n• Atualizar o progresso nas ferramentas de gestão (Kanban, Scrum board, etc.).\n• Coordenar entre áreas (desenvolvimento, teste, design, hardware, etc.).",
+                                'estado' => 'aberta'
+                            ],
+                            [
+                                'titulo' => '🕒 Daily Stand-up',
+                                'descritivo' => "Objetivo: Sincronizar a equipa e remover bloqueios.\n\nChecklist:\n• Cada membro partilha:\n   - O que fez desde a última reunião.\n   - O que planeia fazer até à próxima.\n   - Que obstáculos encontrou.\n• Identificar dependências críticas.\n• Atualizar prioridades, se necessário.",
+                                'estado' => 'aberta'
+                            ],
+                            [
+                                'titulo' => '🧪 Testes e Validação',
+                                'descritivo' => "Objetivo: Garantir qualidade e cumprimento dos critérios de aceitação.\n\nChecklist:\n• Realizar testes unitários, de integração e funcionais.\n• Validar requisitos e critérios de aceitação.\n• Corrigir erros e ajustar parâmetros.\n• Documentar resultados e melhorias.",
+                                'estado' => 'aberta'
+                            ],
+                            [
+                                'titulo' => '📢 Sprint Review',
+                                'descritivo' => "Objetivo: Demonstrar resultados e recolher feedback.\n\nChecklist:\n• Preparar demonstração do incremento (protótipo, software, relatório, etc.).\n• Apresentar o que foi alcançado face ao planeado.\n• Recolher feedback dos stakeholders.\n• Discutir potenciais melhorias e ajustamentos futuros.",
+                                'estado' => 'aberta'
+                            ],
+                            [
+                                'titulo' => '🔍 Sprint Retrospective',
+                                'descritivo' => "Objetivo: Melhorar continuamente a forma de trabalhar.\n\nChecklist:\n• Refletir sobre o que correu bem.\n• Identificar o que pode ser melhorado.\n• Propor ações concretas de melhoria.\n• Registar compromissos para a próxima sprint.",
+                                'estado' => 'aberta'
+                            ]
+                        ];
+                        
+                        $tasks_created = 0;
+                        $tasks_skipped = 0;
+                        
+                        foreach ($default_tasks as $task) {
+                            // Verificar se já existe uma task com o mesmo título nesta sprint
+                            $check_stmt = $pdo->prepare("
+                                SELECT COUNT(*) as count 
+                                FROM todos t 
+                                INNER JOIN sprint_tasks st ON t.id = st.todo_id 
+                                WHERE st.sprint_id = ? AND t.titulo = ?
+                            ");
+                            $check_stmt->execute([$sprint_id, $task['titulo']]);
+                            $exists = $check_stmt->fetchColumn();
+                            
+                            if ($exists > 0) {
+                                $tasks_skipped++;
+                                continue;
+                            }
+                            
+                            // Criar a task
+                            $stmt = $pdo->prepare("
+                                INSERT INTO todos (titulo, descritivo, estado, autor)
+                                VALUES (?, ?, ?, ?)
+                            ");
+                            $stmt->execute([
+                                $task['titulo'],
+                                $task['descritivo'],
+                                $task['estado'],
+                                $current_user_id
+                            ]);
+                            
+                            $todo_id = $pdo->lastInsertId();
+                            
+                            // Associar à sprint
+                            $stmt = $pdo->prepare("INSERT INTO sprint_tasks (sprint_id, todo_id) VALUES (?, ?)");
+                            $stmt->execute([$sprint_id, $todo_id]);
+                            
+                            $tasks_created++;
+                        }
+                        
+                        if ($tasks_created > 0 && $tasks_skipped > 0) {
+                            $message = "$tasks_created tarefas criadas com sucesso! ($tasks_skipped já existiam)";
+                        } elseif ($tasks_created > 0) {
+                            $message = "$tasks_created tarefas padrão criadas e associadas à sprint com sucesso!";
+                        } else {
+                            $message = "Todas as tarefas padrão já existem nesta sprint.";
+                            $messageType = 'info';
+                        }
+                        
+                    } catch (Exception $e) {
+                        $message = "Erro ao gerar tarefas: " . $e->getMessage();
+                        $messageType = 'danger';
+                        error_log("Error in generate_sprint_tasks: " . $e->getMessage());
+                    }
+                } else {
+                    $message = "Módulo de ToDos não está instalado!";
+                    $messageType = 'warning';
+                }
+                break;
+                
             case 'remove_task':
                 if ($checkTodos) {
                     $stmt = $pdo->prepare("DELETE FROM sprint_tasks WHERE sprint_id=? AND todo_id=?");
@@ -1334,6 +1439,9 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                     <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#addTaskModal">
                         <i class="bi bi-link-45deg"></i> Associar Task
                     </button>
+                    <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#generateTasksModal">
+                        <i class="bi bi-magic"></i> Gerar Tarefas Padrão
+                    </button>
                     <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createTaskModal">
                         <i class="bi bi-plus-lg"></i> Nova Task
                     </button>
@@ -1739,6 +1847,67 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-success">Associar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Gerar Tarefas Padrão -->
+<div class="modal fade" id="generateTasksModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title"><i class="bi bi-magic"></i> Gerar Tarefas Padrão da Sprint</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" onsubmit="return confirm('Tem certeza que deseja gerar as tarefas padrão? Tarefas duplicadas serão ignoradas.');">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="generate_sprint_tasks">
+                    <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
+                    
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> 
+                        <strong>Serão criadas 6 tarefas padrão de gestão de sprint:</strong>
+                    </div>
+                    
+                    <div class="list-group">
+                        <div class="list-group-item">
+                            <h6 class="mb-1">🏁 Sprint Planning</h6>
+                            <p class="mb-0 text-muted small">Definir o que será feito e como</p>
+                        </div>
+                        <div class="list-group-item">
+                            <h6 class="mb-1">🔧 Desenvolvimento (Execução da Sprint)</h6>
+                            <p class="mb-0 text-muted small">Executar as tarefas planeadas</p>
+                        </div>
+                        <div class="list-group-item">
+                            <h6 class="mb-1">🕒 Daily Stand-up</h6>
+                            <p class="mb-0 text-muted small">Sincronizar a equipa diariamente</p>
+                        </div>
+                        <div class="list-group-item">
+                            <h6 class="mb-1">🧪 Testes e Validação</h6>
+                            <p class="mb-0 text-muted small">Garantir qualidade e critérios de aceitação</p>
+                        </div>
+                        <div class="list-group-item">
+                            <h6 class="mb-1">📢 Sprint Review</h6>
+                            <p class="mb-0 text-muted small">Demonstrar resultados e recolher feedback</p>
+                        </div>
+                        <div class="list-group-item">
+                            <h6 class="mb-1">🔍 Sprint Retrospective</h6>
+                            <p class="mb-0 text-muted small">Melhorar continuamente a forma de trabalhar</p>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-warning mt-3 mb-0">
+                        <i class="bi bi-exclamation-triangle"></i> 
+                        <strong>Nota:</strong> Tarefas que já existem com o mesmo título não serão duplicadas.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-info">
+                        <i class="bi bi-magic"></i> Gerar Tarefas
+                    </button>
                 </div>
             </form>
         </div>

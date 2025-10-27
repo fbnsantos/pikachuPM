@@ -1123,14 +1123,14 @@ if (isset($_GET['project_id'])) {
                 <!-- Entregáveis -->
                 <div class="detail-section">
                     <div class="section-title">
-                        <span><i class="bi bi-check2-square"></i> Entregáveis</span>
+                        <span><i class="bi bi-check2-square"></i> Entregáveis/PPS/KPIs</span>
                         <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addDeliverableModal">
                             <i class="bi bi-plus-lg"></i> Adicionar
                         </button>
                     </div>
                     
                     <?php if (empty($selectedProject['deliverables'])): ?>
-                        <p class="text-muted">Nenhum entregável definido</p>
+                        <p class="text-muted">Nenhum entregável/PPS/KPIs definido</p>
                     <?php else: ?>
                         <?php foreach ($selectedProject['deliverables'] as $deliv): ?>
                             <div class="deliverable-item <?= $deliv['status'] ?>">

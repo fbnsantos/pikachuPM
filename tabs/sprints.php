@@ -139,6 +139,25 @@ if ($checkTodos) {
     } catch (PDOException $e) {
         // Tabela já existe
     }
+    
+    // Criar tabela task_checklist para os itens de checklist
+    try {
+        $pdo->exec("
+        CREATE TABLE IF NOT EXISTS task_checklist (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            todo_id INT NOT NULL,
+            item_text TEXT NOT NULL,
+            is_checked TINYINT(1) DEFAULT 0,
+            position INT DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE,
+            INDEX idx_todo (todo_id),
+            INDEX idx_position (position)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+    } catch (PDOException $e) {
+        // Tabela já existe ou erro não crítico
+    }
 }
 
 // Processar ações
@@ -329,37 +348,74 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             throw new Exception('Sessão expirada. Por favor, faça login novamente.');
                         }
                         
-                        // Definir as tarefas padrão da sprint
+                        // Definir as tarefas padrão da sprint com seus checklists
                         $default_tasks = [
                             [
                                 'titulo' => '🏁 Sprint Planning',
-                                'descritivo' => "Objetivo: Definir o que será feito e como.\n\nChecklist:\n• Definir o objetivo da sprint (Sprint Goal).\n• Selecionar as user stories ou tarefas a realizar (a partir do backlog).\n• Estimar o esforço e distribuir responsabilidades pela equipa.\n• Identificar dependências, riscos e recursos necessários.",
-                                'estado' => 'aberta'
+                                'descritivo' => "Objetivo: Definir o que será feito e como.",
+                                'estado' => 'aberta',
+                                'checklist' => [
+                                    'Definir o objetivo da sprint (Sprint Goal)',
+                                    'Selecionar as user stories ou tarefas a realizar (a partir do backlog)',
+                                    'Estimar o esforço e distribuir responsabilidades pela equipa',
+                                    'Identificar dependências, riscos e recursos necessários'
+                                ]
                             ],
                             [
                                 'titulo' => '🔧 Desenvolvimento (Execução da Sprint)',
-                                'descritivo' => "Objetivo: Executar as tarefas planeadas e gerar um incremento funcional.\n\nChecklist:\n• Implementar as funcionalidades definidas.\n• Garantir integração entre módulos (hardware, software, documentação, etc.).\n• Atualizar o progresso nas ferramentas de gestão (Kanban, Scrum board, etc.).\n• Coordenar entre áreas (desenvolvimento, teste, design, hardware, etc.).",
-                                'estado' => 'aberta'
+                                'descritivo' => "Objetivo: Executar as tarefas planeadas e gerar um incremento funcional.",
+                                'estado' => 'aberta',
+                                'checklist' => [
+                                    'Implementar as funcionalidades definidas',
+                                    'Garantir integração entre módulos (hardware, software, documentação, etc.)',
+                                    'Atualizar o progresso nas ferramentas de gestão (Kanban, Scrum board, etc.)',
+                                    'Coordenar entre áreas (desenvolvimento, teste, design, hardware, etc.)'
+                                ]
                             ],
                             [
                                 'titulo' => '🕒 Daily Stand-up',
-                                'descritivo' => "Objetivo: Sincronizar a equipa e remover bloqueios.\n\nChecklist:\n• Cada membro partilha:\n   - O que fez desde a última reunião.\n   - O que planeia fazer até à próxima.\n   - Que obstáculos encontrou.\n• Identificar dependências críticas.\n• Atualizar prioridades, se necessário.",
-                                'estado' => 'aberta'
+                                'descritivo' => "Objetivo: Sincronizar a equipa e remover bloqueios.",
+                                'estado' => 'aberta',
+                                'checklist' => [
+                                    'Cada membro partilha: O que fez desde a última reunião',
+                                    'Cada membro partilha: O que planeia fazer até à próxima',
+                                    'Cada membro partilha: Que obstáculos encontrou',
+                                    'Identificar dependências críticas',
+                                    'Atualizar prioridades, se necessário'
+                                ]
                             ],
                             [
                                 'titulo' => '🧪 Testes e Validação',
-                                'descritivo' => "Objetivo: Garantir qualidade e cumprimento dos critérios de aceitação.\n\nChecklist:\n• Realizar testes unitários, de integração e funcionais.\n• Validar requisitos e critérios de aceitação.\n• Corrigir erros e ajustar parâmetros.\n• Documentar resultados e melhorias.",
-                                'estado' => 'aberta'
+                                'descritivo' => "Objetivo: Garantir qualidade e cumprimento dos critérios de aceitação.",
+                                'estado' => 'aberta',
+                                'checklist' => [
+                                    'Realizar testes unitários, de integração e funcionais',
+                                    'Validar requisitos e critérios de aceitação',
+                                    'Corrigir erros e ajustar parâmetros',
+                                    'Documentar resultados e melhorias'
+                                ]
                             ],
                             [
                                 'titulo' => '📢 Sprint Review',
-                                'descritivo' => "Objetivo: Demonstrar resultados e recolher feedback.\n\nChecklist:\n• Preparar demonstração do incremento (protótipo, software, relatório, etc.).\n• Apresentar o que foi alcançado face ao planeado.\n• Recolher feedback dos stakeholders.\n• Discutir potenciais melhorias e ajustamentos futuros.",
-                                'estado' => 'aberta'
+                                'descritivo' => "Objetivo: Demonstrar resultados e recolher feedback.",
+                                'estado' => 'aberta',
+                                'checklist' => [
+                                    'Preparar demonstração do incremento (protótipo, software, relatório, etc.)',
+                                    'Apresentar o que foi alcançado face ao planeado',
+                                    'Recolher feedback dos stakeholders',
+                                    'Discutir potenciais melhorias e ajustamentos futuros'
+                                ]
                             ],
                             [
                                 'titulo' => '🔍 Sprint Retrospective',
-                                'descritivo' => "Objetivo: Melhorar continuamente a forma de trabalhar.\n\nChecklist:\n• Refletir sobre o que correu bem.\n• Identificar o que pode ser melhorado.\n• Propor ações concretas de melhoria.\n• Registar compromissos para a próxima sprint.",
-                                'estado' => 'aberta'
+                                'descritivo' => "Objetivo: Melhorar continuamente a forma de trabalhar.",
+                                'estado' => 'aberta',
+                                'checklist' => [
+                                    'Refletir sobre o que correu bem',
+                                    'Identificar o que pode ser melhorado',
+                                    'Propor ações concretas de melhoria',
+                                    'Registar compromissos para a próxima sprint'
+                                ]
                             ]
                         ];
                         
@@ -395,6 +451,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             ]);
                             
                             $todo_id = $pdo->lastInsertId();
+                            
+                            // Inserir itens do checklist se existirem
+                            if (isset($task['checklist']) && is_array($task['checklist'])) {
+                                $checklist_stmt = $pdo->prepare("
+                                    INSERT INTO task_checklist (todo_id, item_text, is_checked, position) 
+                                    VALUES (?, ?, 0, ?)
+                                ");
+                                foreach ($task['checklist'] as $position => $item_text) {
+                                    $checklist_stmt->execute([$todo_id, $item_text, $position]);
+                                }
+                            }
                             
                             // Associar à sprint
                             $stmt = $pdo->prepare("INSERT INTO sprint_tasks (sprint_id, todo_id) VALUES (?, ?)");

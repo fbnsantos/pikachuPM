@@ -268,6 +268,24 @@ CREATE TABLE IF NOT EXISTS project_prototypes (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 ");
 
+// Tabela para associar sprints aos entregáveis
+try {
+    $pdo->exec("
+    CREATE TABLE IF NOT EXISTS deliverable_sprints (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        deliverable_id INT NOT NULL,
+        sprint_id INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (deliverable_id) REFERENCES project_deliverables(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_deliverable_sprint (deliverable_id, sprint_id),
+        INDEX idx_deliverable (deliverable_id),
+        INDEX idx_sprint (sprint_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+} catch (PDOException $e) {
+    // Tabela já existe ou erro não crítico
+}
+
 // Processar ações
 $message = '';
 $messageType = 'info';
@@ -479,6 +497,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message = "Protótipo desassociado!";
                 $messageType = 'success';
                 break;
+                
+            case 'create_sprint_for_deliverable':
+                // Criar sprint e associar ao entregável
+                $stmt = $pdo->prepare("INSERT INTO sprints (nome, descricao, data_inicio, data_fim, estado, responsavel_id) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt->execute([
+                    $_POST['nome'],
+                    $_POST['descricao'] ?? '',
+                    $_POST['data_inicio'] ?: null,
+                    $_POST['data_fim'] ?: null,
+                    $_POST['estado'] ?? 'aberta',
+                    $_POST['responsavel_id'] ?: null
+                ]);
+                $sprint_id = $pdo->lastInsertId();
+                
+                // Associar sprint ao entregável
+                $stmt = $pdo->prepare("INSERT IGNORE INTO deliverable_sprints (deliverable_id, sprint_id) VALUES (?, ?)");
+                $stmt->execute([$_POST['deliverable_id'], $sprint_id]);
+                
+                $message = "Sprint criada e associada ao entregável com sucesso!";
+                $messageType = 'success';
+                break;
+                
+            case 'associate_sprint_to_deliverable':
+                // Associar sprint existente ao entregável
+                $stmt = $pdo->prepare("INSERT IGNORE INTO deliverable_sprints (deliverable_id, sprint_id) VALUES (?, ?)");
+                $stmt->execute([$_POST['deliverable_id'], $_POST['sprint_id']]);
+                $message = "Sprint associada ao entregável!";
+                $messageType = 'success';
+                break;
+                
+            case 'remove_sprint_from_deliverable':
+                // Desassociar sprint do entregável
+                $stmt = $pdo->prepare("DELETE FROM deliverable_sprints WHERE id=?");
+                $stmt->execute([$_POST['link_id']]);
+                $message = "Sprint desassociada do entregável!";
+                $messageType = 'success';
+                break;
         }
     } catch (PDOException $e) {
         $message = "Erro: " . $e->getMessage();
@@ -529,6 +584,13 @@ $projects = $pdo->query("SELECT p.*, u.username as owner_name FROM projects p LE
 
 // Obter usuários disponíveis
 $users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
+
+// Obter sprints disponíveis
+$checkSprints = $pdo->query("SHOW TABLES LIKE 'sprints'")->fetch();
+$allSprints = [];
+if ($checkSprints) {
+    $allSprints = $pdo->query("SELECT id, nome, descricao, estado, data_inicio, data_fim FROM sprints ORDER BY data_inicio DESC, created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // Obter protótipos disponíveis
 $checkPrototypes = $pdo->query("SHOW TABLES LIKE 'prototypes'")->fetch();
@@ -594,6 +656,21 @@ if (isset($_GET['project_id'])) {
                 ");
                 $stmt->execute([$deliv['id']]);
                 $deliv['tasks'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                
+                // Obter sprints associadas ao entregável
+                try {
+                    $stmt = $pdo->prepare("
+                        SELECT ds.id as link_id, s.id, s.nome, s.descricao, s.estado, s.data_inicio, s.data_fim
+                        FROM deliverable_sprints ds 
+                        JOIN sprints s ON ds.sprint_id = s.id 
+                        WHERE ds.deliverable_id = ?
+                        ORDER BY s.data_inicio DESC, s.created_at DESC
+                    ");
+                    $stmt->execute([$deliv['id']]);
+                    $deliv['sprints'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                } catch (PDOException $e) {
+                    $deliv['sprints'] = [];
+                }
             }
         }
         
@@ -1066,9 +1143,17 @@ if (isset($_GET['project_id'])) {
                                         <button class="btn btn-sm btn-outline-primary" onclick="editDeliverable(<?= htmlspecialchars(json_encode($deliv)) ?>)">
                                             <i class="bi bi-pencil"></i>
                                         </button>
-                                        <button class="btn btn-sm btn-outline-success" onclick="manageDeliverableTasks(<?= $deliv['id'] ?>, '<?= htmlspecialchars($deliv['title']) ?>')">
-                                            <i class="bi bi-list-task"></i> Tasks
+                                        <?php if ($checkSprints): ?>
+                                        <button class="btn btn-sm btn-outline-success" onclick="createSprintForDeliverable(<?= $deliv['id'] ?>, '<?= htmlspecialchars($deliv['title']) ?>')">
+                                            <i class="bi bi-plus-circle"></i> Nova Sprint
                                         </button>
+                                        <button class="btn btn-sm btn-outline-info" onclick="associateSprintToDeliverable(<?= $deliv['id'] ?>, '<?= htmlspecialchars($deliv['title']) ?>')">
+                                            <i class="bi bi-link-45deg"></i> Associar Sprint
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-primary" onclick="listDeliverablelSprints(<?= $deliv['id'] ?>, '<?= htmlspecialchars($deliv['title']) ?>')">
+                                            <i class="bi bi-list-ul"></i> Listar Sprints
+                                        </button>
+                                        <?php endif; ?>
                                         <form method="post" style="display:inline;">
                                             <input type="hidden" name="action" value="delete_deliverable">
                                             <input type="hidden" name="deliverable_id" value="<?= $deliv['id'] ?>">
@@ -1468,6 +1553,216 @@ if (isset($_GET['project_id'])) {
     </div>
 </div>
 
+<!-- Modal: Criar Nova Sprint para Entregável -->
+<?php if ($checkSprints): ?>
+<div class="modal fade" id="createSprintModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-plus-circle"></i> Criar Nova Sprint para: 
+                    <span id="create_sprint_modal_title"></span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="create_sprint_for_deliverable">
+                    <input type="hidden" name="deliverable_id" id="create_sprint_deliverable_id">
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Nome da Sprint *</label>
+                        <input type="text" name="nome" class="form-control" required placeholder="Ex: Sprint 1 - MVP">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Descrição</label>
+                        <textarea name="descricao" class="form-control" rows="3" placeholder="Objetivo e escopo da sprint..."></textarea>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Data Início</label>
+                                <input type="date" name="data_inicio" class="form-control">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Data Fim</label>
+                                <input type="date" name="data_fim" class="form-control">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Estado</label>
+                                <select name="estado" class="form-select">
+                                    <option value="aberta">Aberta</option>
+                                    <option value="pausa">Em Pausa</option>
+                                    <option value="fechada">Fechada</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Responsável</label>
+                                <select name="responsavel_id" class="form-select">
+                                    <option value="">Nenhum</option>
+                                    <?php foreach ($users as $user): ?>
+                                        <option value="<?= $user['user_id'] ?>"><?= htmlspecialchars($user['username']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-plus-circle"></i> Criar e Associar Sprint
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Associar Sprint Existente -->
+<div class="modal fade" id="associateSprintModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-link-45deg"></i> Associar Sprint a: 
+                    <span id="associate_sprint_modal_title"></span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="associate_sprint_to_deliverable">
+                    <input type="hidden" name="deliverable_id" id="associate_sprint_deliverable_id">
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Sprint *</label>
+                        <select name="sprint_id" class="form-select" required size="8">
+                            <option value="">Selecione uma sprint...</option>
+                            <?php foreach ($allSprints as $sprint): ?>
+                                <option value="<?= $sprint['id'] ?>">
+                                    <?= htmlspecialchars($sprint['nome']) ?> 
+                                    [<?= ucfirst($sprint['estado']) ?>]
+                                    <?php if ($sprint['data_inicio']): ?>
+                                        - <?= date('d/m/Y', strtotime($sprint['data_inicio'])) ?>
+                                    <?php endif; ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">
+                            <?= count($allSprints) ?> sprints disponíveis
+                        </small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-info">
+                        <i class="bi bi-link-45deg"></i> Associar Sprint
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Listar Sprints do Entregável -->
+<div class="modal fade" id="listSprintsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-list-ul"></i> Sprints de: 
+                    <span id="list_sprint_modal_title"></span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <?php if ($selectedProject): ?>
+                    <?php foreach ($selectedProject['deliverables'] as $deliv): ?>
+                        <?php if (!empty($deliv['sprints'])): ?>
+                            <div class="deliverable-sprints-section" data-deliverable-id="<?= $deliv['id'] ?>">
+                                <h6 class="text-muted mb-3"><?= htmlspecialchars($deliv['title']) ?></h6>
+                                <div class="list-group mb-3">
+                                    <?php foreach ($deliv['sprints'] as $sprint): ?>
+                                        <div class="list-group-item">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <div class="flex-grow-1">
+                                                    <h6 class="mb-1">
+                                                        <a href="?tab=sprints&sprint_id=<?= $sprint['id'] ?>" class="text-decoration-none" target="_blank">
+                                                            <?= htmlspecialchars($sprint['nome']) ?>
+                                                            <i class="bi bi-box-arrow-up-right small"></i>
+                                                        </a>
+                                                    </h6>
+                                                    <?php if ($sprint['descricao']): ?>
+                                                        <p class="mb-1 small text-muted"><?= htmlspecialchars($sprint['descricao']) ?></p>
+                                                    <?php endif; ?>
+                                                    <div class="small text-muted">
+                                                        <span class="badge bg-<?= $sprint['estado'] == 'aberta' ? 'success' : ($sprint['estado'] == 'pausa' ? 'warning' : 'secondary') ?>">
+                                                            <?= ucfirst($sprint['estado']) ?>
+                                                        </span>
+                                                        <?php if ($sprint['data_inicio'] && $sprint['data_fim']): ?>
+                                                            | <i class="bi bi-calendar-range"></i> 
+                                                            <?= date('d/m/Y', strtotime($sprint['data_inicio'])) ?> - 
+                                                            <?= date('d/m/Y', strtotime($sprint['data_fim'])) ?>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <a href="?tab=sprints&sprint_id=<?= $sprint['id'] ?>" class="btn btn-sm btn-outline-primary" target="_blank">
+                                                        <i class="bi bi-arrow-right-circle"></i> Abrir
+                                                    </a>
+                                                    <form method="post" style="display:inline;">
+                                                        <input type="hidden" name="action" value="remove_sprint_from_deliverable">
+                                                        <input type="hidden" name="link_id" value="<?= $sprint['link_id'] ?>">
+                                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Desassociar esta sprint?')">
+                                                            <i class="bi bi-x-lg"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                    
+                    <?php
+                    $hasSprints = false;
+                    foreach ($selectedProject['deliverables'] as $deliv) {
+                        if (!empty($deliv['sprints'])) {
+                            $hasSprints = true;
+                            break;
+                        }
+                    }
+                    if (!$hasSprints):
+                    ?>
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i> 
+                            Nenhuma sprint associada a este entregável ainda.
+                        </div>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <?php if ($checkPrototypes): ?>
 <!-- Modal: Associar Protótipo -->
 <div class="modal fade" id="addPrototypeModal" tabindex="-1">
@@ -1520,6 +1815,35 @@ function editDeliverable(deliverable) {
     
     var modal = new bootstrap.Modal(document.getElementById('editDeliverableModal'));
     modal.show();
+}
+
+function createSprintForDeliverable(deliverableId, deliverableTitle) {
+    document.getElementById('create_sprint_deliverable_id').value = deliverableId;
+    document.getElementById('create_sprint_modal_title').textContent = deliverableTitle;
+    var modal = new bootstrap.Modal(document.getElementById('createSprintModal'));
+    modal.show();
+}
+
+function associateSprintToDeliverable(deliverableId, deliverableTitle) {
+    document.getElementById('associate_sprint_deliverable_id').value = deliverableId;
+    document.getElementById('associate_sprint_modal_title').textContent = deliverableTitle;
+    var modal = new bootstrap.Modal(document.getElementById('associateSprintModal'));
+    modal.show();
+}
+
+function listDeliverablelSprints(deliverableId, deliverableTitle) {
+    document.getElementById('list_sprint_modal_title').textContent = deliverableTitle;
+    // Carregar sprints via AJAX ou usar dados PHP
+    var modal = new bootstrap.Modal(document.getElementById('listSprintsModal'));
+    modal.show();
+    
+    // Atualizar conteúdo das sprints
+    loadSprintsForDeliverable(deliverableId);
+}
+
+function loadSprintsForDeliverable(deliverableId) {
+    // Aqui carregaríamos via AJAX, mas por agora vamos usar reload
+    // A lista já está carregada no PHP
 }
 
 function manageDeliverableTasks(deliverableId, deliverableTitle) {

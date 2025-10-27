@@ -92,6 +92,8 @@ $todos_module_available = $pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 
 $lead_tasks_available = $pdo->query("SHOW TABLES LIKE 'lead_tasks'")->rowCount() > 0;
 
 // Função para detectar estrutura da coluna e converter valores
+// NOTA: Esta função não é mais usada para o Kanban, que agora usa diretamente o estado da tabela todos
+// Mantida para compatibilidade com histórico de código
 function detectarEConverterColuna($pdo, $valor_novo) {
     static $estrutura_cache = null;
     static $mapa_conversao = null;
@@ -249,37 +251,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 
                 // Criar nova task na tabela todos
+                // Estado inicial baseado na coluna onde está sendo adicionada
+                $estado_inicial = $_POST['kanban_coluna'];
                 $stmt = $pdo->prepare("
                     INSERT INTO todos (titulo, descritivo, estado, autor, projeto_id)
-                    VALUES (?, ?, 'aberta', ?, NULL)
+                    VALUES (?, ?, ?, ?, NULL)
                 ");
                 $stmt->execute([
                     $_POST['kanban_titulo'],
                     'Task criada para lead: ' . $_POST['lead_id'],
+                    $estado_inicial,
                     $current_user_id
                 ]);
                 $todo_id = $pdo->lastInsertId();
                 
-                // Associar task ao lead
-                $coluna_valor = detectarEConverterColuna($pdo, $_POST['kanban_coluna']);
+                // Associar task ao lead (coluna não é mais usada, mas mantida por compatibilidade)
                 $stmt = $pdo->prepare("INSERT INTO lead_tasks (lead_id, todo_id, coluna) VALUES (?, ?, ?)");
-                $stmt->execute([$_POST['lead_id'], $todo_id, $coluna_valor]);
+                $stmt->execute([$_POST['lead_id'], $todo_id, $estado_inicial]);
                 $message = "Task adicionada ao Kanban!";
                 break;
             
             case 'associate_existing_task':
-                // Associar task existente ao lead
-                $coluna_valor = detectarEConverterColuna($pdo, $_POST['kanban_coluna']);
-                $stmt = $pdo->prepare("INSERT IGNORE INTO lead_tasks (lead_id, todo_id, coluna) VALUES (?, ?, ?)");
-                $stmt->execute([$_POST['lead_id'], $_POST['todo_id'], $coluna_valor]);
+                // Associar task existente ao lead (coluna não é mais relevante, pois usa o estado do todo)
+                $stmt = $pdo->prepare("INSERT IGNORE INTO lead_tasks (lead_id, todo_id, coluna) VALUES (?, ?, 'aberta')");
+                $stmt->execute([$_POST['lead_id'], $_POST['todo_id']]);
                 $message = "Task associada ao Lead!";
                 break;
                 
             case 'update_kanban_item':
-                $coluna_valor = detectarEConverterColuna($pdo, $_POST['kanban_coluna']);
-                $stmt = $pdo->prepare("UPDATE lead_tasks SET coluna=? WHERE id=?");
-                $stmt->execute([$coluna_valor, $_POST['kanban_id']]);
-                $message = "Task movida!";
+                // Buscar o todo_id associado ao lead_task_id
+                $stmt = $pdo->prepare("SELECT todo_id FROM lead_tasks WHERE id=?");
+                $stmt->execute([$_POST['kanban_id']]);
+                $lead_task = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if ($lead_task) {
+                    // Atualizar o estado do todo na tabela todos
+                    $novo_estado = $_POST['kanban_coluna'];
+                    $stmt = $pdo->prepare("UPDATE todos SET estado=? WHERE id=?");
+                    $stmt->execute([$novo_estado, $lead_task['todo_id']]);
+                    $message = "Task movida! Estado atualizado.";
+                } else {
+                    $message = "Erro: Task não encontrada.";
+                    $messageType = 'danger';
+                }
                 break;
                 
             case 'remove_kanban_item':
@@ -389,7 +403,7 @@ if ($selected_lead_id) {
         if ($lead_tasks_exists) {
             try {
                 $stmt = $pdo->prepare("
-                    SELECT lt.id as lead_task_id, lt.coluna, lt.posicao,
+                    SELECT lt.id as lead_task_id, t.estado as coluna, lt.posicao,
                            t.id as todo_id, t.titulo, t.estado, t.descritivo
                     FROM lead_tasks lt
                     JOIN todos t ON lt.todo_id = t.id
@@ -399,11 +413,7 @@ if ($selected_lead_id) {
                 $stmt->execute([$selected_lead_id]);
                 $lead_kanban = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 
-                // Converter valores de coluna para o formato esperado pelo código
-                foreach ($lead_kanban as &$item) {
-                    $item['coluna'] = converterColunaReverso($pdo, $item['coluna']);
-                }
-                unset($item); // Limpar referência
+                // Não precisa mais converter - já vem com o estado correto do todo
             } catch (PDOException $e) {
                 // Se houver erro, deixa array vazio
                 $lead_kanban = [];

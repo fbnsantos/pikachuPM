@@ -119,6 +119,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (isset($_POST['download_db'])) {
             $filename = "backup_" . $dbSelecionada . "_" . date('Y-m-d_H-i-s') . ".sql";
             
+        // Executar SQL customizado
+        if (isset($_POST['execute_sql'])) {
+            $sql_query = trim($_POST['sql_query'] ?? '');
+            
+            if (empty($sql_query)) {
+                throw new Exception("Por favor, insira uma query SQL.");
+            }
+            
+            // Armazenar resultados
+            $sql_results = [];
+            $sql_affected_rows = 0;
+            $sql_error = null;
+            
+            try {
+                // Separar múltiplas queries por ponto e vírgula
+                $queries = array_filter(array_map('trim', explode(';', $sql_query)));
+                
+                foreach ($queries as $query) {
+                    if (empty($query)) continue;
+                    
+                    // Verificar se é SELECT (retorna dados) ou outro comando (UPDATE, INSERT, etc)
+                    $is_select = stripos($query, 'SELECT') === 0 || stripos($query, 'SHOW') === 0 || stripos($query, 'DESCRIBE') === 0 || stripos($query, 'DESC') === 0;
+                    
+                    if ($is_select) {
+                        // Query SELECT - retornar resultados
+                        $stmt = $pdo->query($query);
+                        $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        $sql_results[] = [
+                            'query' => $query,
+                            'type' => 'select',
+                            'data' => $result,
+                            'rows' => count($result)
+                        ];
+                    } else {
+                        // Query de modificação (INSERT, UPDATE, DELETE, ALTER, etc)
+                        $affected = $pdo->exec($query);
+                        $sql_results[] = [
+                            'query' => $query,
+                            'type' => 'modification',
+                            'affected_rows' => $affected
+                        ];
+                        $sql_affected_rows += $affected;
+                    }
+                }
+                
+                $mensagem = "Query(s) executada(s) com sucesso!";
+                
+            } catch (PDOException $e) {
+                $sql_error = $e->getMessage();
+                $erro = "Erro ao executar SQL: " . $sql_error;
+            }
+        }
+            
             header('Content-Type: application/octet-stream');
             header('Content-Disposition: attachment; filename="' . $filename . '"');
             header('Cache-Control: must-revalidate');
@@ -651,3 +704,179 @@ function formatBytes($size, $precision = 2) {
         </div>
     </div>
 </div>
+
+<!-- Seção SQL Executor -->
+<div class="card shadow-sm mt-4">
+    <div class="card-header bg-dark text-white">
+        <h5 class="mb-0">
+            <i class="bi bi-terminal"></i> SQL Executor
+            <span class="badge bg-danger ms-2">CUIDADO</span>
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle-fill"></i> 
+            <strong>Atenção!</strong> Esta ferramenta executa SQL diretamente no banco de dados. 
+            Use com cuidado e faça backup antes de executar comandos de modificação.
+        </div>
+
+        <?php if (isset($sql_error)): ?>
+            <div class="alert alert-danger">
+                <i class="bi bi-x-circle"></i> <strong>Erro SQL:</strong><br>
+                <code><?= htmlspecialchars($sql_error) ?></code>
+            </div>
+        <?php endif; ?>
+
+        <form method="post" id="sqlExecutorForm">
+            <input type="hidden" name="db_selected" value="<?= htmlspecialchars($dbSelecionada) ?>">
+            
+            <div class="mb-3">
+                <label for="sql_query" class="form-label">
+                    <i class="bi bi-code-slash"></i> <strong>Query SQL</strong>
+                </label>
+                <textarea 
+                    class="form-control font-monospace" 
+                    id="sql_query" 
+                    name="sql_query" 
+                    rows="8" 
+                    placeholder="Digite sua query SQL aqui...&#10;Exemplo: SELECT * FROM user_tokens LIMIT 10;&#10;&#10;Ou múltiplas queries separadas por ponto e vírgula"
+                    style="font-size: 0.9rem;"><?= htmlspecialchars($_POST['sql_query'] ?? '') ?></textarea>
+                <small class="form-text text-muted">
+                    Dica: Você pode executar múltiplas queries separando-as com ponto e vírgula (;)
+                </small>
+            </div>
+
+            <div class="mb-3">
+                <div class="btn-group" role="group">
+                    <button type="submit" name="execute_sql" class="btn btn-primary">
+                        <i class="bi bi-play-circle"></i> Executar SQL
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('sql_query').value = ''">
+                        <i class="bi bi-x-circle"></i> Limpar
+                    </button>
+                </div>
+                
+                <!-- Botões de exemplo -->
+                <div class="btn-group ms-2" role="group">
+                    <button type="button" class="btn btn-outline-info btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                        <i class="bi bi-lightbulb"></i> Exemplos
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="#" onclick="setQuery('SELECT * FROM user_tokens LIMIT 10;'); return false;">Listar usuários</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="setQuery('SHOW TABLES;'); return false;">Mostrar tabelas</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="setQuery('DESCRIBE user_tokens;'); return false;">Descrever tabela</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="#" onclick="setQuery('SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = \\'lead_tasks\\' AND COLUMN_NAME = \\'coluna\\';'); return false;">Ver coluna lead_tasks</a></li>
+                        <li><a class="dropdown-item text-danger" href="#" onclick="setMigrationQuery(); return false;">Script de Migração Leads</a></li>
+                    </ul>
+                </div>
+            </div>
+        </form>
+
+        <?php if (isset($sql_results) && !empty($sql_results)): ?>
+            <hr>
+            <h5><i class="bi bi-table"></i> Resultados</h5>
+            
+            <?php foreach ($sql_results as $index => $result): ?>
+                <div class="card mb-3">
+                    <div class="card-header bg-light">
+                        <strong>Query <?= $index + 1 ?>:</strong> 
+                        <code class="text-primary"><?= htmlspecialchars($result['query']) ?></code>
+                    </div>
+                    <div class="card-body">
+                        <?php if ($result['type'] === 'select'): ?>
+                            <?php if (!empty($result['data'])): ?>
+                                <p class="text-muted mb-2">
+                                    <i class="bi bi-info-circle"></i> 
+                                    <strong><?= $result['rows'] ?></strong> linha(s) retornada(s)
+                                </p>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered table-striped">
+                                        <thead class="table-dark">
+                                            <tr>
+                                                <?php foreach (array_keys($result['data'][0]) as $column): ?>
+                                                    <th><?= htmlspecialchars($column) ?></th>
+                                                <?php endforeach; ?>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($result['data'] as $row): ?>
+                                                <tr>
+                                                    <?php foreach ($row as $value): ?>
+                                                        <td><?= htmlspecialchars($value ?? 'NULL') ?></td>
+                                                    <?php endforeach; ?>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            <?php else: ?>
+                                <div class="alert alert-info mb-0">
+                                    <i class="bi bi-info-circle"></i> Nenhum resultado retornado.
+                                </div>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <div class="alert alert-success mb-0">
+                                <i class="bi bi-check-circle"></i> 
+                                Query executada com sucesso! 
+                                <strong><?= $result['affected_rows'] ?></strong> linha(s) afetada(s).
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </div>
+</div>
+
+<script>
+function setQuery(query) {
+    document.getElementById('sql_query').value = query;
+}
+
+function setMigrationQuery() {
+    const migrationSQL = `-- Script de Migração: Estados das Tarefas em Leads
+-- ATENÇÃO: Faça backup antes de executar!
+
+-- Verificar estrutura atual
+SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE 
+FROM INFORMATION_SCHEMA.COLUMNS 
+WHERE TABLE_SCHEMA = DATABASE() 
+AND TABLE_NAME = 'lead_tasks' 
+AND COLUMN_NAME = 'coluna';
+
+-- Alterar para VARCHAR temporariamente
+ALTER TABLE lead_tasks MODIFY COLUMN coluna VARCHAR(20);
+
+-- Migrar dados
+UPDATE lead_tasks SET coluna = 'aberta' WHERE coluna = 'todo';
+UPDATE lead_tasks SET coluna = 'em_execucao' WHERE coluna = 'doing';
+UPDATE lead_tasks SET coluna = 'concluida' WHERE coluna = 'done';
+
+-- Alterar para novo ENUM
+ALTER TABLE lead_tasks MODIFY COLUMN coluna ENUM('aberta', 'em_execucao', 'suspensa', 'concluida') DEFAULT 'aberta';
+
+-- Verificar resultado
+SELECT coluna, COUNT(*) as total FROM lead_tasks GROUP BY coluna;`;
+    
+    if (confirm('⚠️ ATENÇÃO: Este script modifica a estrutura da tabela lead_tasks!\\n\\nFaça backup antes de executar.\\n\\nDeseja carregar o script de migração?')) {
+        document.getElementById('sql_query').value = migrationSQL;
+    }
+}
+
+// Auto-submit preventer (confirmar antes de executar)
+document.getElementById('sqlExecutorForm').addEventListener('submit', function(e) {
+    const query = document.getElementById('sql_query').value.trim().toUpperCase();
+    
+    // Verificar se contém comandos perigosos
+    const dangerousCommands = ['DROP', 'DELETE', 'TRUNCATE', 'ALTER'];
+    const hasDangerousCommand = dangerousCommands.some(cmd => query.includes(cmd));
+    
+    if (hasDangerousCommand) {
+        if (!confirm('⚠️ ATENÇÃO: Você está executando um comando que pode modificar ou deletar dados!\\n\\nTem certeza que deseja continuar?')) {
+            e.preventDefault();
+            return false;
+        }
+    }
+});
+</script>

@@ -69,7 +69,7 @@ if ($todos_exists && $lead_tasks_check == 0) {
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 lead_id INT NOT NULL,
                 todo_id INT NOT NULL,
-                coluna ENUM('todo', 'doing', 'done') DEFAULT 'todo',
+                coluna ENUM('aberta', 'em_execucao', 'suspensa', 'concluida') DEFAULT 'aberta',
                 posicao INT DEFAULT 0,
                 adicionado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
@@ -396,10 +396,32 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
         min-height: 300px;
     }
     
+    /* Cores específicas para cada coluna */
+    .kanban-column:nth-child(1) h5 {
+        color: #0d6efd;
+        border-bottom-color: #0d6efd;
+    }
+    
+    .kanban-column:nth-child(2) h5 {
+        color: #fd7e14;
+        border-bottom-color: #fd7e14;
+    }
+    
+    .kanban-column:nth-child(3) h5 {
+        color: #ffc107;
+        border-bottom-color: #ffc107;
+    }
+    
+    .kanban-column:nth-child(4) h5 {
+        color: #198754;
+        border-bottom-color: #198754;
+    }
+    
     .kanban-column h5 {
         margin-bottom: 15px;
         padding-bottom: 10px;
         border-bottom: 2px solid #dee2e6;
+        font-weight: 600;
     }
     
     .kanban-item {
@@ -409,10 +431,12 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
         padding: 10px;
         margin-bottom: 10px;
         cursor: move;
+        transition: all 0.2s ease;
     }
     
     .kanban-item:hover {
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
     }
     
     .empty-state {
@@ -709,9 +733,10 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                         <div class="kanban-board">
                             <?php
                             $colunas = [
-                                'todo' => ['nome' => 'A Fazer', 'icon' => 'bi-circle'],
-                                'doing' => ['nome' => 'Em Progresso', 'icon' => 'bi-arrow-clockwise'],
-                                'done' => ['nome' => 'Concluído', 'icon' => 'bi-check-circle']
+                                'aberta' => ['nome' => 'Aberta', 'icon' => 'bi-circle'],
+                                'em_execucao' => ['nome' => 'Em Execução', 'icon' => 'bi-arrow-clockwise'],
+                                'suspensa' => ['nome' => 'Suspensa', 'icon' => 'bi-pause-circle'],
+                                'concluida' => ['nome' => 'Concluída', 'icon' => 'bi-check-circle-fill']
                             ];
                             
                             foreach ($colunas as $coluna_id => $coluna_info):
@@ -1013,7 +1038,7 @@ if ($selected_lead && $pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 0) {
 }
 
 if ($selected_lead):
-foreach (['todo', 'doing', 'done'] as $col): 
+foreach (['aberta', 'em_execucao', 'suspensa', 'concluida'] as $col): 
 ?>
 <div class="modal fade" id="addKanbanModal<?= $col ?>" tabindex="-1">
     <div class="modal-dialog">

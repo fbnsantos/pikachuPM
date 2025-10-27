@@ -132,6 +132,51 @@ function detectarEConverterColuna($pdo, $valor_novo) {
     return $valor_novo;
 }
 
+// Função para obter valor seguro para inserir no campo coluna
+// Esta função garante que sempre inserimos um valor válido, independente da estrutura
+function obterValorSeguroColuna($pdo, $estado) {
+    try {
+        $result = $pdo->query("SHOW COLUMNS FROM lead_tasks LIKE 'coluna'")->fetch(PDO::FETCH_ASSOC);
+        if ($result) {
+            $type = $result['Type'];
+            
+            // Extrair valores válidos do ENUM
+            preg_match("/^enum\(\'(.*)\'\)$/", $type, $matches);
+            if (isset($matches[1])) {
+                $valid_values = explode("','", $matches[1]);
+                
+                // Se o estado já é um valor válido, usar ele
+                if (in_array($estado, $valid_values)) {
+                    return $estado;
+                }
+                
+                // Mapear estado para valor válido
+                $mapa = [
+                    'aberta' => ['aberta', 'todo'],
+                    'em execução' => ['em execução', 'em_execucao', 'doing'],
+                    'suspensa' => ['suspensa', 'todo'],
+                    'concluída' => ['concluída', 'concluida', 'done']
+                ];
+                
+                if (isset($mapa[$estado])) {
+                    foreach ($mapa[$estado] as $possivel) {
+                        if (in_array($possivel, $valid_values)) {
+                            return $possivel;
+                        }
+                    }
+                }
+                
+                // Fallback: usar o primeiro valor válido
+                return $valid_values[0];
+            }
+        }
+    } catch (PDOException $e) {
+        // Em caso de erro, retornar 'aberta' como fallback
+    }
+    
+    return 'aberta'; // Fallback seguro
+}
+
 // Função reversa: converter valores do banco para valores do código
 function converterColunaReverso($pdo, $valor_banco) {
     static $estrutura_cache = null;
@@ -265,17 +310,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 $todo_id = $pdo->lastInsertId();
                 
-                // Associar task ao lead (coluna não é mais usada, mas mantida por compatibilidade)
+                // Associar task ao lead 
+                // IMPORTANTE: O campo coluna não é mais usado para exibição, mas precisa ter valor válido
+                $coluna_segura = obterValorSeguroColuna($pdo, $estado_inicial);
                 $stmt = $pdo->prepare("INSERT INTO lead_tasks (lead_id, todo_id, coluna) VALUES (?, ?, ?)");
-                $stmt->execute([$_POST['lead_id'], $todo_id, $estado_inicial]);
+                $stmt->execute([$_POST['lead_id'], $todo_id, $coluna_segura]);
                 $message = "Task adicionada ao Kanban!";
                 break;
             
             case 'associate_existing_task':
-                // Associar task existente ao lead (coluna não é mais relevante, pois usa o estado do todo)
-                $stmt = $pdo->prepare("INSERT IGNORE INTO lead_tasks (lead_id, todo_id, coluna) VALUES (?, ?, 'aberta')");
-                $stmt->execute([$_POST['lead_id'], $_POST['todo_id']]);
-                $message = "Task associada ao Lead!";
+                // Associar task existente ao lead
+                // Buscar estado atual da task
+                $stmt = $pdo->prepare("SELECT estado FROM todos WHERE id = ?");
+                $stmt->execute([$_POST['todo_id']]);
+                $todo = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if ($todo) {
+                    $coluna_segura = obterValorSeguroColuna($pdo, $todo['estado']);
+                    $stmt = $pdo->prepare("INSERT IGNORE INTO lead_tasks (lead_id, todo_id, coluna) VALUES (?, ?, ?)");
+                    $stmt->execute([$_POST['lead_id'], $_POST['todo_id'], $coluna_segura]);
+                    $message = "Task associada ao Lead!";
+                } else {
+                    $message = "Erro: Task não encontrada.";
+                    $messageType = 'danger';
+                }
                 break;
                 
             case 'update_kanban_item':

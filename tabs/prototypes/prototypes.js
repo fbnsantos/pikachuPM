@@ -75,8 +75,6 @@ async function selectPrototype(id) {
     }
 }
 
-// Adicionar ao prototypes.js - substituir a função renderPrototypeDetail()
-
 function renderPrototypeDetail() {
     const panel = document.getElementById('detailPanel');
     
@@ -200,6 +198,11 @@ function renderPrototypeDetail() {
         <div class="detail-section">
             <h3>📝 User Stories</h3>
             <div class="filter-bar">
+                <select id="statusFilter" onchange="loadStories()">
+                    <option value="">All Status</option>
+                    <option value="open" selected>Open Stories</option>
+                    <option value="closed">Closed Stories</option>
+                </select>
                 <select id="priorityFilter" onchange="loadStories()">
                     <option value="">All Priorities</option>
                     <option value="Must">Must Have</option>
@@ -488,9 +491,10 @@ async function loadStories() {
     if (!currentPrototype) return;
     
     const priority = document.getElementById('priorityFilter')?.value || '';
+    const status = document.getElementById('statusFilter')?.value || 'open';
     
     try {
-        const url = `${API_PATH}?action=get_stories&prototype_id=${currentPrototype.id}${priority ? `&priority=${priority}` : ''}`;
+        const url = `${API_PATH}?action=get_stories&prototype_id=${currentPrototype.id}${priority ? `&priority=${priority}` : ''}${status ? `&status=${status}` : ''}`;
         const response = await fetch(url);
         stories = await response.json();
         
@@ -499,26 +503,45 @@ async function loadStories() {
         if (stories.length === 0) {
             listEl.innerHTML = `
                 <div class="empty-state">
-                    <h3>No user stories yet</h3>
-                    <p>Add your first user story</p>
+                    <h3>No user stories found</h3>
+                    <p>${status === 'open' ? 'Add your first user story' : 'No closed stories yet'}</p>
                 </div>
             `;
             return;
         }
         
-        listEl.innerHTML = stories.map(story => `
-            <div class="story-item ${story.moscow_priority.toLowerCase()}">
-                <div class="story-header">
-                    <span class="story-priority priority-${story.moscow_priority.toLowerCase()}">${story.moscow_priority}</span>
-                    <div class="story-actions">
-                        <button class="btn btn-secondary btn-small" onclick="viewStoryTasks(${story.id})">📋 Tasks</button>
-                        <button class="btn btn-secondary btn-small" onclick="editStory(${story.id})">✏️</button>
-                        <button class="btn btn-danger btn-small" onclick="deleteStory(${story.id})">🗑️</button>
+        listEl.innerHTML = stories.map(story => {
+            const statusIcon = story.status === 'closed' ? '✅' : '📖';
+            const statusClass = story.status === 'closed' ? 'story-closed' : 'story-open';
+            const progressColor = story.completion_percentage >= 75 ? '#10b981' : 
+                                 story.completion_percentage >= 50 ? '#f59e0b' : 
+                                 story.completion_percentage >= 25 ? '#3b82f6' : '#94a3b8';
+            
+            return `
+                <div class="story-item ${story.moscow_priority.toLowerCase()} ${statusClass}">
+                    <div class="story-header">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="story-priority priority-${story.moscow_priority.toLowerCase()}">${story.moscow_priority}</span>
+                            <span class="story-status">${statusIcon} ${story.status === 'closed' ? 'Closed' : 'Open'}</span>
+                        </div>
+                        <div class="story-actions">
+                            <button class="btn btn-secondary btn-small" onclick="viewStoryTasks(${story.id})" title="Manage Tasks">📋 Tasks (${story.total_tasks || 0})</button>
+                            <button class="btn btn-secondary btn-small" onclick="viewStorySprints(${story.id})" title="Manage Sprints">🏃 Sprints</button>
+                            <button class="btn btn-secondary btn-small" onclick="toggleStoryStatus(${story.id})" title="${story.status === 'open' ? 'Mark as Closed' : 'Reopen Story'}">${story.status === 'open' ? '✓' : '↩'}</button>
+                            <button class="btn btn-secondary btn-small" onclick="editStory(${story.id})">✏️</button>
+                            <button class="btn btn-danger btn-small" onclick="deleteStory(${story.id})">🗑️</button>
+                        </div>
+                    </div>
+                    <div class="story-text">${escapeHtml(story.story_text)}</div>
+                    <div class="story-progress">
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${story.completion_percentage}%; background-color: ${progressColor};"></div>
+                        </div>
+                        <span class="progress-text">${story.completion_percentage}% Complete (${story.completed_tasks || 0}/${story.total_tasks || 0} tasks)</span>
                     </div>
                 </div>
-                <div class="story-text">${escapeHtml(story.story_text)}</div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     } catch (error) {
         console.error('Error loading stories:', error);
     }
@@ -530,6 +553,7 @@ function openStoryModal(storyId = null) {
     document.getElementById('storyModalTitle').textContent = currentStory ? 'Edit User Story' : 'New User Story';
     document.getElementById('storyText').value = currentStory?.story_text || '';
     document.getElementById('storyPriority').value = currentStory?.moscow_priority || 'Should';
+    document.getElementById('storyStatus').value = currentStory?.status || 'open';
     
     document.getElementById('storyModal').classList.add('active');
 }
@@ -546,6 +570,7 @@ function editStory(id) {
 async function saveStory() {
     const storyText = document.getElementById('storyText').value.trim();
     const priority = document.getElementById('storyPriority').value;
+    const status = document.getElementById('storyStatus').value;
     
     if (!storyText) {
         alert('Please enter story text');
@@ -555,7 +580,8 @@ async function saveStory() {
     const data = {
         prototype_id: currentPrototype.id,
         story_text: storyText,
-        moscow_priority: priority
+        moscow_priority: priority,
+        status: status
     };
     
     try {
@@ -578,6 +604,27 @@ async function saveStory() {
     } catch (error) {
         console.error('Error saving story:', error);
         alert('Error saving story');
+    }
+}
+
+async function toggleStoryStatus(id) {
+    try {
+        const formData = new FormData();
+        formData.append('action', 'toggle_story_status');
+        formData.append('id', id);
+        
+        const response = await fetch(`${API_PATH}`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            loadStories();
+        }
+    } catch (error) {
+        console.error('Error toggling story status:', error);
+        alert('Error updating story status');
     }
 }
 
@@ -604,6 +651,136 @@ async function deleteStory(id) {
     }
 }
 
+// ===== SPRINTS =====
+async function viewStorySprints(storyId) {
+    currentStory = stories.find(s => s.id === storyId);
+    
+    try {
+        const response = await fetch(`${API_PATH}?action=get_story_sprints&story_id=${storyId}`);
+        const sprints = await response.json();
+        
+        const sprintsList = sprints.length > 0 ? sprints.map(sprint => `
+            <div class="sprint-item">
+                <div style="flex: 1;">
+                    <strong>${escapeHtml(sprint.nome)}</strong>
+                    <span class="badge badge-${sprint.estado}">${escapeHtml(sprint.estado)}</span>
+                    <div style="font-size: 12px; color: #64748b; margin-top: 4px;">
+                        ${sprint.data_inicio ? `📅 ${sprint.data_inicio}` : ''} 
+                        ${sprint.data_fim ? `→ ${sprint.data_fim}` : ''}
+                    </div>
+                </div>
+                <button class="btn btn-danger btn-small" onclick="unlinkSprint(${sprint.link_id})">Unlink</button>
+            </div>
+        `).join('') : '<p>No sprints linked to this story yet.</p>';
+        
+        const modal = document.getElementById('sprintModal');
+        modal.querySelector('.modal-content').innerHTML = `
+            <div class="modal-header">
+                <h3>Sprints for Story #${storyId}</h3>
+                <button class="close-modal" onclick="closeSprintModal()">&times;</button>
+            </div>
+            <div class="sprint-list">
+                ${sprintsList}
+            </div>
+            <div class="action-bar">
+                <button class="btn btn-primary" onclick="showLinkSprintForm(${storyId})">+ Link Sprint</button>
+                <button class="btn btn-secondary" onclick="closeSprintModal()">Close</button>
+            </div>
+        `;
+        modal.classList.add('active');
+    } catch (error) {
+        console.error('Error loading sprints:', error);
+    }
+}
+
+async function showLinkSprintForm(storyId) {
+    try {
+        const response = await fetch(`${API_PATH}?action=get_available_sprints&story_id=${storyId}`);
+        const availableSprints = await response.json();
+        
+        if (availableSprints.length === 0) {
+            alert('No available sprints to link. Please create a sprint first.');
+            return;
+        }
+        
+        const sprintOptions = availableSprints.map(sprint => 
+            `<option value="${sprint.id}">${escapeHtml(sprint.nome)} (${sprint.estado})</option>`
+        ).join('');
+        
+        const modal = document.getElementById('sprintModal');
+        modal.querySelector('.modal-content').innerHTML = `
+            <div class="modal-header">
+                <h3>Link Sprint to Story #${storyId}</h3>
+                <button class="close-modal" onclick="closeSprintModal()">&times;</button>
+            </div>
+            <div class="form-group">
+                <label>Select Sprint</label>
+                <select id="selectSprint">
+                    ${sprintOptions}
+                </select>
+            </div>
+            <div class="action-bar">
+                <button class="btn btn-primary" onclick="linkSprint(${storyId})">Link Sprint</button>
+                <button class="btn btn-secondary" onclick="viewStorySprints(${storyId})">← Back</button>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error loading available sprints:', error);
+    }
+}
+
+async function linkSprint(storyId) {
+    const sprintId = document.getElementById('selectSprint').value;
+    
+    if (!sprintId) {
+        alert('Please select a sprint');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_PATH}?action=link_sprint`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ story_id: storyId, sprint_id: sprintId })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            viewStorySprints(storyId);
+        }
+    } catch (error) {
+        console.error('Error linking sprint:', error);
+        alert('Error linking sprint');
+    }
+}
+
+async function unlinkSprint(linkId) {
+    if (!confirm('Unlink this sprint from the story?')) return;
+    
+    try {
+        const formData = new FormData();
+        formData.append('action', 'unlink_sprint');
+        formData.append('id', linkId);
+        
+        const response = await fetch(`${API_PATH}`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            viewStorySprints(currentStory.id);
+        }
+    } catch (error) {
+        console.error('Error unlinking sprint:', error);
+        alert('Error unlinking sprint');
+    }
+}
+
+function closeSprintModal() {
+    document.getElementById('sprintModal').classList.remove('active');
+}
+
 // ===== TASKS =====
 async function viewStoryTasks(storyId) {
     currentStory = stories.find(s => s.id === storyId);
@@ -612,15 +789,20 @@ async function viewStoryTasks(storyId) {
         const response = await fetch(`${API_PATH}?action=get_story_tasks&story_id=${storyId}`);
         const tasks = await response.json();
         
-        const tasksList = tasks.length > 0 ? tasks.map(task => `
-            <div class="task-item">
-                <div>
-                    <strong>${escapeHtml(task.title || 'Task #' + task.id)}</strong>
-                    <span class="badge badge-info">${escapeHtml(task.status || 'pending')}</span>
+        const tasksList = tasks.length > 0 ? tasks.map(task => {
+            const statusBadge = task.estado === 'concluida' ? 'success' : 
+                              task.estado === 'em_execucao' ? 'warning' : 'info';
+            return `
+                <div class="task-item">
+                    <div style="flex: 1;">
+                        <strong>${escapeHtml(task.titulo || 'Task #' + task.id)}</strong>
+                        <span class="badge badge-${statusBadge}">${escapeHtml(task.estado || 'aberta')}</span>
+                        ${task.descritivo ? `<div style="font-size: 12px; color: #64748b; margin-top: 4px;">${escapeHtml(task.descritivo).substring(0, 100)}${task.descritivo.length > 100 ? '...' : ''}</div>` : ''}
+                    </div>
+                    <button class="btn btn-danger btn-small" onclick="unlinkTask(${task.link_id})">Unlink</button>
                 </div>
-                <button class="btn btn-danger btn-small" onclick="unlinkTask(${task.link_id})">Unlink</button>
-            </div>
-        `).join('') : '<p>No tasks linked to this story yet.</p>';
+            `;
+        }).join('') : '<p>No tasks linked to this story yet.</p>';
         
         const modal = document.getElementById('taskModal');
         modal.querySelector('.modal-content').innerHTML = `
@@ -633,12 +815,74 @@ async function viewStoryTasks(storyId) {
             </div>
             <div class="action-bar">
                 <button class="btn btn-primary" onclick="openCreateTaskForm(${storyId})">+ Create New Task</button>
+                <button class="btn btn-success" onclick="showLinkExistingTaskForm(${storyId})">🔗 Link Existing Task</button>
                 <button class="btn btn-secondary" onclick="closeTaskModal()">Close</button>
             </div>
         `;
         modal.classList.add('active');
     } catch (error) {
         console.error('Error loading tasks:', error);
+    }
+}
+
+async function showLinkExistingTaskForm(storyId) {
+    try {
+        const response = await fetch(`${API_PATH}?action=get_available_tasks&story_id=${storyId}`);
+        const availableTasks = await response.json();
+        
+        if (availableTasks.length === 0) {
+            alert('No available tasks to link.');
+            return;
+        }
+        
+        const taskOptions = availableTasks.map(task => 
+            `<option value="${task.id}">${escapeHtml(task.titulo)} (${task.estado})</option>`
+        ).join('');
+        
+        const modal = document.getElementById('taskModal');
+        modal.querySelector('.modal-content').innerHTML = `
+            <div class="modal-header">
+                <h3>Link Existing Task to Story #${storyId}</h3>
+                <button class="close-modal" onclick="closeTaskModal()">&times;</button>
+            </div>
+            <div class="form-group">
+                <label>Select Task</label>
+                <select id="selectTask">
+                    ${taskOptions}
+                </select>
+            </div>
+            <div class="action-bar">
+                <button class="btn btn-primary" onclick="linkExistingTask(${storyId})">Link Task</button>
+                <button class="btn btn-secondary" onclick="viewStoryTasks(${storyId})">← Back</button>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error loading available tasks:', error);
+    }
+}
+
+async function linkExistingTask(storyId) {
+    const taskId = document.getElementById('selectTask').value;
+    
+    if (!taskId) {
+        alert('Please select a task');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_PATH}?action=link_task`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ story_id: storyId, task_id: taskId })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            viewStoryTasks(storyId);
+        }
+    } catch (error) {
+        console.error('Error linking task:', error);
+        alert('Error linking task');
     }
 }
 
@@ -668,14 +912,6 @@ function openCreateTaskForm(storyId) {
             <label>Description</label>
             <textarea id="taskDescription" placeholder="Task description"></textarea>
         </div>
-        <div class="form-group">
-            <label>Priority</label>
-            <select id="taskPriority">
-                <option value="low">Low</option>
-                <option value="medium" selected>Medium</option>
-                <option value="high">High</option>
-            </select>
-        </div>
         <div class="action-bar">
             <button class="btn btn-primary" onclick="createTaskFromStory()">Create Task</button>
             <button class="btn btn-secondary" onclick="viewStoryTasks(${storyId})">← Back</button>
@@ -687,7 +923,6 @@ function openCreateTaskForm(storyId) {
 async function createTaskFromStory() {
     const title = document.getElementById('taskTitle').value.trim();
     const description = document.getElementById('taskDescription').value.trim();
-    const priority = document.getElementById('taskPriority').value;
     
     if (!title) {
         alert('Please enter task title');
@@ -703,8 +938,7 @@ async function createTaskFromStory() {
     const data = {
         story_id: currentStory.id,
         title: title,
-        description: description,
-        priority: priority
+        description: description
     };
     
     console.log('Creating task from story:', data);
@@ -728,6 +962,7 @@ async function createTaskFromStory() {
         if (result.success) {
             alert('Task created successfully!');
             viewStoryTasks(currentStory.id);
+            loadStories(); // Atualizar percentagem
         } else {
             alert('Error: ' + (result.error || 'Unknown error'));
         }
@@ -753,6 +988,7 @@ async function unlinkTask(linkId) {
         const result = await response.json();
         if (result.success) {
             viewStoryTasks(currentStory.id);
+            loadStories(); // Atualizar percentagem
         }
     } catch (error) {
         console.error('Error unlinking task:', error);

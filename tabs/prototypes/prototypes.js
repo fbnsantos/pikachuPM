@@ -45,17 +45,25 @@ async function loadPrototypes(search = '') {
         
         listEl.innerHTML = prototypes.map(p => `
             <div class="prototype-item ${currentPrototype?.id === p.id ? 'active' : ''}" 
-                 onclick="selectPrototype(${p.id}, this)">
+                 data-prototype-id="${p.id}">
                 <h3>${escapeHtml(p.short_name)}</h3>
                 <p>${escapeHtml(p.title)}</p>
             </div>
         `).join('');
+        
+        // Adicionar event listeners após renderizar
+        document.querySelectorAll('.prototype-item').forEach(item => {
+            item.addEventListener('click', function(e) {
+                const id = this.getAttribute('data-prototype-id');
+                selectPrototype(id, this);
+            });
+        });
     } catch (error) {
         console.error('Error loading prototypes:', error);
     }
 }
 
-async function selectPrototype(id, clickedElement = null) {
+async function selectPrototype(id, clickedElement) {
     try {
         const response = await fetch(`${API_PATH}?action=get_prototype&id=${id}`);
         currentPrototype = await response.json();
@@ -70,13 +78,19 @@ async function selectPrototype(id, clickedElement = null) {
             item.classList.remove('active');
         });
         
-        // Se foi clicado, adicionar classe active
-        if (clickedElement) {
+        // Tentar adicionar classe active de várias formas
+        if (clickedElement && typeof clickedElement === 'object' && clickedElement.classList) {
+            // Caso 1: elemento passado diretamente
             clickedElement.classList.add('active');
+        } else if (typeof window !== 'undefined' && window.event && window.event.currentTarget) {
+            // Caso 2: usar event global (fallback para código antigo)
+            window.event.currentTarget.classList.add('active');
         } else {
-            // Caso contrário, procurar pelo ID
-            const activeItem = document.querySelector(`.prototype-item[onclick*="${id}"]`);
-            if (activeItem) activeItem.classList.add('active');
+            // Caso 3: procurar pelo ID no DOM
+            const activeItem = document.querySelector(`.prototype-item[onclick*="selectPrototype(${id}"]`);
+            if (activeItem) {
+                activeItem.classList.add('active');
+            }
         }
     } catch (error) {
         console.error('Error loading prototype:', error);

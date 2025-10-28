@@ -135,7 +135,26 @@ try {
                 $priority = $_GET['priority'] ?? '';
                 $status = $_GET['status'] ?? ''; // Novo filtro por status
                 
+                // Verificar se as colunas existem
+                $hasStatusColumn = false;
+                $hasPercentageColumn = false;
+                try {
+                    $checkCols = $pdo->query("SHOW COLUMNS FROM user_stories");
+                    while ($col = $checkCols->fetch(PDO::FETCH_ASSOC)) {
+                        if ($col['Field'] === 'status') $hasStatusColumn = true;
+                        if ($col['Field'] === 'completion_percentage') $hasPercentageColumn = true;
+                    }
+                } catch (PDOException $e) {
+                    error_log("Error checking columns: " . $e->getMessage());
+                }
+                
+                // Construir query com ou sem as novas colunas
+                $statusSelect = $hasStatusColumn ? "us.status" : "'open' as status";
+                $percentageSelect = $hasPercentageColumn ? "us.completion_percentage" : "0 as completion_percentage";
+                
                 $sql = "SELECT us.*, 
+                        $statusSelect,
+                        $percentageSelect,
                         (SELECT COUNT(*) FROM user_story_tasks ust 
                          JOIN todos t ON ust.task_id = t.id 
                          WHERE ust.story_id = us.id) as total_tasks,
@@ -151,13 +170,16 @@ try {
                     $params[] = $priority;
                 }
                 
-                if ($status) {
-                    $sql .= " AND status = ?";
+                if ($status && $hasStatusColumn) {
+                    $sql .= " AND us.status = ?";
                     $params[] = $status;
                 }
                 
-                $sql .= " ORDER BY FIELD(moscow_priority, 'Must', 'Should', 'Could', 'Won''t'), 
-                         FIELD(status, 'open', 'closed')";
+                $sql .= " ORDER BY FIELD(moscow_priority, 'Must', 'Should', 'Could', 'Won''t')";
+                
+                if ($hasStatusColumn) {
+                    $sql .= ", FIELD(status, 'open', 'closed')";
+                }
                 
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute($params);
@@ -171,12 +193,19 @@ try {
                         $story['completion_percentage'] = 0;
                     }
                     
-                    // Atualizar percentagem na base de dados
-                    try {
-                        $updateStmt = $pdo->prepare("UPDATE user_stories SET completion_percentage = ? WHERE id = ?");
-                        $updateStmt->execute([$story['completion_percentage'], $story['id']]);
-                    } catch (PDOException $e) {
-                        // Ignorar erro de atualização da percentagem
+                    // Garantir que status existe
+                    if (!isset($story['status'])) {
+                        $story['status'] = 'open';
+                    }
+                    
+                    // Atualizar percentagem na base de dados se a coluna existir
+                    if ($hasPercentageColumn) {
+                        try {
+                            $updateStmt = $pdo->prepare("UPDATE user_stories SET completion_percentage = ? WHERE id = ?");
+                            $updateStmt->execute([$story['completion_percentage'], $story['id']]);
+                        } catch (PDOException $e) {
+                            // Ignorar erro de atualização da percentagem
+                        }
                     }
                 }
                 

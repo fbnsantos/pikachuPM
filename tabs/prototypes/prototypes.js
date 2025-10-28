@@ -537,6 +537,10 @@ async function loadStories() {
         // Garantir que temos um array
         stories = Array.isArray(data) ? data : [];
         
+        console.log('📊 Stories loaded:', stories.length, 'stories');
+        console.log('🔍 Sample story data:', stories[0]);
+        console.log('📋 Filter status:', status);
+        
         const listEl = document.getElementById('storiesList');
         
         if (stories.length === 0) {
@@ -550,23 +554,29 @@ async function loadStories() {
         }
         
         listEl.innerHTML = stories.map(story => {
-            const statusIcon = story.status === 'closed' ? '✅' : '📖';
-            const statusClass = story.status === 'closed' ? 'story-closed' : 'story-open';
-            const progressColor = story.completion_percentage >= 75 ? '#10b981' : 
-                                 story.completion_percentage >= 50 ? '#f59e0b' : 
-                                 story.completion_percentage >= 25 ? '#3b82f6' : '#94a3b8';
+            // Garantir valores padrão
+            const storyStatus = story.status || 'open';
+            const completionPercentage = story.completion_percentage || 0;
+            const totalTasks = story.total_tasks || 0;
+            const completedTasks = story.completed_tasks || 0;
+            
+            const statusIcon = storyStatus === 'closed' ? '✅' : '📖';
+            const statusClass = storyStatus === 'closed' ? 'story-closed' : 'story-open';
+            const progressColor = completionPercentage >= 75 ? '#10b981' : 
+                                 completionPercentage >= 50 ? '#f59e0b' : 
+                                 completionPercentage >= 25 ? '#3b82f6' : '#94a3b8';
             
             return `
                 <div class="story-item ${story.moscow_priority.toLowerCase()} ${statusClass}">
                     <div class="story-header">
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <span class="story-priority priority-${story.moscow_priority.toLowerCase()}">${story.moscow_priority}</span>
-                            <span class="story-status">${statusIcon} ${story.status === 'closed' ? 'Closed' : 'Open'}</span>
+                            <span class="story-status">${statusIcon} ${storyStatus === 'closed' ? 'Closed' : 'Open'}</span>
                         </div>
                         <div class="story-actions">
-                            <button class="btn btn-secondary btn-small" onclick="viewStoryTasks(${story.id})" title="Manage Tasks">📋 Tasks (${story.total_tasks || 0})</button>
+                            <button class="btn btn-secondary btn-small" onclick="viewStoryTasks(${story.id})" title="Manage Tasks">📋 Tasks (${totalTasks})</button>
                             <button class="btn btn-secondary btn-small" onclick="viewStorySprints(${story.id})" title="Manage Sprints">🏃 Sprints</button>
-                            <button class="btn btn-secondary btn-small" onclick="toggleStoryStatus(${story.id})" title="${story.status === 'open' ? 'Mark as Closed' : 'Reopen Story'}">${story.status === 'open' ? '✓' : '↩'}</button>
+                            <button class="btn btn-secondary btn-small" onclick="toggleStoryStatus(${story.id})" title="${storyStatus === 'open' ? 'Mark as Closed' : 'Reopen Story'}">${storyStatus === 'open' ? '✓' : '↩'}</button>
                             <button class="btn btn-secondary btn-small" onclick="editStory(${story.id})">✏️</button>
                             <button class="btn btn-danger btn-small" onclick="deleteStory(${story.id})">🗑️</button>
                         </div>
@@ -574,9 +584,9 @@ async function loadStories() {
                     <div class="story-text">${escapeHtml(story.story_text)}</div>
                     <div class="story-progress">
                         <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${story.completion_percentage}%; background-color: ${progressColor};"></div>
+                            <div class="progress-fill" style="width: ${completionPercentage}%; background-color: ${progressColor};"></div>
                         </div>
-                        <span class="progress-text">${story.completion_percentage}% Complete (${story.completed_tasks || 0}/${story.total_tasks || 0} tasks)</span>
+                        <span class="progress-text">${completionPercentage}% Complete (${completedTasks}/${totalTasks} tasks)</span>
                     </div>
                 </div>
             `;

@@ -45,7 +45,7 @@ async function loadPrototypes(search = '') {
         
         listEl.innerHTML = prototypes.map(p => `
             <div class="prototype-item ${currentPrototype?.id === p.id ? 'active' : ''}" 
-                 onclick="selectPrototype(${p.id})">
+                 onclick="selectPrototype(${p.id}, this)">
                 <h3>${escapeHtml(p.short_name)}</h3>
                 <p>${escapeHtml(p.title)}</p>
             </div>
@@ -55,7 +55,7 @@ async function loadPrototypes(search = '') {
     }
 }
 
-async function selectPrototype(id) {
+async function selectPrototype(id, clickedElement = null) {
     try {
         const response = await fetch(`${API_PATH}?action=get_prototype&id=${id}`);
         currentPrototype = await response.json();
@@ -69,7 +69,15 @@ async function selectPrototype(id) {
         document.querySelectorAll('.prototype-item').forEach(item => {
             item.classList.remove('active');
         });
-        event.currentTarget?.classList.add('active');
+        
+        // Se foi clicado, adicionar classe active
+        if (clickedElement) {
+            clickedElement.classList.add('active');
+        } else {
+            // Caso contrário, procurar pelo ID
+            const activeItem = document.querySelector(`.prototype-item[onclick*="${id}"]`);
+            if (activeItem) activeItem.classList.add('active');
+        }
     } catch (error) {
         console.error('Error loading prototype:', error);
     }
@@ -496,7 +504,24 @@ async function loadStories() {
     try {
         const url = `${API_PATH}?action=get_stories&prototype_id=${currentPrototype.id}${priority ? `&priority=${priority}` : ''}${status ? `&status=${status}` : ''}`;
         const response = await fetch(url);
-        stories = await response.json();
+        
+        if (!response.ok) {
+            console.error('API Error:', response.status, response.statusText);
+            const errorText = await response.text();
+            console.error('Error details:', errorText);
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Verificar se é um erro retornado pela API
+        if (data.error) {
+            console.error('API returned error:', data.error);
+            throw new Error(data.error);
+        }
+        
+        // Garantir que temos um array
+        stories = Array.isArray(data) ? data : [];
         
         const listEl = document.getElementById('storiesList');
         
@@ -544,6 +569,14 @@ async function loadStories() {
         }).join('');
     } catch (error) {
         console.error('Error loading stories:', error);
+        const listEl = document.getElementById('storiesList');
+        listEl.innerHTML = `
+            <div class="empty-state">
+                <h3>Error loading stories</h3>
+                <p>${error.message}</p>
+                <button class="btn btn-primary" onclick="loadStories()">Retry</button>
+            </div>
+        `;
     }
 }
 

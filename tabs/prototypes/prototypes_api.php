@@ -26,11 +26,17 @@ try {
 
 // Verificar e criar campos adicionais nas tabelas se necessário
 try {
-    // Adicionar campo 'status' à tabela user_stories
-    $pdo->exec("ALTER TABLE user_stories ADD COLUMN IF NOT EXISTS status ENUM('open', 'closed') DEFAULT 'open'");
+    // Verificar se coluna 'status' existe
+    $checkStatus = $pdo->query("SHOW COLUMNS FROM user_stories LIKE 'status'")->fetch();
+    if (!$checkStatus) {
+        $pdo->exec("ALTER TABLE user_stories ADD COLUMN status ENUM('open', 'closed') DEFAULT 'open'");
+    }
     
-    // Adicionar campo 'completion_percentage' à tabela user_stories
-    $pdo->exec("ALTER TABLE user_stories ADD COLUMN IF NOT EXISTS completion_percentage INT DEFAULT 0");
+    // Verificar se coluna 'completion_percentage' existe
+    $checkPercentage = $pdo->query("SHOW COLUMNS FROM user_stories LIKE 'completion_percentage'")->fetch();
+    if (!$checkPercentage) {
+        $pdo->exec("ALTER TABLE user_stories ADD COLUMN completion_percentage INT DEFAULT 0");
+    }
     
     // Criar tabela user_story_sprints se não existir
     $pdo->exec("
@@ -48,6 +54,7 @@ try {
     ");
 } catch (PDOException $e) {
     // Campos/tabelas já existem ou erro não crítico
+    error_log("Database setup warning: " . $e->getMessage());
 }
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
@@ -123,52 +130,62 @@ try {
             
         // ===== USER STORIES =====
         case 'get_stories':
-            $prototypeId = $_GET['prototype_id'] ?? 0;
-            $priority = $_GET['priority'] ?? '';
-            $status = $_GET['status'] ?? ''; // Novo filtro por status
-            
-            $sql = "SELECT us.*, 
-                    (SELECT COUNT(*) FROM user_story_tasks ust 
-                     JOIN todos t ON ust.task_id = t.id 
-                     WHERE ust.story_id = us.id) as total_tasks,
-                    (SELECT COUNT(*) FROM user_story_tasks ust 
-                     JOIN todos t ON ust.task_id = t.id 
-                     WHERE ust.story_id = us.id AND t.estado = 'concluida') as completed_tasks
-                    FROM user_stories us 
-                    WHERE prototype_id = ?";
-            $params = [$prototypeId];
-            
-            if ($priority) {
-                $sql .= " AND moscow_priority = ?";
-                $params[] = $priority;
-            }
-            
-            if ($status) {
-                $sql .= " AND status = ?";
-                $params[] = $status;
-            }
-            
-            $sql .= " ORDER BY FIELD(moscow_priority, 'Must', 'Should', 'Could', 'Won''t'), 
-                     FIELD(status, 'open', 'closed')";
-            
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute($params);
-            $stories = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
-            // Calcular percentagem automaticamente baseada nas tarefas
-            foreach ($stories as &$story) {
-                if ($story['total_tasks'] > 0) {
-                    $story['completion_percentage'] = round(($story['completed_tasks'] / $story['total_tasks']) * 100);
-                } else {
-                    $story['completion_percentage'] = 0;
+            try {
+                $prototypeId = $_GET['prototype_id'] ?? 0;
+                $priority = $_GET['priority'] ?? '';
+                $status = $_GET['status'] ?? ''; // Novo filtro por status
+                
+                $sql = "SELECT us.*, 
+                        (SELECT COUNT(*) FROM user_story_tasks ust 
+                         JOIN todos t ON ust.task_id = t.id 
+                         WHERE ust.story_id = us.id) as total_tasks,
+                        (SELECT COUNT(*) FROM user_story_tasks ust 
+                         JOIN todos t ON ust.task_id = t.id 
+                         WHERE ust.story_id = us.id AND t.estado = 'concluida') as completed_tasks
+                        FROM user_stories us 
+                        WHERE prototype_id = ?";
+                $params = [$prototypeId];
+                
+                if ($priority) {
+                    $sql .= " AND moscow_priority = ?";
+                    $params[] = $priority;
                 }
                 
-                // Atualizar percentagem na base de dados
-                $updateStmt = $pdo->prepare("UPDATE user_stories SET completion_percentage = ? WHERE id = ?");
-                $updateStmt->execute([$story['completion_percentage'], $story['id']]);
+                if ($status) {
+                    $sql .= " AND status = ?";
+                    $params[] = $status;
+                }
+                
+                $sql .= " ORDER BY FIELD(moscow_priority, 'Must', 'Should', 'Could', 'Won''t'), 
+                         FIELD(status, 'open', 'closed')";
+                
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute($params);
+                $stories = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                
+                // Calcular percentagem automaticamente baseada nas tarefas
+                foreach ($stories as &$story) {
+                    if ($story['total_tasks'] > 0) {
+                        $story['completion_percentage'] = round(($story['completed_tasks'] / $story['total_tasks']) * 100);
+                    } else {
+                        $story['completion_percentage'] = 0;
+                    }
+                    
+                    // Atualizar percentagem na base de dados
+                    try {
+                        $updateStmt = $pdo->prepare("UPDATE user_stories SET completion_percentage = ? WHERE id = ?");
+                        $updateStmt->execute([$story['completion_percentage'], $story['id']]);
+                    } catch (PDOException $e) {
+                        // Ignorar erro de atualização da percentagem
+                    }
+                }
+                
+                echo json_encode($stories);
+            } catch (PDOException $e) {
+                error_log("Error in get_stories: " . $e->getMessage());
+                http_response_code(500);
+                echo json_encode(['error' => 'Database error: ' . $e->getMessage()]);
             }
-            
-            echo json_encode($stories);
             break;
             
         case 'create_story':

@@ -535,18 +535,13 @@ $total_artigos = count($artigos);
     
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2><i class="bi bi-mortarboard"></i> Gestão do Doutoramento</h2>
-        <div class="d-flex gap-2">
-            <select class="form-select" id="userSelector" style="width: 250px;">
-                <?php foreach ($all_users as $u): ?>
-                    <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $selected_user ? 'selected' : '' ?>>
-                        <?= $u['has_phd_info'] ? '⭐ ' : '' ?><?= htmlspecialchars($u['username']) ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTaskModal">
-                <i class="bi bi-plus-circle"></i> Nova Tarefa
-            </button>
-        </div>
+        <select class="form-select" id="userSelector" style="width: 250px;">
+            <?php foreach ($all_users as $u): ?>
+                <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $selected_user ? 'selected' : '' ?>>
+                    <?= $u['has_phd_info'] ? '⭐ ' : '' ?><?= htmlspecialchars($u['username']) ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
     </div>
     
     <div class="stats-card">
@@ -601,7 +596,12 @@ $total_artigos = count($artigos);
         </div>
     </div>
     
-    <h4 class="mt-4 mb-3"><i class="bi bi-kanban"></i> Quadro Kanban</h4>
+    <div class="d-flex justify-content-between align-items-center mt-4 mb-3">
+        <h4><i class="bi bi-kanban"></i> Quadro Kanban</h4>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTaskModal">
+            <i class="bi bi-plus-circle"></i> Nova Tarefa
+        </button>
+    </div>
     <div class="kanban-board">
         <?php 
         $stage_info = [

@@ -570,8 +570,6 @@ if (isset($_GET['filter_responsible_only'])) {
 $showClosed = isset($_GET['show_closed']) && $_GET['show_closed'] == '1';
 $showPaused = isset($_GET['show_paused']) && $_GET['show_paused'] == '1';
 
-
-
 try {
     // Build the query based on filters
     if ($filter_responsible_only && $current_user_id) {
@@ -1288,40 +1286,32 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
         <div class="show-closed-container">
             <label class="me-3">
                 <input type="checkbox" id="showClosedCheckbox" <?= $showClosed ? 'checked' : '' ?> 
-                       onchange="handleShowClosedChange(this.checked)">
+                       onchange="
+                           let url = '?tab=sprints';
+                           <?php if ($filter_my_sprints): ?>url += '&filter_my_sprints=1';<?php endif; ?>
+                           <?php if ($filter_responsible_only): ?>url += '&filter_responsible_only=1';<?php endif; ?>
+                           <?php if ($showPaused): ?>url += '&show_paused=1';<?php endif; ?>
+                           if (this.checked) url += '&show_closed=1';
+                           <?php if (isset($_GET['sprint_id'])): ?>url += '&sprint_id=<?= $_GET['sprint_id'] ?>';<?php endif; ?>
+                           window.location.href = url;
+                       ">
                 <i class="bi bi-archive"></i> Show Closed Sprints
             </label>
             
             <label>
                 <input type="checkbox" id="showPausedCheckbox" <?= $showPaused ? 'checked' : '' ?> 
-                       onchange="handleShowPausedChange(this.checked)">
+                       onchange="
+                           let url = '?tab=sprints';
+                           <?php if ($filter_my_sprints): ?>url += '&filter_my_sprints=1';<?php endif; ?>
+                           <?php if ($filter_responsible_only): ?>url += '&filter_responsible_only=1';<?php endif; ?>
+                           <?php if ($showClosed): ?>url += '&show_closed=1';<?php endif; ?>
+                           if (this.checked) url += '&show_paused=1';
+                           <?php if (isset($_GET['sprint_id'])): ?>url += '&sprint_id=<?= $_GET['sprint_id'] ?>';<?php endif; ?>
+                           window.location.href = url;
+                       ">
                 <i class="bi bi-pause-circle"></i> Show Paused Sprints
             </label>
         </div>
-        
-        <script>
-        function handleShowClosedChange(checked) {
-            let url = '?tab=sprints';
-            <?php if ($filter_my_sprints): ?>url += '&filter_my_sprints=1';<?php endif; ?>
-            <?php if ($filter_responsible_only): ?>url += '&filter_responsible_only=1';<?php endif; ?>
-            if (checked) url += '&show_closed=1';
-            <?php if ($showPaused): ?>url += '&show_paused=1';<?php endif; ?>
-            <?php if (isset($_GET['sprint_id'])): ?>url += '&sprint_id=<?= $_GET['sprint_id'] ?>';<?php endif; ?>
-            window.location.href = url;
-            window.location.reload(true); // Force reload from server
-        }
-        
-        function handleShowPausedChange(checked) {
-            let url = '?tab=sprints';
-            <?php if ($filter_my_sprints): ?>url += '&filter_my_sprints=1';<?php endif; ?>
-            <?php if ($filter_responsible_only): ?>url += '&filter_responsible_only=1';<?php endif; ?>
-            <?php if ($showClosed): ?>url += '&show_closed=1';<?php endif; ?>
-            if (checked) url += '&show_paused=1';
-            <?php if (isset($_GET['sprint_id'])): ?>url += '&sprint_id=<?= $_GET['sprint_id'] ?>';<?php endif; ?>
-            window.location.href = url;
-            window.location.reload(true); // Force reload from server
-        }
-        </script>
         
         <!-- Sprint List -->
         <?php if (empty($sprints)): ?>

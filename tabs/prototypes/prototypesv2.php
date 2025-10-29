@@ -134,13 +134,6 @@ try {
     // Ignorar erro
 }
 
-// Obter filtros ANTES de processar ações POST (para uso nos redirecionamentos)
-$filterMine = isset($_GET['filter_mine']) ? $_GET['filter_mine'] === 'true' : false;
-$filterParticipate = isset($_GET['filter_participate']) ? $_GET['filter_participate'] === 'true' : false;
-$showClosedStories = isset($_GET['show_closed']) ? $_GET['show_closed'] === 'true' : false;
-$selectedPrototypeId = $_GET['prototype_id'] ?? null;
-$currentUserId = $_SESSION['user_id'] ?? null;
-
 // Processar ações
 $message = '';
 $messageType = '';
@@ -470,6 +463,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// Obter filtros
+$filterMine = isset($_GET['filter_mine']) ? $_GET['filter_mine'] === 'true' : false;
+$filterParticipate = isset($_GET['filter_participate']) ? $_GET['filter_participate'] === 'true' : false;
+$showClosedStories = isset($_GET['show_closed']) ? $_GET['show_closed'] === 'true' : false;
+$selectedPrototypeId = $_GET['prototype_id'] ?? null;
+$currentUserId = $_SESSION['user_id'] ?? null;
+
 // Buscar protótipos
 $whereConditions = [];
 $params = [];
@@ -545,6 +545,7 @@ if ($selectedPrototypeId) {
                 $stmt->execute([$story['id']]);
                 $story['sprints'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
+            unset($story); // CRÍTICO: Destruir a referência após o loop!
         }
         
         // Para cada story, obter tasks associadas (se módulo todos existe)
@@ -562,6 +563,7 @@ if ($selectedPrototypeId) {
                 $stmt->execute([$story['id']]);
                 $story['tasks'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
+            unset($story); // CRÍTICO: Destruir a referência após o loop!
         }
     }
 }

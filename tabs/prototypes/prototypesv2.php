@@ -18,6 +18,15 @@ try {
     die("<div class='alert alert-danger'>Erro de conexão à base de dados: " . htmlspecialchars($e->getMessage()) . "</div>");
 }
 
+// Verificar se tabela sprints existe
+$checkSprints = false;
+try {
+    $result = $pdo->query("SHOW TABLES LIKE 'sprints'");
+    $checkSprints = $result->rowCount() > 0;
+} catch (PDOException $e) {
+    $checkSprints = false;
+}
+
 // Criar tabelas necessárias
 try {
     // Tabela prototype_members
@@ -35,6 +44,23 @@ try {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     
+    // Tabela user_story_sprints (se sprints existe)
+    if ($checkSprints) {
+        $pdo->exec("
+        CREATE TABLE IF NOT EXISTS user_story_sprints (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            story_id INT NOT NULL,
+            sprint_id INT NOT NULL,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (story_id) REFERENCES user_stories(id) ON DELETE CASCADE,
+            FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE,
+            UNIQUE KEY unique_story_sprint (story_id, sprint_id),
+            INDEX idx_story (story_id),
+            INDEX idx_sprint (sprint_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+    }
+    
     // Verificar e adicionar coluna responsavel_id à tabela prototypes se não existir
     $checkColumn = $pdo->query("SHOW COLUMNS FROM prototypes LIKE 'responsavel_id'")->fetch();
     if (!$checkColumn) {
@@ -51,6 +77,17 @@ try {
     $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     // Ignorar erro
+}
+
+// Obter lista de sprints (se existir)
+$sprints = [];
+if ($checkSprints) {
+    try {
+        $stmt = $pdo->query("SELECT id, nome, estado FROM sprints WHERE estado != 'fechada' ORDER BY nome");
+        $sprints = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        // Ignorar erro
+    }
 }
 
 // Processar ações
@@ -143,6 +180,70 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message = "Membro removido com sucesso!";
                 $messageType = 'success';
                 break;
+                
+            case 'create_story':
+                $stmt = $pdo->prepare("
+                    INSERT INTO user_stories (prototype_id, story_text, moscow_priority, status, created_at)
+                    VALUES (?, ?, ?, 'open', NOW())
+                ");
+                $stmt->execute([
+                    $_POST['prototype_id'],
+                    $_POST['story_text'],
+                    $_POST['moscow_priority'] ?? 'Should'
+                ]);
+                $message = "User Story criada com sucesso!";
+                $messageType = 'success';
+                break;
+                
+            case 'update_story':
+                $stmt = $pdo->prepare("
+                    UPDATE user_stories SET 
+                        story_text=?, moscow_priority=?, status=?, updated_at=NOW()
+                    WHERE id=?
+                ");
+                $stmt->execute([
+                    $_POST['story_text'],
+                    $_POST['moscow_priority'],
+                    $_POST['status'],
+                    $_POST['story_id']
+                ]);
+                $message = "User Story atualizada com sucesso!";
+                $messageType = 'success';
+                break;
+                
+            case 'delete_story':
+                $stmt = $pdo->prepare("DELETE FROM user_stories WHERE id=?");
+                $stmt->execute([$_POST['story_id']]);
+                $message = "User Story eliminada com sucesso!";
+                $messageType = 'success';
+                break;
+                
+            case 'add_story_to_sprint':
+                if ($checkSprints) {
+                    $stmt = $pdo->prepare("
+                        INSERT IGNORE INTO user_story_sprints (story_id, sprint_id)
+                        VALUES (?, ?)
+                    ");
+                    $stmt->execute([
+                        $_POST['story_id'],
+                        $_POST['sprint_id']
+                    ]);
+                    $message = "User Story associada à sprint!";
+                    $messageType = 'success';
+                } else {
+                    $message = "Módulo de Sprints não está disponível!";
+                    $messageType = 'warning';
+                }
+                break;
+                
+            case 'remove_story_from_sprint':
+                if ($checkSprints) {
+                    $stmt = $pdo->prepare("DELETE FROM user_story_sprints WHERE id=?");
+                    $stmt->execute([$_POST['association_id']]);
+                    $message = "User Story removida da sprint!";
+                    $messageType = 'success';
+                }
+                break;
         }
     } catch (PDOException $e) {
         $message = "Erro: " . $e->getMessage();
@@ -153,6 +254,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Obter filtros
 $filterMine = isset($_GET['filter_mine']) ? $_GET['filter_mine'] === 'true' : false;
 $filterParticipate = isset($_GET['filter_participate']) ? $_GET['filter_participate'] === 'true' : false;
+$showClosedStories = isset($_GET['show_closed']) ? $_GET['show_closed'] === 'true' : false;
 $selectedPrototypeId = $_GET['prototype_id'] ?? null;
 $currentUserId = $_SESSION['user_id'] ?? null;
 
@@ -208,14 +310,30 @@ if ($selectedPrototypeId) {
         $stmt->execute([$selectedPrototypeId]);
         $selectedPrototype['members'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        // Obter user stories
+        // Obter user stories (com filtro de status)
+        $statusCondition = $showClosedStories ? "" : "AND status = 'open'";
         $stmt = $pdo->prepare("
             SELECT * FROM user_stories 
-            WHERE prototype_id = ? 
+            WHERE prototype_id = ? $statusCondition
             ORDER BY FIELD(moscow_priority, 'Must', 'Should', 'Could', 'Won''t'), id
         ");
         $stmt->execute([$selectedPrototypeId]);
         $selectedPrototype['stories'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Para cada story, obter sprints associadas (se módulo sprints existe)
+        if ($checkSprints) {
+            foreach ($selectedPrototype['stories'] as &$story) {
+                $stmt = $pdo->prepare("
+                    SELECT uss.id as association_id, s.id as sprint_id, s.nome, s.estado
+                    FROM user_story_sprints uss
+                    JOIN sprints s ON uss.sprint_id = s.id
+                    WHERE uss.story_id = ?
+                    ORDER BY s.nome
+                ");
+                $stmt->execute([$story['id']]);
+                $story['sprints'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+        }
     }
 }
 ?>
@@ -459,6 +577,16 @@ if ($selectedPrototypeId) {
     border-left-color: #94a3b8;
 }
 
+.story-item.closed {
+    opacity: 0.6;
+    background: #f8f9fa;
+}
+
+.story-item.closed .story-text {
+    text-decoration: line-through;
+    color: #6b7280;
+}
+
 .story-header {
     display: flex;
     justify-content: space-between;
@@ -497,6 +625,51 @@ if ($selectedPrototypeId) {
 .story-text {
     font-size: 14px;
     line-height: 1.6;
+    color: #374151;
+}
+
+.story-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
+.story-sprints {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.sprint-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.sprint-badge.aberta {
+    border-color: #10b981;
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.sprint-badge.pausa {
+    border-color: #f59e0b;
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.sprint-badge.fechada {
+    border-color: #6b7280;
+    background: #f3f4f6;
     color: #374151;
 }
 
@@ -566,6 +739,14 @@ if ($selectedPrototypeId) {
                            onchange="updateFilters()">
                     <label class="form-check-label" for="filterParticipate">
                         Participo
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="showClosedStories" 
+                           <?= $showClosedStories ? 'checked' : '' ?>
+                           onchange="updateFilters()">
+                    <label class="form-check-label" for="showClosedStories">
+                        Mostrar Stories Fechadas
                     </label>
                 </div>
             </div>
@@ -694,21 +875,102 @@ if ($selectedPrototypeId) {
             <div class="detail-section">
                 <div class="section-header">
                     <h5><i class="bi bi-book"></i> User Stories</h5>
+                    <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#newStoryModal">
+                        <i class="bi bi-plus-lg"></i> Nova Story
+                    </button>
                 </div>
                 
                 <div class="story-list">
                     <?php if (!empty($selectedPrototype['stories'])): ?>
                         <?php foreach ($selectedPrototype['stories'] as $story): ?>
-                            <div class="story-item <?= strtolower($story['moscow_priority']) ?>">
+                            <div class="story-item <?= strtolower($story['moscow_priority']) ?> <?= $story['status'] === 'closed' ? 'closed' : '' ?>">
                                 <div class="story-header">
                                     <span class="story-priority priority-<?= strtolower($story['moscow_priority']) ?>">
                                         <?= htmlspecialchars($story['moscow_priority']) ?> Have
+                                    </span>
+                                    <span class="badge <?= $story['status'] === 'closed' ? 'bg-secondary' : 'bg-info' ?>">
+                                        <?= $story['status'] === 'closed' ? 'Fechada' : 'Aberta' ?>
                                     </span>
                                 </div>
                                 <div class="story-text">
                                     <?= nl2br(htmlspecialchars($story['story_text'])) ?>
                                 </div>
+                                
+                                <!-- Sprints Associadas -->
+                                <?php if ($checkSprints && !empty($story['sprints'])): ?>
+                                <div class="story-sprints">
+                                    <small class="text-muted">Sprints:</small>
+                                    <?php foreach ($story['sprints'] as $sprint): ?>
+                                        <span class="sprint-badge <?= $sprint['estado'] ?>">
+                                            🏃 <?= htmlspecialchars($sprint['nome']) ?>
+                                            <form method="POST" style="display:inline;" onsubmit="return confirm('Remover desta sprint?')">
+                                                <input type="hidden" name="action" value="remove_story_from_sprint">
+                                                <input type="hidden" name="association_id" value="<?= $sprint['association_id'] ?>">
+                                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" style="line-height: 1;">
+                                                    <i class="bi bi-x"></i>
+                                                </button>
+                                            </form>
+                                        </span>
+                                    <?php endforeach; ?>
+                                </div>
+                                <?php endif; ?>
+                                
+                                <!-- Ações -->
+                                <div class="story-actions">
+                                    <button class="btn btn-sm btn-primary" onclick="editStory(<?= $story['id'] ?>, '<?= htmlspecialchars(addslashes($story['story_text'])) ?>', '<?= $story['moscow_priority'] ?>', '<?= $story['status'] ?>')">
+                                        <i class="bi bi-pencil"></i> Editar
+                                    </button>
+                                    <?php if ($checkSprints): ?>
+                                    <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#addStoryToSprintModal<?= $story['id'] ?>">
+                                        <i class="bi bi-link-45deg"></i> Associar Sprint
+                                    </button>
+                                    <?php endif; ?>
+                                    <form method="POST" style="display:inline;" onsubmit="return confirm('Eliminar esta story?')">
+                                        <input type="hidden" name="action" value="delete_story">
+                                        <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
+                                        <button type="submit" class="btn btn-sm btn-danger">
+                                            <i class="bi bi-trash"></i> Eliminar
+                                        </button>
+                                    </form>
+                                </div>
                             </div>
+                            
+                            <!-- Modal para associar à sprint (um por story) -->
+                            <?php if ($checkSprints): ?>
+                            <div class="modal fade" id="addStoryToSprintModal<?= $story['id'] ?>" tabindex="-1">
+                                <div class="modal-dialog">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">Associar Story à Sprint</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                        </div>
+                                        <form method="POST">
+                                            <div class="modal-body">
+                                                <input type="hidden" name="action" value="add_story_to_sprint">
+                                                <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
+                                                
+                                                <div class="mb-3">
+                                                    <label class="form-label">Sprint</label>
+                                                    <select name="sprint_id" class="form-select" required>
+                                                        <option value="">Selecione...</option>
+                                                        <?php foreach ($sprints as $sprint): ?>
+                                                            <option value="<?= $sprint['id'] ?>">
+                                                                <?= htmlspecialchars($sprint['nome']) ?> 
+                                                                (<?= htmlspecialchars($sprint['estado']) ?>)
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                <button type="submit" class="btn btn-success">Associar</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                            <?php endif; ?>
                         <?php endforeach; ?>
                     <?php else: ?>
                         <p class="text-muted">Nenhuma user story criada</p>
@@ -961,18 +1223,104 @@ if ($selectedPrototypeId) {
         </div>
     </div>
 </div>
+
+<!-- Modal: Nova User Story -->
+<div class="modal fade" id="newStoryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Nova User Story</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="create_story">
+                    <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Story Text *</label>
+                        <textarea name="story_text" class="form-control" rows="4" required 
+                                  placeholder="Como [tipo de usuário], eu quero [objetivo], para [benefício]"></textarea>
+                        <small class="text-muted">Formato: Como [usuário], eu quero [ação], para [benefício]</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">MoSCoW Priority</label>
+                        <select name="moscow_priority" class="form-select">
+                            <option value="Must">Must Have</option>
+                            <option value="Should" selected>Should Have</option>
+                            <option value="Could">Could Have</option>
+                            <option value="Won't">Won't Have</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success">Criar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Editar User Story -->
+<div class="modal fade" id="editStoryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Editar User Story</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="update_story">
+                    <input type="hidden" name="story_id" id="edit_story_id">
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Story Text *</label>
+                        <textarea name="story_text" id="edit_story_text" class="form-control" rows="4" required></textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">MoSCoW Priority</label>
+                        <select name="moscow_priority" id="edit_story_priority" class="form-select">
+                            <option value="Must">Must Have</option>
+                            <option value="Should">Should Have</option>
+                            <option value="Could">Could Have</option>
+                            <option value="Won't">Won't Have</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Status</label>
+                        <select name="status" id="edit_story_status" class="form-select">
+                            <option value="open">Aberta</option>
+                            <option value="closed">Fechada</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 <?php endif; ?>
 
 <script>
 function updateFilters() {
     const filterMine = document.getElementById('filterMine').checked;
     const filterParticipate = document.getElementById('filterParticipate').checked;
+    const showClosedStories = document.getElementById('showClosedStories').checked;
     const prototypeId = <?= $selectedPrototypeId ?? 'null' ?>;
     
     let url = '?tab=prototypes/prototypesv2';
     if (prototypeId) url += '&prototype_id=' + prototypeId;
     if (filterMine) url += '&filter_mine=true';
     if (filterParticipate) url += '&filter_participate=true';
+    if (showClosedStories) url += '&show_closed=true';
     
     window.location.href = url;
 }
@@ -985,5 +1333,15 @@ function filterPrototypes() {
         const text = item.textContent.toLowerCase();
         item.style.display = text.includes(search) ? 'block' : 'none';
     });
+}
+
+function editStory(id, text, priority, status) {
+    document.getElementById('edit_story_id').value = id;
+    document.getElementById('edit_story_text').value = text;
+    document.getElementById('edit_story_priority').value = priority;
+    document.getElementById('edit_story_status').value = status;
+    
+    const modal = new bootstrap.Modal(document.getElementById('editStoryModal'));
+    modal.show();
 }
 </script>

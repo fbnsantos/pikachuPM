@@ -81,6 +81,23 @@ try {
     if (!$checkCompletionColumn) {
         $pdo->exec("ALTER TABLE user_stories ADD COLUMN completion_percentage INT DEFAULT 0 AFTER status");
     }
+    
+    // Criar tabela story_tasks para associar tasks a stories (se todos existe)
+    if ($checkTodos) {
+        $pdo->exec("
+        CREATE TABLE IF NOT EXISTS story_tasks (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            story_id INT NOT NULL,
+            todo_id INT NOT NULL,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (story_id) REFERENCES user_stories(id) ON DELETE CASCADE,
+            FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE,
+            UNIQUE KEY unique_story_task (story_id, todo_id),
+            INDEX idx_story (story_id),
+            INDEX idx_task (todo_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+    }
 } catch (PDOException $e) {
     // Tabelas já existem
 }
@@ -336,6 +353,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $messageType = 'success';
                 }
                 break;
+                
+            case 'add_task_to_story':
+                if ($checkTodos) {
+                    $stmt = $pdo->prepare("
+                        INSERT IGNORE INTO story_tasks (story_id, todo_id)
+                        VALUES (?, ?)
+                    ");
+                    $stmt->execute([
+                        $_POST['story_id'],
+                        $_POST['todo_id']
+                    ]);
+                    $message = "Task associada à user story!";
+                    $messageType = 'success';
+                } else {
+                    $message = "Módulo de Tasks não está disponível!";
+                    $messageType = 'warning';
+                }
+                break;
+                
+            case 'remove_task_from_story':
+                if ($checkTodos) {
+                    $stmt = $pdo->prepare("DELETE FROM story_tasks WHERE id=?");
+                    $stmt->execute([$_POST['association_id']]);
+                    $message = "Task removida da user story!";
+                    $messageType = 'success';
+                }
+                break;
         }
     } catch (PDOException $e) {
         $message = "Erro: " . $e->getMessage();
@@ -426,6 +470,43 @@ if ($selectedPrototypeId) {
                 $story['sprints'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
         }
+        
+        // Para cada story, obter tasks associadas (se módulo todos existe)
+        if ($checkTodos) {
+            foreach ($selectedPrototype['stories'] as &$story) {
+                $stmt = $pdo->prepare("
+                    SELECT st.id as association_id, t.*, u1.username as autor_nome, u2.username as responsavel_nome
+                    FROM story_tasks st
+                    JOIN todos t ON st.todo_id = t.id
+                    LEFT JOIN user_tokens u1 ON t.autor = u1.user_id
+                    LEFT JOIN user_tokens u2 ON t.responsavel = u2.user_id
+                    WHERE st.story_id = ?
+                    ORDER BY t.created_at DESC
+                ");
+                $stmt->execute([$story['id']]);
+                $story['tasks'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+        }
+    }
+}
+
+// Buscar tasks disponíveis para associar (se um protótipo está selecionado e todos existe)
+$availableTasks = [];
+if ($selectedPrototype && $checkTodos) {
+    try {
+        $stmt = $pdo->query("
+            SELECT t.id, t.titulo, t.estado, t.data_limite,
+                   u1.username as autor_nome, u2.username as responsavel_nome
+            FROM todos t 
+            LEFT JOIN user_tokens u1 ON t.autor = u1.user_id 
+            LEFT JOIN user_tokens u2 ON t.responsavel = u2.user_id
+            WHERE t.estado != 'completada'
+            ORDER BY t.created_at DESC
+            LIMIT 200
+        ");
+        $availableTasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $availableTasks = [];
     }
 }
 ?>
@@ -815,6 +896,79 @@ if ($selectedPrototypeId) {
     font-size: 11px;
 }
 
+.story-tasks {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.task-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    transition: all 0.2s;
+}
+
+.task-badge:hover {
+    border-color: #3b82f6;
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
+}
+
+.task-badge.aberta {
+    border-left: 3px solid #fbbf24;
+}
+
+.task-badge.em-execucao {
+    border-left: 3px solid #3b82f6;
+}
+
+.task-badge.suspensa {
+    border-left: 3px solid #f59e0b;
+}
+
+.task-badge.completada {
+    border-left: 3px solid #10b981;
+    opacity: 0.7;
+}
+
+.task-info {
+    flex: 1;
+}
+
+.task-title {
+    font-weight: 500;
+    color: #1a202c;
+    margin-bottom: 4px;
+}
+
+.task-meta {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.filter-select {
+    margin-bottom: 10px;
+}
+
+.filter-select input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #e1e8ed;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.filter-select input:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+
 .btn-group {
     display: flex;
     gap: 10px;
@@ -1073,6 +1227,38 @@ if ($selectedPrototypeId) {
                                 </div>
                                 <?php endif; ?>
                                 
+                                <!-- Tasks Associadas -->
+                                <?php if ($checkTodos && !empty($story['tasks'])): ?>
+                                <div class="story-tasks">
+                                    <small class="text-muted mb-2 d-block">Tasks Associadas:</small>
+                                    <?php foreach ($story['tasks'] as $task): ?>
+                                        <div class="task-badge <?= $task['estado'] ?>">
+                                            <div class="task-info">
+                                                <div class="task-title">
+                                                    <?= htmlspecialchars($task['titulo']) ?>
+                                                </div>
+                                                <div class="task-meta">
+                                                    <span class="badge badge-sm bg-secondary"><?= htmlspecialchars($task['estado']) ?></span>
+                                                    <?php if ($task['responsavel_nome']): ?>
+                                                        👤 <?= htmlspecialchars($task['responsavel_nome']) ?>
+                                                    <?php endif; ?>
+                                                    <?php if ($task['data_limite']): ?>
+                                                        📅 <?= date('d/m/Y', strtotime($task['data_limite'])) ?>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                            <form method="POST" style="display:inline;" onsubmit="return confirm('Remover esta task?')">
+                                                <input type="hidden" name="action" value="remove_task_from_story">
+                                                <input type="hidden" name="association_id" value="<?= $task['association_id'] ?>">
+                                                <button type="submit" class="btn btn-sm btn-link text-danger p-0">
+                                                    <i class="bi bi-x-lg"></i>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                                <?php endif; ?>
+                                
                                 <!-- Ações -->
                                 <div class="story-actions">
                                     <button class="btn btn-sm btn-primary" onclick="editStory(<?= $story['id'] ?>, '<?= htmlspecialchars(addslashes($story['story_text'])) ?>', '<?= $story['moscow_priority'] ?>', '<?= $story['status'] ?>')">
@@ -1101,6 +1287,9 @@ if ($selectedPrototypeId) {
                                     </button>
                                     <?php endif; ?>
                                     <?php if ($checkTodos): ?>
+                                    <button class="btn btn-sm btn-warning" data-bs-toggle="modal" data-bs-target="#addTaskToStoryModal<?= $story['id'] ?>">
+                                        <i class="bi bi-link-45deg"></i> Associar Task
+                                    </button>
                                     <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#createTaskModal<?= $story['id'] ?>">
                                         <i class="bi bi-plus-circle"></i> Criar Task
                                     </button>
@@ -1130,8 +1319,15 @@ if ($selectedPrototypeId) {
                                                 <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
                                                 
                                                 <div class="mb-3">
+                                                    <label class="form-label">Filtrar Sprints</label>
+                                                    <input type="text" class="form-control" id="filterSprintInput<?= $story['id'] ?>" 
+                                                           placeholder="Digite para filtrar..." 
+                                                           onkeyup="filterSprintOptions(<?= $story['id'] ?>)">
+                                                </div>
+                                                
+                                                <div class="mb-3">
                                                     <label class="form-label">Sprint</label>
-                                                    <select name="sprint_id" class="form-select" required>
+                                                    <select name="sprint_id" id="sprintSelect<?= $story['id'] ?>" class="form-select" required size="8">
                                                         <option value="">Selecione...</option>
                                                         <?php foreach ($sprints as $sprint): ?>
                                                             <option value="<?= $sprint['id'] ?>">
@@ -1140,6 +1336,65 @@ if ($selectedPrototypeId) {
                                                             </option>
                                                         <?php endforeach; ?>
                                                     </select>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                <button type="submit" class="btn btn-success">Associar</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                            
+                            <!-- Modal para associar task existente (um por story) -->
+                            <?php if ($checkTodos): ?>
+                            <div class="modal fade" id="addTaskToStoryModal<?= $story['id'] ?>" tabindex="-1">
+                                <div class="modal-dialog modal-lg">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">Associar Task à User Story</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                        </div>
+                                        <form method="POST">
+                                            <div class="modal-body">
+                                                <input type="hidden" name="action" value="add_task_to_story">
+                                                <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
+                                                
+                                                <div class="mb-3">
+                                                    <label class="form-label">Filtrar Tasks</label>
+                                                    <input type="text" class="form-control" id="filterTaskInput<?= $story['id'] ?>" 
+                                                           placeholder="Digite para filtrar..." 
+                                                           onkeyup="filterTaskOptions(<?= $story['id'] ?>)">
+                                                </div>
+                                                
+                                                <div class="mb-3">
+                                                    <label class="form-label">Task</label>
+                                                    <select name="todo_id" id="taskSelect<?= $story['id'] ?>" class="form-select" required size="12">
+                                                        <option value="">Selecione uma task...</option>
+                                                        <?php 
+                                                        // Obter IDs de tasks já associadas a esta story
+                                                        $associatedTaskIds = array_column($story['tasks'] ?? [], 'id');
+                                                        
+                                                        foreach ($availableTasks as $task): 
+                                                            // Não mostrar tasks já associadas
+                                                            if (in_array($task['id'], $associatedTaskIds)) continue;
+                                                        ?>
+                                                            <option value="<?= $task['id'] ?>">
+                                                                [<?= htmlspecialchars($task['estado']) ?>] <?= htmlspecialchars($task['titulo']) ?>
+                                                                <?php if ($task['responsavel_nome']): ?>
+                                                                    - 👤 <?= htmlspecialchars($task['responsavel_nome']) ?>
+                                                                <?php endif; ?>
+                                                                <?php if ($task['data_limite']): ?>
+                                                                    - 📅 <?= date('d/m/Y', strtotime($task['data_limite'])) ?>
+                                                                <?php endif; ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                    <small class="text-muted">
+                                                        <?= count($availableTasks) - count($associatedTaskIds) ?> tasks disponíveis
+                                                    </small>
                                                 </div>
                                             </div>
                                             <div class="modal-footer">
@@ -1647,5 +1902,37 @@ function editPercentage(storyId, currentPercentage) {
     
     const modal = new bootstrap.Modal(document.getElementById('editPercentageModal'));
     modal.show();
+}
+
+function filterSprintOptions(storyId) {
+    const input = document.getElementById('filterSprintInput' + storyId);
+    const select = document.getElementById('sprintSelect' + storyId);
+    const filter = input.value.toLowerCase();
+    const options = select.getElementsByTagName('option');
+    
+    for (let i = 0; i < options.length; i++) {
+        const txtValue = options[i].textContent || options[i].innerText;
+        if (txtValue.toLowerCase().indexOf(filter) > -1 || options[i].value === '') {
+            options[i].style.display = '';
+        } else {
+            options[i].style.display = 'none';
+        }
+    }
+}
+
+function filterTaskOptions(storyId) {
+    const input = document.getElementById('filterTaskInput' + storyId);
+    const select = document.getElementById('taskSelect' + storyId);
+    const filter = input.value.toLowerCase();
+    const options = select.getElementsByTagName('option');
+    
+    for (let i = 0; i < options.length; i++) {
+        const txtValue = options[i].textContent || options[i].innerText;
+        if (txtValue.toLowerCase().indexOf(filter) > -1 || options[i].value === '') {
+            options[i].style.display = '';
+        } else {
+            options[i].style.display = 'none';
+        }
+    }
 }
 </script>

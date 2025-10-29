@@ -115,10 +115,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $mensagem = "Utilizador '{$username}' importado com sucesso do Redmine!";
         }
         
-        // Download da base de dados
-        if (isset($_POST['download_db'])) {
-            $filename = "backup_" . $dbSelecionada . "_" . date('Y-m-d_H-i-s') . ".sql";
-            
         // Executar SQL customizado
         if (isset($_POST['execute_sql'])) {
             $sql_query = trim($_POST['sql_query'] ?? '');
@@ -171,6 +167,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $erro = "Erro ao executar SQL: " . $sql_error;
             }
         }
+        
+        // Download da base de dados
+        if (isset($_POST['download_db'])) {
+            $filename = "backup_" . $dbSelecionada . "_" . date('Y-m-d_H-i-s') . ".sql";
             
             header('Content-Type: application/octet-stream');
             header('Content-Disposition: attachment; filename="' . $filename . '"');

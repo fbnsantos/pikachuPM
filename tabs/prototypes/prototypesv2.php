@@ -313,13 +313,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                     $todo_id = $pdo->lastInsertId();
                     
+                    // Associar automaticamente à user story
+                    if (!empty($_POST['story_id'])) {
+                        $stmt = $pdo->prepare("INSERT IGNORE INTO story_tasks (story_id, todo_id) VALUES (?, ?)");
+                        $stmt->execute([$_POST['story_id'], $todo_id]);
+                    }
+                    
                     // Se foi selecionada uma sprint, associar automaticamente
                     if (!empty($_POST['sprint_id']) && $checkSprints) {
-                        $stmt = $pdo->prepare("INSERT INTO sprint_tasks (sprint_id, todo_id) VALUES (?, ?)");
+                        $stmt = $pdo->prepare("INSERT IGNORE INTO sprint_tasks (sprint_id, todo_id) VALUES (?, ?)");
                         $stmt->execute([$_POST['sprint_id'], $todo_id]);
                     }
                     
-                    $message = "Task criada com sucesso!";
+                    $message = "Task criada e associada com sucesso!";
                     $messageType = 'success';
                 } else {
                     $message = "Módulo de Tasks não está disponível!";
@@ -1424,6 +1430,7 @@ if ($selectedPrototype && $checkTodos) {
                                         <form method="POST">
                                             <div class="modal-body">
                                                 <input type="hidden" name="action" value="create_task_from_story">
+                                                <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
                                                 
                                                 <div class="alert alert-info">
                                                     <strong>User Story:</strong><br>

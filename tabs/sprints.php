@@ -587,18 +587,17 @@ try {
             WHERE s.responsavel_id = ?
         ";
         
-        // Construir condições de filtro
-        $conditions = [];
-        if (!$showClosed) {
-            $conditions[] = "s.estado != 'concluída'";
+        // Por padrão, mostrar apenas abertas e em execução
+        // Adicionar estados conforme checkboxes marcados
+        $estados_permitidos = ["'aberta'", "'em execução'"];
+        if ($showPaused) {
+            $estados_permitidos[] = "'suspensa'";
         }
-        if (!$showPaused) {
-            $conditions[] = "s.estado != 'suspensa'";
+        if ($showClosed) {
+            $estados_permitidos[] = "'concluída'";
         }
         
-        if (!empty($conditions)) {
-            $query .= " AND (" . implode(' AND ', $conditions) . ")";
-        }
+        $query .= " AND s.estado IN (" . implode(', ', $estados_permitidos) . ")";
         
         $query .= " ORDER BY 
                     CASE s.estado 
@@ -631,18 +630,17 @@ try {
             WHERE (s.responsavel_id = ? OR sm.user_id IS NOT NULL)
         ";
         
-        // Construir condições de filtro
-        $conditions = [];
-        if (!$showClosed) {
-            $conditions[] = "s.estado != 'concluída'";
+        // Por padrão, mostrar apenas abertas e em execução
+        // Adicionar estados conforme checkboxes marcados
+        $estados_permitidos = ["'aberta'", "'em execução'"];
+        if ($showPaused) {
+            $estados_permitidos[] = "'suspensa'";
         }
-        if (!$showPaused) {
-            $conditions[] = "s.estado != 'suspensa'";
+        if ($showClosed) {
+            $estados_permitidos[] = "'concluída'";
         }
         
-        if (!empty($conditions)) {
-            $query .= " AND (" . implode(' AND ', $conditions) . ")";
-        }
+        $query .= " AND s.estado IN (" . implode(', ', $estados_permitidos) . ")";
         
         $query .= " ORDER BY 
                     CASE s.estado 
@@ -673,18 +671,17 @@ try {
             LEFT JOIN sprint_members sm ON s.id = sm.sprint_id AND sm.user_id = ?
         ";
         
-        // Construir condições de filtro
-        $conditions = [];
-        if (!$showClosed) {
-            $conditions[] = "s.estado != 'concluída'";
+        // Por padrão, mostrar apenas abertas e em execução
+        // Adicionar estados conforme checkboxes marcados
+        $estados_permitidos = ["'aberta'", "'em execução'"];
+        if ($showPaused) {
+            $estados_permitidos[] = "'suspensa'";
         }
-        if (!$showPaused) {
-            $conditions[] = "s.estado != 'suspensa'";
+        if ($showClosed) {
+            $estados_permitidos[] = "'concluída'";
         }
         
-        if (!empty($conditions)) {
-            $query .= " WHERE " . implode(' AND ', $conditions);
-        }
+        $query .= " WHERE s.estado IN (" . implode(', ', $estados_permitidos) . ")";
         
         $query .= " GROUP BY s.id
                     ORDER BY 

@@ -134,6 +134,13 @@ try {
     // Ignorar erro
 }
 
+// Obter filtros ANTES de processar ações POST (para uso nos redirecionamentos)
+$filterMine = isset($_GET['filter_mine']) ? $_GET['filter_mine'] === 'true' : false;
+$filterParticipate = isset($_GET['filter_participate']) ? $_GET['filter_participate'] === 'true' : false;
+$showClosedStories = isset($_GET['show_closed']) ? $_GET['show_closed'] === 'true' : false;
+$selectedPrototypeId = $_GET['prototype_id'] ?? null;
+$currentUserId = $_SESSION['user_id'] ?? null;
+
 // Processar ações
 $message = '';
 $messageType = '';
@@ -462,13 +469,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $messageType = 'danger';
     }
 }
-
-// Obter filtros
-$filterMine = isset($_GET['filter_mine']) ? $_GET['filter_mine'] === 'true' : false;
-$filterParticipate = isset($_GET['filter_participate']) ? $_GET['filter_participate'] === 'true' : false;
-$showClosedStories = isset($_GET['show_closed']) ? $_GET['show_closed'] === 'true' : false;
-$selectedPrototypeId = $_GET['prototype_id'] ?? null;
-$currentUserId = $_SESSION['user_id'] ?? null;
 
 // Buscar protótipos
 $whereConditions = [];

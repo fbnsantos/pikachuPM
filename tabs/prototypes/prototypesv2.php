@@ -237,6 +237,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 $message = "User Story criada com sucesso!";
                 $messageType = 'success';
+                
+                // Redirecionar para evitar resubmissão do formulário
+                $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $_POST['prototype_id'];
+                if ($filterMine) $redirectUrl .= "&filter_mine=true";
+                if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($showClosedStories) $redirectUrl .= "&show_closed=true";
+                header("Location: " . $redirectUrl);
+                exit;
                 break;
                 
             case 'update_story':
@@ -253,6 +261,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 $message = "User Story atualizada com sucesso!";
                 $messageType = 'success';
+                
+                // Redirecionar para evitar resubmissão do formulário
+                $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                if ($filterMine) $redirectUrl .= "&filter_mine=true";
+                if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($showClosedStories) $redirectUrl .= "&show_closed=true";
+                header("Location: " . $redirectUrl);
+                exit;
                 break;
                 
             case 'update_story_percentage':
@@ -265,6 +281,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$percentage, $_POST['story_id']]);
                 $message = "Percentagem atualizada com sucesso!";
                 $messageType = 'success';
+                
+                // Redirecionar
+                $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                if ($filterMine) $redirectUrl .= "&filter_mine=true";
+                if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($showClosedStories) $redirectUrl .= "&show_closed=true";
+                header("Location: " . $redirectUrl);
+                exit;
                 break;
                 
             case 'toggle_story_status':
@@ -281,13 +305,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$_POST['story_id']]);
                 $message = "Status da story atualizado com sucesso!";
                 $messageType = 'success';
+                
+                // Redirecionar
+                $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                if ($filterMine) $redirectUrl .= "&filter_mine=true";
+                if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($showClosedStories) $redirectUrl .= "&show_closed=true";
+                header("Location: " . $redirectUrl);
+                exit;
                 break;
                 
             case 'delete_story':
                 $stmt = $pdo->prepare("DELETE FROM user_stories WHERE id=?");
                 $stmt->execute([$_POST['story_id']]);
-                $message = "User Story eliminada com sucesso!";
-                $messageType = 'success';
+                
+                // Redirecionar
+                $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                if ($filterMine) $redirectUrl .= "&filter_mine=true";
+                if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($showClosedStories) $redirectUrl .= "&show_closed=true";
+                header("Location: " . $redirectUrl);
+                exit;
                 break;
                 
             case 'create_task_from_story':
@@ -327,6 +365,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                     $message = "Task criada e associada com sucesso!";
                     $messageType = 'success';
+                    
+                    // Redirecionar
+                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                    if ($filterMine) $redirectUrl .= "&filter_mine=true";
+                    if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                    if ($showClosedStories) $redirectUrl .= "&show_closed=true";
+                    header("Location: " . $redirectUrl);
+                    exit;
                 } else {
                     $message = "Módulo de Tasks não está disponível!";
                     $messageType = 'warning';
@@ -343,8 +389,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $_POST['story_id'],
                         $_POST['sprint_id']
                     ]);
-                    $message = "User Story associada à sprint!";
-                    $messageType = 'success';
+                    
+                    // Redirecionar
+                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                    if ($filterMine) $redirectUrl .= "&filter_mine=true";
+                    if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                    if ($showClosedStories) $redirectUrl .= "&show_closed=true";
+                    header("Location: " . $redirectUrl);
+                    exit;
                 } else {
                     $message = "Módulo de Sprints não está disponível!";
                     $messageType = 'warning';
@@ -355,8 +407,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($checkSprints) {
                     $stmt = $pdo->prepare("DELETE FROM user_story_sprints WHERE id=?");
                     $stmt->execute([$_POST['association_id']]);
-                    $message = "User Story removida da sprint!";
-                    $messageType = 'success';
+                    
+                    // Redirecionar
+                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                    if ($filterMine) $redirectUrl .= "&filter_mine=true";
+                    if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                    if ($showClosedStories) $redirectUrl .= "&show_closed=true";
+                    header("Location: " . $redirectUrl);
+                    exit;
                 }
                 break;
                 
@@ -370,8 +428,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $_POST['story_id'],
                         $_POST['todo_id']
                     ]);
-                    $message = "Task associada à user story!";
-                    $messageType = 'success';
+                    
+                    // Redirecionar
+                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                    if ($filterMine) $redirectUrl .= "&filter_mine=true";
+                    if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                    if ($showClosedStories) $redirectUrl .= "&show_closed=true";
+                    header("Location: " . $redirectUrl);
+                    exit;
                 } else {
                     $message = "Módulo de Tasks não está disponível!";
                     $messageType = 'warning';
@@ -382,8 +446,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($checkTodos) {
                     $stmt = $pdo->prepare("DELETE FROM story_tasks WHERE id=?");
                     $stmt->execute([$_POST['association_id']]);
-                    $message = "Task removida da user story!";
-                    $messageType = 'success';
+                    
+                    // Redirecionar
+                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                    if ($filterMine) $redirectUrl .= "&filter_mine=true";
+                    if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                    if ($showClosedStories) $redirectUrl .= "&show_closed=true";
+                    header("Location: " . $redirectUrl);
+                    exit;
                 }
                 break;
         }

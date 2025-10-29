@@ -250,6 +250,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $messageType = 'success';
                 break;
                 
+            case 'toggle_story_status':
+                // Alternar status entre open e closed
+                $stmt = $pdo->prepare("
+                    UPDATE user_stories SET 
+                        status = CASE 
+                            WHEN status = 'open' THEN 'closed' 
+                            ELSE 'open' 
+                        END,
+                        updated_at = NOW()
+                    WHERE id = ?
+                ");
+                $stmt->execute([$_POST['story_id']]);
+                $message = "Status da story atualizado com sucesso!";
+                $messageType = 'success';
+                break;
+                
             case 'delete_story':
                 $stmt = $pdo->prepare("DELETE FROM user_stories WHERE id=?");
                 $stmt->execute([$_POST['story_id']]);
@@ -1062,6 +1078,23 @@ if ($selectedPrototypeId) {
                                     <button class="btn btn-sm btn-primary" onclick="editStory(<?= $story['id'] ?>, '<?= htmlspecialchars(addslashes($story['story_text'])) ?>', '<?= $story['moscow_priority'] ?>', '<?= $story['status'] ?>')">
                                         <i class="bi bi-pencil"></i> Editar
                                     </button>
+                                    <?php if ($story['status'] === 'open'): ?>
+                                    <form method="POST" style="display:inline;">
+                                        <input type="hidden" name="action" value="toggle_story_status">
+                                        <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
+                                        <button type="submit" class="btn btn-sm btn-success">
+                                            <i class="bi bi-check-circle"></i> Fechar Story
+                                        </button>
+                                    </form>
+                                    <?php else: ?>
+                                    <form method="POST" style="display:inline;">
+                                        <input type="hidden" name="action" value="toggle_story_status">
+                                        <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
+                                        <button type="submit" class="btn btn-sm btn-warning">
+                                            <i class="bi bi-arrow-counterclockwise"></i> Reabrir Story
+                                        </button>
+                                    </form>
+                                    <?php endif; ?>
                                     <?php if ($checkSprints): ?>
                                     <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#addStoryToSprintModal<?= $story['id'] ?>">
                                         <i class="bi bi-link-45deg"></i> Associar Sprint

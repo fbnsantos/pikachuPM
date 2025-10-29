@@ -74,6 +74,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
+    // MUDAR ESTADO (Botão de Concluir) - POST Normal
+    if ($action === 'change_estado' && !isset($_POST['ajax'])) {
+        $todo_id = (int)$_POST['todo_id'];
+        $new_estado = $_POST['new_estado'];
+        
+        $valid_estados = ['aberta', 'em execução', 'suspensa', 'concluída'];
+        
+        if (!in_array($new_estado, $valid_estados)) {
+            $error_message = '❌ Estado inválido.';
+        } else {
+            $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ? AND (autor = ? OR responsavel = ?)');
+            $stmt->bind_param('siii', $new_estado, $todo_id, $user_id, $user_id);
+            
+            if ($stmt->execute() && $stmt->affected_rows > 0) {
+                $success_message = '✅ Tarefa marcada como ' . $new_estado . '!';
+            } else {
+                $error_message = '❌ Erro ao atualizar ou sem permissão.';
+            }
+            $stmt->close();
+        }
+    }
+    
     // ADICIONAR NOVA TASK (Via Modal Simples)
     if ($action === 'add') {
         $titulo = trim($_POST['titulo']);
@@ -386,11 +408,6 @@ $db->close();
             ];
             
             foreach ($estados_config as $estado => $config):
-                // Pular coluna de concluídas se checkbox não estiver marcado
-                if ($estado === 'concluída' && !$show_completed) {
-                    continue;
-                }
-                
                 $tasks = $todos_by_estado[$estado];
             ?>
                 <div>
@@ -432,6 +449,19 @@ $db->close();
                                                 data-task-id="<?= $todo['id'] ?>" title="Editar">
                                             <i class="bi bi-pencil"></i>
                                         </button>
+                                        
+                                        <?php if ($estado !== 'concluída'): ?>
+                                        <form method="POST" style="display: inline;" 
+                                              onsubmit="return confirm('Marcar esta tarefa como concluída?');">
+                                            <input type="hidden" name="action" value="change_estado">
+                                            <input type="hidden" name="todo_id" value="<?= $todo['id'] ?>">
+                                            <input type="hidden" name="new_estado" value="concluída">
+                                            <button type="submit" class="btn btn-sm btn-success btn-task-action" title="Marcar como concluída">
+                                                <i class="bi bi-check-lg"></i>
+                                            </button>
+                                        </form>
+                                        <?php endif; ?>
+                                        
                                         <form method="POST" style="display: inline;" 
                                               onsubmit="return confirm('Tem certeza que deseja eliminar esta tarefa?');">
                                             <input type="hidden" name="action" value="delete">
@@ -492,6 +522,19 @@ $db->close();
                                         data-task-id="<?= $todo['id'] ?>" title="Editar">
                                     <i class="bi bi-pencil"></i>
                                 </button>
+                                
+                                <?php if ($todo['estado'] !== 'concluída'): ?>
+                                <form method="POST" style="display: inline;" 
+                                      onsubmit="return confirm('Marcar esta tarefa como concluída?');">
+                                    <input type="hidden" name="action" value="change_estado">
+                                    <input type="hidden" name="todo_id" value="<?= $todo['id'] ?>">
+                                    <input type="hidden" name="new_estado" value="concluída">
+                                    <button type="submit" class="btn btn-sm btn-success" title="Marcar como concluída">
+                                        <i class="bi bi-check-lg"></i>
+                                    </button>
+                                </form>
+                                <?php endif; ?>
+                                
                                 <form method="POST" style="display: inline;" 
                                       onsubmit="return confirm('Tem certeza que deseja eliminar esta tarefa?');">
                                     <input type="hidden" name="action" value="delete">

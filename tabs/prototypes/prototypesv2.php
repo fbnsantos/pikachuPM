@@ -27,6 +27,15 @@ try {
     $checkSprints = false;
 }
 
+// Verificar se tabela todos existe
+$checkTodos = false;
+try {
+    $result = $pdo->query("SHOW TABLES LIKE 'todos'");
+    $checkTodos = $result->rowCount() > 0;
+} catch (PDOException $e) {
+    $checkTodos = false;
+}
+
 // Criar tabelas necessárias
 try {
     // Tabela prototype_members
@@ -66,6 +75,12 @@ try {
     if (!$checkColumn) {
         $pdo->exec("ALTER TABLE prototypes ADD COLUMN responsavel_id INT NULL AFTER name");
     }
+    
+    // Verificar e adicionar coluna completion_percentage à tabela user_stories
+    $checkCompletionColumn = $pdo->query("SHOW COLUMNS FROM user_stories LIKE 'completion_percentage'")->fetch();
+    if (!$checkCompletionColumn) {
+        $pdo->exec("ALTER TABLE user_stories ADD COLUMN completion_percentage INT DEFAULT 0 AFTER status");
+    }
 } catch (PDOException $e) {
     // Tabelas já existem
 }
@@ -88,6 +103,18 @@ if ($checkSprints) {
     } catch (PDOException $e) {
         // Ignorar erro
     }
+}
+
+// Obter lista de projetos (se existir)
+$projects = [];
+try {
+    $result = $pdo->query("SHOW TABLES LIKE 'projects'");
+    if ($result->rowCount() > 0) {
+        $stmt = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY short_name");
+        $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+} catch (PDOException $e) {
+    // Ignorar erro
 }
 
 // Processar ações
@@ -183,8 +210,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
             case 'create_story':
                 $stmt = $pdo->prepare("
-                    INSERT INTO user_stories (prototype_id, story_text, moscow_priority, status, created_at)
-                    VALUES (?, ?, ?, 'open', NOW())
+                    INSERT INTO user_stories (prototype_id, story_text, moscow_priority, status, completion_percentage, created_at)
+                    VALUES (?, ?, ?, 'open', 0, NOW())
                 ");
                 $stmt->execute([
                     $_POST['prototype_id'],
@@ -211,11 +238,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $messageType = 'success';
                 break;
                 
+            case 'update_story_percentage':
+                $stmt = $pdo->prepare("
+                    UPDATE user_stories SET 
+                        completion_percentage=?, updated_at=NOW()
+                    WHERE id=?
+                ");
+                $percentage = max(0, min(100, (int)$_POST['percentage']));
+                $stmt->execute([$percentage, $_POST['story_id']]);
+                $message = "Percentagem atualizada com sucesso!";
+                $messageType = 'success';
+                break;
+                
             case 'delete_story':
                 $stmt = $pdo->prepare("DELETE FROM user_stories WHERE id=?");
                 $stmt->execute([$_POST['story_id']]);
                 $message = "User Story eliminada com sucesso!";
                 $messageType = 'success';
+                break;
+                
+            case 'create_task_from_story':
+                if ($checkTodos) {
+                    $current_user_id = $_SESSION['user_id'] ?? null;
+                    if (!$current_user_id) {
+                        throw new Exception('Sessão expirada. Por favor, faça login novamente.');
+                    }
+                    
+                    // Criar a task
+                    $stmt = $pdo->prepare("
+                        INSERT INTO todos (titulo, descritivo, data_limite, autor, responsavel, projeto_id, estado, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, 'aberta', NOW())
+                    ");
+                    $stmt->execute([
+                        $_POST['titulo'],
+                        $_POST['descritivo'] ?? '',
+                        $_POST['data_limite'] ?: null,
+                        $current_user_id,
+                        $_POST['responsavel'] ?: null,
+                        $_POST['projeto_id'] ?: null
+                    ]);
+                    
+                    $todo_id = $pdo->lastInsertId();
+                    
+                    // Se foi selecionada uma sprint, associar automaticamente
+                    if (!empty($_POST['sprint_id']) && $checkSprints) {
+                        $stmt = $pdo->prepare("INSERT INTO sprint_tasks (sprint_id, todo_id) VALUES (?, ?)");
+                        $stmt->execute([$_POST['sprint_id'], $todo_id]);
+                    }
+                    
+                    $message = "Task criada com sucesso!";
+                    $messageType = 'success';
+                } else {
+                    $message = "Módulo de Tasks não está disponível!";
+                    $messageType = 'warning';
+                }
                 break;
                 
             case 'add_story_to_sprint':
@@ -673,6 +749,56 @@ if ($selectedPrototypeId) {
     color: #374151;
 }
 
+.sprint-badge a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.sprint-badge a:hover {
+    text-decoration: underline;
+}
+
+.story-progress {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.progress-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.progress-bar-container {
+    flex: 1;
+    height: 20px;
+    background: #e5e7eb;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+    transition: width 0.3s ease;
+    border-radius: 10px;
+}
+
+.progress-percentage {
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+    min-width: 40px;
+    text-align: right;
+}
+
+.progress-edit-btn {
+    padding: 2px 8px;
+    font-size: 11px;
+}
+
 .btn-group {
     display: flex;
     gap: 10px;
@@ -896,13 +1022,29 @@ if ($selectedPrototypeId) {
                                     <?= nl2br(htmlspecialchars($story['story_text'])) ?>
                                 </div>
                                 
+                                <!-- Barra de Progresso -->
+                                <div class="story-progress">
+                                    <div class="progress-container">
+                                        <div class="progress-bar-container">
+                                            <div class="progress-bar-fill" style="width: <?= $story['completion_percentage'] ?? 0 ?>%"></div>
+                                        </div>
+                                        <span class="progress-percentage"><?= $story['completion_percentage'] ?? 0 ?>%</span>
+                                        <button class="btn btn-sm btn-outline-secondary progress-edit-btn" 
+                                                onclick="editPercentage(<?= $story['id'] ?>, <?= $story['completion_percentage'] ?? 0 ?>)">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                
                                 <!-- Sprints Associadas -->
                                 <?php if ($checkSprints && !empty($story['sprints'])): ?>
                                 <div class="story-sprints">
                                     <small class="text-muted">Sprints:</small>
                                     <?php foreach ($story['sprints'] as $sprint): ?>
                                         <span class="sprint-badge <?= $sprint['estado'] ?>">
-                                            🏃 <?= htmlspecialchars($sprint['nome']) ?>
+                                            <a href="https://criis-projects.inesctec.pt/PK/index.php?tab=sprints&sprint_id=<?= $sprint['sprint_id'] ?>" target="_blank">
+                                                🏃 <?= htmlspecialchars($sprint['nome']) ?>
+                                            </a>
                                             <form method="POST" style="display:inline;" onsubmit="return confirm('Remover desta sprint?')">
                                                 <input type="hidden" name="action" value="remove_story_from_sprint">
                                                 <input type="hidden" name="association_id" value="<?= $sprint['association_id'] ?>">
@@ -923,6 +1065,11 @@ if ($selectedPrototypeId) {
                                     <?php if ($checkSprints): ?>
                                     <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#addStoryToSprintModal<?= $story['id'] ?>">
                                         <i class="bi bi-link-45deg"></i> Associar Sprint
+                                    </button>
+                                    <?php endif; ?>
+                                    <?php if ($checkTodos): ?>
+                                    <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#createTaskModal<?= $story['id'] ?>">
+                                        <i class="bi bi-plus-circle"></i> Criar Task
                                     </button>
                                     <?php endif; ?>
                                     <form method="POST" style="display:inline;" onsubmit="return confirm('Eliminar esta story?')">
@@ -965,6 +1112,93 @@ if ($selectedPrototypeId) {
                                             <div class="modal-footer">
                                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                                                 <button type="submit" class="btn btn-success">Associar</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                            
+                            <!-- Modal para criar task (um por story) -->
+                            <?php if ($checkTodos): ?>
+                            <div class="modal fade" id="createTaskModal<?= $story['id'] ?>" tabindex="-1">
+                                <div class="modal-dialog modal-lg">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">Criar Task da User Story</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                        </div>
+                                        <form method="POST">
+                                            <div class="modal-body">
+                                                <input type="hidden" name="action" value="create_task_from_story">
+                                                
+                                                <div class="alert alert-info">
+                                                    <strong>User Story:</strong><br>
+                                                    <?= nl2br(htmlspecialchars($story['story_text'])) ?>
+                                                </div>
+                                                
+                                                <div class="mb-3">
+                                                    <label class="form-label">Título da Task *</label>
+                                                    <input type="text" name="titulo" class="form-control" required 
+                                                           placeholder="Ex: Implementar funcionalidade X">
+                                                </div>
+                                                
+                                                <div class="mb-3">
+                                                    <label class="form-label">Descrição</label>
+                                                    <textarea name="descritivo" class="form-control" rows="4" 
+                                                              placeholder="Detalhes da implementação..."></textarea>
+                                                    <small class="text-muted">Suporta Markdown</small>
+                                                </div>
+                                                
+                                                <div class="row">
+                                                    <div class="col-md-6 mb-3">
+                                                        <label class="form-label">Responsável</label>
+                                                        <select name="responsavel" class="form-select">
+                                                            <option value="">Não atribuído</option>
+                                                            <?php foreach ($users as $user): ?>
+                                                                <option value="<?= $user['user_id'] ?>"><?= htmlspecialchars($user['username']) ?></option>
+                                                            <?php endforeach; ?>
+                                                        </select>
+                                                    </div>
+                                                    
+                                                    <div class="col-md-6 mb-3">
+                                                        <label class="form-label">Data Limite</label>
+                                                        <input type="date" name="data_limite" class="form-control">
+                                                    </div>
+                                                </div>
+                                                
+                                                <?php if (!empty($projects)): ?>
+                                                <div class="mb-3">
+                                                    <label class="form-label">Projeto</label>
+                                                    <select name="projeto_id" class="form-select">
+                                                        <option value="">Nenhum</option>
+                                                        <?php foreach ($projects as $project): ?>
+                                                            <option value="<?= $project['id'] ?>">
+                                                                <?= htmlspecialchars($project['short_name']) ?> - <?= htmlspecialchars($project['title']) ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </div>
+                                                <?php endif; ?>
+                                                
+                                                <?php if ($checkSprints && !empty($story['sprints'])): ?>
+                                                <div class="mb-3">
+                                                    <label class="form-label">Associar à Sprint</label>
+                                                    <select name="sprint_id" class="form-select">
+                                                        <option value="">Não associar</option>
+                                                        <?php foreach ($story['sprints'] as $sprint): ?>
+                                                            <option value="<?= $sprint['sprint_id'] ?>">
+                                                                <?= htmlspecialchars($sprint['nome']) ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                    <small class="text-muted">Sprints associadas a esta user story</small>
+                                                </div>
+                                                <?php endif; ?>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                <button type="submit" class="btn btn-success">Criar Task</button>
                                             </div>
                                         </form>
                                     </div>
@@ -1307,6 +1541,35 @@ if ($selectedPrototypeId) {
         </div>
     </div>
 </div>
+
+<!-- Modal: Editar Percentagem -->
+<div class="modal fade" id="editPercentageModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Editar Percentagem</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="update_story_percentage">
+                    <input type="hidden" name="story_id" id="edit_percentage_story_id">
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Percentagem de Conclusão *</label>
+                        <input type="number" name="percentage" id="edit_percentage_value" 
+                               class="form-control" min="0" max="100" step="5" required>
+                        <small class="text-muted">0 a 100%</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Atualizar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 <?php endif; ?>
 
 <script>
@@ -1342,6 +1605,14 @@ function editStory(id, text, priority, status) {
     document.getElementById('edit_story_status').value = status;
     
     const modal = new bootstrap.Modal(document.getElementById('editStoryModal'));
+    modal.show();
+}
+
+function editPercentage(storyId, currentPercentage) {
+    document.getElementById('edit_percentage_story_id').value = storyId;
+    document.getElementById('edit_percentage_value').value = currentPercentage;
+    
+    const modal = new bootstrap.Modal(document.getElementById('editPercentageModal'));
     modal.show();
 }
 </script>

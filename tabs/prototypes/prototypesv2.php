@@ -76,6 +76,13 @@ try {
         $pdo->exec("ALTER TABLE prototypes ADD COLUMN responsavel_id INT NULL AFTER name");
     }
     
+    // Verificar e adicionar coluna parent_id para subprotótipos
+    $checkParentColumn = $pdo->query("SHOW COLUMNS FROM prototypes LIKE 'parent_id'")->fetch();
+    if (!$checkParentColumn) {
+        $pdo->exec("ALTER TABLE prototypes ADD COLUMN parent_id INT NULL AFTER id");
+        $pdo->exec("ALTER TABLE prototypes ADD INDEX idx_parent_id (parent_id)");
+    }
+    
     // Verificar e adicionar coluna completion_percentage à tabela user_stories
     $checkCompletionColumn = $pdo->query("SHOW COLUMNS FROM user_stories LIKE 'completion_percentage'")->fetch();
     if (!$checkCompletionColumn) {
@@ -145,12 +152,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         switch($action) {
             case 'create_prototype':
                 $stmt = $pdo->prepare("
-                    INSERT INTO prototypes (short_name, title, vision, target_group, needs, 
+                    INSERT INTO prototypes (parent_id, short_name, title, vision, target_group, needs, 
                                           product_description, business_goals, sentence, 
                                           repo_links, documentation_links, name, responsavel_id, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
                 ");
                 $stmt->execute([
+                    $_POST['parent_id'] ?: null,
                     $_POST['short_name'],
                     $_POST['title'],
                     $_POST['vision'] ?? '',
@@ -509,12 +517,30 @@ $sql = "
     FROM prototypes p
     LEFT JOIN user_tokens u ON p.responsavel_id = u.user_id
     $whereClause
-    ORDER BY p.short_name ASC
+    ORDER BY p.parent_id ASC, p.short_name ASC
 ";
 
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
-$prototypes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$allPrototypes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Função para construir árvore hierárquica
+function buildPrototypeTree($prototypes, $parentId = null) {
+    $branch = [];
+    foreach ($prototypes as $prototype) {
+        if ($prototype['parent_id'] == $parentId) {
+            $children = buildPrototypeTree($prototypes, $prototype['id']);
+            if ($children) {
+                $prototype['children'] = $children;
+            }
+            $branch[] = $prototype;
+        }
+    }
+    return $branch;
+}
+
+// Construir árvore (apenas protótipos raiz para a lista lateral)
+$prototypes = buildPrototypeTree($allPrototypes);
 
 // Se um protótipo está selecionado, carregar seus detalhes
 $selectedPrototype = null;
@@ -710,6 +736,131 @@ if ($selectedPrototype && $checkTodos) {
     font-size: 10px;
     padding: 3px 6px;
     margin-top: 5px;
+}
+
+/* Hierarquia de Prototypes */
+.prototype-tree {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.prototype-tree-item {
+    margin-bottom: 5px;
+}
+
+.prototype-header {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    background: white;
+    border-radius: 6px;
+    border: 2px solid #e1e8ed;
+    transition: all 0.2s;
+}
+
+.prototype-header:hover {
+    border-color: #3b82f6;
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
+}
+
+.prototype-header.active {
+    border-color: #3b82f6;
+    background: #eff6ff;
+}
+
+.prototype-expand-btn {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 8px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: #6b7280;
+    font-size: 14px;
+    padding: 0;
+    transition: transform 0.2s;
+}
+
+.prototype-expand-btn.expanded {
+    transform: rotate(90deg);
+}
+
+.prototype-expand-btn:hover {
+    color: #3b82f6;
+}
+
+.prototype-expand-btn.no-children {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.prototype-info {
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+}
+
+.prototype-info h5 {
+    margin: 0 0 3px 0;
+    font-size: 14px;
+    color: #1a202c;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.prototype-info p {
+    margin: 0;
+    font-size: 12px;
+    color: #6b7280;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.prototype-info .badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    margin-top: 4px;
+}
+
+.prototype-actions {
+    display: flex;
+    gap: 5px;
+    margin-left: 8px;
+}
+
+.btn-add-sub {
+    padding: 4px 8px !important;
+    font-size: 11px !important;
+    border: none;
+    background: #10b981 !important;
+    color: white !important;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-add-sub:hover {
+    background: #059669 !important;
+}
+
+.prototype-children {
+    margin-left: 24px;
+    margin-top: 5px;
+    padding-left: 12px;
+    border-left: 2px solid #e5e7eb;
+    display: none;
+}
+
+.prototype-children.expanded {
+    display: block;
 }
 
 .prototypes-content {
@@ -1159,16 +1310,50 @@ if ($selectedPrototype && $checkTodos) {
             <?php if (empty($prototypes)): ?>
                 <p class="text-muted text-center">Nenhum protótipo encontrado</p>
             <?php else: ?>
-                <?php foreach ($prototypes as $proto): ?>
-                    <div class="prototype-item <?= $proto['id'] == $selectedPrototypeId ? 'active' : '' ?>"
-                         onclick="window.location.href='?tab=prototypes/prototypesv2&prototype_id=<?= $proto['id'] ?><?= $filterMine ? '&filter_mine=true' : '' ?><?= $filterParticipate ? '&filter_participate=true' : '' ?>'">
-                        <h5><?= htmlspecialchars($proto['short_name']) ?></h5>
-                        <p><?= htmlspecialchars($proto['title']) ?></p>
-                        <?php if ($proto['responsavel_nome']): ?>
-                            <span class="badge bg-primary">👤 <?= htmlspecialchars($proto['responsavel_nome']) ?></span>
-                        <?php endif; ?>
-                    </div>
-                <?php endforeach; ?>
+                <?php
+                // Função para renderizar árvore de prototypes
+                function renderPrototypeTree($prototypes, $selectedId, $filterMine, $filterParticipate, $level = 0) {
+                    $filterParams = ($filterMine ? '&filter_mine=true' : '') . ($filterParticipate ? '&filter_participate=true' : '');
+                    
+                    foreach ($prototypes as $proto) {
+                        $hasChildren = !empty($proto['children']);
+                        $isActive = $proto['id'] == $selectedId;
+                        ?>
+                        <div class="prototype-tree-item" data-id="<?= $proto['id'] ?>">
+                            <div class="prototype-header <?= $isActive ? 'active' : '' ?>">
+                                <button class="prototype-expand-btn <?= $hasChildren ? '' : 'no-children' ?>" 
+                                        onclick="togglePrototype(event, <?= $proto['id'] ?>)">
+                                    ▶
+                                </button>
+                                <div class="prototype-info" 
+                                     onclick="window.location.href='?tab=prototypes/prototypesv2&prototype_id=<?= $proto['id'] ?><?= $filterParams ?>'">
+                                    <h5><?= htmlspecialchars($proto['short_name']) ?></h5>
+                                    <p><?= htmlspecialchars($proto['title']) ?></p>
+                                    <?php if ($proto['responsavel_nome']): ?>
+                                        <span class="badge bg-primary">👤 <?= htmlspecialchars($proto['responsavel_nome']) ?></span>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="prototype-actions">
+                                    <button class="btn-add-sub" 
+                                            onclick="openAddSubprototype(event, <?= $proto['id'] ?>, '<?= htmlspecialchars(addslashes($proto['short_name'])) ?>')" 
+                                            title="Adicionar Subprotótipo">
+                                        <i class="bi bi-plus"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <?php if ($hasChildren): ?>
+                                <div class="prototype-children" id="children-<?= $proto['id'] ?>">
+                                    <?php renderPrototypeTree($proto['children'], $selectedId, $filterMine, $filterParticipate, $level + 1); ?>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                        <?php
+                    }
+                }
+                
+                // Renderizar árvore
+                renderPrototypeTree($prototypes, $selectedPrototypeId, $filterMine, $filterParticipate);
+                ?>
             <?php endif; ?>
         </div>
     </div>
@@ -1673,6 +1858,7 @@ if ($selectedPrototype && $checkTodos) {
             <form method="POST">
                 <div class="modal-body">
                     <input type="hidden" name="action" value="create_prototype">
+                    <input type="hidden" name="parent_id" value="">
                     
                     <div class="row">
                         <div class="col-md-6 mb-3">
@@ -1728,6 +1914,63 @@ if ($selectedPrototype && $checkTodos) {
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-success">Criar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Novo Subprotótipo -->
+<div class="modal fade" id="addSubprototypeModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Novo Subprotótipo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="create_prototype">
+                    <input type="hidden" name="parent_id" id="sub_parent_id" value="">
+                    
+                    <div class="alert alert-info">
+                        <strong>Protótipo Pai:</strong> <span id="sub_parent_name"></span>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Nome Curto *</label>
+                            <input type="text" name="short_name" class="form-control" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Responsável</label>
+                            <select name="responsavel_id" class="form-select">
+                                <option value="">Não atribuído</option>
+                                <?php foreach ($users as $user): ?>
+                                    <option value="<?= $user['user_id'] ?>"><?= htmlspecialchars($user['username']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Título *</label>
+                        <input type="text" name="title" class="form-control" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Visão</label>
+                        <textarea name="vision" class="form-control" rows="3"></textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Descrição do Produto</label>
+                        <textarea name="product_description" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success">Criar Subprotótipo</button>
                 </div>
             </form>
         </div>
@@ -1973,6 +2216,43 @@ if ($selectedPrototype && $checkTodos) {
 <?php endif; ?>
 
 <script>
+// Funções para árvore de prototypes
+function togglePrototype(event, prototypeId) {
+    event.stopPropagation();
+    const children = document.getElementById('children-' + prototypeId);
+    const btn = event.target.closest('.prototype-expand-btn');
+    
+    if (children) {
+        children.classList.toggle('expanded');
+        btn.classList.toggle('expanded');
+    }
+}
+
+function openAddSubprototype(event, parentId, parentName) {
+    event.stopPropagation();
+    document.getElementById('sub_parent_id').value = parentId;
+    document.getElementById('sub_parent_name').textContent = parentName;
+    const modal = new bootstrap.Modal(document.getElementById('addSubprototypeModal'));
+    modal.show();
+}
+
+// Expandir automaticamente o path até o protótipo selecionado
+document.addEventListener('DOMContentLoaded', function() {
+    const activeItem = document.querySelector('.prototype-header.active');
+    if (activeItem) {
+        let parent = activeItem.closest('.prototype-children');
+        while (parent) {
+            parent.classList.add('expanded');
+            const parentItem = parent.parentElement;
+            const expandBtn = parentItem.querySelector('.prototype-expand-btn');
+            if (expandBtn) {
+                expandBtn.classList.add('expanded');
+            }
+            parent = parentItem.parentElement.closest('.prototype-children');
+        }
+    }
+});
+
 function updateFilters() {
     const filterMine = document.getElementById('filterMine').checked;
     const filterParticipate = document.getElementById('filterParticipate').checked;
@@ -1990,11 +2270,25 @@ function updateFilters() {
 
 function filterPrototypes() {
     const search = document.getElementById('searchInput').value.toLowerCase();
-    const items = document.querySelectorAll('.prototype-item');
+    const items = document.querySelectorAll('.prototype-tree-item');
     
     items.forEach(item => {
         const text = item.textContent.toLowerCase();
-        item.style.display = text.includes(search) ? 'block' : 'none';
+        if (text.includes(search)) {
+            item.style.display = 'block';
+            // Expandir parent se estiver a mostrar
+            const parent = item.closest('.prototype-children');
+            if (parent) {
+                parent.classList.add('expanded');
+                const parentItem = parent.parentElement;
+                const expandBtn = parentItem.querySelector('.prototype-expand-btn');
+                if (expandBtn) {
+                    expandBtn.classList.add('expanded');
+                }
+            }
+        } else {
+            item.style.display = 'none';
+        }
     });
 }
 

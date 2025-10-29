@@ -74,26 +74,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
-    // MUDAR ESTADO (Botão de Concluir) - POST Normal
-    if ($action === 'change_estado' && !isset($_POST['ajax'])) {
+    // MARCAR COMO CONCLUÍDA (Botão de Concluir) - POST Normal
+    if ($action === 'mark_completed') {
         $todo_id = (int)$_POST['todo_id'];
-        $new_estado = $_POST['new_estado'];
         
-        $valid_estados = ['aberta', 'em execução', 'suspensa', 'concluída'];
+        $stmt = $db->prepare('UPDATE todos SET estado = "concluída" WHERE id = ? AND (autor = ? OR responsavel = ?)');
+        $stmt->bind_param('iii', $todo_id, $user_id, $user_id);
         
-        if (!in_array($new_estado, $valid_estados)) {
-            $error_message = '❌ Estado inválido.';
+        if ($stmt->execute() && $stmt->affected_rows > 0) {
+            $success_message = '✅ Tarefa marcada como concluída!';
         } else {
-            $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ? AND (autor = ? OR responsavel = ?)');
-            $stmt->bind_param('siii', $new_estado, $todo_id, $user_id, $user_id);
-            
-            if ($stmt->execute() && $stmt->affected_rows > 0) {
-                $success_message = '✅ Tarefa marcada como ' . $new_estado . '!';
-            } else {
-                $error_message = '❌ Erro ao atualizar ou sem permissão.';
-            }
-            $stmt->close();
+            $error_message = '❌ Erro ao atualizar ou sem permissão.';
         }
+        $stmt->close();
     }
     
     // ADICIONAR NOVA TASK (Via Modal Simples)
@@ -480,9 +473,8 @@ $db->close();
                                         <?php if ($estado !== 'concluída'): ?>
                                         <form method="POST" style="display: inline;" 
                                               onsubmit="return confirm('Marcar esta tarefa como concluída?');">
-                                            <input type="hidden" name="action" value="change_estado">
+                                            <input type="hidden" name="action" value="mark_completed">
                                             <input type="hidden" name="todo_id" value="<?= $todo['id'] ?>">
-                                            <input type="hidden" name="new_estado" value="concluída">
                                             <button type="submit" class="btn btn-sm btn-success btn-task-action" title="Marcar como concluída">
                                                 <i class="bi bi-check-lg"></i>
                                             </button>
@@ -553,9 +545,8 @@ $db->close();
                                 <?php if ($todo['estado'] !== 'concluída'): ?>
                                 <form method="POST" style="display: inline;" 
                                       onsubmit="return confirm('Marcar esta tarefa como concluída?');">
-                                    <input type="hidden" name="action" value="change_estado">
+                                    <input type="hidden" name="action" value="mark_completed">
                                     <input type="hidden" name="todo_id" value="<?= $todo['id'] ?>">
-                                    <input type="hidden" name="new_estado" value="concluída">
                                     <button type="submit" class="btn btn-sm btn-success" title="Marcar como concluída">
                                         <i class="bi bi-check-lg"></i>
                                     </button>

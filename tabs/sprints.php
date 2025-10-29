@@ -48,7 +48,7 @@ try {
         descricao TEXT,
         data_inicio DATE,
         data_fim DATE,
-        estado ENUM('aberta', 'pausa', 'fechada') DEFAULT 'aberta',
+        estado ENUM('aberta', 'em execução', 'suspensa', 'concluída') DEFAULT 'aberta',
         responsavel_id INT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -694,13 +694,13 @@ try {
             $sprint['status_deadline'] = 'sem_deadline';
         }
         
-        // Calcular progresso (tasks completadas / total tasks)
+        // Calcular progresso (tasks concluídas / total tasks)
         if ($checkTodos && tableExists($pdo, 'sprint_tasks')) {
             try {
                 $stmt = $pdo->prepare("
                     SELECT 
                         COUNT(*) as total,
-                        SUM(CASE WHEN t.estado = 'completada' THEN 1 ELSE 0 END) as completadas
+                        SUM(CASE WHEN t.estado = 'concluída' THEN 1 ELSE 0 END) as concluidas
                     FROM sprint_tasks st
                     JOIN todos t ON st.todo_id = t.id
                     WHERE st.sprint_id = ?
@@ -709,18 +709,18 @@ try {
                 $stats = $stmt->fetch(PDO::FETCH_ASSOC);
                 
                 $sprint['total_tasks'] = $stats['total'] ?? 0;
-                $sprint['tasks_completadas'] = $stats['completadas'] ?? 0;
+                $sprint['tasks_concluidas'] = $stats['concluidas'] ?? 0;
                 $sprint['percentagem'] = $sprint['total_tasks'] > 0 
-                    ? round(($sprint['tasks_completadas'] / $sprint['total_tasks']) * 100) 
+                    ? round(($sprint['tasks_concluidas'] / $sprint['total_tasks']) * 100) 
                     : 0;
             } catch (PDOException $e) {
                 $sprint['total_tasks'] = 0;
-                $sprint['tasks_completadas'] = 0;
+                $sprint['tasks_concluidas'] = 0;
                 $sprint['percentagem'] = 0;
             }
         } else {
             $sprint['total_tasks'] = 0;
-            $sprint['tasks_completadas'] = 0;
+            $sprint['tasks_concluidas'] = 0;
             $sprint['percentagem'] = 0;
         }
     }
@@ -847,7 +847,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                 'aberta' => [],
                 'em execução' => [],
                 'suspensa' => [],
-                'completada' => []
+                'concluída' => []
             ];
             
             if ($checkTodos && tableExists($pdo, 'sprint_tasks')) {
@@ -887,7 +887,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                         LEFT JOIN user_tokens u1 ON t.autor = u1.user_id 
                         LEFT JOIN user_tokens u2 ON t.responsavel = u2.user_id
                         LEFT JOIN projects p ON t.projeto_id = p.id
-                        WHERE t.estado != 'completada'
+                        WHERE t.estado != 'concluída'
                         AND t.id NOT IN (SELECT todo_id FROM sprint_tasks WHERE sprint_id = {$selectedSprint['id']})
                         ORDER BY t.created_at DESC
                         LIMIT 100
@@ -1131,7 +1131,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
 .kanban-header.aberta { background: #dcfce7; color: #166534; }
 .kanban-header.execucao { background: #dbeafe; color: #1e40af; }
 .kanban-header.suspensa { background: #fef3c7; color: #92400e; }
-.kanban-header.completada { background: #f3f4f6; color: #6b7280; }
+.kanban-header.concluida { background: #f3f4f6; color: #6b7280; }
 
 .kanban-task {
     background: white;
@@ -1331,7 +1331,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                                      style="width: <?= $sprint['percentagem'] ?>%"></div>
                             </div>
                             <div class="progress-text">
-                                <?= $sprint['tasks_completadas'] ?>/<?= $sprint['total_tasks'] ?> tasks 
+                                <?= $sprint['tasks_concluidas'] ?>/<?= $sprint['total_tasks'] ?> tasks 
                                 (<?= $sprint['percentagem'] ?>%)
                             </div>
                         </div>
@@ -1403,7 +1403,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                 <div class="info-card">
                     <div class="info-label">Progresso</div>
                     <div class="info-value">
-                        <?= $selectedSprint['tasks_completadas'] ?? 0 ?>/<?= $selectedSprint['total_tasks'] ?? 0 ?> tasks 
+                        <?= $selectedSprint['tasks_concluidas'] ?? 0 ?>/<?= $selectedSprint['total_tasks'] ?? 0 ?> tasks 
                         (<?= $selectedSprint['percentagem'] ?? 0 ?>%)
                     </div>
                 </div>
@@ -1600,12 +1600,12 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                     <?php endforeach; ?>
                 </div>
                 
-                <!-- Coluna: Completada -->
+                <!-- Coluna: Concluída -->
                 <div class="kanban-column">
-                    <div class="kanban-header completada">
-                        ✅ Completada (<?= count($selectedSprint['kanban']['completada']) ?>)
+                    <div class="kanban-header concluida">
+                        ✅ Concluída (<?= count($selectedSprint['kanban']['concluída']) ?>)
                     </div>
-                    <?php foreach ($selectedSprint['kanban']['completada'] as $task): ?>
+                    <?php foreach ($selectedSprint['kanban']['concluída'] as $task): ?>
                         <div class="kanban-task" data-task-id="<?= $task['id'] ?>">
                             <div class="task-title"><?= htmlspecialchars($task['titulo']) ?></div>
                             <div class="task-meta">
@@ -1907,7 +1907,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                             <?php endforeach; ?>
                         </select>
                         <small class="text-muted">
-                            <?= count($availableTasks) ?> tasks disponíveis (excluindo completadas e já associadas)
+                            <?= count($availableTasks) ?> tasks disponíveis (excluindo concluídas e já associadas)
                         </small>
                     </div>
                 </div>
@@ -2058,7 +2058,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                                 <option value="aberta">Aberta</option>
                                 <option value="em execução">Em Execução</option>
                                 <option value="suspensa">Suspensa</option>
-                                <option value="completada">Completada</option>
+                                <option value="concluída">Concluída</option>
                             </select>
                         </div>
                         
@@ -2190,8 +2190,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 newStatus = 'em execução';
             } else if (columnHeader.classList.contains('suspensa')) {
                 newStatus = 'suspensa';
-            } else if (columnHeader.classList.contains('completada')) {
-                newStatus = 'completada';
+            } else if (columnHeader.classList.contains('concluida')) {
+                newStatus = 'concluída';
             }
             
             if (confirm(`Mover task para "${newStatus}"?`)) {

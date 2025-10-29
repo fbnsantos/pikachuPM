@@ -537,6 +537,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $redirect_params['show_closed'] = $_GET['show_closed'];
         }
         
+        if (isset($_GET['show_paused'])) {
+            $redirect_params['show_paused'] = $_GET['show_paused'];
+        }
+        
         header("Location: ?" . http_build_query($redirect_params));
         exit;
     }
@@ -564,6 +568,7 @@ if (isset($_GET['filter_responsible_only'])) {
 
 // Obter dados
 $showClosed = isset($_GET['show_closed']) && $_GET['show_closed'] == '1';
+$showPaused = isset($_GET['show_paused']) && $_GET['show_paused'] == '1';
 
 try {
     // Build the query based on filters
@@ -582,15 +587,25 @@ try {
             WHERE s.responsavel_id = ?
         ";
         
+        // Construir condições de filtro
+        $conditions = [];
         if (!$showClosed) {
-            $query .= " AND s.estado != 'fechada'";
+            $conditions[] = "s.estado != 'concluída'";
+        }
+        if (!$showPaused) {
+            $conditions[] = "s.estado != 'suspensa'";
+        }
+        
+        if (!empty($conditions)) {
+            $query .= " AND (" . implode(' AND ', $conditions) . ")";
         }
         
         $query .= " ORDER BY 
                     CASE s.estado 
-                        WHEN 'aberta' THEN 1 
-                        WHEN 'pausa' THEN 2 
-                        WHEN 'fechada' THEN 3 
+                        WHEN 'aberta' THEN 1
+                        WHEN 'em execução' THEN 2 
+                        WHEN 'suspensa' THEN 3 
+                        WHEN 'concluída' THEN 4 
                     END,
                     s.data_fim ASC,
                     s.created_at DESC";
@@ -616,15 +631,25 @@ try {
             WHERE (s.responsavel_id = ? OR sm.user_id IS NOT NULL)
         ";
         
+        // Construir condições de filtro
+        $conditions = [];
         if (!$showClosed) {
-            $query .= " AND s.estado != 'fechada'";
+            $conditions[] = "s.estado != 'concluída'";
+        }
+        if (!$showPaused) {
+            $conditions[] = "s.estado != 'suspensa'";
+        }
+        
+        if (!empty($conditions)) {
+            $query .= " AND (" . implode(' AND ', $conditions) . ")";
         }
         
         $query .= " ORDER BY 
                     CASE s.estado 
-                        WHEN 'aberta' THEN 1 
-                        WHEN 'pausa' THEN 2 
-                        WHEN 'fechada' THEN 3 
+                        WHEN 'aberta' THEN 1
+                        WHEN 'em execução' THEN 2 
+                        WHEN 'suspensa' THEN 3 
+                        WHEN 'concluída' THEN 4 
                     END,
                     s.data_fim ASC,
                     s.created_at DESC";
@@ -648,16 +673,26 @@ try {
             LEFT JOIN sprint_members sm ON s.id = sm.sprint_id AND sm.user_id = ?
         ";
         
+        // Construir condições de filtro
+        $conditions = [];
         if (!$showClosed) {
-            $query .= " WHERE s.estado != 'fechada'";
+            $conditions[] = "s.estado != 'concluída'";
+        }
+        if (!$showPaused) {
+            $conditions[] = "s.estado != 'suspensa'";
+        }
+        
+        if (!empty($conditions)) {
+            $query .= " WHERE " . implode(' AND ', $conditions);
         }
         
         $query .= " GROUP BY s.id
                     ORDER BY 
                     CASE s.estado 
-                        WHEN 'aberta' THEN 1 
-                        WHEN 'pausa' THEN 2 
-                        WHEN 'fechada' THEN 3 
+                        WHEN 'aberta' THEN 1
+                        WHEN 'em execução' THEN 2 
+                        WHEN 'suspensa' THEN 3 
+                        WHEN 'concluída' THEN 4 
                     END,
                     s.data_fim ASC,
                     s.created_at DESC";
@@ -1224,7 +1259,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                 <input class="form-check-input" type="checkbox" id="filterMySprints" 
                        <?= $filter_my_sprints ? 'checked' : '' ?>
                        <?= $filter_responsible_only ? 'disabled' : '' ?>
-                       onchange="window.location.href='?tab=sprints&filter_my_sprints=' + (this.checked ? '1' : '0') + '<?= $showClosed ? '&show_closed=1' : '' ?><?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
+                       onchange="window.location.href='?tab=sprints&filter_my_sprints=' + (this.checked ? '1' : '0') + '<?= $showClosed ? '&show_closed=1' : '' ?><?= $showPaused ? '&show_paused=1' : '' ?><?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
                 <label class="form-check-label" for="filterMySprints">
                     <i class="bi bi-person-check"></i> Only My Sprints
                 </label>
@@ -1233,7 +1268,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
             <div class="form-check form-switch">
                 <input class="form-check-input" type="checkbox" id="filterResponsibleOnly" 
                        <?= $filter_responsible_only ? 'checked' : '' ?>
-                       onchange="window.location.href='?tab=sprints&filter_responsible_only=' + (this.checked ? '1' : '0') + '<?= $showClosed ? '&show_closed=1' : '' ?><?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
+                       onchange="window.location.href='?tab=sprints&filter_responsible_only=' + (this.checked ? '1' : '0') + '<?= $showClosed ? '&show_closed=1' : '' ?><?= $showPaused ? '&show_paused=1' : '' ?><?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
                 <label class="form-check-label" for="filterResponsibleOnly">
                     <i class="bi bi-star-fill"></i> Only as Responsible
                 </label>
@@ -1250,12 +1285,18 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
             <?php endif; ?>
         </div>
         
-        <!-- Show Closed Toggle -->
+        <!-- Show Closed/Paused Toggles -->
         <div class="show-closed-container">
-            <label>
+            <label class="me-3">
                 <input type="checkbox" id="showClosedCheckbox" <?= $showClosed ? 'checked' : '' ?> 
-                       onchange="window.location.href='?tab=sprints<?= $filter_my_sprints ? '&filter_my_sprints=1' : '' ?><?= $filter_responsible_only ? '&filter_responsible_only=1' : '' ?>&show_closed=' + (this.checked ? '1' : '0')<?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
+                       onchange="window.location.href='?tab=sprints<?= $filter_my_sprints ? '&filter_my_sprints=1' : '' ?><?= $filter_responsible_only ? '&filter_responsible_only=1' : '' ?><?= $showPaused ? '&show_paused=1' : '' ?>&show_closed=' + (this.checked ? '1' : '0')<?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
                 <i class="bi bi-archive"></i> Show Closed Sprints
+            </label>
+            
+            <label>
+                <input type="checkbox" id="showPausedCheckbox" <?= $showPaused ? 'checked' : '' ?> 
+                       onchange="window.location.href='?tab=sprints<?= $filter_my_sprints ? '&filter_my_sprints=1' : '' ?><?= $filter_responsible_only ? '&filter_responsible_only=1' : '' ?><?= $showClosed ? '&show_closed=1' : '' ?>&show_paused=' + (this.checked ? '1' : '0')<?= isset($_GET['sprint_id']) ? '&sprint_id=' . $_GET['sprint_id'] : '' ?>'">
+                <i class="bi bi-pause-circle"></i> Show Paused Sprints
             </label>
         </div>
         
@@ -1293,7 +1334,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                 $is_active = isset($_GET['sprint_id']) && $_GET['sprint_id'] == $sprint['id'];
             ?>
                 <div class="sprint-item <?= $is_active ? 'active' : '' ?>" 
-                     onclick="window.location.href='?tab=sprints<?= $filter_my_sprints ? '&filter_my_sprints=1' : '' ?><?= $filter_responsible_only ? '&filter_responsible_only=1' : '' ?><?= $showClosed ? '&show_closed=1' : '' ?>&sprint_id=<?= $sprint['id'] ?>'">
+                     onclick="window.location.href='?tab=sprints<?= $filter_my_sprints ? '&filter_my_sprints=1' : '' ?><?= $filter_responsible_only ? '&filter_responsible_only=1' : '' ?><?= $showClosed ? '&show_closed=1' : '' ?><?= $showPaused ? '&show_paused=1' : '' ?>&sprint_id=<?= $sprint['id'] ?>'">>
                     
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <strong style="font-size: 14px;"><?= htmlspecialchars($sprint['nome']) ?></strong>

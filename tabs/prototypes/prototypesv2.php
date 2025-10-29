@@ -204,6 +204,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $messageType = 'success';
                 break;
                 
+            case 'update_prototype_relations':
+                $prototypeId = intval($_POST['prototype_id']);
+                $newParentId = !empty($_POST['parent_id']) ? intval($_POST['parent_id']) : null;
+                
+                // Validar que não é o mesmo protótipo
+                if ($newParentId === $prototypeId) {
+                    throw new Exception("Um protótipo não pode ser subprotótipo de si mesmo!");
+                }
+                
+                // Validar que não cria ciclo (verificar se newParentId é descendente de prototypeId)
+                if ($newParentId !== null) {
+                    $checkCycle = $pdo->prepare("
+                        WITH RECURSIVE prototype_tree AS (
+                            SELECT id, parent_id FROM prototypes WHERE id = ?
+                            UNION ALL
+                            SELECT p.id, p.parent_id 
+                            FROM prototypes p
+                            INNER JOIN prototype_tree pt ON p.parent_id = pt.id
+                        )
+                        SELECT COUNT(*) as has_cycle FROM prototype_tree WHERE id = ?
+                    ");
+                    $checkCycle->execute([$newParentId, $prototypeId]);
+                    if ($checkCycle->fetchColumn() > 0) {
+                        throw new Exception("Esta relação criaria um ciclo! Um protótipo não pode ser pai de seus ancestrais.");
+                    }
+                }
+                
+                // Atualizar parent_id
+                $stmt = $pdo->prepare("UPDATE prototypes SET parent_id = ?, updated_at = NOW() WHERE id = ?");
+                $stmt->execute([$newParentId, $prototypeId]);
+                
+                $message = "Relações do protótipo atualizadas com sucesso!";
+                $messageType = 'success';
+                break;
+                
             case 'delete_prototype':
                 $stmt = $pdo->prepare("DELETE FROM prototypes WHERE id=?");
                 $stmt->execute([$_POST['prototype_id']]);
@@ -1374,6 +1409,9 @@ if ($selectedPrototype && $checkTodos) {
                         <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editPrototypeModal">
                             <i class="bi bi-pencil"></i> Editar
                         </button>
+                        <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#editRelationsModal">
+                            <i class="bi bi-diagram-3"></i> Relações
+                        </button>
                         <button class="btn btn-sm btn-danger" onclick="if(confirm('Tem certeza?')) { document.getElementById('deleteForm').submit(); }">
                             <i class="bi bi-trash"></i> Eliminar
                         </button>
@@ -1393,6 +1431,25 @@ if ($selectedPrototype && $checkTodos) {
                         <div class="info-label">Responsável</div>
                         <div class="info-value">
                             <?= $selectedPrototype['responsavel_nome'] ? '👤 ' . htmlspecialchars($selectedPrototype['responsavel_nome']) : 'Não atribuído' ?>
+                        </div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-label">Protótipo Pai</div>
+                        <div class="info-value">
+                            <?php if ($selectedPrototype['parent_id']): ?>
+                                <?php 
+                                // Buscar nome do pai
+                                $parentStmt = $pdo->prepare("SELECT short_name FROM prototypes WHERE id = ?");
+                                $parentStmt->execute([$selectedPrototype['parent_id']]);
+                                $parentName = $parentStmt->fetchColumn();
+                                ?>
+                                <a href="?tab=prototypes/prototypesv2&prototype_id=<?= $selectedPrototype['parent_id'] ?>" 
+                                   class="text-primary">
+                                    🔗 <?= htmlspecialchars($parentName) ?>
+                                </a>
+                            <?php else: ?>
+                                <span class="text-muted">Protótipo raiz</span>
+                            <?php endif; ?>
                         </div>
                     </div>
                     <div class="info-card">
@@ -2050,6 +2107,138 @@ if ($selectedPrototype && $checkTodos) {
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Editar Relações do Protótipo -->
+<div class="modal fade" id="editRelationsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Configurar Relações: <?= htmlspecialchars($selectedPrototype['short_name']) ?></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="update_prototype_relations">
+                    <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
+                    
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> 
+                        Configure se este protótipo é subprotótipo de outro ou é um protótipo raiz.
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Protótipo Pai</label>
+                        <select name="parent_id" class="form-select">
+                            <option value="">Nenhum (Protótipo Raiz)</option>
+                            <?php
+                            // Buscar todos os protótipos exceto o atual e seus descendentes
+                            $allPrototypesStmt = $pdo->prepare("
+                                WITH RECURSIVE descendants AS (
+                                    SELECT id FROM prototypes WHERE id = ?
+                                    UNION ALL
+                                    SELECT p.id FROM prototypes p
+                                    INNER JOIN descendants d ON p.parent_id = d.id
+                                )
+                                SELECT p.id, p.short_name, p.title, p.parent_id
+                                FROM prototypes p
+                                WHERE p.id NOT IN (SELECT id FROM descendants)
+                                ORDER BY p.short_name
+                            ");
+                            $allPrototypesStmt->execute([$selectedPrototype['id']]);
+                            $availablePrototypes = $allPrototypesStmt->fetchAll(PDO::FETCH_ASSOC);
+                            
+                            // Criar estrutura hierárquica para exibição
+                            function buildParentOptions($prototypes, $currentParentId, $prefix = '') {
+                                $tree = [];
+                                foreach ($prototypes as $p) {
+                                    if ($p['parent_id'] === null) {
+                                        $tree[] = [
+                                            'prototype' => $p,
+                                            'prefix' => $prefix
+                                        ];
+                                        // Buscar filhos
+                                        $tree = array_merge($tree, buildParentOptionsChildren($prototypes, $p['id'], $prefix . '└─ '));
+                                    }
+                                }
+                                return $tree;
+                            }
+                            
+                            function buildParentOptionsChildren($prototypes, $parentId, $prefix) {
+                                $children = [];
+                                foreach ($prototypes as $p) {
+                                    if ($p['parent_id'] === $parentId) {
+                                        $children[] = [
+                                            'prototype' => $p,
+                                            'prefix' => $prefix
+                                        ];
+                                        $children = array_merge($children, buildParentOptionsChildren($prototypes, $p['id'], $prefix . '  '));
+                                    }
+                                }
+                                return $children;
+                            }
+                            
+                            $hierarchicalOptions = buildParentOptions($availablePrototypes, $selectedPrototype['parent_id']);
+                            
+                            foreach ($hierarchicalOptions as $item):
+                                $p = $item['prototype'];
+                                $prefix = $item['prefix'];
+                                $isSelected = $p['id'] == $selectedPrototype['parent_id'];
+                            ?>
+                                <option value="<?= $p['id'] ?>" <?= $isSelected ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($prefix . $p['short_name']) ?> - <?= htmlspecialchars($p['title']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">
+                            Selecione o protótipo pai caso este seja um subprotótipo. 
+                            Deixe vazio se for um protótipo raiz independente.
+                        </small>
+                    </div>
+                    
+                    <?php
+                    // Mostrar subprotótipos atuais
+                    $childrenStmt = $pdo->prepare("
+                        SELECT id, short_name, title 
+                        FROM prototypes 
+                        WHERE parent_id = ? 
+                        ORDER BY short_name
+                    ");
+                    $childrenStmt->execute([$selectedPrototype['id']]);
+                    $children = $childrenStmt->fetchAll(PDO::FETCH_ASSOC);
+                    ?>
+                    
+                    <?php if (!empty($children)): ?>
+                        <div class="mt-4">
+                            <label class="form-label">Subprotótipos Atuais</label>
+                            <div class="list-group">
+                                <?php foreach ($children as $child): ?>
+                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <strong><?= htmlspecialchars($child['short_name']) ?></strong>
+                                            <br>
+                                            <small class="text-muted"><?= htmlspecialchars($child['title']) ?></small>
+                                        </div>
+                                        <a href="?tab=prototypes/prototypesv2&prototype_id=<?= $child['id'] ?>" 
+                                           class="btn btn-sm btn-outline-primary">
+                                            <i class="bi bi-box-arrow-up-right"></i>
+                                        </a>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <small class="text-muted mt-2 d-block">
+                                Para remover um subprotótipo, edite as relações do próprio subprotótipo.
+                            </small>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar Relações</button>
                 </div>
             </form>
         </div>

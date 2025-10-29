@@ -402,7 +402,19 @@ $tasks_by_stage = [
 ];
 
 $stmt = $db->prepare('
-    SELECT t.*, u.username as responsavel_nome 
+    SELECT t.*, 
+           u.username as responsavel_nome,
+           CASE 
+               WHEN t.estagio IS NULL OR t.estagio = "" THEN
+                   CASE t.estado
+                       WHEN "aberta" THEN "pensada"
+                       WHEN "em execução" THEN "execucao"
+                       WHEN "suspensa" THEN "espera"
+                       WHEN "concluída" THEN "concluida"
+                       ELSE "pensada"
+                   END
+               ELSE t.estagio
+           END as estagio_efetivo
     FROM todos t 
     LEFT JOIN user_tokens u ON t.responsavel = u.user_id 
     WHERE t.projeto_id = ? AND (t.autor = ? OR t.responsavel = ?)
@@ -414,9 +426,15 @@ $stmt->execute();
 $result = $stmt->get_result();
 
 while ($row = $result->fetch_assoc()) {
-    $estagio = $row['estagio'] ?: 'pensada';
+    // Usar o estagio_efetivo calculado na query
+    $estagio = $row['estagio_efetivo'];
+    
+    // Validar que o estágio é válido
     if (isset($tasks_by_stage[$estagio])) {
         $tasks_by_stage[$estagio][] = $row;
+    } else {
+        // Se o estágio não for reconhecido, colocar em 'pensada' por padrão
+        $tasks_by_stage['pensada'][] = $row;
     }
 }
 $stmt->close();
@@ -535,13 +553,18 @@ $total_artigos = count($artigos);
     
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2><i class="bi bi-mortarboard"></i> Gestão do Doutoramento</h2>
-        <select class="form-select" id="userSelector" style="width: 250px;">
-            <?php foreach ($all_users as $u): ?>
-                <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $selected_user ? 'selected' : '' ?>>
-                    <?= $u['has_phd_info'] ? '⭐ ' : '' ?><?= htmlspecialchars($u['username']) ?>
-                </option>
-            <?php endforeach; ?>
-        </select>
+        <div class="d-flex gap-2">
+            <select class="form-select" id="userSelector" style="width: 250px;">
+                <?php foreach ($all_users as $u): ?>
+                    <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $selected_user ? 'selected' : '' ?>>
+                        <?= $u['has_phd_info'] ? '⭐ ' : '' ?><?= htmlspecialchars($u['username']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTaskModal">
+                <i class="bi bi-plus-circle"></i> Nova Tarefa
+            </button>
+        </div>
     </div>
     
     <div class="stats-card">
@@ -596,12 +619,7 @@ $total_artigos = count($artigos);
         </div>
     </div>
     
-    <div class="d-flex justify-content-between align-items-center mt-4 mb-3">
-        <h4><i class="bi bi-kanban"></i> Quadro Kanban</h4>
-        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTaskModal">
-            <i class="bi bi-plus-circle"></i> Nova Tarefa
-        </button>
-    </div>
+    <h4 class="mt-4 mb-3"><i class="bi bi-kanban"></i> Quadro Kanban</h4>
     <div class="kanban-board">
         <?php 
         $stage_info = [

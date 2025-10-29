@@ -319,8 +319,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("DELETE FROM user_stories WHERE id=?");
                 $stmt->execute([$_POST['story_id']]);
                 
+                // Obter prototype_id do POST (enviado pelo formulário)
+                $prototypeIdForRedirect = $_POST['prototype_id'] ?? $selectedPrototypeId;
+                
                 // Redirecionar
-                $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $prototypeIdForRedirect;
                 if ($filterMine) $redirectUrl .= "&filter_mine=true";
                 if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
                 if ($showClosedStories) $redirectUrl .= "&show_closed=true";
@@ -1380,6 +1383,7 @@ if ($selectedPrototype && $checkTodos) {
                                     <form method="POST" style="display:inline;" onsubmit="return confirm('Eliminar esta story?')">
                                         <input type="hidden" name="action" value="delete_story">
                                         <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
+                                        <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
                                         <button type="submit" class="btn btn-sm btn-danger">
                                             <i class="bi bi-trash"></i> Eliminar
                                         </button>

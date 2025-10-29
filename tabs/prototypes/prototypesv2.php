@@ -912,11 +912,13 @@ if ($selectedPrototype && $checkTodos) {
     border-radius: 6px;
     margin-bottom: 8px;
     transition: all 0.2s;
+    cursor: pointer;
 }
 
 .task-badge:hover {
     border-color: #3b82f6;
-    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+    background: #f9fafb;
 }
 
 .task-badge.aberta {
@@ -1233,7 +1235,7 @@ if ($selectedPrototype && $checkTodos) {
                                     <small class="text-muted mb-2 d-block">Tasks Associadas:</small>
                                     <?php foreach ($story['tasks'] as $task): ?>
                                         <div class="task-badge <?= $task['estado'] ?>">
-                                            <div class="task-info">
+                                            <div class="task-info" onclick="openTaskEditor(<?= $task['id'] ?>)" style="cursor: pointer; flex: 1;">
                                                 <div class="task-title">
                                                     <?= htmlspecialchars($task['titulo']) ?>
                                                 </div>
@@ -1247,10 +1249,13 @@ if ($selectedPrototype && $checkTodos) {
                                                     <?php endif; ?>
                                                 </div>
                                             </div>
+                                            <button class="btn btn-sm btn-primary" onclick="openTaskEditor(<?= $task['id'] ?>)" title="Editar Task">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
                                             <form method="POST" style="display:inline;" onsubmit="return confirm('Remover esta task?')">
                                                 <input type="hidden" name="action" value="remove_task_from_story">
                                                 <input type="hidden" name="association_id" value="<?= $task['association_id'] ?>">
-                                                <button type="submit" class="btn btn-sm btn-link text-danger p-0">
+                                                <button type="submit" class="btn btn-sm btn-danger" title="Remover da Story">
                                                     <i class="bi bi-x-lg"></i>
                                                 </button>
                                             </form>
@@ -1936,3 +1941,10 @@ function filterTaskOptions(storyId) {
     }
 }
 </script>
+
+<?php
+// Incluir editor universal de tasks
+if ($checkTodos && file_exists(__DIR__ . '/../../edit_task.php')) {
+    include __DIR__ . '/../../edit_task.php';
+}
+?>

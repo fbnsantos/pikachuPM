@@ -13,7 +13,14 @@ include_once __DIR__ . '/../config.php';
 // ID do projeto de doutoramento
 define('PHD_PROJECT_ID', 9999);
 
-// Mapeamento entre estágios Kanban e estados Todo
+// Mapeamento entre estados Todo e colunas Kanban
+$estado_to_stage_map = [
+    'aberta' => 'pensada',
+    'em execução' => 'execucao',
+    'suspensa' => 'espera',
+    'concluída' => 'concluida'
+];
+
 $stage_to_estado_map = [
     'pensada' => 'aberta',
     'execucao' => 'em execução',
@@ -30,12 +37,6 @@ try {
     }
     
     $db->set_charset("utf8mb4");
-    
-    // Criar coluna 'estagio' na tabela todos se não existir
-    $check_column = $db->query("SHOW COLUMNS FROM todos LIKE 'estagio'");
-    if ($check_column->num_rows == 0) {
-        $db->query("ALTER TABLE todos ADD COLUMN estagio VARCHAR(20) DEFAULT 'pensada' AFTER estado");
-    }
     
     // Criar tabela para informações do doutoramento
     $db->query('CREATE TABLE IF NOT EXISTS phd_info (
@@ -99,9 +100,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
     
     $new_estado = $stage_to_estado_map[$new_stage];
-    $stmt = $db->prepare('UPDATE todos SET estagio = ?, estado = ? WHERE id = ? AND projeto_id = ?');
+    $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ? AND projeto_id = ?');
     $projeto_id = PHD_PROJECT_ID;
-    $stmt->bind_param('ssii', $new_stage, $new_estado, $task_id, $projeto_id);
+    $stmt->bind_param('sii', $new_estado, $task_id, $projeto_id);
     
     if ($stmt->execute()) {
         echo json_encode(['success' => true]);
@@ -132,9 +133,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $estado = $stage_to_estado_map[$estagio];
     
     if (!empty($titulo)) {
-        $stmt = $db->prepare('INSERT INTO todos (titulo, descritivo, data_limite, autor, responsavel, estagio, estado, projeto_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        $stmt = $db->prepare('INSERT INTO todos (titulo, descritivo, data_limite, autor, responsavel, estado, projeto_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
         $projeto_id = PHD_PROJECT_ID;
-        $stmt->bind_param('sssiissi', $titulo, $descritivo, $data_limite, $user_id, $responsavel, $estagio, $estado, $projeto_id);
+        $stmt->bind_param('sssiisi', $titulo, $descritivo, $data_limite, $user_id, $responsavel, $estado, $projeto_id);
         
         if ($stmt->execute()) {
             $stmt->close();
@@ -187,9 +188,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $valid_stages = ['pensada', 'execucao', 'espera', 'concluida'];
     if (in_array($new_stage, $valid_stages)) {
         $new_estado = $stage_to_estado_map[$new_stage];
-        $stmt = $db->prepare('UPDATE todos SET estagio = ?, estado = ? WHERE id = ? AND projeto_id = ?');
+        $stmt = $db->prepare('UPDATE todos SET estado = ? WHERE id = ? AND projeto_id = ?');
         $projeto_id = PHD_PROJECT_ID;
-        $stmt->bind_param('ssii', $new_stage, $new_estado, $task_id, $projeto_id);
+        $stmt->bind_param('sii', $new_estado, $task_id, $projeto_id);
         
         if ($stmt->execute()) {
             $success_message = "Estágio atualizado com sucesso!";
@@ -402,19 +403,7 @@ $tasks_by_stage = [
 ];
 
 $stmt = $db->prepare('
-    SELECT t.*, 
-           u.username as responsavel_nome,
-           CASE 
-               WHEN t.estagio IS NULL OR t.estagio = "" THEN
-                   CASE t.estado
-                       WHEN "aberta" THEN "pensada"
-                       WHEN "em execução" THEN "execucao"
-                       WHEN "suspensa" THEN "espera"
-                       WHEN "concluída" THEN "concluida"
-                       ELSE "pensada"
-                   END
-               ELSE t.estagio
-           END as estagio_efetivo
+    SELECT t.*, u.username as responsavel_nome 
     FROM todos t 
     LEFT JOIN user_tokens u ON t.responsavel = u.user_id 
     WHERE t.projeto_id = ? AND (t.autor = ? OR t.responsavel = ?)
@@ -426,15 +415,10 @@ $stmt->execute();
 $result = $stmt->get_result();
 
 while ($row = $result->fetch_assoc()) {
-    // Usar o estagio_efetivo calculado na query
-    $estagio = $row['estagio_efetivo'];
-    
-    // Validar que o estágio é válido
+    // Mapear estado para estágio do Kanban
+    $estagio = $estado_to_stage_map[$row['estado']] ?? 'pensada';
     if (isset($tasks_by_stage[$estagio])) {
         $tasks_by_stage[$estagio][] = $row;
-    } else {
-        // Se o estágio não for reconhecido, colocar em 'pensada' por padrão
-        $tasks_by_stage['pensada'][] = $row;
     }
 }
 $stmt->close();

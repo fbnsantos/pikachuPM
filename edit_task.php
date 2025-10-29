@@ -46,7 +46,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $stmt->execute([$todo_id]);
     $task = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if (!$task || ($task['autor'] != $_SESSION['user_id'] && !empty($task['responsavel']) && $task['responsavel'] != $_SESSION['user_id'])   ) {
+    // Regras de permissão:
+    // - Autores podem sempre editar
+    // - Responsáveis podem editar
+    // - Se não houver responsável, qualquer um pode editar
+    $is_author = ($task['autor'] == $_SESSION['user_id']);
+    $is_responsible = (!empty($task['responsavel']) && $task['responsavel'] == $_SESSION['user_id']);
+    $no_responsible = empty($task['responsavel']) || is_null($task['responsavel']);
+    
+    if (!$task || (!$is_author && !$is_responsible && !$no_responsible)) {
         echo json_encode(['success' => false, 'error' => 'Sem permissão']);
         exit;
     }
@@ -167,7 +175,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $stmt->execute([$file_id]);
     $file = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if (!$file || ($file['autor'] != $_SESSION['user_id'] && !empty($task['responsavel']) &&  $file['responsavel'] != $_SESSION['user_id'])) {
+    // Regras de permissão:
+    // - Autores podem sempre editar
+    // - Responsáveis podem editar
+    // - Se não houver responsável, qualquer um pode editar
+    $is_author = ($file['autor'] == $_SESSION['user_id']);
+    $is_responsible = (!empty($file['responsavel']) && $file['responsavel'] == $_SESSION['user_id']);
+    $no_responsible = empty($file['responsavel']) || is_null($file['responsavel']);
+    
+    if (!$file || (!$is_author && !$is_responsible && !$no_responsible)) {
         echo json_encode(['success' => false, 'error' => 'Sem permissão']);
         exit;
     }
@@ -196,7 +212,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $stmt->execute([$todo_id]);
     $task = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if (!$task || ($task['autor'] != $_SESSION['user_id'] && !empty($task['responsavel']) &&  $task['responsavel'] != $_SESSION['user_id'])) {
+    // Regras de permissão:
+    // - Autores podem sempre editar
+    // - Responsáveis podem editar
+    // - Se não houver responsável, qualquer um pode editar
+    $is_author = ($task['autor'] == $_SESSION['user_id']);
+    $is_responsible = (!empty($task['responsavel']) && $task['responsavel'] == $_SESSION['user_id']);
+    $no_responsible = empty($task['responsavel']) || is_null($task['responsavel']);
+    
+    if (!$task || (!$is_author && !$is_responsible && !$no_responsible)) {
         echo json_encode(['success' => false, 'error' => 'Sem permissão']);
         exit;
     }

@@ -43,14 +43,20 @@ if (!$task) {
     exit;
 }
 
-// Verificar permissão (autor ou responsável)
-if (
-    $task['autor'] != $_SESSION['user_id'] && 
-    ($task['responsavel'] != $_SESSION['user_id'] && !empty($task['responsavel']))
-) {
-    echo json_encode(['success' => false, 'error' => 'Sem permissão para editar']);
-    exit;
-}
+// Verificar permissão para EDIÇÃO (não para visualização)
+// Regras:
+// - Autores podem sempre editar
+// - Responsáveis podem editar
+// - Se não houver responsável, qualquer um pode editar
+$is_author = ($task['autor'] == $_SESSION['user_id']);
+$is_responsible = (!empty($task['responsavel']) && $task['responsavel'] == $_SESSION['user_id']);
+$no_responsible = empty($task['responsavel']) || is_null($task['responsavel']);
+
+// TODOS podem visualizar, mas nem todos podem editar
+$can_edit = $is_author || $is_responsible || $no_responsible;
+
+// Nota: Não bloqueamos a visualização, apenas retornamos se pode editar
+// O frontend pode decidir se permite ou não a edição com base no flag can_edit
 
 // Obter checklist
 $stmt = $pdo->prepare('SELECT * FROM task_checklist WHERE todo_id = ? ORDER BY position');
@@ -74,5 +80,6 @@ echo json_encode([
     'success' => true,
     'task' => $task,
     'checklist' => $checklist,
-    'files' => $files
+    'files' => $files,
+    'can_edit' => $can_edit
 ]);

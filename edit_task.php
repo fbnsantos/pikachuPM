@@ -730,6 +730,9 @@ function openTaskEditor(taskId) {
         .then(r => r.json())
         .then(data => {
             if (data.success) {
+                // Verificar se pode editar (opcional - pode mostrar apenas em modo leitura)
+                const canEdit = data.can_edit !== false; // Por padrão assume que pode
+                
                 // Preencher formulário
                 document.getElementById('edit_todo_id').value = data.task.id;
                 document.getElementById('edit_titulo').value = data.task.titulo || '';

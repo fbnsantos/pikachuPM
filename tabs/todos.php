@@ -115,7 +115,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $view_mode = $_GET['view'] ?? 'kanban';
 $filter_responsavel = isset($_GET['responsavel']) ? (int)$_GET['responsavel'] : null;
 $show_completed = isset($_GET['show_completed']);
-$include_autor = isset($_GET['include_autor']); // Novo filtro para incluir tarefas onde é autor
 
 $query = 'SELECT t.*, 
           autor.username as autor_nome,
@@ -129,23 +128,14 @@ $types = '';
 $params = [];
 
 if ($filter_responsavel) {
-    // Se filtrou por um responsável específico
     $query .= ' AND t.responsavel = ?';
     $types .= 'i';
     $params[] = $filter_responsavel;
 } else {
-    // Por padrão, mostrar apenas tarefas onde é responsável
-    // Se checkbox "include_autor" estiver marcado, incluir também onde é autor
-    if ($include_autor) {
-        $query .= ' AND (t.autor = ? OR t.responsavel = ?)';
-        $types .= 'ii';
-        $params[] = $user_id;
-        $params[] = $user_id;
-    } else {
-        $query .= ' AND t.responsavel = ?';
-        $types .= 'i';
-        $params[] = $user_id;
-    }
+    $query .= ' AND (t.autor = ? OR t.responsavel = ?)';
+    $types .= 'ii';
+    $params[] = $user_id;
+    $params[] = $user_id;
 }
 
 if (!$show_completed) {
@@ -360,7 +350,7 @@ $db->close();
                 <div class="col-md-3">
                     <label class="form-label">Responsável</label>
                     <select name="responsavel" class="form-select" onchange="this.form.submit()">
-                        <option value="">Tarefas onde sou responsável</option>
+                        <option value="">Todas as minhas</option>
                         <?php foreach ($all_users as $u): ?>
                             <option value="<?= $u['user_id'] ?>" <?= $filter_responsavel === $u['user_id'] ? 'selected' : '' ?>>
                                 <?= htmlspecialchars($u['username']) ?>
@@ -380,18 +370,6 @@ $db->close();
                         </label>
                     </div>
                 </div>
-                
-                <div class="col-md-3">
-                    <label class="form-label d-block">&nbsp;</label>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="include_autor" 
-                               id="includeAutor" <?= $include_autor ? 'checked' : '' ?> 
-                               onchange="this.form.submit()">
-                        <label class="form-check-label" for="includeAutor">
-                            Incluir onde sou autor
-                        </label>
-                    </div>
-                </div>
             </form>
         </div>
     </div>
@@ -408,6 +386,11 @@ $db->close();
             ];
             
             foreach ($estados_config as $estado => $config):
+                // Pular coluna de concluídas se checkbox não estiver marcado
+                if ($estado === 'concluída' && !$show_completed) {
+                    continue;
+                }
+                
                 $tasks = $todos_by_estado[$estado];
             ?>
                 <div>

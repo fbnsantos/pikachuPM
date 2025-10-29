@@ -369,8 +369,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $message = "Task criada e associada com sucesso!";
                     $messageType = 'success';
                     
+                    // Obter prototype_id do POST
+                    $prototypeIdForRedirect = $_POST['prototype_id'] ?? $selectedPrototypeId;
+                    
                     // Redirecionar
-                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $prototypeIdForRedirect;
                     if ($filterMine) $redirectUrl .= "&filter_mine=true";
                     if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
                     if ($showClosedStories) $redirectUrl .= "&show_closed=true";
@@ -393,8 +396,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $_POST['sprint_id']
                     ]);
                     
+                    // Obter prototype_id do POST
+                    $prototypeIdForRedirect = $_POST['prototype_id'] ?? $selectedPrototypeId;
+                    
                     // Redirecionar
-                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $prototypeIdForRedirect;
                     if ($filterMine) $redirectUrl .= "&filter_mine=true";
                     if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
                     if ($showClosedStories) $redirectUrl .= "&show_closed=true";
@@ -411,8 +417,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $pdo->prepare("DELETE FROM user_story_sprints WHERE id=?");
                     $stmt->execute([$_POST['association_id']]);
                     
+                    // Obter prototype_id do POST
+                    $prototypeIdForRedirect = $_POST['prototype_id'] ?? $selectedPrototypeId;
+                    
                     // Redirecionar
-                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $prototypeIdForRedirect;
                     if ($filterMine) $redirectUrl .= "&filter_mine=true";
                     if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
                     if ($showClosedStories) $redirectUrl .= "&show_closed=true";
@@ -432,8 +441,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $_POST['todo_id']
                     ]);
                     
+                    // Obter prototype_id do POST
+                    $prototypeIdForRedirect = $_POST['prototype_id'] ?? $selectedPrototypeId;
+                    
                     // Redirecionar
-                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $prototypeIdForRedirect;
                     if ($filterMine) $redirectUrl .= "&filter_mine=true";
                     if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
                     if ($showClosedStories) $redirectUrl .= "&show_closed=true";
@@ -450,8 +462,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $pdo->prepare("DELETE FROM story_tasks WHERE id=?");
                     $stmt->execute([$_POST['association_id']]);
                     
+                    // Obter prototype_id do POST
+                    $prototypeIdForRedirect = $_POST['prototype_id'] ?? $selectedPrototypeId;
+                    
                     // Redirecionar
-                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
+                    $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $prototypeIdForRedirect;
                     if ($filterMine) $redirectUrl .= "&filter_mine=true";
                     if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
                     if ($showClosedStories) $redirectUrl .= "&show_closed=true";
@@ -1301,6 +1316,7 @@ if ($selectedPrototype && $checkTodos) {
                                             <form method="POST" style="display:inline;" onsubmit="return confirm('Remover desta sprint?')">
                                                 <input type="hidden" name="action" value="remove_story_from_sprint">
                                                 <input type="hidden" name="association_id" value="<?= $sprint['association_id'] ?>">
+                                                <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
                                                 <button type="submit" class="btn btn-sm btn-link text-danger p-0" style="line-height: 1;">
                                                     <i class="bi bi-x"></i>
                                                 </button>
@@ -1336,6 +1352,7 @@ if ($selectedPrototype && $checkTodos) {
                                             <form method="POST" style="display:inline;" onsubmit="return confirm('Remover esta task?')">
                                                 <input type="hidden" name="action" value="remove_task_from_story">
                                                 <input type="hidden" name="association_id" value="<?= $task['association_id'] ?>">
+                                                <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
                                                 <button type="submit" class="btn btn-sm btn-danger" title="Remover da Story">
                                                     <i class="bi bi-x-lg"></i>
                                                 </button>
@@ -1354,6 +1371,7 @@ if ($selectedPrototype && $checkTodos) {
                                     <form method="POST" style="display:inline;">
                                         <input type="hidden" name="action" value="toggle_story_status">
                                         <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
+                                        <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
                                         <button type="submit" class="btn btn-sm btn-success">
                                             <i class="bi bi-check-circle"></i> Fechar Story
                                         </button>
@@ -1362,6 +1380,7 @@ if ($selectedPrototype && $checkTodos) {
                                     <form method="POST" style="display:inline;">
                                         <input type="hidden" name="action" value="toggle_story_status">
                                         <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
+                                        <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
                                         <button type="submit" class="btn btn-sm btn-warning">
                                             <i class="bi bi-arrow-counterclockwise"></i> Reabrir Story
                                         </button>
@@ -1404,6 +1423,7 @@ if ($selectedPrototype && $checkTodos) {
                                             <div class="modal-body">
                                                 <input type="hidden" name="action" value="add_story_to_sprint">
                                                 <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
+                                                <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
                                                 
                                                 <div class="mb-3">
                                                     <label class="form-label">Filtrar Sprints</label>
@@ -1448,6 +1468,7 @@ if ($selectedPrototype && $checkTodos) {
                                             <div class="modal-body">
                                                 <input type="hidden" name="action" value="add_task_to_story">
                                                 <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
+                                                <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
                                                 
                                                 <div class="mb-3">
                                                     <label class="form-label">Filtrar Tasks</label>
@@ -1507,6 +1528,7 @@ if ($selectedPrototype && $checkTodos) {
                                             <div class="modal-body">
                                                 <input type="hidden" name="action" value="create_task_from_story">
                                                 <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
+                                                <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
                                                 
                                                 <div class="alert alert-info">
                                                     <strong>User Story:</strong><br>
@@ -1885,6 +1907,7 @@ if ($selectedPrototype && $checkTodos) {
                 <div class="modal-body">
                     <input type="hidden" name="action" value="update_story">
                     <input type="hidden" name="story_id" id="edit_story_id">
+                    <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?? '' ?>">
                     
                     <div class="mb-3">
                         <label class="form-label">Story Text *</label>
@@ -1930,6 +1953,7 @@ if ($selectedPrototype && $checkTodos) {
                 <div class="modal-body">
                     <input type="hidden" name="action" value="update_story_percentage">
                     <input type="hidden" name="story_id" id="edit_percentage_story_id">
+                    <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?? '' ?>">
                     
                     <div class="mb-3">
                         <label class="form-label">Percentagem de Conclusão *</label>

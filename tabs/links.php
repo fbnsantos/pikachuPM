@@ -156,8 +156,11 @@ $links = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     </div>
                     <div class="text-muted small">
                         🔗 <a href="<?= htmlspecialchars($link['url']) ?>" target="_blank" title="<?= htmlspecialchars($link['url']) ?>">
-    <?= $isSecure ? '🔒 ' : '' ?>Press here
-</a>
+                            <?php 
+                            $isSecure = strpos($link['url'], 'https://') === 0;
+                            echo $isSecure ? '🔒 ' : '';
+                            ?>Press here
+                        </a>
                     </div>
                     <small class="text-muted">
                         Categoria: <span id="categoria-<?= $link['id'] ?>" contenteditable="true">
@@ -215,64 +218,106 @@ Sortable.create(lista, {
 // SECÇÃO DE GESTÃO DE FICHEIROS
 // ======================================================================
 
-// Conectar à base de dados MySQL dos ficheiros
-require_once __DIR__ . '/config.php';
+$files = [];
+$file_error = null;
+$search_term = '';
 
-try {
-    $pdo_files = new PDO(
-        "mysql:host=$db_host;dbname=$db_name;charset=utf8mb4",
-        $db_user,
-        $db_pass,
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-    );
-} catch (PDOException $e) {
-    die("Erro ao conectar à BD de ficheiros: " . $e->getMessage());
-}
+// Tentar conectar à base de dados MySQL dos ficheiros
+$config_path = __DIR__ . '/config.php';
 
-// Processar adição de notas aos ficheiros
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_file_note') {
-    header('Content-Type: application/json');
-    $file_id = (int)$_POST['file_id'];
-    $note = trim($_POST['note']);
-    
-    // Verificar se coluna 'notes' existe, senão criar
+if (file_exists($config_path)) {
     try {
-        $pdo_files->exec("ALTER TABLE task_files ADD COLUMN IF NOT EXISTS notes TEXT");
+        require_once $config_path;
+        
+        $pdo_files = new PDO(
+            "mysql:host=$db_host;dbname=$db_name;charset=utf8mb4",
+            $db_user,
+            $db_pass,
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+        );
+        
+        // Processar adição de notas aos ficheiros (AJAX)
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_file_note') {
+            header('Content-Type: application/json');
+            $file_id = (int)$_POST['file_id'];
+            $note = trim($_POST['note']);
+            
+            // Verificar/criar coluna notes
+            try {
+                $check_col = $pdo_files->query("SHOW COLUMNS FROM task_files LIKE 'notes'");
+                if ($check_col->rowCount() == 0) {
+                    $pdo_files->exec("ALTER TABLE task_files ADD COLUMN notes TEXT AFTER file_size");
+                }
+            } catch (PDOException $e) {
+                // Ignorar erro
+            }
+            
+            $stmt = $pdo_files->prepare("UPDATE task_files SET notes = ? WHERE id = ?");
+            $stmt->execute([$note, $file_id]);
+            
+            echo json_encode(['success' => true]);
+            exit;
+        }
+        
+        // Verificar se tabela task_files existe
+        $tables_check = $pdo_files->query("SHOW TABLES LIKE 'task_files'");
+        
+        if ($tables_check->rowCount() > 0) {
+            // Verificar se coluna notes existe
+            $columns_check = $pdo_files->query("SHOW COLUMNS FROM task_files LIKE 'notes'");
+            $has_notes = ($columns_check->rowCount() > 0);
+            
+            // Pesquisar ficheiros
+            $search_term = $_GET['search_files'] ?? '';
+            
+            $file_query = "
+                SELECT 
+                    tf.id as file_id,
+                    tf.file_name,
+                    tf.file_path,
+                    tf.file_size,
+                    tf.uploaded_at,
+                    " . ($has_notes ? "tf.notes" : "'' as notes") . ",
+                    tf.todo_id,
+                    t.titulo as task_title,
+                    t.estado as task_status,
+                    u.nome as uploaded_by_name
+                FROM task_files tf
+                LEFT JOIN todos t ON tf.todo_id = t.id
+                LEFT JOIN user_tokens u ON tf.uploaded_by = u.user_id
+                WHERE 1=1
+            ";
+            
+            if ($search_term) {
+                $file_query .= " AND (tf.file_name LIKE :search ";
+                if ($has_notes) {
+                    $file_query .= " OR tf.notes LIKE :search ";
+                }
+                $file_query .= " OR t.titulo LIKE :search)";
+            }
+            
+            $file_query .= " ORDER BY tf.uploaded_at DESC LIMIT 500";
+            
+            $stmt = $pdo_files->prepare($file_query);
+            if ($search_term) {
+                $stmt->execute([':search' => "%$search_term%"]);
+            } else {
+                $stmt->execute();
+            }
+            $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } else {
+            $file_error = "A tabela 'task_files' ainda não existe. Execute primeiro o instalador do editor de tarefas.";
+        }
+        
     } catch (PDOException $e) {
-        // Coluna já existe
+        $file_error = "Erro ao conectar à BD MySQL: " . htmlspecialchars($e->getMessage());
+    } catch (Exception $e) {
+        $file_error = "Erro: " . htmlspecialchars($e->getMessage());
     }
-    
-    $stmt = $pdo_files->prepare("UPDATE task_files SET notes = ? WHERE id = ?");
-    $stmt->execute([$note, $file_id]);
-    
-    echo json_encode(['success' => true]);
-    exit;
+} else {
+    $file_error = "Ficheiro config.php não encontrado em: " . htmlspecialchars($config_path);
 }
-
-// Pesquisar ficheiros
-$search_term = $_GET['search_files'] ?? '';
-$file_query = "
-    SELECT 
-        tf.id as file_id,
-        tf.file_name,
-        tf.file_path,
-        tf.file_size,
-        tf.uploaded_at,
-        tf.notes,
-        tf.todo_id,
-        t.titulo as task_title,
-        t.estado as task_status,
-        u.nome as uploaded_by_name
-    FROM task_files tf
-    LEFT JOIN todos t ON tf.todo_id = t.id
-    LEFT JOIN user_tokens u ON tf.uploaded_by = u.user_id
-    WHERE tf.file_name LIKE :search OR tf.notes LIKE :search OR t.titulo LIKE :search
-    ORDER BY tf.uploaded_at DESC
-";
-
-$stmt = $pdo_files->prepare($file_query);
-$stmt->execute([':search' => "%$search_term%"]);
-$files = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Função para formatar tamanho de ficheiro
 function formatFileSize($bytes) {
@@ -293,6 +338,20 @@ function formatFileSize($bytes) {
 <div class="container mt-5">
     <h2>📁 Gestão de Ficheiros do Sistema</h2>
     <p class="text-muted">Todos os ficheiros carregados nas tarefas. Pesquise, adicione notas e aceda às tarefas associadas.</p>
+
+    <?php if ($file_error): ?>
+        <div class="alert alert-danger">
+            <h5>⚠️ Erro ao carregar ficheiros</h5>
+            <p><?= $file_error ?></p>
+            <hr>
+            <p class="mb-0"><strong>Para resolver:</strong></p>
+            <ol class="mb-0">
+                <li>Certifique-se que o ficheiro <code>config.php</code> existe no diretório correto</li>
+                <li>Execute o instalador do editor de tarefas para criar a tabela <code>task_files</code></li>
+                <li>Execute o script SQL: <code>add_file_notes_column.sql</code></li>
+            </ol>
+        </div>
+    <?php else: ?>
 
     <form method="get" class="row g-2 mb-4">
         <input type="hidden" name="tab" value="links">
@@ -345,19 +404,21 @@ function formatFileSize($bytes) {
                         <?php
                         $ext = strtolower(pathinfo($file['file_name'], PATHINFO_EXTENSION));
                         $icon = '📄';
-                        if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'])) $icon = '🖼️';
+                        if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'])) $icon = '🖼️';
                         elseif (in_array($ext, ['pdf'])) $icon = '📕';
                         elseif (in_array($ext, ['doc', 'docx'])) $icon = '📘';
-                        elseif (in_array($ext, ['xls', 'xlsx'])) $icon = '📗';
+                        elseif (in_array($ext, ['xls', 'xlsx', 'csv'])) $icon = '📗';
+                        elseif (in_array($ext, ['ppt', 'pptx'])) $icon = '📙';
                         elseif (in_array($ext, ['zip', 'rar', '7z', 'tar', 'gz'])) $icon = '🗜️';
-                        elseif (in_array($ext, ['mp4', 'avi', 'mov', 'wmv'])) $icon = '🎬';
-                        elseif (in_array($ext, ['mp3', 'wav', 'ogg'])) $icon = '🎵';
+                        elseif (in_array($ext, ['mp4', 'avi', 'mov', 'wmv', 'mkv'])) $icon = '🎬';
+                        elseif (in_array($ext, ['mp3', 'wav', 'ogg', 'flac'])) $icon = '🎵';
+                        elseif (in_array($ext, ['txt', 'md', 'log'])) $icon = '📝';
                         echo $icon;
                         ?>
                     </td>
                     <td>
                         <strong><?= htmlspecialchars($file['file_name']) ?></strong><br>
-                        <small class="text-muted">.<?= $ext ?></small>
+                        <small class="text-muted">.<?= htmlspecialchars($ext) ?></small>
                     </td>
                     <td><?= formatFileSize($file['file_size']) ?></td>
                     <td>
@@ -386,7 +447,8 @@ function formatFileSize($bytes) {
                                    value="<?= htmlspecialchars($file['notes'] ?? '') ?>"
                                    placeholder="Adicionar nota...">
                             <button class="btn btn-outline-success btn-sm" 
-                                    onclick="saveFileNote(<?= $file['file_id'] ?>)">
+                                    onclick="saveFileNote(<?= $file['file_id'] ?>)"
+                                    title="Guardar nota">
                                 💾
                             </button>
                         </div>
@@ -399,7 +461,7 @@ function formatFileSize($bytes) {
                         <a href="<?= htmlspecialchars($file['file_path']) ?>" 
                            target="_blank" 
                            class="btn btn-sm btn-primary"
-                           title="Ver/Download">
+                           title="Ver/Download ficheiro">
                             👁️ Ver
                         </a>
                     </td>
@@ -410,6 +472,8 @@ function formatFileSize($bytes) {
     </div>
 
     <?php endif; ?>
+    
+    <?php endif; // Fim do else do $file_error ?>
 </div>
 
 <script>
@@ -487,5 +551,16 @@ document.addEventListener('DOMContentLoaded', function() {
 .border-success {
     border-color: #198754 !important;
     box-shadow: 0 0 0 0.2rem rgba(25, 135, 84, 0.25) !important;
+}
+
+.table-responsive {
+    max-height: 800px;
+    overflow-y: auto;
+}
+
+.table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 </style>

@@ -223,7 +223,7 @@ $file_error = null;
 $search_term = '';
 
 // Tentar conectar à base de dados MySQL dos ficheiros
-$config_path = __DIR__ . '/../config.php';
+$config_path = __DIR__ . '/config.php';
 
 if (file_exists($config_path)) {
     try {
@@ -270,6 +270,7 @@ if (file_exists($config_path)) {
             // Pesquisar ficheiros
             $search_term = $_GET['search_files'] ?? '';
             
+            // A tabela user_tokens tem as colunas: UserID, Username, Token
             $file_query = "
                 SELECT 
                     tf.id as file_id,
@@ -279,12 +280,13 @@ if (file_exists($config_path)) {
                     tf.uploaded_at,
                     " . ($has_notes ? "tf.notes" : "'' as notes") . ",
                     tf.todo_id,
+                    tf.uploaded_by,
                     t.titulo as task_title,
                     t.estado as task_status,
-                    u.nome as uploaded_by_name
+                    COALESCE(u.Username, CONCAT('User #', tf.uploaded_by)) as uploaded_by_name
                 FROM task_files tf
                 LEFT JOIN todos t ON tf.todo_id = t.id
-                LEFT JOIN user_tokens u ON tf.uploaded_by = u.user_id
+                LEFT JOIN user_tokens u ON tf.uploaded_by = u.UserID
                 WHERE 1=1
             ";
             

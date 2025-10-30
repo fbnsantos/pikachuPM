@@ -223,7 +223,7 @@ $file_error = null;
 $search_term = '';
 
 // Tentar conectar à base de dados MySQL dos ficheiros
-$config_path = __DIR__ . '/config.php';
+$config_path = __DIR__ . '/../config.php';
 
 if (file_exists($config_path)) {
     try {

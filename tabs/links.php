@@ -270,7 +270,7 @@ if (file_exists($config_path)) {
             // Pesquisar ficheiros
             $search_term = $_GET['search_files'] ?? '';
             
-            // A tabela user_tokens tem as colunas: ID, Username, Token
+            // A tabela user_tokens tem as colunas: id, user_id, username, token, created_at
             $file_query = "
                 SELECT 
                     tf.id as file_id,
@@ -283,10 +283,10 @@ if (file_exists($config_path)) {
                     tf.uploaded_by,
                     t.titulo as task_title,
                     t.estado as task_status,
-                    COALESCE(u.Username, CONCAT('User #', tf.uploaded_by)) as uploaded_by_name
+                    COALESCE(u.username, CONCAT('User #', tf.uploaded_by)) as uploaded_by_name
                 FROM task_files tf
                 LEFT JOIN todos t ON tf.todo_id = t.id
-                LEFT JOIN user_tokens u ON tf.uploaded_by = u.ID
+                LEFT JOIN user_tokens u ON tf.uploaded_by = u.user_id
                 WHERE 1=1
             ";
             

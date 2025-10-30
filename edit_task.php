@@ -31,11 +31,11 @@ try {
 
 // PROCESSAR UPLOAD DE FICHEIROS - VERSÃO CORRIGIDA
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload_file') {
-    // Aumentar limites temporariamente
-    @ini_set('upload_max_filesize', '50M');
-    @ini_set('post_max_size', '52M');
-    @ini_set('max_execution_time', '300');
-    @ini_set('memory_limit', '256M');
+    // Aumentar limites temporariamente para suportar ficheiros até 300MB
+    @ini_set('upload_max_filesize', '300M');
+    @ini_set('post_max_size', '305M');
+    @ini_set('max_execution_time', '600');
+    @ini_set('memory_limit', '512M');
     
     header('Content-Type: application/json');
     
@@ -61,14 +61,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     
     if (isset($_FILES['file']) && $_FILES['file']['error'] === UPLOAD_ERR_OK) {
         // Validações
-        $max_file_size = 10 * 1024 * 1024; // 10MB
-        $allowed_extensions = [
-            'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', // Imagens
-            'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', // Documentos
-            'txt', 'csv', 'json', 'xml', // Texto
-            'zip', 'rar', '7z', 'tar', 'gz', // Arquivos
-            'mp3', 'mp4', 'avi', 'mov', 'wmv' // Mídia
-        ];
+        $max_file_size = 300 * 1024 * 1024; // 300MB
+        
+        // Extensões bloqueadas por motivos de segurança (executáveis e scripts)
+        $blocked_extensions = ['php', 'exe', 'sh', 'bat', 'phtml', 'php3', 'php4', 'php5', 'phps', 'pht', 'phar', 'cmd', 'com', 'scr', 'vbs', 'js', 'jar', 'msi'];
         
         $file_name = basename($_FILES['file']['name']);
         $file_size = $_FILES['file']['size'];
@@ -79,13 +75,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         
         // Validar tamanho
         if ($file_size > $max_file_size) {
-            echo json_encode(['success' => false, 'error' => 'Ficheiro muito grande. Máximo 10MB']);
+            echo json_encode(['success' => false, 'error' => 'Ficheiro muito grande. Máximo 300MB']);
             exit;
         }
         
-        // Validar extensão
-        if (!in_array($file_ext, $allowed_extensions)) {
-            echo json_encode(['success' => false, 'error' => 'Tipo de ficheiro não permitido: .' . $file_ext]);
+        // Bloquear extensões perigosas
+        if (in_array($file_ext, $blocked_extensions)) {
+            echo json_encode(['success' => false, 'error' => 'Tipo de ficheiro não permitido por motivos de segurança: .' . $file_ext]);
             exit;
         }
         

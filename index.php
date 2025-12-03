@@ -35,6 +35,7 @@ $tabs = [
     'equipa' => 'Daily Meeting',
     'calendar' => 'Calendar',
     'links' => 'Files & Links',
+    'research_ideas' => 'Research Ideas',
     'old' => [
         'label' => 'Old',
         'submenu' => [

@@ -5,9 +5,6 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include_once __DIR__ . '/../config.php';
 
-// Forçar agendamento manual dos gestores (sem atribuição aleatória)
-$AGENDAMENTO_GESTOR_MANUAL = true;
-
 // Verificar e criar base de dados SQLite e tabelas, se necessário
 $db_path = __DIR__ . '/../equipa2.sqlite';
 $nova_base_dados = !file_exists($db_path);
@@ -300,12 +297,9 @@ function gerarListaProximosGestores($db, $equipa) {
 
     // Se não tiver agendamento para hoje, criar um
     if (!$tem_hoje) {
-        // Agendamento manual: não atribuir automaticamente gestor para hoje.
-        if (!$AGENDAMENTO_GESTOR_MANUAL) {
-            $membro_hoje = $equipa[array_rand($equipa)];
-            $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) VALUES (:id, :data)");
-            $stmt->execute([':id' => $membro_hoje, ':data' => $hoje]);
-        }
+        $membro_hoje = $equipa[array_rand($equipa)];
+        $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) VALUES (:id, :data)");
+        $stmt->execute([':id' => $membro_hoje, ':data' => $hoje]);
     }
     
     // Verificar quantos dias futuros estão planejados
@@ -322,8 +316,6 @@ function gerarListaProximosGestores($db, $equipa) {
         // Se não houver data futura, usar hoje como ponto de partida
         $inicio = new DateTime($ultima_data ?: $hoje);
         
-        // [DESATIVADO] Agendamento aleatório desativado para gestão manual
-        if (!$AGENDAMENTO_GESTOR_MANUAL) {
         // Criar uma cópia embaralhada da equipe para distribuir aleatoriamente
         $equipe_copia = $equipa;
         shuffle($equipe_copia);
@@ -367,12 +359,11 @@ function gerarListaProximosGestores($db, $equipa) {
                 $dias_adicionados++;
             }
         }
-        }
     }
 }
 
 // Obter lista de próximos gestores
-function getProximosGestores($db, $limite = 30) {
+function getProximosGestores($db, $limite = 15) {
     // Primeiro, buscar o gestor para o dia atual
     $hoje = date('Y-m-d');
     $stmt = $db->prepare("SELECT redmine_id, data_prevista 
@@ -523,6 +514,87 @@ $em_reuniao = $_SESSION['em_reuniao'];
 $oradores = $_SESSION['oradores'];
 $orador_atual = $_SESSION['orador_atual'];
 
+// Processar ações de gestão de gestores
+if (isset($_POST['gerar_gestores_aleatorios'])) {
+    try {
+        $membros_ativos = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
+        
+        if (empty($membros_ativos)) {
+            $_SESSION['msg_erro'] = "Não há membros na equipa para gerar gestores.";
+        } else {
+            // Limpar gestores futuros (não concluídos)
+            $db->exec("DELETE FROM proximos_gestores WHERE concluido = 0 AND data_prevista > date('now')");
+            
+            // Gerar gestores para os próximos 30 dias
+            $data_inicio = new DateTime();
+            $data_inicio->modify('+1 day'); // Começar a partir de amanhã
+            
+            for ($i = 0; $i < 30; $i++) {
+                // Pular fins de semana
+                while (in_array($data_inicio->format('N'), ['6', '7'])) {
+                    $data_inicio->modify('+1 day');
+                }
+                
+                $data_prevista = $data_inicio->format('Y-m-d');
+                $gestor_aleatorio = $membros_ativos[array_rand($membros_ativos)];
+                
+                $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista, concluido) VALUES (?, ?, 0)");
+                $stmt->execute([$gestor_aleatorio, $data_prevista]);
+                
+                $data_inicio->modify('+1 day');
+            }
+            
+            $_SESSION['msg_sucesso'] = "Gestores aleatórios gerados para os próximos 30 dias úteis!";
+        }
+    } catch (Exception $e) {
+        $_SESSION['msg_erro'] = "Erro ao gerar gestores: " . $e->getMessage();
+    }
+    
+    header("Location: " . $_SERVER['PHP_SELF'] . "?tab=equipa");
+    exit;
+}
+
+if (isset($_POST['atribuir_gestor_manual']) && isset($_POST['redmine_id']) && isset($_POST['data_prevista'])) {
+    try {
+        $redmine_id = intval($_POST['redmine_id']);
+        $data_prevista = $_POST['data_prevista'];
+        
+        // Verificar se já existe um gestor para essa data
+        $stmt = $db->prepare("SELECT id FROM proximos_gestores WHERE data_prevista = ? AND concluido = 0");
+        $stmt->execute([$data_prevista]);
+        $existe = $stmt->fetch();
+        
+        if ($existe) {
+            // Atualizar gestor existente
+            $stmt = $db->prepare("UPDATE proximos_gestores SET redmine_id = ? WHERE data_prevista = ? AND concluido = 0");
+            $stmt->execute([$redmine_id, $data_prevista]);
+            $_SESSION['msg_sucesso'] = "Gestor atualizado para " . date('d/m/Y', strtotime($data_prevista)) . "!";
+        } else {
+            // Inserir novo gestor
+            $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista, concluido) VALUES (?, ?, 0)");
+            $stmt->execute([$redmine_id, $data_prevista]);
+            $_SESSION['msg_sucesso'] = "Gestor atribuído para " . date('d/m/Y', strtotime($data_prevista)) . "!";
+        }
+    } catch (Exception $e) {
+        $_SESSION['msg_erro'] = "Erro ao atribuir gestor: " . $e->getMessage();
+    }
+    
+    header("Location: " . $_SERVER['PHP_SELF'] . "?tab=equipa");
+    exit;
+}
+
+if (isset($_POST['limpar_proximos_gestores'])) {
+    try {
+        $db->exec("DELETE FROM proximos_gestores WHERE concluido = 0 AND data_prevista > date('now')");
+        $_SESSION['msg_sucesso'] = "Próximos gestores limpos com sucesso!";
+    } catch (Exception $e) {
+        $_SESSION['msg_erro'] = "Erro ao limpar gestores: " . $e->getMessage();
+    }
+    
+    header("Location: " . $_SERVER['PHP_SELF'] . "?tab=equipa");
+    exit;
+}
+
 // Processar ações para as notas Markdown
 if (isset($_POST['acao_nota'])) {
     switch ($_POST['acao_nota']) {
@@ -635,9 +707,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         // $stmt->execute([':id' => $gestor_hoje, ':hoje' => $hoje]);
     } else {
         // Se não houver gestor agendado para hoje, selecionar aleatoriamente
-        if (!$AGENDAMENTO_GESTOR_MANUAL) {
-            $_SESSION['gestor'] = $equipa[array_rand($equipa)];
-        }
+        $_SESSION['gestor'] = $equipa[array_rand($equipa)];
     }
         
         $_SESSION['oradores'] = $equipa;
@@ -678,12 +748,11 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
                 $equipe_copia = array_filter($equipa, function($e) use ($idRecusado) {
                     return $e != $idRecusado;
                 });
-                if (!$AGENDAMENTO_GESTOR_MANUAL) {
-                    $novo_gestor = $equipe_copia[array_rand($equipe_copia)];
-                    $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) 
-                                         VALUES (:id, :data)");
-                    $stmt->execute([':id' => $novo_gestor, ':data' => $dataRecusada]);
-                } // caso manual, não atribui automaticamente
+                $novo_gestor = $equipe_copia[array_rand($equipe_copia)];
+                
+                $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) 
+                                     VALUES (:id, :data)");
+                $stmt->execute([':id' => $novo_gestor, ':data' => $dataRecusada]);
             }
         } else {
             // Remover este gestor de todas as datas futuras
@@ -1053,6 +1122,138 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                     <h4 class="mb-0"><i class="bi bi-calendar-week"></i> Próximos Gestores de Reunião</h4>
                 </div>
                 <div class="card-body">
+                    <!-- Mensagens de feedback -->
+                    <?php if (isset($_SESSION['msg_sucesso'])): ?>
+                        <div class="alert alert-success alert-dismissible fade show" role="alert">
+                            <i class="bi bi-check-circle"></i> <?= $_SESSION['msg_sucesso'] ?>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                        <?php unset($_SESSION['msg_sucesso']); ?>
+                    <?php endif; ?>
+                    
+                    <?php if (isset($_SESSION['msg_erro'])): ?>
+                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                            <i class="bi bi-exclamation-triangle"></i> <?= $_SESSION['msg_erro'] ?>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                        <?php unset($_SESSION['msg_erro']); ?>
+                    <?php endif; ?>
+                    
+                    <!-- Controles de Gestão de Gestores -->
+                    <div class="row mb-4">
+                        <div class="col-md-12">
+                            <div class="btn-group d-flex gap-2" role="group">
+                                <form method="post" class="flex-fill">
+                                    <button type="submit" name="gerar_gestores_aleatorios" class="btn btn-primary w-100" 
+                                            onclick="return confirm('Isto irá substituir os gestores futuros agendados. Continuar?')">
+                                        <i class="bi bi-shuffle"></i> Gerar Gestores Aleatoriamente (30 dias)
+                                    </button>
+                                </form>
+                                
+                                <form method="post" class="flex-fill">
+                                    <button type="submit" name="limpar_proximos_gestores" class="btn btn-warning w-100"
+                                            onclick="return confirm('Tem certeza que deseja limpar todos os gestores futuros?')">
+                                        <i class="bi bi-trash"></i> Limpar Gestores Futuros
+                                    </button>
+                                </form>
+                                
+                                <button type="button" class="btn btn-info flex-fill" data-bs-toggle="collapse" data-bs-target="#atribuicaoManual">
+                                    <i class="bi bi-pencil-square"></i> Atribuir Manualmente
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Interface de Atribuição Manual (colapsável) -->
+                    <div class="collapse mb-4" id="atribuicaoManual">
+                        <div class="card card-body bg-light">
+                            <h5 class="mb-3"><i class="bi bi-calendar-plus"></i> Atribuir Gestor para Data Específica</h5>
+                            <form method="post" class="row g-3">
+                                <input type="hidden" name="atribuir_gestor_manual" value="1">
+                                <div class="col-md-6">
+                                    <label for="data_prevista" class="form-label">Data:</label>
+                                    <input type="date" name="data_prevista" id="data_prevista" class="form-control" 
+                                           value="<?= date('Y-m-d', strtotime('+1 day')) ?>" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="redmine_id" class="form-label">Gestor:</label>
+                                    <select name="redmine_id" id="redmine_id" class="form-select" required>
+                                        <option value="">Selecione um gestor...</option>
+                                        <?php foreach ($equipa as $membro_id): ?>
+                                            <?php $nome = getNomeUtilizador($membro_id, $utilizadores); ?>
+                                            <option value="<?= $membro_id ?>"><?= htmlspecialchars($nome) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-12">
+                                    <button type="submit" class="btn btn-success">
+                                        <i class="bi bi-check-lg"></i> Atribuir Gestor
+                                    </button>
+                                </div>
+                            </form>
+                            
+                            <!-- Atribuição Múltipla Rápida -->
+                            <hr class="my-3">
+                            <h6 class="mb-3"><i class="bi bi-lightning-charge"></i> Atribuição Rápida dos Próximos Dias</h6>
+                            <div id="atribuicao-rapida">
+                                <div class="row g-2">
+                                    <?php
+                                    // Gerar próximos 7 dias úteis
+                                    $data_atual = new DateTime();
+                                    $data_atual->modify('+1 day');
+                                    $dias_gerados = 0;
+                                    $max_dias = 7;
+                                    
+                                    while ($dias_gerados < $max_dias) {
+                                        // Pular fins de semana
+                                        if (in_array($data_atual->format('N'), ['6', '7'])) {
+                                            $data_atual->modify('+1 day');
+                                            continue;
+                                        }
+                                        
+                                        $data_str = $data_atual->format('Y-m-d');
+                                        $data_display = $data_atual->format('d/m');
+                                        $dia_semana = ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'][(int)$data_atual->format('N')];
+                                        
+                                        // Verificar se já tem gestor atribuído
+                                        $stmt = $db->prepare("SELECT redmine_id FROM proximos_gestores WHERE data_prevista = ? AND concluido = 0");
+                                        $stmt->execute([$data_str]);
+                                        $gestor_existente = $stmt->fetchColumn();
+                                        ?>
+                                        <div class="col-md-6 col-lg-4">
+                                            <form method="post" class="card p-2">
+                                                <input type="hidden" name="atribuir_gestor_manual" value="1">
+                                                <input type="hidden" name="data_prevista" value="<?= $data_str ?>">
+                                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                                    <strong><?= $dia_semana ?> <?= $data_display ?></strong>
+                                                    <?php if ($gestor_existente): ?>
+                                                        <span class="badge bg-success">Atribuído</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <select name="redmine_id" class="form-select form-select-sm mb-2" required>
+                                                    <option value="">Selecionar...</option>
+                                                    <?php foreach ($equipa as $membro_id): ?>
+                                                        <?php $nome = getNomeUtilizador($membro_id, $utilizadores); ?>
+                                                        <option value="<?= $membro_id ?>" <?= ($gestor_existente == $membro_id) ? 'selected' : '' ?>>
+                                                            <?= htmlspecialchars($nome) ?>
+                                                        </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <button type="submit" class="btn btn-sm btn-outline-primary">
+                                                    <i class="bi bi-check"></i> Atribuir
+                                                </button>
+                                            </form>
+                                        </div>
+                                        <?php
+                                        $data_atual->modify('+1 day');
+                                        $dias_gerados++;
+                                    }
+                                    ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <?php if (empty($proximos_gestores)): ?>
                         <p class="text-muted">Nenhum gestor agendado para os próximos dias.</p>
                     <?php else: ?>
@@ -1744,103 +1945,5 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-
-<?php
-// ===================== AGENDAMENTO MANUAL DOS GESTORES (próximos 30 dias) =====================
-try {
-    // Garante que temos $db, $equipa e $utilizadores carregados
-    if (!isset($db)) {
-        $db = new PDO('sqlite:' . __DIR__ . '/../equipa2.sqlite');
-        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    }
-    if (!isset($utilizadores) || !is_array($utilizadores)) {
-        $utilizadores = getUtilizadoresRedmine();
-    }
-    // Mapa id=>nome
-    $mapUsers = [];
-    foreach ($utilizadores as $u) {
-        if (isset($u['id'])) {
-            $mapUsers[$u['id']] = trim(($u['firstname'] ?? '') . ' ' . ($u['lastname'] ?? ''));
-        }
-    }
-
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['salvar_agendamento_manual'])) {
-        $gestores = $_POST['gestor'] ?? [];
-        foreach ($gestores as $dataISO => $redmineId) {
-            $dataISO = substr($dataISO,0,10);
-            // Limpa qualquer agendamento existente nessa data
-            $stmt = $db->prepare("DELETE FROM proximos_gestores WHERE data_prevista = :data");
-            $stmt->execute([':data' => $dataISO]);
-            // Inserir apenas se tiver gestor selecionado
-            if (ctype_digit((string)$redmineId) && (int)$redmineId > 0) {
-                $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) VALUES (:id, :data)");
-                $stmt->execute([':id' => (int)$redmineId, ':data' => $dataISO]);
-            }
-        }
-        echo "<div class='alert alert-success mt-3'>Agendamento manual guardado para as próximas datas.</div>";
-    }
-} catch (Exception $e) {
-    echo "<div class='alert alert-danger'>Falha no agendamento manual: " . htmlspecialchars($e->getMessage()) . "</div>";
-}
-?>
-
-<div class="container mt-4">
-  <div class="card shadow-sm">
-    <div class="card-header d-flex align-items-center">
-      <i class="bi bi-calendar3 me-2"></i>
-      <strong>Agendar manualmente gestores (próximos 30 dias)</strong>
-    </div>
-    <div class="card-body">
-      <form method="post">
-        <input type="hidden" name="salvar_agendamento_manual" value="1" />
-        <div class="table-responsive">
-          <table class="table table-sm align-middle">
-            <thead>
-              <tr>
-                <th style="width:140px">Data</th>
-                <th>Gestor de Equipa</th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php
-              $hojeDT = new DateTime('today');
-              for ($i=0; $i<30; $i++) {
-                  $d = clone $hojeDT;
-                  $d->modify("+$i day");
-                  $iso = $d->format('Y-m-d');
-                  // Carregar agendamento existente
-                  $stmt = $db->prepare("SELECT redmine_id FROM proximos_gestores WHERE data_prevista = :data AND concluido = 0 LIMIT 1");
-                  $stmt->execute([':data' => $iso]);
-                  $pre = $stmt->fetchColumn();
-                  ?>
-                  <tr>
-                    <td><code><?php echo htmlspecialchars($iso); ?></code></td>
-                    <td>
-                      <select class="form-select form-select-sm" name="gestor[<?php echo htmlspecialchars($iso); ?>]">
-                        <option value="">— sem gestor —</option>
-                        <?php foreach ($mapUsers as $uid => $uname): ?>
-                          <option value="<?php echo (int)$uid; ?>" <?php echo ($pre == $uid ? 'selected' : ''); ?>>
-                            <?php echo htmlspecialchars("[$uid] $uname"); ?>
-                          </option>
-                        <?php endforeach; ?>
-                      </select>
-                    </td>
-                  </tr>
-                  <?php
-              } ?>
-            </tbody>
-          </table>
-        </div>
-        <div class="text-end">
-          <button type="submit" class="btn btn-primary">
-            <i class="bi bi-save"></i> Guardar Agendamento
-          </button>
-        </div>
-      </form>
-      <p class="text-muted mt-2 mb-0"><small>Nota: a atribuição aleatória foi desativada; utilize este painel para definir os gestores de cada dia.</small></p>
-    </div>
-  </div>
-</div>
-<!-- ================== FIM AGENDAMENTO MANUAL ================== -->
 </body>
 </html>

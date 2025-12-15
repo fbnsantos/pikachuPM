@@ -1194,15 +1194,35 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                             
                             <!-- Atribuição Múltipla Rápida -->
                             <hr class="my-3">
-                            <h6 class="mb-3"><i class="bi bi-lightning-charge"></i> Atribuição Rápida dos Próximos Dias</h6>
+                            <h6 class="mb-3"><i class="bi bi-lightning-charge"></i> Atribuição Rápida dos Próximos 30 Dias</h6>
+                            <p class="text-muted small mb-3">
+                                <i class="bi bi-info-circle"></i> Os gestores são atribuídos automaticamente por ordem alfabética. 
+                                Pode alterar individualmente cada dia conforme necessário.
+                            </p>
                             <div id="atribuicao-rapida">
                                 <div class="row g-2">
                                     <?php
-                                    // Gerar próximos 7 dias úteis
+                                    // Preparar lista de membros ordenada alfabeticamente
+                                    $membros_ordenados = [];
+                                    foreach ($equipa as $membro_id) {
+                                        $nome = getNomeUtilizador($membro_id, $utilizadores);
+                                        $membros_ordenados[] = [
+                                            'id' => $membro_id,
+                                            'nome' => $nome
+                                        ];
+                                    }
+                                    
+                                    // Ordenar por nome
+                                    usort($membros_ordenados, function($a, $b) {
+                                        return strcmp($a['nome'], $b['nome']);
+                                    });
+                                    
+                                    // Gerar próximos 30 dias úteis
                                     $data_atual = new DateTime();
                                     $data_atual->modify('+1 day');
                                     $dias_gerados = 0;
-                                    $max_dias = 7;
+                                    $max_dias = 30;
+                                    $indice_membro = 0;
                                     
                                     while ($dias_gerados < $max_dias) {
                                         // Pular fins de semana
@@ -1219,28 +1239,34 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                         $stmt = $db->prepare("SELECT redmine_id FROM proximos_gestores WHERE data_prevista = ? AND concluido = 0");
                                         $stmt->execute([$data_str]);
                                         $gestor_existente = $stmt->fetchColumn();
+                                        
+                                        // Atribuir gestor por ordem alfabética (circular)
+                                        if (!$gestor_existente && !empty($membros_ordenados)) {
+                                            $gestor_sugerido = $membros_ordenados[$indice_membro % count($membros_ordenados)]['id'];
+                                            $indice_membro++;
+                                        } else {
+                                            $gestor_sugerido = $gestor_existente;
+                                        }
                                         ?>
-                                        <div class="col-md-6 col-lg-4">
-                                            <form method="post" class="card p-2">
+                                        <div class="col-md-6 col-lg-4 col-xl-3">
+                                            <form method="post" class="card p-2 <?= $gestor_existente ? 'border-success' : '' ?>">
                                                 <input type="hidden" name="atribuir_gestor_manual" value="1">
                                                 <input type="hidden" name="data_prevista" value="<?= $data_str ?>">
                                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                                    <strong><?= $dia_semana ?> <?= $data_display ?></strong>
+                                                    <strong class="small"><?= $dia_semana ?> <?= $data_display ?></strong>
                                                     <?php if ($gestor_existente): ?>
-                                                        <span class="badge bg-success">Atribuído</span>
+                                                        <span class="badge bg-success">✓</span>
                                                     <?php endif; ?>
                                                 </div>
                                                 <select name="redmine_id" class="form-select form-select-sm mb-2" required>
-                                                    <option value="">Selecionar...</option>
-                                                    <?php foreach ($equipa as $membro_id): ?>
-                                                        <?php $nome = getNomeUtilizador($membro_id, $utilizadores); ?>
-                                                        <option value="<?= $membro_id ?>" <?= ($gestor_existente == $membro_id) ? 'selected' : '' ?>>
-                                                            <?= htmlspecialchars($nome) ?>
+                                                    <?php foreach ($membros_ordenados as $membro): ?>
+                                                        <option value="<?= $membro['id'] ?>" <?= ($gestor_sugerido == $membro['id']) ? 'selected' : '' ?>>
+                                                            <?= htmlspecialchars($membro['nome']) ?>
                                                         </option>
                                                     <?php endforeach; ?>
                                                 </select>
                                                 <button type="submit" class="btn btn-sm btn-outline-primary">
-                                                    <i class="bi bi-check"></i> Atribuir
+                                                    <i class="bi bi-check"></i> <?= $gestor_existente ? 'Atualizar' : 'Atribuir' ?>
                                                 </button>
                                             </form>
                                         </div>

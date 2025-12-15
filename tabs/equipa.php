@@ -5,6 +5,9 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include_once __DIR__ . '/../config.php';
 
+// Forçar agendamento manual dos gestores (sem atribuição aleatória)
+$AGENDAMENTO_GESTOR_MANUAL = true;
+
 // Verificar e criar base de dados SQLite e tabelas, se necessário
 $db_path = __DIR__ . '/../equipa2.sqlite';
 $nova_base_dados = !file_exists($db_path);
@@ -229,10 +232,13 @@ function getAtividadesUtilizador($user_id) {
                 'estagio_badge' => $estagio_badge,
                 'projeto_badge' => $projeto_badge,
                 'deadline_info' => $deadline_info,
+                'updated_at' => $row['updated_at'],
                 'tempo_decorrido' => $tempo_decorrido,
                 'url' => $url,
                 'autor_nome' => $row['autor_nome'],
-                'responsavel_nome' => $row['responsavel_nome']
+                'responsavel_nome' => $row['responsavel_nome'],
+                'projeto_id' => $row['projeto_id'],
+                'task_id' => $row['task_id']
             ];
         }
         
@@ -242,933 +248,1376 @@ function getAtividadesUtilizador($user_id) {
         return $atividades;
         
     } catch (Exception $e) {
-        error_log("Erro ao buscar atividades: " . $e->getMessage());
+        error_log("Erro ao buscar atividades do utilizador: " . $e->getMessage());
         return [];
     }
 }
 
-// Processar ações do formulário
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $acao = $_POST['acao'] ?? '';
+function getNomeUtilizador($id, $lista) {
+    foreach ($lista as $u) {
+        if ($u['id'] == $id) return   $u['firstname'] . ' ' . $u['lastname'];
+    }
 
-    if ($acao == 'adicionar' && isset($_POST['redmine_id'])) {
-        $redmine_id = (int)$_POST['redmine_id'];
-        try {
-            $stmt = $db->prepare("INSERT INTO equipa (redmine_id) VALUES (?)");
-            $stmt->execute([$redmine_id]);
-        } catch (Exception $e) {
-            // Ignorar duplicados
+    return "ID $id";
+}
+
+function getNomeUtilizador_append($text, $id, $lista) {
+    foreach ($lista as $u) {
+        if ($u['id'] == $id) return  $text . $u['firstname'] . ' ' . $u['lastname'];
+    }
+
+    return "ID $id";
+}
+
+function calcularDataProximaReuniao($inicio, $diasAdicionais) {
+    $data = clone $inicio;
+    $conta = 0;
+    while ($conta < $diasAdicionais) {
+        $data->modify('+1 day');
+        if (!in_array($data->format('N'), ['6', '7'])) {
+            $conta++;
         }
     }
+    return $data;
+}
 
-    if ($acao == 'remover' && isset($_POST['redmine_id'])) {
-        $redmine_id = (int)$_POST['redmine_id'];
-        $stmt = $db->prepare("DELETE FROM equipa WHERE redmine_id = ?");
-        $stmt->execute([$redmine_id]);
+// Função para gerar lista de próximos gestores para os próximos 10 dias úteis
+function gerarListaProximosGestores($db, $equipa) {
+    if (empty($equipa)) {
+        return; // Não faz nada se a equipe estiver vazia
     }
 
-    if ($acao == 'registrar_falta' && isset($_POST['redmine_id'], $_POST['motivo'])) {
-        $redmine_id = (int)$_POST['redmine_id'];
-        $motivo = $_POST['motivo'];
-        $stmt = $db->prepare("INSERT INTO faltas (redmine_id, motivo) VALUES (?, ?)");
-        $stmt->execute([$redmine_id, $motivo]);
-    }
+    // Limpar registros antigos não concluídos
+    $stmt = $db->prepare("DELETE FROM proximos_gestores 
+                          WHERE data_prevista < date('now' ) ");
+    $stmt->execute();
 
-    if ($acao == 'adicionar_gestor' && isset($_POST['redmine_id'], $_POST['data_prevista'])) {
-        $redmine_id = (int)$_POST['redmine_id'];
-        $data_prevista = $_POST['data_prevista'];
-        $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) VALUES (?, ?)");
-        $stmt->execute([$redmine_id, $data_prevista]);
-    }
-    
-    // NOVA AÇÃO: Atribuir gestor manual para uma data específica
-    if ($acao == 'atribuir_gestor_manual' && isset($_POST['data'], $_POST['redmine_id'])) {
-        $data = $_POST['data'];
-        $redmine_id = (int)$_POST['redmine_id'];
-        
-        // Verificar se já existe um gestor para esta data
-        $stmt = $db->prepare("SELECT id FROM proximos_gestores WHERE data_prevista = ? AND concluido = 0");
-        $stmt->execute([$data]);
-        $existente = $stmt->fetch();
-        
-        if ($existente) {
-            // Atualizar o gestor existente
-            $stmt = $db->prepare("UPDATE proximos_gestores SET redmine_id = ? WHERE data_prevista = ? AND concluido = 0");
-            $stmt->execute([$redmine_id, $data]);
-        } else {
-            // Inserir novo gestor
-            $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) VALUES (?, ?)");
-            $stmt->execute([$redmine_id, $data]);
+    // Verificar se já existe uma entrada para o dia atual
+    $hoje = date('Y-m-d');
+    $stmt = $db->prepare("SELECT COUNT(*) FROM proximos_gestores WHERE data_prevista = :hoje");
+    $stmt->execute([':hoje' => $hoje]);
+    $tem_hoje = $stmt->fetchColumn() > 0;
+
+    // Se não tiver agendamento para hoje, criar um
+    if (!$tem_hoje) {
+        // Agendamento manual: não atribuir automaticamente gestor para hoje.
+        if (!$AGENDAMENTO_GESTOR_MANUAL) {
+            $membro_hoje = $equipa[array_rand($equipa)];
+            $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) VALUES (:id, :data)");
+            $stmt->execute([':id' => $membro_hoje, ':data' => $hoje]);
         }
     }
-
-    if ($acao == 'marcar_concluido' && isset($_POST['id'])) {
-        $id = (int)$_POST['id'];
-        $stmt = $db->prepare("UPDATE proximos_gestores SET concluido = 1 WHERE id = ?");
-        $stmt->execute([$id]);
-    }
-
-    if ($acao == 'remover_gestor' && isset($_POST['id'])) {
-        $id = (int)$_POST['id'];
-        $stmt = $db->prepare("DELETE FROM proximos_gestores WHERE id = ?");
-        $stmt->execute([$id]);
-    }
     
-    // NOVA AÇÃO: Gerar atribuições automáticas para os próximos 30 dias
-    if ($acao == 'gerar_proximos_30_dias') {
-        // Buscar membros da equipa
-        $stmt = $db->query("SELECT redmine_id FROM equipa ORDER BY redmine_id");
-        $membros = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    // Verificar quantos dias futuros estão planejados
+    $stmt = $db->query("SELECT COUNT(*) FROM proximos_gestores WHERE data_prevista >= date('now') AND concluido = 0");
+    $count = $stmt->fetchColumn();
+    
+    // Se tiver menos de 10 dias planejados para o futuro, gera novos
+    $dias_necessarios = 10; // Alterado de 20 para 10
+    if ($count < $dias_necessarios) {
+        // Obter o último dia agendado
+        $stmt = $db->query("SELECT MAX(data_prevista) FROM proximos_gestores WHERE data_prevista >= date('now')");
+        $ultima_data = $stmt->fetchColumn();
         
-        if (count($membros) > 0) {
-            // Buscar o último gestor atribuído
-            $stmt = $db->query("SELECT redmine_id, data_prevista FROM proximos_gestores WHERE concluido = 0 ORDER BY data_prevista DESC LIMIT 1");
-            $ultimo = $stmt->fetch();
-            
-            $data_inicio = new DateTime();
-            $indice_atual = 0;
-            
-            if ($ultimo) {
-                $data_inicio = new DateTime($ultimo['data_prevista']);
-                $data_inicio->modify('+1 day');
-                
-                // Encontrar o índice do último membro
-                $indice_atual = array_search($ultimo['redmine_id'], $membros);
-                if ($indice_atual === false) {
-                    $indice_atual = 0;
-                } else {
-                    $indice_atual = ($indice_atual + 1) % count($membros);
-                }
+        // Se não houver data futura, usar hoje como ponto de partida
+        $inicio = new DateTime($ultima_data ?: $hoje);
+        
+        // [DESATIVADO] Agendamento aleatório desativado para gestão manual
+        if (!$AGENDAMENTO_GESTOR_MANUAL) {
+        // Criar uma cópia embaralhada da equipe para distribuir aleatoriamente
+        $equipe_copia = $equipa;
+        shuffle($equipe_copia);
+        
+        // Calcular quantos dias precisamos adicionar
+        $dias_necessarios = $dias_necessarios - $count;
+        $dias_adicionados = 0;
+        $indice_equipe = 0;
+        
+        while ($dias_adicionados < $dias_necessarios) {
+            // Pegar próximo membro da equipe, voltando ao início se necessário
+            if ($indice_equipe >= count($equipe_copia)) {
+                shuffle($equipe_copia); // Embaralhar novamente para variar a ordem
+                $indice_equipe = 0;
             }
             
-            // Gerar atribuições para os próximos 30 dias
-            for ($i = 0; $i < 30; $i++) {
-                $data = clone $data_inicio;
-                $data->modify("+$i days");
-                $data_str = $data->format('Y-m-d');
+            $membro_id = $equipe_copia[$indice_equipe];
+            $indice_equipe++;
+            
+            // Calcular próxima data útil
+            $inicio->modify('+1 day');
+            // Pular finais de semana
+            while (in_array($inicio->format('N'), ['6', '7'])) {
+                $inicio->modify('+1 day');
+            }
+            
+            // Verificar se este membro já está agendado para esta data
+            $stmt = $db->prepare("SELECT COUNT(*) FROM proximos_gestores 
+                                 WHERE data_prevista = :data");
+            $stmt->execute([':data' => $inicio->format('Y-m-d')]);
+            
+            if ($stmt->fetchColumn() == 0) {
+                // Inserir novo agendamento
+                $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) 
+                                     VALUES (:id, :data)");
+                $stmt->execute([
+                    ':id' => $membro_id,
+                    ':data' => $inicio->format('Y-m-d')
+                ]);
                 
-                // Verificar se já existe atribuição para esta data
-                $stmt = $db->prepare("SELECT id FROM proximos_gestores WHERE data_prevista = ?");
-                $stmt->execute([$data_str]);
-                
-                if (!$stmt->fetch()) {
-                    // Inserir nova atribuição
-                    $redmine_id = $membros[$indice_atual];
-                    $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) VALUES (?, ?)");
-                    $stmt->execute([$redmine_id, $data_str]);
-                    
-                    // Avançar para o próximo membro
-                    $indice_atual = ($indice_atual + 1) % count($membros);
-                }
+                $dias_adicionados++;
             }
         }
+        }
     }
-    
-    // NOVA AÇÃO: Limpar gestores futuros não concluídos
-    if ($acao == 'limpar_gestores_futuros') {
-        $stmt = $db->prepare("DELETE FROM proximos_gestores WHERE concluido = 0 AND data_prevista >= date('now')");
-        $stmt->execute();
-    }
+}
 
-    // Salvar nota markdown
-    if ($acao == 'salvar_nota') {
-        $id = !empty($_POST['id_nota']) ? (int)$_POST['id_nota'] : null;
-        $titulo = $_POST['titulo_nota'] ?? 'Sem Título';
-        $conteudo = $_POST['conteudo_nota'] ?? '';
+// Obter lista de próximos gestores
+function getProximosGestores($db, $limite = 30) {
+    // Primeiro, buscar o gestor para o dia atual
+    $hoje = date('Y-m-d');
+    $stmt = $db->prepare("SELECT redmine_id, data_prevista 
+                         FROM proximos_gestores 
+                         WHERE data_prevista = :hoje
+                         LIMIT 1");
+    $stmt->execute([':hoje' => $hoje]);
+    $gestor_hoje = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    // Depois, buscar os próximos gestores (excluindo o de hoje)
+    $stmt = $db->prepare("SELECT redmine_id, data_prevista 
+                         FROM proximos_gestores 
+                         WHERE data_prevista > :hoje AND concluido = 0
+                         ORDER BY data_prevista ASC
+                         LIMIT :limite");
+    $stmt->bindValue(':hoje', $hoje, PDO::PARAM_STR);
+    $stmt->bindValue(':limite', $limite - 1, PDO::PARAM_INT); // -1 para reservar espaço para o gestor de hoje
+    $stmt->execute();
+    $proximos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Combinar o gestor de hoje com os próximos
+    $resultado = [];
+    if ($gestor_hoje) {
+        $resultado[] = $gestor_hoje;
+    }
+    return array_merge($resultado, $proximos);
+}
+// Funções para gerenciamento de faltas
+function registrarFalta($db, $redmine_id, $motivo = '') {
+    $stmt = $db->prepare("INSERT INTO faltas (redmine_id, motivo) VALUES (:id, :motivo)");
+    $stmt->execute([
+        ':id' => $redmine_id,
+        ':motivo' => $motivo
+    ]);
+    
+    return $stmt->rowCount() > 0;
+}
+
+function getFaltas($db, $redmine_id = null) {
+    if ($redmine_id) {
+        $stmt = $db->prepare("SELECT * FROM faltas WHERE redmine_id = :id ORDER BY data DESC");
+        $stmt->execute([':id' => $redmine_id]);
+    } else {
+        $stmt = $db->query("SELECT * FROM faltas ORDER BY data DESC LIMIT 20");
+    }
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function getNumeroFaltas($db, $redmine_id) {
+    $stmt = $db->prepare("SELECT COUNT(*) FROM faltas WHERE redmine_id = :id");
+    $stmt->execute([':id' => $redmine_id]);
+    return $stmt->fetchColumn();
+}
+
+// Funções para gerenciar as notas markdown
+function salvarNota($db, $titulo, $conteudo, $id = null) {
+    if ($id) {
+        // Atualizar nota existente
+        $stmt = $db->prepare("UPDATE notas_markdown SET titulo = :titulo, conteudo = :conteudo, 
+                            data_atualizacao = CURRENT_TIMESTAMP WHERE id = :id");
+        $stmt->execute([
+            ':id' => $id,
+            ':titulo' => $titulo,
+            ':conteudo' => $conteudo
+        ]);
+    } else {
+        // Criar nova nota
+        $stmt = $db->prepare("INSERT INTO notas_markdown (titulo, conteudo) VALUES (:titulo, :conteudo)");
+        $stmt->execute([
+            ':titulo' => $titulo,
+            ':conteudo' => $conteudo
+        ]);
+        return $db->lastInsertId();
+    }
+    return $id;
+}
+
+function getNota($db, $id = null) {
+    // Verificar se a tabela existe
+    try {
+        $verificar_tabela = $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name='notas_markdown'");
+        if ($verificar_tabela->fetchColumn() === false) {
+            // A tabela não existe, retornar array vazio
+            return [];
+        }
         
         if ($id) {
-            // Atualizar nota existente
-            $stmt = $db->prepare("UPDATE notas_markdown SET titulo = ?, conteudo = ?, data_atualizacao = CURRENT_TIMESTAMP WHERE id = ?");
-            $stmt->execute([$titulo, $conteudo, $id]);
+            $stmt = $db->prepare("SELECT * FROM notas_markdown WHERE id = :id");
+            $stmt->execute([':id' => $id]);
+            return $stmt->fetch(PDO::FETCH_ASSOC);
         } else {
-            // Criar nova nota
-            $stmt = $db->prepare("INSERT INTO notas_markdown (titulo, conteudo) VALUES (?, ?)");
-            $stmt->execute([$titulo, $conteudo]);
+            // Retornar a última nota criada/atualizada
+            $stmt = $db->query("SELECT * FROM notas_markdown ORDER BY data_atualizacao DESC LIMIT 1");
+            return $stmt->fetch(PDO::FETCH_ASSOC);
         }
+    } catch (PDOException $e) {
+        // Em caso de erro, retornar array vazio
+        return [];
     }
-    
-    // Excluir nota markdown
-    if ($acao == 'excluir_nota' && isset($_POST['id_nota'])) {
-        $id = (int)$_POST['id_nota'];
-        $stmt = $db->prepare("DELETE FROM notas_markdown WHERE id = ?");
-        $stmt->execute([$id]);
-    }
+}
 
-    // Redirecionar para evitar reenvio de formulário
-    header("Location: " . $_SERVER['PHP_SELF'] . "?tab=equipa");
-    exit;
+function getTodasNotas($db) {
+    // Verificar se a tabela existe
+    try {
+        $verificar_tabela = $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name='notas_markdown'");
+        if ($verificar_tabela->fetchColumn() === false) {
+            // A tabela não existe, retornar array vazio
+            return [];
+        }
+        
+        $stmt = $db->query("SELECT * FROM notas_markdown ORDER BY data_atualizacao DESC");
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        // Em caso de erro, retornar array vazio
+        return [];
+    }
+}
+
+function excluirNota($db, $id) {
+    try {
+        $stmt = $db->prepare("DELETE FROM notas_markdown WHERE id = :id");
+        $stmt->execute([':id' => $id]);
+        return $stmt->rowCount() > 0;
+    } catch (PDOException $e) {
+        return false;
+    }
 }
 
 // Obter dados
-$utilizadores_redmine = getUtilizadoresRedmine();
-$stmt_equipa = $db->query("SELECT redmine_id FROM equipa");
-$equipa_ids = $stmt_equipa->fetchAll(PDO::FETCH_COLUMN);
+$utilizadores = getUtilizadoresRedmine();
+$equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
 
-// Criar mapa de utilizadores Redmine
-$mapa_redmine = [];
-foreach ($utilizadores_redmine as $u) {
-    $mapa_redmine[$u['id']] = $u;
+// Gerar lista de próximos gestores se necessário
+gerarListaProximosGestores($db, $equipa);
+$proximos_gestores = getProximosGestores($db);
+
+// Inicializar ou recuperar variáveis de sessão
+if (!isset($_SESSION['gestor'])) {
+    $_SESSION['gestor'] = null;
+    $_SESSION['em_reuniao'] = false;
+    $_SESSION['oradores'] = [];
+    $_SESSION['orador_atual'] = 0;
+    $_SESSION['inicio_reuniao'] = null;
 }
 
-// Obter próximos gestores (próximos 30 dias a partir de hoje)
-$data_inicio = date('Y-m-d');
-$data_fim = date('Y-m-d', strtotime('+30 days'));
+$gestor = $_SESSION['gestor'];
+$em_reuniao = $_SESSION['em_reuniao'];
+$oradores = $_SESSION['oradores'];
+$orador_atual = $_SESSION['orador_atual'];
 
-$stmt = $db->prepare("
-    SELECT pg.*, e.redmine_id 
-    FROM proximos_gestores pg
-    INNER JOIN equipa e ON pg.redmine_id = e.redmine_id
-    WHERE pg.data_prevista BETWEEN ? AND ?
-    ORDER BY pg.data_prevista ASC
-");
-$stmt->execute([$data_inicio, $data_fim]);
-$proximos_gestores = $stmt->fetchAll(PDO::FETCH_ASSOC);
+// Processar ações para as notas Markdown
+if (isset($_POST['acao_nota'])) {
+    switch ($_POST['acao_nota']) {
+        case 'salvar':
+            $titulo = $_POST['titulo_nota'] ?? 'Nota sem título';
+            $conteudo = $_POST['conteudo_nota'] ?? '';
+            $id = !empty($_POST['id_nota']) ? (int)$_POST['id_nota'] : null;
+            salvarNota($db, $titulo, $conteudo, $id);
+            break;
+            
+        case 'excluir':
+            if (!empty($_POST['id_nota'])) {
+                excluirNota($db, (int)$_POST['id_nota']);
+            }
+            break;
+    }
+    
+    // Redirecionar para evitar resubmissão do form ao atualizar a página
+    header("Location: ?tab=equipa#secao-notas");
+    exit;
+}
 
-// Obter últimas 10 faltas registradas
-$stmt_faltas = $db->query("
-    SELECT f.*, e.redmine_id 
-    FROM faltas f
-    INNER JOIN equipa e ON f.redmine_id = e.redmine_id
-    ORDER BY f.data DESC
-    LIMIT 10
-");
-$ultimas_faltas = $stmt_faltas->fetchAll(PDO::FETCH_ASSOC);
+// Obter a nota atual para exibir (última atualizada)
+$nota_atual = getNota($db);
+$todas_notas = getTodasNotas($db);
 
-// Obter notas markdown
-$stmt_notas = $db->query("SELECT * FROM notas_markdown ORDER BY data_atualizacao DESC");
-$notas = $stmt_notas->fetchAll(PDO::FETCH_ASSOC);
-$nota_selecionada = $notas[0] ?? null;
+// Apenas responda com JSON para requisições AJAX
+if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+    if (isset($_POST['acao'])) {
+        $resposta = ['sucesso' => true];
+        
+        switch ($_POST['acao']) {
+            case 'proximo_orador':
+                // Avançar para o próximo orador
+                $_SESSION['orador_atual']++;
+                $resposta['mensagem'] = 'Avançado para o próximo orador';
+                break;
+                
+            case 'tempo_esgotado':
+                // Registrar que o tempo acabou para este orador
+                $resposta['mensagem'] = 'Tempo esgotado registrado';
+                break;
+                
+            case 'terminar_reuniao':
+                // Finalizar a reunião
+                $_SESSION['em_reuniao'] = false;
+                $resposta['mensagem'] = 'Reunião finalizada';
+                break;
+                
+            default:
+                $resposta['sucesso'] = false;
+                $resposta['mensagem'] = 'Ação desconhecida';
+        }
+        
+        header('Content-Type: application/json');
+        echo json_encode($resposta);
+        exit;
+    }
+}
+
+// Processar ações POST
+if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Adicionar membro à equipe
+    if (isset($_POST['adicionar'])) {
+        $id = (int)$_POST['adicionar'];
+        $stmt = $db->prepare("INSERT OR IGNORE INTO equipa (redmine_id) VALUES (:id)");
+        $stmt->execute([':id' => $id]);
+        
+        // Regenerar a lista de próximos gestores
+        //$equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
+        //gerarListaProximosGestores($db, $equipa);
+    }
+    
+    // Remover membro da equipe
+    if (isset($_POST['remover'])) {
+        $id = (int)$_POST['remover'];
+        $stmt = $db->prepare("DELETE FROM equipa WHERE redmine_id = :id");
+        $stmt->execute([':id' => $id]);
+        
+        // Limpar da lista de próximos gestores
+        $stmt = $db->prepare("DELETE FROM proximos_gestores WHERE redmine_id = :id AND concluido = 0");
+        $stmt->execute([':id' => $id]);
+        
+        if ($id === $_SESSION['gestor']) {
+            $_SESSION['gestor'] = null;
+        }
+        
+        // Regenerar a lista de próximos gestores
+        //$equipa = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
+        //gerarListaProximosGestores($db, $equipa);
+    }
+    
+    // Iniciar reunião
+    if (isset($_POST['iniciar'])) {
+        // Verificar se existe um gestor agendado para hoje
+    // Verificar se existe um gestor agendado para hoje
+    $hoje = date('Y-m-d');
+    $stmt = $db->prepare("SELECT redmine_id FROM proximos_gestores 
+                         WHERE data_prevista = :hoje 
+                         LIMIT 1");
+    $stmt->execute([':hoje' => $hoje]);
+    $gestor_hoje = $stmt->fetchColumn();
+    
+    if ($gestor_hoje && in_array($gestor_hoje, $equipa)) {
+        $_SESSION['gestor'] = $gestor_hoje;
+        
+        // Remover ou comentar esta parte:
+        // $stmt = $db->prepare("UPDATE proximos_gestores SET concluido = 1 
+        //                      WHERE redmine_id = :id AND data_prevista = :hoje");
+        // $stmt->execute([':id' => $gestor_hoje, ':hoje' => $hoje]);
+    } else {
+        // Se não houver gestor agendado para hoje, selecionar aleatoriamente
+        if (!$AGENDAMENTO_GESTOR_MANUAL) {
+            $_SESSION['gestor'] = $equipa[array_rand($equipa)];
+        }
+    }
+        
+        $_SESSION['oradores'] = $equipa;
+        shuffle($_SESSION['oradores']);
+        $_SESSION['em_reuniao'] = true;
+        $_SESSION['orador_atual'] = 0;
+        $_SESSION['inicio_reuniao'] = time();
+    }
+    
+    // Terminar reunião
+    if (isset($_POST['terminar'])) {
+        // Limpar a sessão
+        $_SESSION['gestor'] = null;
+        $_SESSION['em_reuniao'] = false;
+        $_SESSION['oradores'] = [];
+        $_SESSION['orador_atual'] = 0;
+        $_SESSION['inicio_reuniao'] = null;
+    }
+    
+    // Próximo orador
+    if (isset($_POST['proximo'])) {
+        $_SESSION['orador_atual']++;
+    }
+    
+    // Recusar ser gestor
+    if (isset($_POST['recusar'])) {
+        $idRecusado = (int)$_POST['recusar'];
+        $dataRecusada = $_POST['data_recusada'] ?? '';
+        
+        if (!empty($dataRecusada)) {
+            // Remover este gestor da data específica
+            $stmt = $db->prepare("DELETE FROM proximos_gestores 
+                                 WHERE redmine_id = :id AND data_prevista = :data AND concluido = 0");
+            $stmt->execute([':id' => $idRecusado, ':data' => $dataRecusada]);
+            
+            // Adicionar outro gestor nesta data
+            if (count($equipa) > 1) {
+                $equipe_copia = array_filter($equipa, function($e) use ($idRecusado) {
+                    return $e != $idRecusado;
+                });
+                if (!$AGENDAMENTO_GESTOR_MANUAL) {
+                    $novo_gestor = $equipe_copia[array_rand($equipe_copia)];
+                    $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) 
+                                         VALUES (:id, :data)");
+                    $stmt->execute([':id' => $novo_gestor, ':data' => $dataRecusada]);
+                } // caso manual, não atribui automaticamente
+            }
+        } else {
+            // Remover este gestor de todas as datas futuras
+            $stmt = $db->prepare("DELETE FROM proximos_gestores 
+                                 WHERE redmine_id = :id AND data_prevista >= date('now') AND concluido = 0");
+            $stmt->execute([':id' => $idRecusado]);
+        }
+        
+        // Regenerar a lista
+        gerarListaProximosGestores($db, $equipa);
+    }
+    
+    // Marcar falta
+    if (isset($_POST['marcar_falta'])) {
+        $id = (int)$_POST['marcar_falta'];
+        $motivo = $_POST['motivo_falta'] ?? '';
+        
+        $resultado = registrarFalta($db, $id, $motivo);
+        
+        // Se for o orador atual, passar para o próximo
+        if ($resultado && $em_reuniao && isset($oradores[$orador_atual]) && $oradores[$orador_atual] == $id) {
+            $_SESSION['orador_atual']++;
+        }
+    }
+    
+    // Mover para o final da fila
+    if (isset($_POST['mover_final'])) {
+        $id = (int)$_POST['mover_final'];
+        
+        // Se for o orador atual
+        if ($em_reuniao && isset($oradores[$orador_atual]) && $oradores[$orador_atual] == $id) {
+            // Remover da posição atual e adicionar ao final
+            $orador = $oradores[$orador_atual];
+            array_splice($_SESSION['oradores'], $orador_atual, 1);
+            $_SESSION['oradores'][] = $orador;
+            
+            // Passar para o próximo orador
+            if (count($_SESSION['oradores']) > $_SESSION['orador_atual']) {
+                // Não precisamos incrementar o índice porque já removemos o elemento
+            } else {
+                // Se removemos o último elemento, voltamos para o início
+                $_SESSION['orador_atual'] = 0;
+            }
+        }
+    }
+    
+    header("Location: ?tab=equipa");
+    exit;
+}
+
+// Calcular tempo total de reunião
+$tempo_total = 0;
+if ($em_reuniao && isset($_SESSION['inicio_reuniao'])) {
+    $tempo_total = time() - $_SESSION['inicio_reuniao'];
+}
+
+// Verificar se a reunião terminou (todos os oradores falaram)
+$reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
 
 ?>
 
 <!DOCTYPE html>
-<html>
+<html lang="pt">
 <head>
     <meta charset="UTF-8">
-    <title>Gestão da Equipa</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.1.0/github-markdown.min.css">
     <style>
-        .equipa-container {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+        .hover-highlight:hover {
+         background-color: #f8f9fa;
+       transition: background-color 0.2s ease;
+      }
+
+        .hover-highlight a:hover {
+                color: #0d6efd !important;
+     }
+        .reuniao-card {
+            border-left: 5px solid #0d6efd;
         }
-        
-        .membro-card {
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 15px;
-            background: white;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            transition: all 0.3s ease;
+        .progress {
+            height: 15px;
         }
-        
-        .membro-card:hover {
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            transform: translateY(-2px);
-        }
-        
-        .membro-header {
-            display: flex;
-            align-items: center;
-            margin-bottom: 12px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #f0f0f0;
-        }
-        
-        .membro-nome {
-            font-weight: 600;
-            font-size: 1.1em;
-            color: #2c3e50;
-            margin: 0;
-        }
-        
-        .membro-info {
-            font-size: 0.85em;
-            color: #6c757d;
-            margin-bottom: 8px;
-        }
-        
-        .atividades-section {
-            margin-top: 12px;
-            padding-top: 12px;
-            border-top: 1px solid #f0f0f0;
-        }
-        
-        .atividade-item {
-            font-size: 0.85em;
-            padding: 6px 8px;
-            margin-bottom: 6px;
-            background: #f8f9fa;
-            border-radius: 4px;
-            border-left: 3px solid #007bff;
-        }
-        
-        .atividade-titulo {
-            font-weight: 500;
-            color: #2c3e50;
-            display: block;
-            margin-bottom: 4px;
-        }
-        
-        .atividade-meta {
+        .badge {
             font-size: 0.9em;
-            color: #6c757d;
         }
-        
-        .sem-atividades {
-            color: #999;
-            font-style: italic;
-            font-size: 0.85em;
-            padding: 8px;
-            text-align: center;
-        }
-        
-        .gestores-section {
-            margin-top: 30px;
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 8px;
-        }
-        
-        .gestor-item {
-            padding: 10px 15px;
-            margin-bottom: 8px;
-            background: white;
-            border-radius: 6px;
-            border-left: 4px solid #28a745;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .gestor-item.concluido {
-            border-left-color: #6c757d;
-            opacity: 0.7;
-        }
-        
-        .gestor-info {
-            flex: 1;
-        }
-        
-        .gestor-nome {
-            font-weight: 600;
-            color: #2c3e50;
-        }
-        
-        .gestor-data {
-            font-size: 0.9em;
-            color: #6c757d;
-        }
-        
-        .notas-container {
-            display: grid;
-            grid-template-columns: 250px 1fr;
-            gap: 20px;
-            margin-top: 30px;
-            min-height: 500px;
-        }
-        
-        .notas-lista {
-            background: #f8f9fa;
-            border-radius: 8px;
-            padding: 15px;
-            max-height: 600px;
-            overflow-y: auto;
-        }
-        
-        .nota-lista-item {
-            padding: 12px;
-            margin-bottom: 8px;
-            background: white;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: 2px solid transparent;
-        }
-        
-        .nota-lista-item:hover {
-            background: #e9ecef;
-        }
-        
-        .nota-lista-item.active {
-            border-color: #007bff;
-            background: #e7f3ff;
-        }
-        
-        .nota-conteudo {
-            background: white;
-            border-radius: 8px;
-            padding: 25px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        }
-        
-        #markdown-preview {
-            min-height: 300px;
-            line-height: 1.6;
-        }
-        
-        #markdown-preview h1, #markdown-preview h2, #markdown-preview h3 {
-            margin-top: 1.5em;
-            margin-bottom: 0.5em;
-        }
-        
-        #markdown-preview code {
-            background: #f4f4f4;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-family: 'Courier New', monospace;
-        }
-        
-        #markdown-preview pre {
-            background: #f4f4f4;
-            padding: 15px;
-            border-radius: 6px;
+        .table-responsive {
             overflow-x: auto;
         }
-        
-        .gestores-calendar {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-            gap: 10px;
-            margin-top: 15px;
+        .card {
+            margin-bottom: 20px;
         }
-        
-        .dia-gestor {
-            background: white;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 12px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
-            position: relative;
+        .timer-display {
+            font-size: 2.5rem;
+            font-weight: bold;
+            font-family: monospace;
         }
-        
-        .dia-gestor:hover {
-            border-color: #007bff;
-            box-shadow: 0 2px 8px rgba(0,123,255,0.2);
-            transform: translateY(-2px);
+        .btn-action {
+            min-width: 120px;
         }
-        
-        .dia-gestor.atribuido {
-            border-color: #28a745;
-            background: #f0fff4;
-        }
-        
-        .dia-gestor.hoje {
-            border-color: #ffc107;
-            background: #fffbf0;
-        }
-        
-        .dia-data {
-            font-weight: 600;
-            color: #2c3e50;
-            font-size: 0.9em;
-            margin-bottom: 8px;
-        }
-        
-        .dia-nome {
-            font-size: 0.85em;
+        .debug-area {
+            font-size: 0.8rem;
             color: #6c757d;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
         }
         
-        .dia-gestor.atribuido .dia-nome {
-            color: #28a745;
-            font-weight: 500;
-        }
-        
-        .modal-gestor-select {
-            max-height: 400px;
+        /* Estilos para a seção de notas Markdown */
+        .markdown-preview {
+            padding: 1rem;
+            border: 1px solid #dee2e6;
+            border-radius: .25rem;
+            background-color: #f8f9fa;
+            min-height: 200px;
             overflow-y: auto;
         }
-        
-        .membro-option {
-            padding: 12px;
-            margin-bottom: 8px;
-            background: #f8f9fa;
-            border-radius: 6px;
+        .markdown-editor {
+            min-height: 200px;
+            font-family: monospace;
+        }
+        .nota-lista-item {
             cursor: pointer;
-            transition: all 0.2s;
-            border: 2px solid transparent;
+            transition: background-color 0.2s;
         }
-        
-        .membro-option:hover {
-            background: #e9ecef;
-            border-color: #007bff;
+        .nota-lista-item:hover {
+            background-color: #f0f0f0;
         }
-        
-        .membro-option.selecionado {
-            background: #e7f3ff;
-            border-color: #007bff;
+        .nota-lista-item.active {
+            background-color: #e9ecef;
+            border-left: 3px solid #0d6efd;
         }
     </style>
 </head>
 <body>
 
-<div class="container-fluid mt-4">
-    <h2 class="mb-4"><i class="bi bi-people-fill"></i> Gestão da Equipa</h2>
+<div class="container-fluid py-3">
+    <div class="row">
+        <div class="col-lg-8">
+            <h2 class="mt-3 mb-4">
+                <i class="bi bi-people-fill"></i> Reunião Diária
+                <?php if ($em_reuniao): ?>
+                    <span class="badge bg-success">Em Progresso</span>
+                <?php endif; ?>
+            </h2>
 
-    <!-- Adicionar Membro à Equipa -->
-    <div class="card mb-4">
-        <div class="card-header bg-primary text-white">
-            <h5 class="mb-0"><i class="bi bi-person-plus-fill"></i> Adicionar Membro à Equipa</h5>
-        </div>
-        <div class="card-body">
-            <form method="POST" class="row g-3">
-                <input type="hidden" name="acao" value="adicionar">
-                <div class="col-md-10">
-                    <select name="redmine_id" class="form-select" required>
-                        <option value="">Selecione um utilizador</option>
-                        <?php foreach ($utilizadores_redmine as $u): ?>
-                            <?php if (!in_array($u['id'], $equipa_ids)): ?>
-                                <option value="<?= $u['id'] ?>"><?= htmlspecialchars($u['firstname'] . ' ' . $u['lastname']) ?></option>
-                            <?php endif; ?>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <button type="submit" class="btn btn-primary w-100">
-                        <i class="bi bi-plus-circle"></i> Adicionar
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Membros da Equipa -->
-    <div class="card mb-4">
-        <div class="card-header bg-success text-white">
-            <h5 class="mb-0"><i class="bi bi-people"></i> Membros da Equipa (<?= count($equipa_ids) ?>)</h5>
-        </div>
-        <div class="card-body">
-            <?php if (empty($equipa_ids)): ?>
+            <?php if (empty($equipa)): ?>
                 <div class="alert alert-info">
-                    <i class="bi bi-info-circle"></i> Nenhum membro na equipa. Adicione membros usando o formulário acima.
+                    <i class="bi bi-info-circle-fill"></i> A equipa ainda não foi configurada. Por favor adicione membros abaixo para iniciar.
                 </div>
-            <?php else: ?>
-                <div class="equipa-container">
-                    <?php foreach ($equipa_ids as $rid): ?>
-                        <?php if (isset($mapa_redmine[$rid])): ?>
-                            <?php 
-                            $u = $mapa_redmine[$rid];
-                            $nome_completo = htmlspecialchars($u['firstname'] . ' ' . $u['lastname']);
-                            
-                            // Buscar atividades recentes do utilizador
-                            $atividades = getAtividadesUtilizador($rid);
-                            ?>
-                            <div class="membro-card">
-                                <div class="membro-header">
-                                    <div style="flex: 1;">
-                                        <h6 class="membro-nome"><?= $nome_completo ?></h6>
-                                    </div>
-                                    <form method="POST" style="margin: 0;">
-                                        <input type="hidden" name="acao" value="remover">
-                                        <input type="hidden" name="redmine_id" value="<?= $rid ?>">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger" 
-                                                onclick="return confirm('Remover <?= $nome_completo ?> da equipa?')">
-                                            <i class="bi bi-trash"></i>
+            <?php endif; ?>
+
+            <!-- Área de Reunião -->
+            <?php if ($em_reuniao): ?>
+                <div class="card reuniao-card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h4 class="mb-0"><i class="bi bi-calendar-check"></i> Reunião em Progresso</h4>
+                            <form method="post" class="d-inline">
+                                <button type="submit" name="terminar" class="btn btn-sm btn-danger">
+                                    <i class="bi bi-stop-circle"></i> Encerrar Reunião
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <strong><i class="bi bi-person-circle"></i> Gestor da reunião:</strong> 
+                                <?= htmlspecialchars(getNomeUtilizador($gestor, $utilizadores)) ?>
+                            </div>
+                            <div class="col-md-6 text-md-end">
+                                <strong><i class="bi bi-clock"></i> Tempo total:</strong> 
+                                <span id="tempo-total" class="badge bg-secondary"><?= gmdate('H:i:s', $tempo_total) ?></span>
+                            </div>
+                        </div>
+                        
+                        <?php if ($reuniao_concluida): ?>
+                            <div class="alert alert-success">
+                                <i class="bi bi-check-circle-fill"></i> Reunião concluída! Todos os membros se pronunciaram.
+                                <div class="mt-3">
+                                    <form method="post">
+                                        <button type="submit" name="terminar" class="btn btn-primary">
+                                            Finalizar e voltar ao início
                                         </button>
                                     </form>
                                 </div>
-                                
-                                <div class="membro-info">
-                                    <i class="bi bi-envelope"></i> <?= htmlspecialchars($u['mail'] ?? 'N/A') ?>
-                                </div>
-                                
-                                <div class="atividades-section">
-                                    <strong style="font-size: 0.9em; color: #495057;">
-                                        <i class="bi bi-clock-history"></i> Atividades Recentes
-                                    </strong>
-                                    <?php if (empty($atividades)): ?>
-                                        <div class="sem-atividades">Sem atividades recentes</div>
-                                    <?php else: ?>
-                                        <?php foreach (array_slice($atividades, 0, 3) as $atividade): ?>
-                                            <div class="atividade-item">
-                                                <a href="<?= htmlspecialchars($atividade['url']) ?>" 
-                                                   class="atividade-titulo text-decoration-none"
-                                                   target="_blank">
-                                                    <?= htmlspecialchars(mb_substr($atividade['titulo'], 0, 50)) ?>
-                                                    <?= mb_strlen($atividade['titulo']) > 50 ? '...' : '' ?>
-                                                </a>
-                                                <div class="atividade-meta">
-                                                    <?= $atividade['estado_badge'] ?>
-                                                    <?= $atividade['estagio_badge'] ?>
-                                                    <?= $atividade['projeto_badge'] ?>
-                                                    <?= $atividade['deadline_info'] ?>
-                                                    <br>
-                                                    <small><i class="bi bi-clock"></i> <?= $atividade['tempo_decorrido'] ?></small>
+                            </div>
+                        <?php else: ?>
+                            <?php $oradorId = $oradores[$orador_atual] ?? null; ?>
+                            <?php if ($oradorId): ?>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <!-- INÍCIO DO CRONÔMETRO -->
+                                        <div class="card mb-3">
+                                            <div class="card-header bg-info text-white">
+                                                <h5 class="mb-0"><i class="bi bi-mic-fill"></i> Orador atual: <?= htmlspecialchars(getNomeUtilizador_append($orador_atual.'/'.count($oradores).' ',$oradorId, $utilizadores)) ?></h5>
+                                            </div>
+                                            <div class="card-body text-center">
+                                                <!-- Mostrador do cronômetro -->
+                                                <div id="cronometro" class="timer-display my-2">30</div>
+                                                
+                                                <!-- Barra de progresso -->
+                                                <div class="progress mb-3">
+                                                    <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 100%"></div>
+                                                </div>
+                                                
+                                                <!-- Audio para o alerta -->
+                                                <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
+                                                
+                                                <!-- Área de debug (opcional) -->
+                                                <div id="debug-area" class="text-start mt-3 border-top pt-2 debug-area d-none">
+                                                    <small>Status: <span id="status-display">Ativo</span></small><br>
+                                                    <small>Último evento: <span id="event-log">Iniciando cronômetro</span></small>
                                                 </div>
                                             </div>
-                                        <?php endforeach; ?>
-                                    <?php endif; ?>
+                                        </div>
+                                        
+                                        <div class="d-flex flex-wrap gap-2 mb-3">
+                                            <button id="btn-pausar" class="btn btn-warning btn-action">
+                                                <i class="bi bi-pause-fill"></i> Pausar
+                                            </button>
+                                            
+                                            <button id="btn-reiniciar" class="btn btn-secondary btn-action">
+                                                <i class="bi bi-arrow-repeat"></i> Reiniciar
+                                            </button>
+                                            
+                                            <form method="post" class="d-inline">
+                                                <button type="submit" name="proximo" class="btn btn-primary btn-action">
+                                                    <i class="bi bi-skip-forward-fill"></i> Próximo
+                                                </button>
+                                            </form>
+                                            
+                                            <button type="button" class="btn btn-danger btn-action" data-bs-toggle="modal" data-bs-target="#faltaModal">
+                                                <i class="bi bi-x-circle"></i> Marcar Falta
+                                            </button>
+                                            
+                                            <form method="post" class="d-inline mt-2">
+                                                <input type="hidden" name="mover_final" value="<?= $oradorId ?>">
+                                                <button type="submit" class="btn btn-secondary btn-action">
+                                                    <i class="bi bi-arrow-return-right"></i> Mover para Final
+                                                </button>
+                                            </form>
+                                        </div>
+                                        <!-- FIM DO CRONÔMETRO -->
+                                    </div>
+                                    
+                                    <div class="col-md-6">
+                                        <div class="card">
+                                            <div class="card-header bg-secondary text-white">
+                                                <h5 class="mb-0"><i class="bi bi-activity"></i> Atividades recentes:</h5>
+                                            </div>
+                                            <div class="card-body p-0">
+                                                <ul class="list-group list-group-flush">
+                                                    <?php 
+                                                    $atividades = getAtividadesUtilizador($oradorId);
+                                                    if (empty($atividades)):
+                                                    ?>
+                                                        <li class="list-group-item text-muted text-center py-4">
+                                                            <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                                                            <p class="mb-0 mt-2">Nenhuma atividade recente encontrada.</p>
+                                                        </li>
+                                                    <?php else: ?>
+                                                        <?php foreach ($atividades as $act): ?>
+                                                            <li class="list-group-item hover-highlight">
+                                                                <div class="d-flex justify-content-between align-items-start mb-1">
+                                                                    <div class="flex-grow-1">
+                                                                        <a href="<?= htmlspecialchars($act['url']) ?>" 
+                                                                        class="text-decoration-none fw-bold text-dark"
+                                                                        <?= strpos($act['url'], 'http') === 0 ? 'target="_blank"' : '' ?>>
+                                                                            <?= htmlspecialchars($act['titulo']) ?>
+                                                                            <?php if (strpos($act['url'], 'http') === 0): ?>
+                                                                                <i class="bi bi-box-arrow-up-right small"></i>
+                                                                            <?php endif; ?>
+                                                                        </a>
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                <?php if (!empty($act['descritivo'])): ?>
+                                                                    <p class="text-muted small mb-2">
+                                                                        <?= htmlspecialchars(substr($act['descritivo'], 0, 80)) ?>
+                                                                        <?= strlen($act['descritivo']) > 80 ? '...' : '' ?>
+                                                                    </p>
+                                                                <?php endif; ?>
+                                                                
+                                                                <div class="d-flex flex-wrap gap-1 mb-2">
+                                                                    <?= $act['estado_badge'] ?>
+                                                                    <?= $act['estagio_badge'] ?>
+                                                                    <?= $act['projeto_badge'] ?>
+                                                                    <?= $act['deadline_info'] ?>
+                                                                </div>
+                                                                
+                                                                <div class="d-flex justify-content-between align-items-center">
+                                                                    <small class="text-muted">
+                                                                        <i class="bi bi-clock-history"></i> 
+                                                                        <?= $act['tempo_decorrido'] ?>
+                                                                    </small>
+                                                                    <?php if ($act['responsavel_nome'] && $act['responsavel_nome'] != getNomeUtilizador($oradorId, getUtilizadoresRedmine())): ?>
+                                                                        <small class="text-muted">
+                                                                            <i class="bi bi-person"></i> 
+                                                                            <?= htmlspecialchars($act['responsavel_nome']) ?>
+                                                                        </small>
+                                                                    <?php endif; ?>
+                                                                </div>
+                                                            </li>
+                                                        <?php endforeach; ?>
+                                                    <?php endif; ?>
+                                                </ul>
+
+
+
+
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                                 
-                                <!-- Botão para registrar falta -->
-                                <div class="mt-3">
-                                    <button class="btn btn-sm btn-warning w-100" 
-                                            data-bs-toggle="modal" 
-                                            data-bs-target="#modalFalta<?= $rid ?>">
-                                        <i class="bi bi-calendar-x"></i> Registrar Falta
+                                <!-- Modal para Marcar Falta -->
+                                <div class="modal fade" id="faltaModal" tabindex="-1" aria-labelledby="faltaModalLabel" aria-hidden="true">
+                                    <div class="modal-dialog">
+                                        <div class="modal-content">
+                                            <div class="modal-header bg-danger text-white">
+                                                <h5 class="modal-title" id="faltaModalLabel">
+                                                    <i class="bi bi-exclamation-triangle"></i> 
+                                                    Marcar Falta para <?= htmlspecialchars(getNomeUtilizador($oradorId, $utilizadores)) ?>
+                                                </h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                            </div>
+                                            <form method="post">
+                                                <div class="modal-body">
+                                                    <input type="hidden" name="marcar_falta" value="<?= $oradorId ?>">
+                                                    <div class="mb-3">
+                                                        <label for="motivo_falta" class="form-label">Motivo da falta:</label>
+                                                        <textarea class="form-control" id="motivo_falta" name="motivo_falta" rows="3" placeholder="Descreva o motivo da falta..."></textarea>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                    <button type="submit" class="btn btn-danger">
+                                                        <i class="bi bi-check-lg"></i> Confirmar Falta
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php elseif (count($equipa) >= 2): ?>
+                <div class="card mb-4">
+                    <div class="card-body text-center">
+                        <p class="lead mb-3">A reunião ainda não foi iniciada.</p>
+                        <form method="post">
+                            <button type="submit" name="iniciar" class="btn btn-success btn-lg">
+                                <i class="bi bi-play-fill"></i> Iniciar Reunião
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            <?php endif; ?>
+
+            <!-- Próximos Gestores -->
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0"><i class="bi bi-calendar-week"></i> Próximos Gestores de Reunião</h4>
+                </div>
+                <div class="card-body">
+                    <?php if (empty($proximos_gestores)): ?>
+                        <p class="text-muted">Nenhum gestor agendado para os próximos dias.</p>
+                    <?php else: ?>
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Data Prevista</th>
+                                        <th>Gestor</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($proximos_gestores as $prox): ?>
+                                        <tr>
+                                            <td>
+                                                <?php 
+                                                    $data = new DateTime($prox['data_prevista']);
+                                                    $hoje = new DateTime('today');
+                                                    $eh_hoje = $data->format('Y-m-d') === $hoje->format('Y-m-d');
+                                                    
+                                                    if ($eh_hoje) {
+                                                        echo '<span class="badge bg-primary">Hoje</span> ';
+                                                    }
+                                                    
+                                                    // Dia da semana em português
+                                                    $dias_semana = [
+                                                        1 => 'Segunda', 2 => 'Terça', 3 => 'Quarta', 
+                                                        4 => 'Quinta', 5 => 'Sexta', 6 => 'Sábado', 7 => 'Domingo'
+                                                    ];
+                                                    
+                                                    echo $data->format('d/m/Y') . ' (' . $dias_semana[(int)$data->format('N')] . ')';
+                                                ?>
+                                            </td>
+                                            <td><?= htmlspecialchars(getNomeUtilizador($prox['redmine_id'], $utilizadores)) ?></td>
+                                            <td>
+                                                <form method="post" class="d-inline">
+                                                    <input type="hidden" name="recusar" value="<?= $prox['redmine_id'] ?>">
+                                                    <input type="hidden" name="data_recusada" value="<?= $prox['data_prevista'] ?>">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                        <i class="bi bi-x-lg"></i> Recusar
+                                                    </button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- Gestão da Equipe -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="bi bi-people"></i> Gestão da Equipa</h4>
+                </div>
+                <div class="card-body">
+                    <form method="post" class="row g-3 mb-4">
+                        <div class="col-md-8">
+                            <label for="adicionar" class="form-label">Adicionar elemento à equipa:</label>
+                            <select name="adicionar" id="adicionar" class="form-select">
+                                <?php foreach ($utilizadores as $u): ?>
+                                    <?php if (!in_array($u['id'], $equipa)): ?>
+                                        <option value="<?= $u['id'] ?>"> 
+                                            <?= htmlspecialchars($u['firstname'] . ' ' . $u['lastname']) ?> 
+                                        </option>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-4 align-self-end">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-plus-lg"></i> Adicionar
+                            </button>
+                        </div>
+                    </form>
+
+                    <h5><i class="bi bi-person-lines-fill"></i> Membros da Equipa:</h5>
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Nome</th>
+                                    <th class="text-center">Faltas</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php 
+                                if (empty($equipa)): 
+                                ?>
+                                    <tr>
+                                        <td colspan="3" class="text-center text-muted">
+                                            Nenhum membro na equipe.
+                                        </td>
+                                    </tr>
+                                <?php 
+                                else:
+                                    foreach ($equipa as $id): 
+                                        // Contar faltas deste membro
+                                        $total_faltas = getNumeroFaltas($db, $id);
+                                ?>
+                                    <tr>
+                                        <td><?= htmlspecialchars(getNomeUtilizador($id, $utilizadores)) ?></td>
+                                        <td class="text-center">
+                                            <?php if ($total_faltas > 0): ?>
+                                                <span class="badge bg-danger"><?= $total_faltas ?></span>
+                                            <?php else: ?>
+                                                <span class="badge bg-success">0</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <form method="post" class="d-inline" onsubmit="return confirm('Tem a certeza que deseja remover este item? Esta ação não pode ser desfeita.');">
+                                                <input type="hidden" name="remover" value="<?= $id ?>">
+                                                <button type="submit" class="btn btn-sm btn-danger">
+                                                    <i class="bi bi-trash"></i> Remover
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <?php 
+                                    endforeach;
+                                endif;
+                                ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Nova Seção de Notas Markdown -->
+            <div class="card mb-4" id="secao-notas">
+                <div class="card-header bg-info text-white">
+                    <h4 class="mb-0"><i class="bi bi-markdown"></i> Notas da Reunião</h4>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <!-- Editor Markdown e Visualização -->
+                        <div class="col-md-8">
+                            <div class="border-bottom mb-3 pb-2 d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0" id="nota-titulo-display">
+                                    <?= htmlspecialchars($nota_atual['titulo'] ?? 'Nova Nota') ?>
+                                </h5>
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-outline-primary" id="btn-editar">
+                                        <i class="bi bi-pencil"></i> Editar
+                                    </button>
+                                    <button type="button" class="btn btn-outline-success" id="btn-visualizar" style="display: none;">
+                                        <i class="bi bi-eye"></i> Visualizar
                                     </button>
                                 </div>
                             </div>
                             
-                            <!-- Modal para Registrar Falta -->
-                            <div class="modal fade" id="modalFalta<?= $rid ?>" tabindex="-1">
-                                <div class="modal-dialog">
-                                    <div class="modal-content">
-                                        <div class="modal-header">
-                                            <h5 class="modal-title">Registrar Falta - <?= $nome_completo ?></h5>
-                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                        </div>
-                                        <form method="POST">
-                                            <div class="modal-body">
-                                                <input type="hidden" name="acao" value="registrar_falta">
-                                                <input type="hidden" name="redmine_id" value="<?= $rid ?>">
-                                                <div class="mb-3">
-                                                    <label class="form-label">Motivo da Falta</label>
-                                                    <textarea name="motivo" class="form-control" rows="3" required></textarea>
-                                                </div>
-                                            </div>
-                                            <div class="modal-footer">
-                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                                                <button type="submit" class="btn btn-warning">Registrar</button>
-                                            </div>
-                                        </form>
-                                    </div>
-                                </div>
-                            </div>
-                        <?php endif; ?>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-        </div>
-    </div>
-
-    <!-- Próximos Gestores de Reunião - VERSÃO ATUALIZADA -->
-    <div class="card mb-4">
-        <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="bi bi-calendar-check"></i> Próximos Gestores de Reunião (30 Dias)</h5>
-            <div>
-                <button class="btn btn-light btn-sm me-2" data-bs-toggle="modal" data-bs-target="#modalGerenciarGestores">
-                    <i class="bi bi-pencil-square"></i> Editar Atribuições
-                </button>
-                <form method="POST" style="display: inline;" onsubmit="return confirm('Isto irá gerar automaticamente atribuições para os próximos 30 dias. Continuar?')">
-                    <input type="hidden" name="acao" value="gerar_proximos_30_dias">
-                    <button type="submit" class="btn btn-success btn-sm">
-                        <i class="bi bi-arrow-clockwise"></i> Gerar Automático
-                    </button>
-                </form>
-            </div>
-        </div>
-        <div class="card-body">
-            <?php if (empty($proximos_gestores)): ?>
-                <div class="alert alert-warning">
-                    <i class="bi bi-exclamation-triangle"></i> Nenhum gestor de reunião atribuído para os próximos 30 dias. 
-                    Use o botão "Gerar Automático" ou "Editar Atribuições" para configurar.
-                </div>
-            <?php else: ?>
-                <div class="gestores-calendar">
-                    <?php
-                    $hoje = date('Y-m-d');
-                    $gestores_map = [];
-                    foreach ($proximos_gestores as $pg) {
-                        $gestores_map[$pg['data_prevista']] = $pg;
-                    }
-                    
-                    for ($i = 0; $i < 30; $i++) {
-                        $data = date('Y-m-d', strtotime("+$i days"));
-                        $data_formatada = date('d/m', strtotime($data));
-                        $dia_semana = date('D', strtotime($data));
-                        
-                        $classes = ['dia-gestor'];
-                        if ($data === $hoje) {
-                            $classes[] = 'hoje';
-                        }
-                        
-                        $gestor_nome = 'Não atribuído';
-                        if (isset($gestores_map[$data])) {
-                            $classes[] = 'atribuido';
-                            $pg = $gestores_map[$data];
-                            if (isset($mapa_redmine[$pg['redmine_id']])) {
-                                $u = $mapa_redmine[$pg['redmine_id']];
-                                $gestor_nome = htmlspecialchars($u['firstname']);
-                            }
-                        }
-                        ?>
-                        <div class="<?= implode(' ', $classes) ?>" 
-                             data-data="<?= $data ?>"
-                             onclick="abrirModalAtribuirGestor('<?= $data ?>', '<?= $data_formatada ?>')">
-                            <div class="dia-data">
-                                <?= $data_formatada ?>
-                                <small style="display: block; font-size: 0.8em; font-weight: normal;"><?= $dia_semana ?></small>
-                            </div>
-                            <div class="dia-nome"><?= $gestor_nome ?></div>
-                        </div>
-                    <?php } ?>
-                </div>
-            <?php endif; ?>
-        </div>
-    </div>
-
-    <!-- Modal para Gerenciar Gestores -->
-    <div class="modal fade" id="modalGerenciarGestores" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-calendar-event"></i> Gerenciar Atribuições de Gestores</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <form method="POST" onsubmit="return confirm('Isto irá remover todas as atribuições futuras não concluídas. Continuar?')">
-                            <input type="hidden" name="acao" value="limpar_gestores_futuros">
-                            <button type="submit" class="btn btn-danger btn-sm">
-                                <i class="bi bi-trash"></i> Limpar Todas as Atribuições Futuras
-                            </button>
-                        </form>
-                    </div>
-                    
-                    <table class="table table-sm">
-                        <thead>
-                            <tr>
-                                <th>Data</th>
-                                <th>Gestor</th>
-                                <th>Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($proximos_gestores as $pg): ?>
-                                <tr>
-                                    <td><?= date('d/m/Y', strtotime($pg['data_prevista'])) ?></td>
-                                    <td>
-                                        <?php
-                                        if (isset($mapa_redmine[$pg['redmine_id']])) {
-                                            $u = $mapa_redmine[$pg['redmine_id']];
-                                            echo htmlspecialchars($u['firstname'] . ' ' . $u['lastname']);
-                                        }
-                                        ?>
-                                    </td>
-                                    <td>
-                                        <button class="btn btn-sm btn-primary" 
-                                                onclick="abrirModalAtribuirGestor('<?= $pg['data_prevista'] ?>', '<?= date('d/m/Y', strtotime($pg['data_prevista'])) ?>')">
-                                            <i class="bi bi-pencil"></i>
-                                        </button>
-                                        <form method="POST" style="display: inline;">
-                                            <input type="hidden" name="acao" value="remover_gestor">
-                                            <input type="hidden" name="id" value="<?= $pg['id'] ?>">
-                                            <button type="submit" class="btn btn-sm btn-danger" 
-                                                    onclick="return confirm('Remover esta atribuição?')">
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                        </form>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Modal para Atribuir Gestor a uma Data Específica -->
-    <div class="modal fade" id="modalAtribuirGestor" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">
-                        <i class="bi bi-person-check"></i> Atribuir Gestor para <span id="modal-data-display"></span>
-                    </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <form method="POST" id="formAtribuirGestor">
-                    <div class="modal-body">
-                        <input type="hidden" name="acao" value="atribuir_gestor_manual">
-                        <input type="hidden" name="data" id="input-data-atribuicao">
-                        
-                        <div class="modal-gestor-select">
-                            <?php foreach ($equipa_ids as $rid): ?>
-                                <?php if (isset($mapa_redmine[$rid])): ?>
-                                    <?php 
-                                    $u = $mapa_redmine[$rid];
-                                    $nome_completo = htmlspecialchars($u['firstname'] . ' ' . $u['lastname']);
-                                    ?>
-                                    <div class="membro-option" data-redmine-id="<?= $rid ?>" onclick="selecionarMembro(this, <?= $rid ?>)">
-                                        <strong><?= $nome_completo ?></strong>
-                                        <br>
-                                        <small class="text-muted"><?= htmlspecialchars($u['mail'] ?? 'N/A') ?></small>
+                            <!-- Área de Visualização (Padrão) -->
+                            <div id="markdown-preview" class="markdown-preview markdown-body">
+                                <?php if (isset($nota_atual['conteudo']) && !empty($nota_atual['conteudo'])): ?>
+                                    <!-- O conteúdo será renderizado via JavaScript -->
+                                <?php else: ?>
+                                    <div class="text-muted text-center py-5">
+                                        <i class="bi bi-file-earmark-text fs-2"></i>
+                                        <p>Não há conteúdo para mostrar.</p>
                                     </div>
                                 <?php endif; ?>
-                            <?php endforeach; ?>
-                        </div>
-                        
-                        <input type="hidden" name="redmine_id" id="input-redmine-id-selecionado">
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                        <button type="submit" class="btn btn-primary" id="btn-confirmar-atribuicao" disabled>
-                            <i class="bi bi-check-circle"></i> Confirmar Atribuição
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <!-- Últimas Faltas Registradas -->
-    <?php if (!empty($ultimas_faltas)): ?>
-    <div class="card mb-4">
-        <div class="card-header bg-warning">
-            <h5 class="mb-0"><i class="bi bi-calendar-x"></i> Últimas Faltas Registradas</h5>
-        </div>
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>Data</th>
-                            <th>Membro</th>
-                            <th>Motivo</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($ultimas_faltas as $falta): ?>
-                            <tr>
-                                <td><?= date('d/m/Y H:i', strtotime($falta['data'])) ?></td>
-                                <td>
-                                    <?php
-                                    if (isset($mapa_redmine[$falta['redmine_id']])) {
-                                        $u = $mapa_redmine[$falta['redmine_id']];
-                                        echo htmlspecialchars($u['firstname'] . ' ' . $u['lastname']);
-                                    }
-                                    ?>
-                                </td>
-                                <td><?= htmlspecialchars($falta['motivo']) ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-    <?php endif; ?>
-
-    <!-- Seção de Notas Markdown -->
-    <div class="card mb-4">
-        <div class="card-header bg-secondary text-white">
-            <h5 class="mb-0"><i class="bi bi-journal-text"></i> Notas da Equipa (Markdown)</h5>
-        </div>
-        <div class="card-body">
-            <div class="notas-container">
-                <!-- Lista de Notas -->
-                <div class="notas-lista">
-                    <button class="btn btn-success btn-sm w-100 mb-3 nova-nota">
-                        <i class="bi bi-plus-circle"></i> Nova Nota
-                    </button>
-                    
-                    <?php if (empty($notas)): ?>
-                        <p class="text-muted text-center">Nenhuma nota criada</p>
-                    <?php else: ?>
-                        <?php foreach ($notas as $nota): ?>
-                            <div class="nota-lista-item <?= $nota === $nota_selecionada ? 'active' : '' ?>"
-                                 data-id="<?= $nota['id'] ?>"
-                                 data-titulo="<?= htmlspecialchars($nota['titulo']) ?>"
-                                 data-conteudo="<?= htmlspecialchars($nota['conteudo']) ?>">
-                                <strong><?= htmlspecialchars($nota['titulo']) ?></strong>
-                                <br>
-                                <small class="text-muted">
-                                    <?= date('d/m/Y H:i', strtotime($nota['data_atualizacao'])) ?>
-                                </small>
-                                <form method="POST" class="nota-excluir-form" style="display: inline;">
-                                    <input type="hidden" name="acao" value="excluir_nota">
-                                    <input type="hidden" name="id_nota" value="<?= $nota['id'] ?>">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger float-end"
-                                            onclick="return confirm('Excluir esta nota?')">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
-                                </form>
                             </div>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
+                            
+                            <!-- Formulário de Edição (Inicialmente Oculto) -->
+                            <form method="post" id="form-markdown" style="display: none;">
+                                <input type="hidden" name="acao_nota" value="salvar">
+                                <input type="hidden" name="id_nota" id="id_nota" value="<?= htmlspecialchars($nota_atual['id'] ?? '') ?>">
+                                
+                                <div class="mb-3">
+                                    <label for="titulo_nota" class="form-label">Título da Nota:</label>
+                                    <input type="text" class="form-control" id="titulo_nota" name="titulo_nota" 
+                                           value="<?= htmlspecialchars($nota_atual['titulo'] ?? 'Nova Nota') ?>" required>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="conteudo_nota" class="form-label">Conteúdo (Markdown):</label>
+                                    <textarea class="form-control markdown-editor" id="conteudo_nota" name="conteudo_nota" 
+                                              rows="10" placeholder="Escreva aqui utilizando Markdown..."><?= htmlspecialchars($nota_atual['conteudo'] ?? '') ?></textarea>
+                                    
+                                    <div class="form-text">
+                                        <i class="bi bi-info-circle"></i> Use Markdown para formatar seu texto. 
+                                        <a href="#" data-bs-toggle="modal" data-bs-target="#markdownHelpModal">Ver guia de sintaxe</a>
+                                    </div>
+                                </div>
+                                
+                                <div class="d-flex justify-content-between">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="bi bi-save"></i> Salvar
+                                    </button>
+                                    
+                                    <button type="button" class="btn btn-outline-secondary" id="btn-cancelar">
+                                        <i class="bi bi-x"></i> Cancelar
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <!-- Lista de Notas Existentes -->
+                        <div class="col-md-4">
+                            <div class="border-bottom mb-3 pb-2">
+                                <h5 class="mb-0"><i class="bi bi-journal-text"></i> Notas Salvas</h5>
+                            </div>
+                            
+                            <div class="list-group">
+                                <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-center nova-nota">
+                                    <div>
+                                        <i class="bi bi-plus-circle text-success"></i> Criar Nova Nota
+                                    </div>
+                                </button>
+                                
+                                <?php if (empty($todas_notas)): ?>
+                                    <div class="list-group-item text-muted">
+                                        <i class="bi bi-info-circle"></i> Nenhuma nota salva.
+                                    </div>
+                                <?php else: ?>
+                                    <?php foreach ($todas_notas as $nota): ?>
+                                        <div class="list-group-item nota-lista-item d-flex justify-content-between align-items-center <?= ($nota_atual && $nota['id'] == $nota_atual['id']) ? 'active' : '' ?>" 
+                                             data-id="<?= $nota['id'] ?>" 
+                                             data-titulo="<?= htmlspecialchars($nota['titulo']) ?>" 
+                                             data-conteudo="<?= htmlspecialchars($nota['conteudo']) ?>">
+                                            <div>
+                                                <div class="fw-bold"><?= htmlspecialchars($nota['titulo']) ?></div>
+                                                <small class="text-muted">
+                                                    <i class="bi bi-clock"></i> 
+                                                    <?= date('d/m/Y H:i', strtotime($nota['data_atualizacao'])) ?>
+                                                </small>
+                                            </div>
+                                            
+                                            <form method="post" class="nota-excluir-form" onsubmit="return confirm('Tem certeza que deseja excluir esta nota?');">
+                                                <input type="hidden" name="acao_nota" value="excluir">
+                                                <input type="hidden" name="id_nota" value="<?= $nota['id'] ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                
-                <!-- Conteúdo da Nota -->
-                <div class="nota-conteudo">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h4 id="nota-titulo-display">
-                            <?= $nota_selecionada ? htmlspecialchars($nota_selecionada['titulo']) : 'Nova Nota' ?>
-                        </h4>
-                        <div>
-                            <button id="btn-editar" class="btn btn-primary btn-sm">
-                                <i class="bi bi-pencil"></i> Editar
-                            </button>
-                            <button id="btn-visualizar" class="btn btn-success btn-sm" style="display: none;">
-                                <i class="bi bi-eye"></i> Visualizar
-                            </button>
+            </div>
+        </div>
+        
+        <!-- Coluna Lateral - Faltas Recentes -->
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header bg-warning">
+                    <h4 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Faltas Recentes</h4>
+                </div>
+                <div class="card-body">
+                    <?php 
+                    $faltas = getFaltas($db);
+                    if (empty($faltas)):
+                    ?>
+                        <p class="text-muted text-center">
+                            <i class="bi bi-emoji-smile"></i> Nenhuma falta registrada.
+                        </p>
+                    <?php else: ?>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Data</th>
+                                        <th>Membro</th>
+                                        <th>Motivo</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($faltas as $falta): ?>
+                                        <tr>
+                                            <td><?= date('d/m/Y', strtotime($falta['data'])) ?></td>
+                                            <td><?= htmlspecialchars(getNomeUtilizador($falta['redmine_id'], $utilizadores)) ?></td>
+                                            <td>
+                                                <?php 
+                                                if (!empty($falta['motivo'])) {
+                                                    $motivo = $falta['motivo'];
+                                                    echo mb_strlen($motivo) > 50 ? mb_substr(htmlspecialchars($motivo), 0, 50) . '...' : htmlspecialchars($motivo);
+                                                } else {
+                                                    echo '<span class="text-muted">Não especificado</span>';
+                                                }
+                                                ?>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
                         </div>
-                    </div>
-                    
-                    <!-- Preview do Markdown -->
-                    <div id="markdown-preview">
-                        <?php if ($nota_selecionada): ?>
-                            <!-- O conteúdo será renderizado pelo JavaScript -->
-                        <?php else: ?>
-                            <p class="text-muted">Selecione uma nota ou crie uma nova.</p>
-                        <?php endif; ?>
-                    </div>
-                    
-                    <!-- Formulário de Edição -->
-                    <form method="POST" id="form-markdown" style="display: none;">
-                        <input type="hidden" name="acao" value="salvar_nota">
-                        <input type="hidden" name="id_nota" id="id_nota" 
-                               value="<?= $nota_selecionada ? $nota_selecionada['id'] : '' ?>">
-                        
-                        <div class="mb-3">
-                            <label for="titulo_nota" class="form-label">Título</label>
-                            <input type="text" class="form-control" id="titulo_nota" name="titulo_nota" 
-                                   value="<?= $nota_selecionada ? htmlspecialchars($nota_selecionada['titulo']) : 'Nova Nota' ?>" 
-                                   required>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label for="conteudo_nota" class="form-label">Conteúdo (Markdown)</label>
-                            <textarea class="form-control" id="conteudo_nota" name="conteudo_nota" 
-                                      rows="15" style="font-family: monospace;"><?= $nota_selecionada ? htmlspecialchars($nota_selecionada['conteudo']) : '' ?></textarea>
-                            <small class="text-muted">
-                                Suporta Markdown: **negrito**, *itálico*, # Título, - Lista, etc.
-                            </small>
-                        </div>
-                        
-                        <div>
-                            <button type="submit" class="btn btn-success">
-                                <i class="bi bi-save"></i> Salvar
-                            </button>
-                            <button type="button" id="btn-cancelar" class="btn btn-secondary">
-                                Cancelar
-                            </button>
-                        </div>
-                    </form>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Modal de Ajuda do Markdown -->
+<div class="modal fade" id="markdownHelpModal" tabindex="-1" aria-labelledby="markdownHelpModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="markdownHelpModalLabel">Guia Rápido de Markdown</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Formatação Básica</h6>
+                        <ul class="list-unstyled">
+                            <li><code># Título</code> - Título principal</li>
+                            <li><code>## Subtítulo</code> - Subtítulo</li>
+                            <li><code>**texto**</code> - <strong>Negrito</strong></li>
+                            <li><code>*texto*</code> - <em>Itálico</em></li>
+                            <li><code>~~texto~~</code> - <del>Riscado</del></li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Elementos</h6>
+                        <ul class="list-unstyled">
+                            <li><code>- Item</code> - Lista não ordenada</li>
+                            <li><code>1. Item</code> - Lista ordenada</li>
+                            <li><code>[link](URL)</code> - Link</li>
+                            <li><code>![alt](URL)</code> - Imagem</li>
+                            <li><code>```código```</code> - Bloco de código</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <h6>Exemplo:</h6>
+                    <pre class="bg-light p-2">
+# Reunião do dia 12/05/2025
 
+## Pontos Discutidos:
+- Ponto 1: **Urgente**
+- Ponto 2: *Em andamento*
+
+## Próximos Passos:
+1. Verificar status do projeto
+2. Agendar nova reunião
+
+[Link para documentação](https://example.com)
+                    </pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Script do cronômetro, totalmente no lado do cliente -->
 <script>
+// Executar quando o documento estiver carregado
 document.addEventListener('DOMContentLoaded', function() {
+    // Verificar se a reunião está ativa e não concluída
+    <?php if ($em_reuniao && !$reuniao_concluida && isset($oradorId)): ?>
+    
+    // Elementos DOM
+    const cronometroEl = document.getElementById('cronometro');
+    const progressBarEl = document.getElementById('progress-bar');
+    const btnPausarEl = document.getElementById('btn-pausar');
+    const btnReiniciarEl = document.getElementById('btn-reiniciar');
+    const beepEl = document.getElementById('beep');
+    const statusEl = document.getElementById('status-display');
+    const eventLogEl = document.getElementById('event-log');
+    const debugArea = document.getElementById('debug-area');
+    
+    // Verificar se os elementos necessários existem
+    if (!cronometroEl || !progressBarEl || !btnPausarEl) {
+        console.error('Elementos essenciais do cronômetro não encontrados!');
+        return;
+    }
+    
+    // Mostrar área de debug para diagnóstico se necessário
+    if (debugArea) {
+        // Descomentar para mostrar a área de debug
+        // debugArea.classList.remove('d-none');
+    }
+    
+    // Configuração inicial
+    const TEMPO_TOTAL = 30; // segundos
+    let tempoRestante = TEMPO_TOTAL;
+    let cronometroAtivo = true;
+    let intervalId = null;
+    let estaPausado = false;
+    
+    // Função para registrar eventos (para depuração)
+    function registrarEvento(mensagem) {
+        console.log(mensagem);
+        if (eventLogEl) {
+            const agora = new Date();
+            const timestamp = agora.getHours().toString().padStart(2, '0') + ':' + 
+                            agora.getMinutes().toString().padStart(2, '0') + ':' + 
+                            agora.getSeconds().toString().padStart(2, '0');
+            eventLogEl.textContent = mensagem + ' [' + timestamp + ']';
+        }
+    }
+    
+    // Função para atualizar o visual do cronômetro
+    function atualizarCronometro() {
+        // Atualizar o texto do cronômetro
+        cronometroEl.textContent = tempoRestante;
+        
+        // Calcular a largura da barra de progresso
+        const porcentagem = (tempoRestante / TEMPO_TOTAL) * 100;
+        progressBarEl.style.width = porcentagem + '%';
+        
+        // Atualizar a cor da barra de progresso conforme o tempo restante
+        if (tempoRestante <= 5) {
+            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-danger';
+        } else if (tempoRestante <= 15) {
+            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-warning';
+        } else {
+            progressBarEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
+        }
+        
+        // Tocar som de alerta quando chegar a 5 segundos
+        if (tempoRestante === 5 && beepEl) {
+            beepEl.play().catch(err => {
+                registrarEvento('Erro ao tocar som: ' + err.message);
+            });
+        }
+        
+        // Quando o tempo acabar
+        if (tempoRestante <= 0) {
+            finalizarCronometro();
+        }
+    }
+    
+    // Função para iniciar ou reiniciar o cronômetro
+    function iniciarCronometro() {
+        // Limpar qualquer intervalo existente
+        if (intervalId !== null) {
+            clearInterval(intervalId);
+            intervalId = null;
+        }
+        
+        registrarEvento('Cronômetro iniciado');
+        
+        // Configurar um novo intervalo que execute a cada 1 segundo
+        intervalId = setInterval(function() {
+            if (!estaPausado && cronometroAtivo) {
+                tempoRestante--;
+                atualizarCronometro();
+            }
+        }, 1000);
+    }
+    
+    // Função para finalizar o cronômetro quando o tempo acabar
+    function finalizarCronometro() {
+        clearInterval(intervalId);
+        intervalId = null;
+        cronometroAtivo = false;
+        
+        // Atualizar interface
+        cronometroEl.textContent = 'Tempo Esgotado!';
+        progressBarEl.style.width = '0%';
+        progressBarEl.className = 'progress-bar bg-danger';
+        
+        registrarEvento('Tempo esgotado');
+        
+        // Desativar botão de pausa
+        if (btnPausarEl) {
+            btnPausarEl.disabled = true;
+            btnPausarEl.classList.remove('btn-warning', 'btn-success');
+            btnPausarEl.classList.add('btn-secondary');
+        }
+    }
+    
+    // Função para alternar o estado de pausa
+    function alternarPausa() {
+        estaPausado = !estaPausado;
+        
+        // Atualizar interface
+        if (estaPausado) {
+            btnPausarEl.classList.remove('btn-warning');
+            btnPausarEl.classList.add('btn-success');
+            btnPausarEl.innerHTML = '<i class="bi bi-play-fill"></i> Continuar';
+            if (statusEl) statusEl.textContent = 'Pausado';
+        } else {
+            btnPausarEl.classList.remove('btn-success');
+            btnPausarEl.classList.add('btn-warning');
+            btnPausarEl.innerHTML = '<i class="bi bi-pause-fill"></i> Pausar';
+            if (statusEl) statusEl.textContent = 'Ativo';
+        }
+        
+        registrarEvento(estaPausado ? 'Cronômetro pausado' : 'Cronômetro retomado');
+    }
+    
+    // Função para reiniciar o cronômetro
+    function reiniciarCronometro() {
+        tempoRestante = TEMPO_TOTAL;
+        cronometroAtivo = true;
+        estaPausado = false;
+        
+        // Atualizar interface
+        if (btnPausarEl) {
+            btnPausarEl.disabled = false;
+            btnPausarEl.classList.remove('btn-success', 'btn-secondary');
+            btnPausarEl.classList.add('btn-warning');
+            btnPausarEl.innerHTML = '<i class="bi bi-pause-fill"></i> Pausar';
+        }
+        
+        if (statusEl) statusEl.textContent = 'Ativo';
+        
+        // Atualizar cronômetro e iniciar contagem
+        atualizarCronometro();
+        iniciarCronometro();
+        
+        registrarEvento('Cronômetro reiniciado');
+    }
+    
+    // Configurar eventos dos botões
+    
+    // Botão Pausar/Continuar
+    if (btnPausarEl) {
+        btnPausarEl.addEventListener('click', function(e) {
+            e.preventDefault();
+            alternarPausa();
+        });
+    }
+    
+    // Botão Reiniciar
+    if (btnReiniciarEl) {
+        btnReiniciarEl.addEventListener('click', function(e) {
+            e.preventDefault();
+            reiniciarCronometro();
+        });
+    }
+    
+    // Inicializar o cronômetro
+    atualizarCronometro();
+    iniciarCronometro();
+    registrarEvento('Cronômetro configurado com sucesso');
+    
+    <?php endif; ?>
+    
+    // Atualizar o tempo total da reunião a cada segundo
+    <?php if ($em_reuniao): ?>
+    function atualizarTempoTotal() {
+        const tempoTotalEl = document.getElementById('tempo-total');
+        if (tempoTotalEl) {
+            let segundos = <?= $tempo_total ?>;
+            setInterval(function() {
+                segundos++;
+                
+                // Formatar o tempo (HH:MM:SS)
+                const horas = Math.floor(segundos / 3600).toString().padStart(2, '0');
+                const minutos = Math.floor((segundos % 3600) / 60).toString().padStart(2, '0');
+                const segs = (segundos % 60).toString().padStart(2, '0');
+                
+                tempoTotalEl.textContent = horas + ':' + minutos + ':' + segs;
+            }, 1000);
+        }
+    }
+    
+    atualizarTempoTotal();
+    <?php endif; ?>
+    
     // Funcionalidades da Seção de Notas Markdown
     
     // Elementos DOM
@@ -1185,17 +1634,16 @@ document.addEventListener('DOMContentLoaded', function() {
     const inputId = document.getElementById('id_nota');
     
     // Configuração do Marked.js para renderizar Markdown
-    if (typeof marked !== 'undefined') {
-        marked.setOptions({
-            breaks: true,
-            gfm: true,
-            headerIds: true
-        });
-    }
+    marked.setOptions({
+        breaks: true,  // Quebras de linha são respeitadas
+        gfm: true,     // GitHub Flavored Markdown
+        headerIds: true, // Adiciona IDs aos cabeçalhos para navegação
+        sanitize: false // Não sanitizar HTML (cuidado com conteúdo não confiável)
+    });
     
     // Função para renderizar o markdown atual
     function renderizarMarkdown() {
-        if (inputConteudo && markdownPreview && typeof marked !== 'undefined') {
+        if (inputConteudo && markdownPreview) {
             const conteudoAtual = inputConteudo.value || '';
             markdownPreview.innerHTML = marked.parse(conteudoAtual);
         }
@@ -1219,13 +1667,18 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Função para carregar uma nota
     function carregarNota(id, titulo, conteudo) {
+        // Atualizar o ID da nota atual
         inputId.value = id || '';
+        
+        // Atualizar título e conteúdo
         inputTitulo.value = titulo || 'Nova Nota';
         inputConteudo.value = conteudo || '';
         tituloDisplay.textContent = titulo || 'Nova Nota';
         
+        // Renderizar o markdown
         renderizarMarkdown();
         
+        // Atualizar a classe 'active' na lista de notas
         notaItems.forEach(item => {
             if (id && item.dataset.id === id) {
                 item.classList.add('active');
@@ -1238,34 +1691,41 @@ document.addEventListener('DOMContentLoaded', function() {
     // Função para criar uma nova nota
     function novaNota() {
         carregarNota('', 'Nova Nota', '');
-        alternarModo(true);
+        alternarModo(true); // Entrar em modo de edição
     }
     
-    // Configurar eventos
+    // Configurar eventos para os botões da interface
+    
+    // Botão Editar
     if (btnEditar) {
         btnEditar.addEventListener('click', function() {
             alternarModo(true);
         });
     }
     
+    // Botão Visualizar
     if (btnVisualizar) {
         btnVisualizar.addEventListener('click', function() {
             alternarModo(false);
         });
     }
     
+    // Botão Cancelar (voltar para modo de visualização sem salvar)
     if (btnCancelar) {
         btnCancelar.addEventListener('click', function() {
             alternarModo(false);
         });
     }
     
+    // Botão Nova Nota
     if (btnNovaNota) {
         btnNovaNota.addEventListener('click', novaNota);
     }
     
+    // Evento de clique nos itens da lista de notas
     notaItems.forEach(item => {
         item.addEventListener('click', function(e) {
+            // Ignorar cliques no botão de excluir
             if (e.target.closest('.nota-excluir-form')) {
                 return;
             }
@@ -1275,53 +1735,112 @@ document.addEventListener('DOMContentLoaded', function() {
             const conteudo = this.dataset.conteudo;
             
             carregarNota(id, titulo, conteudo);
-            alternarModo(false);
+            alternarModo(false); // Modo de visualização
         });
     });
     
-    // Renderizar markdown inicial
+    // Renderizar o markdown na carga inicial da página
     renderizarMarkdown();
 });
-
-// Funções para o modal de atribuição de gestor
-let modalAtribuirGestor;
-let dataAtribuicaoAtual = '';
-
-function abrirModalAtribuirGestor(data, dataFormatada) {
-    dataAtribuicaoAtual = data;
-    document.getElementById('modal-data-display').textContent = dataFormatada;
-    document.getElementById('input-data-atribuicao').value = data;
-    document.getElementById('input-redmine-id-selecionado').value = '';
-    document.getElementById('btn-confirmar-atribuicao').disabled = true;
-    
-    // Limpar seleção anterior
-    document.querySelectorAll('.membro-option').forEach(opt => {
-        opt.classList.remove('selecionado');
-    });
-    
-    // Mostrar o modal
-    if (!modalAtribuirGestor) {
-        modalAtribuirGestor = new bootstrap.Modal(document.getElementById('modalAtribuirGestor'));
-    }
-    modalAtribuirGestor.show();
-}
-
-function selecionarMembro(elemento, redmineId) {
-    // Remover seleção anterior
-    document.querySelectorAll('.membro-option').forEach(opt => {
-        opt.classList.remove('selecionado');
-    });
-    
-    // Adicionar seleção ao elemento clicado
-    elemento.classList.add('selecionado');
-    
-    // Atualizar o input hidden com o ID selecionado
-    document.getElementById('input-redmine-id-selecionado').value = redmineId;
-    
-    // Habilitar o botão de confirmação
-    document.getElementById('btn-confirmar-atribuicao').disabled = false;
-}
 </script>
 
+
+<?php
+// ===================== AGENDAMENTO MANUAL DOS GESTORES (próximos 30 dias) =====================
+try {
+    // Garante que temos $db, $equipa e $utilizadores carregados
+    if (!isset($db)) {
+        $db = new PDO('sqlite:' . __DIR__ . '/../equipa2.sqlite');
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    }
+    if (!isset($utilizadores) || !is_array($utilizadores)) {
+        $utilizadores = getUtilizadoresRedmine();
+    }
+    // Mapa id=>nome
+    $mapUsers = [];
+    foreach ($utilizadores as $u) {
+        if (isset($u['id'])) {
+            $mapUsers[$u['id']] = trim(($u['firstname'] ?? '') . ' ' . ($u['lastname'] ?? ''));
+        }
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['salvar_agendamento_manual'])) {
+        $gestores = $_POST['gestor'] ?? [];
+        foreach ($gestores as $dataISO => $redmineId) {
+            $dataISO = substr($dataISO,0,10);
+            // Limpa qualquer agendamento existente nessa data
+            $stmt = $db->prepare("DELETE FROM proximos_gestores WHERE data_prevista = :data");
+            $stmt->execute([':data' => $dataISO]);
+            // Inserir apenas se tiver gestor selecionado
+            if (ctype_digit((string)$redmineId) && (int)$redmineId > 0) {
+                $stmt = $db->prepare("INSERT INTO proximos_gestores (redmine_id, data_prevista) VALUES (:id, :data)");
+                $stmt->execute([':id' => (int)$redmineId, ':data' => $dataISO]);
+            }
+        }
+        echo "<div class='alert alert-success mt-3'>Agendamento manual guardado para as próximas datas.</div>";
+    }
+} catch (Exception $e) {
+    echo "<div class='alert alert-danger'>Falha no agendamento manual: " . htmlspecialchars($e->getMessage()) . "</div>";
+}
+?>
+
+<div class="container mt-4">
+  <div class="card shadow-sm">
+    <div class="card-header d-flex align-items-center">
+      <i class="bi bi-calendar3 me-2"></i>
+      <strong>Agendar manualmente gestores (próximos 30 dias)</strong>
+    </div>
+    <div class="card-body">
+      <form method="post">
+        <input type="hidden" name="salvar_agendamento_manual" value="1" />
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr>
+                <th style="width:140px">Data</th>
+                <th>Gestor de Equipa</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php
+              $hojeDT = new DateTime('today');
+              for ($i=0; $i<30; $i++) {
+                  $d = clone $hojeDT;
+                  $d->modify("+$i day");
+                  $iso = $d->format('Y-m-d');
+                  // Carregar agendamento existente
+                  $stmt = $db->prepare("SELECT redmine_id FROM proximos_gestores WHERE data_prevista = :data AND concluido = 0 LIMIT 1");
+                  $stmt->execute([':data' => $iso]);
+                  $pre = $stmt->fetchColumn();
+                  ?>
+                  <tr>
+                    <td><code><?php echo htmlspecialchars($iso); ?></code></td>
+                    <td>
+                      <select class="form-select form-select-sm" name="gestor[<?php echo htmlspecialchars($iso); ?>]">
+                        <option value="">— sem gestor —</option>
+                        <?php foreach ($mapUsers as $uid => $uname): ?>
+                          <option value="<?php echo (int)$uid; ?>" <?php echo ($pre == $uid ? 'selected' : ''); ?>>
+                            <?php echo htmlspecialchars("[$uid] $uname"); ?>
+                          </option>
+                        <?php endforeach; ?>
+                      </select>
+                    </td>
+                  </tr>
+                  <?php
+              } ?>
+            </tbody>
+          </table>
+        </div>
+        <div class="text-end">
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save"></i> Guardar Agendamento
+          </button>
+        </div>
+      </form>
+      <p class="text-muted mt-2 mb-0"><small>Nota: a atribuição aleatória foi desativada; utilize este painel para definir os gestores de cada dia.</small></p>
+    </div>
+  </div>
+</div>
+<!-- ================== FIM AGENDAMENTO MANUAL ================== -->
 </body>
 </html>

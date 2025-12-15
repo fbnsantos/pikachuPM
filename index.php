@@ -687,7 +687,7 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             <p>
                 ID: <?= $_SESSION['user_id'] ?> 
                 <span class="timer-badge" id="session-time"><?= tempoSessao() ?></span>
-                <span class="timer-badge" id="current-time"><?= date('H:i:s') ?></span>
+                <span class="timer-badge" id="current-time"> Hora Actual:<?= date('H:i:s') ?></span>
                 
                 <label class="auto-toggle">
                     <input type="checkbox" id="auto-toggle-check" <?= $autoAlternar ? 'checked' : '' ?>>

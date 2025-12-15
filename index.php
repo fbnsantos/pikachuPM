@@ -989,7 +989,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const hours = now.getHours().toString().padStart(2, '0');
             const minutes = now.getMinutes().toString().padStart(2, '0');
             const seconds = now.getSeconds().toString().padStart(2, '0');
-            currentTimeEl.textContent = `${hours}:${minutes}:${seconds}`;
+            currentTimeEl.textContent = `Hora actual: ${hours}:${minutes}:${seconds}`;
         }, 1000);
     }
     

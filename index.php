@@ -1,11 +1,12 @@
 <?php
 ob_start();
 // index.php
+ini_set('session.gc_maxlifetime', 86400);
+ini_set('session.cookie_lifetime', 86400);
 session_start();
 
 // Configurar timeout de sessão para 24 horas (86400 segundos)
-ini_set('session.gc_maxlifetime', 86400);
-ini_set('session.cookie_lifetime', 86400);
+
 
 if (!isset($_SESSION['username'])) {
     header('Location: login.php');

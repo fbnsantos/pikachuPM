@@ -1194,20 +1194,10 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                             
                             <!-- Atribuição Múltipla Rápida -->
                             <hr class="my-3">
-                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                <h6 class="mb-0"><i class="bi bi-lightning-charge"></i> Atribuição Rápida dos Próximos 30 Dias</h6>
-                                <div class="btn-group" role="group">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="aplicarOrdemAlfabetica()">
-                                        <i class="bi bi-sort-alpha-down"></i> Aplicar Ordem Alfabética
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-success" onclick="atribuirTodos30Dias()">
-                                        <i class="bi bi-check-all"></i> Atribuir Todos os 30 Dias
-                                    </button>
-                                </div>
-                            </div>
+                            <h6 class="mb-3"><i class="bi bi-lightning-charge"></i> Atribuição Rápida dos Próximos 30 Dias</h6>
                             <p class="text-muted small mb-3">
-                                <i class="bi bi-info-circle"></i> Use "Aplicar Ordem Alfabética" para reorganizar os gestores, 
-                                depois "Atribuir Todos os 30 Dias" para confirmar as atribuições.
+                                <i class="bi bi-info-circle"></i> Os gestores são atribuídos automaticamente por ordem alfabética. 
+                                Pode alterar individualmente cada dia conforme necessário.
                             </p>
                             <div id="atribuicao-rapida">
                                 <div class="row g-2">
@@ -1259,7 +1249,7 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                         }
                                         ?>
                                         <div class="col-md-6 col-lg-4 col-xl-3">
-                                            <div class="card p-2 <?= $gestor_existente ? 'border-success' : '' ?>" data-form>
+                                            <form method="post" class="card p-2 <?= $gestor_existente ? 'border-success' : '' ?>">
                                                 <input type="hidden" name="atribuir_gestor_manual" value="1">
                                                 <input type="hidden" name="data_prevista" value="<?= $data_str ?>">
                                                 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -1268,14 +1258,17 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                                                         <span class="badge bg-success">✓</span>
                                                     <?php endif; ?>
                                                 </div>
-                                                <select name="redmine_id" class="form-select form-select-sm" required>
+                                                <select name="redmine_id" class="form-select form-select-sm mb-2" required>
                                                     <?php foreach ($membros_ordenados as $membro): ?>
                                                         <option value="<?= $membro['id'] ?>" <?= ($gestor_sugerido == $membro['id']) ? 'selected' : '' ?>>
                                                             <?= htmlspecialchars($membro['nome']) ?>
                                                         </option>
                                                     <?php endforeach; ?>
                                                 </select>
-                                            </div>
+                                                <button type="submit" class="btn btn-sm btn-outline-primary">
+                                                    <i class="bi bi-check"></i> <?= $gestor_existente ? 'Atualizar' : 'Atribuir' ?>
+                                                </button>
+                                            </form>
                                         </div>
                                         <?php
                                         $data_atual->modify('+1 day');
@@ -1975,127 +1968,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Renderizar o markdown na carga inicial da página
     renderizarMarkdown();
-    
-    // Funções para Atribuição Rápida de 30 Dias
-    
-    // Aplicar ordem alfabética aos selects dos próximos 30 dias
-    function aplicarOrdemAlfabetica() {
-        const atribuicaoRapida = document.getElementById('atribuicao-rapida');
-        if (!atribuicaoRapida) return;
-        
-        const selects = atribuicaoRapida.querySelectorAll('select[name="redmine_id"]');
-        if (selects.length === 0) return;
-        
-        // Obter lista de membros ordenada alfabeticamente do primeiro select
-        const primeiroSelect = selects[0];
-        const opcoes = Array.from(primeiroSelect.options);
-        
-        // Criar array de membros ordenados
-        const membros = opcoes.map(option => ({
-            value: option.value,
-            text: option.text
-        }));
-        
-        // Aplicar rotação circular por ordem alfabética
-        let indice = 0;
-        selects.forEach((select, i) => {
-            const membroAtual = membros[indice % membros.length];
-            select.value = membroAtual.value;
-            indice++;
-        });
-        
-        // Feedback visual
-        const toast = document.createElement('div');
-        toast.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3';
-        toast.style.zIndex = '9999';
-        toast.innerHTML = `
-            <i class="bi bi-check-circle"></i> Ordem alfabética aplicada aos próximos 30 dias!
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
-        document.body.appendChild(toast);
-        
-        setTimeout(() => {
-            toast.remove();
-        }, 3000);
-    }
-    
-    // Atribuir todos os 30 dias de uma vez
-    function atribuirTodos30Dias() {
-        const atribuicaoRapida = document.getElementById('atribuicao-rapida');
-        if (!atribuicaoRapida) return;
-        
-        const cards = atribuicaoRapida.querySelectorAll('[data-form]');
-        if (cards.length === 0) {
-            alert('Nenhum dia para atribuir.');
-            return;
-        }
-        
-        if (!confirm(`Tem certeza que deseja atribuir os gestores para os próximos ${cards.length} dias?`)) {
-            return;
-        }
-        
-        // Criar array de promessas para as submissões
-        const atribuicoes = [];
-        
-        cards.forEach((card) => {
-            const formData = new FormData();
-            
-            // Coletar dados do card
-            const hiddenInputs = card.querySelectorAll('input[type="hidden"]');
-            hiddenInputs.forEach(input => {
-                formData.append(input.name, input.value);
-            });
-            
-            const select = card.querySelector('select[name="redmine_id"]');
-            if (select) {
-                formData.append('redmine_id', select.value);
-            }
-            
-            atribuicoes.push(
-                fetch(window.location.href, {
-                    method: 'POST',
-                    body: formData
-                })
-            );
-        });
-        
-        // Mostrar loading
-        const loadingToast = document.createElement('div');
-        loadingToast.className = 'alert alert-info position-fixed top-0 start-50 translate-middle-x mt-3';
-        loadingToast.style.zIndex = '9999';
-        loadingToast.innerHTML = `
-            <div class="spinner-border spinner-border-sm me-2" role="status">
-                <span class="visually-hidden">Carregando...</span>
-            </div>
-            Atribuindo gestores... Por favor aguarde.
-        `;
-        document.body.appendChild(loadingToast);
-        
-        // Executar todas as atribuições
-        Promise.all(atribuicoes)
-            .then(() => {
-                loadingToast.remove();
-                
-                // Mostrar sucesso e recarregar
-                const successToast = document.createElement('div');
-                successToast.className = 'alert alert-success position-fixed top-0 start-50 translate-middle-x mt-3';
-                successToast.style.zIndex = '9999';
-                successToast.innerHTML = `
-                    <i class="bi bi-check-circle"></i> ${cards.length} dias atribuídos com sucesso!
-                `;
-                document.body.appendChild(successToast);
-                
-                // Recarregar a página após 1 segundo
-                setTimeout(() => {
-                    window.location.href = window.location.href;
-                }, 1000);
-            })
-            .catch((error) => {
-                loadingToast.remove();
-                console.error('Erro ao atribuir gestores:', error);
-                alert('Erro ao atribuir alguns gestores. Por favor, tente novamente.');
-            });
-    }
 });
 </script>
 

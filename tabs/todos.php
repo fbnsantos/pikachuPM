@@ -200,6 +200,86 @@ foreach ($todos as $todo) {
     }
 }
 
+
+// PROCESSAR DAILY REPORT
+if ($action === 'save_daily_report') {
+    $report_date = date('Y-m-d');
+    $tarefas_alteradas = $_POST['tarefas_alteradas'] ?? '';
+    $tarefas_em_execucao = $_POST['tarefas_em_execucao'] ?? '';
+    $correu_bem = trim($_POST['correu_bem'] ?? '');
+    $correu_mal = trim($_POST['correu_mal'] ?? '');
+    $plano_proximas_horas = trim($_POST['plano_proximas_horas'] ?? '');
+    
+    // Verificar se já existe um report para hoje
+    $stmt = $db->prepare('SELECT id FROM daily_reports WHERE user_id = ? AND report_date = ?');
+    $stmt->bind_param('is', $user_id, $report_date);
+    $stmt->execute();
+    $existing = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    
+    if ($existing) {
+        // Atualizar report existente
+        $stmt = $db->prepare('UPDATE daily_reports SET tarefas_alteradas = ?, tarefas_em_execucao = ?, correu_bem = ?, correu_mal = ?, plano_proximas_horas = ? WHERE id = ?');
+        $stmt->bind_param('sssssi', $tarefas_alteradas, $tarefas_em_execucao, $correu_bem, $correu_mal, $plano_proximas_horas, $existing['id']);
+    } else {
+        // Criar novo report
+        $stmt = $db->prepare('INSERT INTO daily_reports (user_id, report_date, tarefas_alteradas, tarefas_em_execucao, correu_bem, correu_mal, plano_proximas_horas) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        $stmt->bind_param('issssss', $user_id, $report_date, $tarefas_alteradas, $tarefas_em_execucao, $correu_bem, $correu_mal, $plano_proximas_horas);
+    }
+    
+    if ($stmt->execute()) {
+        $success_message = '✅ Daily Report guardado com sucesso!';
+    } else {
+        $error_message = '❌ Erro ao guardar Daily Report.';
+    }
+    $stmt->close();
+    
+    header("Location: ?tab=todos#daily-report");
+    exit;
+}
+
+// Obter Daily Report de hoje (se existir)
+$today_report = null;
+$stmt = $db->prepare('SELECT * FROM daily_reports WHERE user_id = ? AND report_date = ?');
+$today_date = date('Y-m-d');
+$stmt->bind_param('is', $user_id, $today_date);
+$stmt->execute();
+$today_report = $stmt->get_result()->fetch_assoc();
+$stmt->close();
+
+// Obter tarefas alteradas nas últimas 24 horas
+$stmt = $db->prepare('
+    SELECT t.id, t.titulo, t.estado, t.projeto_id, t.updated_at,
+           u1.username as autor_nome, u2.username as responsavel_nome
+    FROM todos t
+    LEFT JOIN user_tokens u1 ON t.autor = u1.user_id
+    LEFT JOIN user_tokens u2 ON t.responsavel = u2.user_id
+    WHERE (t.autor = ? OR t.responsavel = ?)
+    AND t.updated_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+    AND t.updated_at != t.created_at
+    ORDER BY t.updated_at DESC
+');
+$stmt->bind_param('ii', $user_id, $user_id);
+$stmt->execute();
+$tasks_changed_24h = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+
+// Obter tarefas em execução
+$stmt = $db->prepare('
+    SELECT t.id, t.titulo, t.estado, t.projeto_id,
+           u1.username as autor_nome, u2.username as responsavel_nome
+    FROM todos t
+    LEFT JOIN user_tokens u1 ON t.autor = u1.user_id
+    LEFT JOIN user_tokens u2 ON t.responsavel = u2.user_id
+    WHERE (t.autor = ? OR t.responsavel = ?)
+    AND t.estado = "em execução"
+    ORDER BY t.updated_at DESC
+');
+$stmt->bind_param('ii', $user_id, $user_id);
+$stmt->execute();
+$tasks_in_progress = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+
 // Estatísticas
 $stats = [
     'total' => count($todos),
@@ -569,6 +649,207 @@ $db->close();
         </div>
     <?php endif; ?>
 </div>
+
+<!-- ============================================= -->
+<!-- DAILY REPORT SECTION -->
+<!-- ============================================= -->
+<div id="daily-report" class="container-fluid mt-5 mb-5">
+    <div class="card shadow">
+        <div class="card-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h3 class="mb-0">
+                        <i class="bi bi-journal-text"></i> Daily Report
+                    </h3>
+                    <small>Reflexão diária sobre o trabalho realizado</small>
+                </div>
+                <div class="col-md-4 text-end">
+                    <?php if ($today_report): ?>
+                        <span class="badge bg-success fs-6">
+                            <i class="bi bi-check-circle"></i> Report de Hoje Guardado
+                        </span>
+                    <?php else: ?>
+                        <span class="badge bg-warning text-dark fs-6">
+                            <i class="bi bi-exclamation-circle"></i> Report Pendente
+                        </span>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-body">
+            <form method="POST">
+                <input type="hidden" name="action" value="save_daily_report">
+                
+                <!-- Botão para Auto-Preencher Tarefas -->
+                <div class="mb-4 text-center">
+                    <button type="button" class="btn btn-primary btn-lg" id="btnAutoFillTasks">
+                        <i class="bi bi-magic"></i> Auto-Preencher Tarefas das Últimas 24h
+                    </button>
+                    <p class="text-muted small mt-2">
+                        Clique para preencher automaticamente as tarefas que alteraram de estado e as que estão em execução
+                    </p>
+                </div>
+                
+                <div class="row">
+                    <!-- Tarefas Alteradas nas Últimas 24h -->
+                    <div class="col-md-6 mb-4">
+                        <div class="card border-primary">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-arrow-repeat"></i> Tarefas Alteradas (Últimas 24h)
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <textarea name="tarefas_alteradas" id="tarefas_alteradas" class="form-control" rows="8" 
+                                          placeholder="Lista de tarefas que mudaram de estado nas últimas 24 horas..."><?= htmlspecialchars($today_report['tarefas_alteradas'] ?? '') ?></textarea>
+                                <small class="text-muted">
+                                    <?= count($tasks_changed_24h) ?> tarefa(s) alterada(s) nas últimas 24h
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Tarefas em Execução -->
+                    <div class="col-md-6 mb-4">
+                        <div class="card border-info">
+                            <div class="card-header bg-info text-white">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-play-circle"></i> Tarefas em Execução
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <textarea name="tarefas_em_execucao" id="tarefas_em_execucao" class="form-control" rows="8" 
+                                          placeholder="Lista de tarefas que estão atualmente em execução..."><?= htmlspecialchars($today_report['tarefas_em_execucao'] ?? '') ?></textarea>
+                                <small class="text-muted">
+                                    <?= count($tasks_in_progress) ?> tarefa(s) em execução
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <hr class="my-4">
+                
+                <!-- Reflexão Diária -->
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <div class="card border-success h-100">
+                            <div class="card-header bg-success text-white">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-emoji-smile"></i> O que correu bem?
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <textarea name="correu_bem" class="form-control" rows="6" 
+                                          placeholder="Descreva o que correu bem hoje..." required><?= htmlspecialchars($today_report['correu_bem'] ?? '') ?></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4 mb-3">
+                        <div class="card border-warning h-100">
+                            <div class="card-header bg-warning text-dark">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-emoji-frown"></i> O que correu menos bem?
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <textarea name="correu_mal" class="form-control" rows="6" 
+                                          placeholder="Descreva os desafios ou problemas encontrados..." required><?= htmlspecialchars($today_report['correu_mal'] ?? '') ?></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4 mb-3">
+                        <div class="card border-info h-100">
+                            <div class="card-header bg-info text-white">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-calendar-check"></i> Plano para as próximas horas
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <textarea name="plano_proximas_horas" class="form-control" rows="6" 
+                                          placeholder="Descreva o que planeia fazer nas próximas horas..." required><?= htmlspecialchars($today_report['plano_proximas_horas'] ?? '') ?></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="text-center mt-4">
+                    <button type="submit" class="btn btn-success btn-lg px-5">
+                        <i class="bi bi-save"></i> Guardar Daily Report
+                    </button>
+                </div>
+            </form>
+            
+            <?php if ($today_report): ?>
+                <div class="alert alert-info mt-4">
+                    <i class="bi bi-info-circle"></i> 
+                    <strong>Último report guardado:</strong> 
+                    <?= date('d/m/Y H:i', strtotime($today_report['atualizado_em'])) ?>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<!-- Dados das tarefas para JavaScript -->
+<script>
+const tasksChanged24h = <?= json_encode($tasks_changed_24h) ?>;
+const tasksInProgress = <?= json_encode($tasks_in_progress) ?>;
+
+// Função para obter nome do projeto/sprint
+function getProjectInfo(task) {
+    if (task.projeto_id == 9999) {
+        return '[PhD]';
+    } else if (task.projeto_id == 0) {
+        return '[Geral]';
+    } else {
+        return '[Projeto #' + task.projeto_id + ']';
+    }
+}
+
+// Função para auto-preencher tarefas
+document.getElementById('btnAutoFillTasks').addEventListener('click', function() {
+    let textChanged = '';
+    let textInProgress = '';
+    
+    // Preencher tarefas alteradas
+    if (tasksChanged24h.length > 0) {
+        tasksChanged24h.forEach(function(task) {
+            const projectInfo = getProjectInfo(task);
+            textChanged += `${projectInfo} #${task.id} - ${task.titulo} [${task.estado}]\n`;
+        });
+    } else {
+        textChanged = 'Nenhuma tarefa alterada nas últimas 24 horas.\n';
+    }
+    
+    // Preencher tarefas em execução
+    if (tasksInProgress.length > 0) {
+        tasksInProgress.forEach(function(task) {
+            const projectInfo = getProjectInfo(task);
+            textInProgress += `${projectInfo} #${task.id} - ${task.titulo}\n`;
+        });
+    } else {
+        textInProgress = 'Nenhuma tarefa em execução atualmente.\n';
+    }
+    
+    document.getElementById('tarefas_alteradas').value = textChanged;
+    document.getElementById('tarefas_em_execucao').value = textInProgress;
+    
+    // Feedback visual
+    this.innerHTML = '<i class="bi bi-check-circle"></i> Tarefas Preenchidas!';
+    this.classList.remove('btn-primary');
+    this.classList.add('btn-success');
+    
+    setTimeout(() => {
+        this.innerHTML = '<i class="bi bi-magic"></i> Auto-Preencher Tarefas das Últimas 24h';
+        this.classList.remove('btn-success');
+        this.classList.add('btn-primary');
+    }, 2000);
+});
+</script>
 
 <!-- Modal: Adicionar Tarefa -->
 <div class="modal fade" id="addTaskModal" tabindex="-1">

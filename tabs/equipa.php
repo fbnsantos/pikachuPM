@@ -944,6 +944,39 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                         <?php else: ?>
                             <?php $oradorId = $oradores[$orador_atual] ?? null; ?>
                             <?php if ($oradorId): ?>
+                                <?php
+                                // Verificar se o orador fez o Daily Report hoje
+                                $has_daily_report = false;
+                                try {
+                                    $db_check = new mysqli($db_host, $db_user, $db_pass, $db_name);
+                                    $db_check->set_charset('utf8mb4');
+                                    
+                                    $stmt_report = $db_check->prepare("SELECT id FROM daily_reports WHERE user_id = ? AND report_date = CURDATE()");
+                                    $stmt_report->bind_param('i', $oradorId);
+                                    $stmt_report->execute();
+                                    $has_daily_report = $stmt_report->get_result()->num_rows > 0;
+                                    $stmt_report->close();
+                                    $db_check->close();
+                                } catch (Exception $e) {
+                                    // Tabela pode não existir ainda, ignorar erro
+                                }
+                                ?>
+                                
+                                <?php if (!$has_daily_report): ?>
+                                    <div class="alert alert-warning mb-3">
+                                        <i class="bi bi-exclamation-triangle"></i>
+                                        <strong><?= htmlspecialchars(getNomeUtilizador($oradorId, $utilizadores)) ?></strong> 
+                                        ainda não fez o Daily Report de hoje.
+                                        <a href="?tab=todos#daily-report" class="alert-link">Ir para Daily Report</a>
+                                    </div>
+                                <?php else: ?>
+                                    <div class="alert alert-success mb-3">
+                                        <i class="bi bi-check-circle"></i>
+                                        <strong><?= htmlspecialchars(getNomeUtilizador($oradorId, $utilizadores)) ?></strong> 
+                                        já completou o Daily Report de hoje! ✅
+                                    </div>
+                                <?php endif; ?>
+                                
                                 <div class="row">
                                     <div class="col-md-6">
                                         <!-- INÍCIO DO CRONÔMETRO -->

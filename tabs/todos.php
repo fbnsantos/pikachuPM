@@ -206,12 +206,30 @@ function getTaskSprintAndProject($pdo, $todo_id) {
     $info = [
         'sprint' => null,
         'sprint_id' => null,
-        'projeto' => null,
-        'projeto_id' => null
+        'projetos_sprint' => [],
+        'lead' => null,
+        'lead_id' => null
     ];
     
     try {
-        // Verificar se a tarefa está em alguma sprint
+        // 1. Verificar se a tarefa está em algum LEAD
+        $stmt = $pdo->prepare("
+            SELECT l.id, l.titulo, l.estado
+            FROM lead_tasks lt
+            JOIN leads l ON lt.lead_id = l.id
+            WHERE lt.todo_id = ?
+            AND l.estado = 'aberta'
+            LIMIT 1
+        ");
+        $stmt->execute([$todo_id]);
+        $lead = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($lead) {
+            $info['lead'] = $lead['titulo'];
+            $info['lead_id'] = $lead['id'];
+        }
+        
+        // 2. Verificar se a tarefa está em alguma SPRINT
         $stmt = $pdo->prepare("
             SELECT s.id, s.nome, s.estado
             FROM sprint_tasks st
@@ -227,25 +245,24 @@ function getTaskSprintAndProject($pdo, $todo_id) {
             $info['sprint'] = $sprint['nome'];
             $info['sprint_id'] = $sprint['id'];
             
-            // Obter projetos dessa sprint
+            // 3. Obter PROJETOS dessa sprint
             $stmt_proj = $pdo->prepare("
                 SELECT p.id, p.name
                 FROM sprint_projects sp
                 JOIN projects p ON sp.project_id = p.id
                 WHERE sp.sprint_id = ?
+                ORDER BY p.name
             ");
             $stmt_proj->execute([$sprint['id']]);
             $projetos = $stmt_proj->fetchAll(PDO::FETCH_ASSOC);
             
             if (!empty($projetos)) {
-                $projeto_names = array_map(function($p) {
-                    return $p['name'];
-                }, $projetos);
-                $info['projeto'] = implode(', ', $projeto_names);
+                $info['projetos_sprint'] = $projetos;
             }
         }
     } catch (PDOException $e) {
         // Tabelas podem não existir ainda
+        error_log("Erro em getTaskSprintAndProject: " . $e->getMessage());
     }
     
     return $info;
@@ -322,14 +339,15 @@ $stmt->execute();
 $tasks_changed_24h = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
-// Adicionar informação de Sprint/Projeto a cada tarefa
+// Adicionar informação de Sprint/Projeto/Lead a cada tarefa
 if ($pdo) {
     foreach ($tasks_changed_24h as &$task) {
-        $sprint_info = getTaskSprintAndProject($pdo, $task['id']);
-        $task['sprint'] = $sprint_info['sprint'];
-        $task['sprint_id'] = $sprint_info['sprint_id'];
-        $task['projeto'] = $sprint_info['projeto'];
-        $task['projeto_id'] = $sprint_info['projeto_id'];
+        $info = getTaskSprintAndProject($pdo, $task['id']);
+        $task['sprint'] = $info['sprint'];
+        $task['sprint_id'] = $info['sprint_id'];
+        $task['projetos_sprint'] = $info['projetos_sprint'];
+        $task['lead'] = $info['lead'];
+        $task['lead_id'] = $info['lead_id'];
     }
 }
 
@@ -349,14 +367,15 @@ $stmt->execute();
 $tasks_in_progress = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
-// Adicionar informação de Sprint/Projeto a cada tarefa
+// Adicionar informação de Sprint/Projeto/Lead a cada tarefa
 if ($pdo) {
     foreach ($tasks_in_progress as &$task) {
-        $sprint_info = getTaskSprintAndProject($pdo, $task['id']);
-        $task['sprint'] = $sprint_info['sprint'];
-        $task['sprint_id'] = $sprint_info['sprint_id'];
-        $task['projeto'] = $sprint_info['projeto'];
-        $task['projeto_id'] = $sprint_info['projeto_id'];
+        $info = getTaskSprintAndProject($pdo, $task['id']);
+        $task['sprint'] = $info['sprint'];
+        $task['sprint_id'] = $info['sprint_id'];
+        $task['projetos_sprint'] = $info['projetos_sprint'];
+        $task['lead'] = $info['lead'];
+        $task['lead_id'] = $info['lead_id'];
     }
 }
 
@@ -879,32 +898,39 @@ $db->close();
 const tasksChanged24h = <?= json_encode($tasks_changed_24h) ?>;
 const tasksInProgress = <?= json_encode($tasks_in_progress) ?>;
 
-// Função para obter nome do projeto/sprint
+// Função para obter nome do projeto/sprint/lead
 function getProjectInfo(task) {
-    let info = '';
+    let parts = [];
     
-    // Verificar se tem Sprint
+    // 1. Lead (prioridade alta)
+    if (task.lead) {
+        parts.push('[Lead: ' + task.lead + ']');
+    }
+    
+    // 2. Sprint
     if (task.sprint) {
-        info += '[Sprint: ' + task.sprint + ']';
+        parts.push('[Sprint: ' + task.sprint + ']');
         
-        // Adicionar projetos da sprint se existir
-        if (task.projeto) {
-            info += ' [Projetos: ' + task.projeto + ']';
+        // 3. Projetos da Sprint
+        if (task.projetos_sprint && task.projetos_sprint.length > 0) {
+            const projetosNomes = task.projetos_sprint.map(p => p.name).join(', ');
+            parts.push('[Projetos: ' + projetosNomes + ']');
         }
     } else {
         // Se não tem sprint, verificar projeto_id direto
         if (task.projeto_id == 9999) {
-            info = '[PhD]';
+            parts.push('[PhD]');
         } else if (task.projeto_id == 0) {
-            info = '[Geral]';
+            parts.push('[Geral]');
         } else if (task.projeto_id > 0) {
-            info = '[Projeto #' + task.projeto_id + ']';
-        } else {
-            info = '[Sem Projeto]';
+            parts.push('[Projeto #' + task.projeto_id + ']');
+        } else if (parts.length === 0) {
+            // Só adicionar "Sem Projeto" se não tiver Lead nem Sprint
+            parts.push('[Sem Projeto]');
         }
     }
     
-    return info;
+    return parts.join(' ');
 }
 
 // Função para auto-preencher tarefas

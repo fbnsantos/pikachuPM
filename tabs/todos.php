@@ -201,6 +201,56 @@ foreach ($todos as $todo) {
 }
 
 
+// Função para obter informações de Sprint e Projeto de uma tarefa
+function getTaskSprintAndProject($pdo, $todo_id) {
+    $info = [
+        'sprint' => null,
+        'sprint_id' => null,
+        'projeto' => null,
+        'projeto_id' => null
+    ];
+    
+    try {
+        // Verificar se a tarefa está em alguma sprint
+        $stmt = $pdo->prepare("
+            SELECT s.id, s.nome, s.estado
+            FROM sprint_tasks st
+            JOIN sprints s ON st.sprint_id = s.id
+            WHERE st.todo_id = ?
+            AND s.estado IN ('aberta', 'em execução')
+            LIMIT 1
+        ");
+        $stmt->execute([$todo_id]);
+        $sprint = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($sprint) {
+            $info['sprint'] = $sprint['nome'];
+            $info['sprint_id'] = $sprint['id'];
+            
+            // Obter projetos dessa sprint
+            $stmt_proj = $pdo->prepare("
+                SELECT p.id, p.name
+                FROM sprint_projects sp
+                JOIN projects p ON sp.project_id = p.id
+                WHERE sp.sprint_id = ?
+            ");
+            $stmt_proj->execute([$sprint['id']]);
+            $projetos = $stmt_proj->fetchAll(PDO::FETCH_ASSOC);
+            
+            if (!empty($projetos)) {
+                $projeto_names = array_map(function($p) {
+                    return $p['name'];
+                }, $projetos);
+                $info['projeto'] = implode(', ', $projeto_names);
+            }
+        }
+    } catch (PDOException $e) {
+        // Tabelas podem não existir ainda
+    }
+    
+    return $info;
+}
+
 // PROCESSAR DAILY REPORT
 if ($action === 'save_daily_report') {
     $report_date = date('Y-m-d');
@@ -247,7 +297,15 @@ $stmt->execute();
 $today_report = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
-// Obter tarefas alteradas nas últimas 24 horas
+// Conectar com PDO para usar nas funções
+try {
+    $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (PDOException $e) {
+    $pdo = null;
+}
+
+// Obter tarefas alteradas nas últimas 24 horas COM informação de Sprint/Projeto
 $stmt = $db->prepare('
     SELECT t.id, t.titulo, t.estado, t.projeto_id, t.updated_at,
            u1.username as autor_nome, u2.username as responsavel_nome
@@ -264,7 +322,18 @@ $stmt->execute();
 $tasks_changed_24h = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
-// Obter tarefas em execução
+// Adicionar informação de Sprint/Projeto a cada tarefa
+if ($pdo) {
+    foreach ($tasks_changed_24h as &$task) {
+        $sprint_info = getTaskSprintAndProject($pdo, $task['id']);
+        $task['sprint'] = $sprint_info['sprint'];
+        $task['sprint_id'] = $sprint_info['sprint_id'];
+        $task['projeto'] = $sprint_info['projeto'];
+        $task['projeto_id'] = $sprint_info['projeto_id'];
+    }
+}
+
+// Obter tarefas em execução COM informação de Sprint/Projeto
 $stmt = $db->prepare('
     SELECT t.id, t.titulo, t.estado, t.projeto_id,
            u1.username as autor_nome, u2.username as responsavel_nome
@@ -279,6 +348,17 @@ $stmt->bind_param('ii', $user_id, $user_id);
 $stmt->execute();
 $tasks_in_progress = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
+
+// Adicionar informação de Sprint/Projeto a cada tarefa
+if ($pdo) {
+    foreach ($tasks_in_progress as &$task) {
+        $sprint_info = getTaskSprintAndProject($pdo, $task['id']);
+        $task['sprint'] = $sprint_info['sprint'];
+        $task['sprint_id'] = $sprint_info['sprint_id'];
+        $task['projeto'] = $sprint_info['projeto'];
+        $task['projeto_id'] = $sprint_info['projeto_id'];
+    }
+}
 
 // Estatísticas
 $stats = [
@@ -801,13 +881,30 @@ const tasksInProgress = <?= json_encode($tasks_in_progress) ?>;
 
 // Função para obter nome do projeto/sprint
 function getProjectInfo(task) {
-    if (task.projeto_id == 9999) {
-        return '[PhD]';
-    } else if (task.projeto_id == 0) {
-        return '[Geral]';
+    let info = '';
+    
+    // Verificar se tem Sprint
+    if (task.sprint) {
+        info += '[Sprint: ' + task.sprint + ']';
+        
+        // Adicionar projetos da sprint se existir
+        if (task.projeto) {
+            info += ' [Projetos: ' + task.projeto + ']';
+        }
     } else {
-        return '[Projeto #' + task.projeto_id + ']';
+        // Se não tem sprint, verificar projeto_id direto
+        if (task.projeto_id == 9999) {
+            info = '[PhD]';
+        } else if (task.projeto_id == 0) {
+            info = '[Geral]';
+        } else if (task.projeto_id > 0) {
+            info = '[Projeto #' + task.projeto_id + ']';
+        } else {
+            info = '[Sem Projeto]';
+        }
     }
+    
+    return info;
 }
 
 // Função para auto-preencher tarefas
@@ -850,6 +947,220 @@ document.getElementById('btnAutoFillTasks').addEventListener('click', function()
     }, 2000);
 });
 </script>
+
+<!-- ============================================= -->
+<!-- RELATÓRIO CONSOLIDADO DA EQUIPA -->
+<!-- ============================================= -->
+<div id="relatorio-consolidado" class="container-fluid mt-5 mb-5">
+    <div class="card shadow border-info">
+        <div class="card-header" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;">
+            <h3 class="mb-0">
+                <i class="bi bi-clipboard-data"></i> Relatório Consolidado da Equipa
+            </h3>
+            <small>Visualizar Daily Reports de todos os membros da equipa</small>
+        </div>
+        <div class="card-body">
+            <form method="GET" action="" class="row g-3 mb-4">
+                <input type="hidden" name="tab" value="todos">
+                <input type="hidden" name="show_team_report" value="1">
+                
+                <div class="col-md-4">
+                    <label class="form-label"><i class="bi bi-calendar3"></i> Selecionar Data:</label>
+                    <input type="date" name="report_date" class="form-control" 
+                           value="<?= $_GET['report_date'] ?? date('Y-m-d') ?>" required>
+                </div>
+                
+                <div class="col-md-4 d-flex align-items-end">
+                    <button type="submit" class="btn btn-success w-100">
+                        <i class="bi bi-search"></i> Gerar Relatório
+                    </button>
+                </div>
+                
+                <div class="col-md-4 d-flex align-items-end">
+                    <button type="button" class="btn btn-primary w-100" onclick="window.print()">
+                        <i class="bi bi-printer"></i> Imprimir / Exportar PDF
+                    </button>
+                </div>
+            </form>
+            
+            <?php if (isset($_GET['show_team_report'])): ?>
+                <?php
+                $report_date = $_GET['report_date'] ?? date('Y-m-d');
+                
+                // Reconectar ao banco de dados
+                try {
+                    $db_report = new mysqli($db_host, $db_user, $db_pass, $db_name);
+                    $db_report->set_charset('utf8mb4');
+                    
+                    // Obter todos os reports da data selecionada
+                    $stmt = $db_report->prepare('
+                        SELECT dr.*, ut.username
+                        FROM daily_reports dr
+                        JOIN user_tokens ut ON dr.user_id = ut.user_id
+                        WHERE dr.report_date = ?
+                        ORDER BY ut.username
+                    ');
+                    $stmt->bind_param('s', $report_date);
+                    $stmt->execute();
+                    $team_reports = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                    $stmt->close();
+                    $db_report->close();
+                } catch (Exception $e) {
+                    $team_reports = [];
+                }
+                ?>
+                
+                <div class="report-content">
+                    <div class="text-center mb-4 print-header">
+                        <h2>Relatório Diário da Equipa</h2>
+                        <h4><?= date('d/m/Y', strtotime($report_date)) ?></h4>
+                        <p class="text-muted">Gerado em <?= date('d/m/Y H:i') ?></p>
+                        <hr>
+                    </div>
+                    
+                    <?php if (empty($team_reports)): ?>
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i>
+                            Nenhum Daily Report encontrado para a data <?= date('d/m/Y', strtotime($report_date)) ?>.
+                        </div>
+                    <?php else: ?>
+                        <div class="alert alert-success mb-4">
+                            <i class="bi bi-people"></i>
+                            <strong><?= count($team_reports) ?> membro(s)</strong> completaram o Daily Report nesta data.
+                        </div>
+                        
+                        <?php foreach ($team_reports as $index => $report): ?>
+                            <div class="report-member mb-5 pb-4" style="border-bottom: 2px solid #dee2e6; page-break-inside: avoid;">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h4 class="text-primary mb-0">
+                                        <i class="bi bi-person-circle"></i>
+                                        <?= htmlspecialchars($report['username']) ?>
+                                    </h4>
+                                    <span class="badge bg-info">
+                                        Atualizado: <?= date('H:i', strtotime($report['atualizado_em'])) ?>
+                                    </span>
+                                </div>
+                                
+                                <div class="row">
+                                    <!-- Tarefas Alteradas -->
+                                    <div class="col-md-6 mb-3">
+                                        <div class="card h-100 border-primary">
+                                            <div class="card-header bg-primary bg-opacity-10">
+                                                <strong><i class="bi bi-arrow-repeat"></i> Tarefas Alteradas (24h)</strong>
+                                            </div>
+                                            <div class="card-body">
+                                                <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.9em;"><?= htmlspecialchars($report['tarefas_alteradas']) ?></pre>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Tarefas em Execução -->
+                                    <div class="col-md-6 mb-3">
+                                        <div class="card h-100 border-info">
+                                            <div class="card-header bg-info bg-opacity-10">
+                                                <strong><i class="bi bi-play-circle"></i> Tarefas em Execução</strong>
+                                            </div>
+                                            <div class="card-body">
+                                                <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.9em;"><?= htmlspecialchars($report['tarefas_em_execucao']) ?></pre>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="row mt-3">
+                                    <!-- O que correu bem -->
+                                    <div class="col-md-4 mb-3">
+                                        <div class="card h-100 border-success">
+                                            <div class="card-header bg-success bg-opacity-10">
+                                                <strong><i class="bi bi-emoji-smile"></i> Correu Bem</strong>
+                                            </div>
+                                            <div class="card-body">
+                                                <p style="font-size: 0.9em;"><?= nl2br(htmlspecialchars($report['correu_bem'])) ?></p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- O que correu mal -->
+                                    <div class="col-md-4 mb-3">
+                                        <div class="card h-100 border-warning">
+                                            <div class="card-header bg-warning bg-opacity-10">
+                                                <strong><i class="bi bi-emoji-frown"></i> Correu Menos Bem</strong>
+                                            </div>
+                                            <div class="card-body">
+                                                <p style="font-size: 0.9em;"><?= nl2br(htmlspecialchars($report['correu_mal'])) ?></p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Plano -->
+                                    <div class="col-md-4 mb-3">
+                                        <div class="card h-100 border-info">
+                                            <div class="card-header bg-info bg-opacity-10">
+                                                <strong><i class="bi bi-calendar-check"></i> Plano Próximas Horas</strong>
+                                            </div>
+                                            <div class="card-body">
+                                                <p style="font-size: 0.9em;"><?= nl2br(htmlspecialchars($report['plano_proximas_horas'])) ?></p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                        
+                        <!-- Sumário -->
+                        <div class="mt-4 p-3 bg-light rounded no-print">
+                            <h5><i class="bi bi-bar-chart"></i> Sumário</h5>
+                            <p class="mb-0">
+                                Total de reports: <strong><?= count($team_reports) ?></strong> | 
+                                Data: <strong><?= date('d/m/Y', strtotime($report_date)) ?></strong>
+                            </p>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<!-- Estilos para impressão -->
+<style>
+@media print {
+    /* Esconder elementos desnecessários */
+    header, nav, footer, .no-print, .btn, .alert, form {
+        display: none !important;
+    }
+    
+    /* Ajustar containers */
+    .container-fluid {
+        width: 100%;
+        max-width: 100%;
+        padding: 0;
+    }
+    
+    /* Garantir que cada membro começa numa nova página se necessário */
+    .report-member {
+        page-break-inside: avoid;
+        margin-bottom: 30px;
+    }
+    
+    /* Ajustar cards para impressão */
+    .card {
+        border: 1px solid #000 !important;
+        page-break-inside: avoid;
+    }
+    
+    .card-header {
+        background-color: #f8f9fa !important;
+        color: #000 !important;
+        border-bottom: 1px solid #000 !important;
+    }
+    
+    /* Mostrar header de impressão */
+    .print-header {
+        display: block !important;
+    }
+}
+</style>
 
 <!-- Modal: Adicionar Tarefa -->
 <div class="modal fade" id="addTaskModal" tabindex="-1">

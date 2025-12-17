@@ -36,6 +36,7 @@ $tabs = [
     'leads' => 'Leads',
     'equipa' => 'Daily Meeting',
     'calendar' => 'Calendar',
+    'lab_management' => 'Lab Management', 
     'links' => 'Files & Links', 
     'old' => [
         'label' => 'Old',

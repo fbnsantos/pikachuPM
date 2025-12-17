@@ -245,13 +245,13 @@ function getTaskSprintAndProject($pdo, $todo_id) {
             $info['sprint'] = $sprint['nome'];
             $info['sprint_id'] = $sprint['id'];
             
-            // 3. Obter PROJETOS dessa sprint
+            // 3. Obter PROJETOS dessa sprint (com short_name e title)
             $stmt_proj = $pdo->prepare("
-                SELECT p.id, p.name
+                SELECT p.id, p.short_name, p.title, p.name
                 FROM sprint_projects sp
                 JOIN projects p ON sp.project_id = p.id
                 WHERE sp.sprint_id = ?
-                ORDER BY p.name
+                ORDER BY p.short_name, p.title, p.name
             ");
             $stmt_proj->execute([$sprint['id']]);
             $projetos = $stmt_proj->fetchAll(PDO::FETCH_ASSOC);
@@ -911,10 +911,29 @@ function getProjectInfo(task) {
     if (task.sprint) {
         parts.push('[Sprint: ' + task.sprint + ']');
         
-        // 3. Projetos da Sprint
+        // 3. Projetos da Sprint (com formato: short_name - title)
         if (task.projetos_sprint && task.projetos_sprint.length > 0) {
-            const projetosNomes = task.projetos_sprint.map(p => p.name).join(', ');
-            parts.push('[Projetos: ' + projetosNomes + ']');
+            const projetosFormatados = task.projetos_sprint.map(p => {
+                // Usar short_name e title se existirem, senão usar name como fallback
+                if (p.short_name && p.title) {
+                    return p.short_name + ' - ' + p.title;
+                } else if (p.title) {
+                    return p.title;
+                } else if (p.short_name) {
+                    return p.short_name;
+                } else if (p.name) {
+                    return p.name;
+                } else {
+                    return 'Projeto #' + p.id;
+                }
+            });
+            
+            // Se houver vários projetos, listar
+            if (projetosFormatados.length === 1) {
+                parts.push('[Projeto: ' + projetosFormatados[0] + ']');
+            } else {
+                parts.push('[Projetos: ' + projetosFormatados.join(', ') + ']');
+            }
         }
     } else {
         // Se não tem sprint, verificar projeto_id direto

@@ -77,6 +77,95 @@ function getUtilizadoresRedmine() {
     return $data['users'] ?? [];
 }
 
+/**
+ * Verifica se um utilizador está disponível para reunião
+ * Considera férias e aulas entre 9h30 e 12h
+ */
+function verificarDisponibilidadeUtilizador($username, $data = null) {
+    global $db_host, $db_user, $db_pass, $db_name;
+    
+    if ($data === null) {
+        $data = date('Y-m-d');
+    }
+    
+    try {
+        $db_mysql = new mysqli($db_host, $db_user, $db_pass, $db_name);
+        
+        if ($db_mysql->connect_error) {
+            error_log("Erro de conexão ao verificar disponibilidade: " . $db_mysql->connect_error);
+            return true; // Em caso de erro, considerar disponível
+        }
+        
+        $db_mysql->set_charset("utf8mb4");
+        
+        // Verificar se está de férias
+        $stmt_ferias = $db_mysql->prepare(
+            "SELECT COUNT(*) as total FROM calendar_eventos 
+             WHERE data = ? AND tipo = 'ferias' AND descricao = ?"
+        );
+        $stmt_ferias->bind_param('ss', $data, $username);
+        $stmt_ferias->execute();
+        $result_ferias = $stmt_ferias->get_result()->fetch_assoc();
+        
+        if ($result_ferias['total'] > 0) {
+            $stmt_ferias->close();
+            $db_mysql->close();
+            return false; // Está de férias
+        }
+        $stmt_ferias->close();
+        
+        // Verificar se tem aulas entre 9h30 e 12h
+        $stmt_aulas = $db_mysql->prepare(
+            "SELECT COUNT(*) as total FROM calendar_eventos 
+             WHERE data = ? AND tipo = 'aulas' AND descricao = ? 
+             AND hora >= '09:30:00' AND hora <= '12:00:00'"
+        );
+        $stmt_aulas->bind_param('ss', $data, $username);
+        $stmt_aulas->execute();
+        $result_aulas = $stmt_aulas->get_result()->fetch_assoc();
+        
+        if ($result_aulas['total'] > 0) {
+            $stmt_aulas->close();
+            $db_mysql->close();
+            return false; // Tem aulas no horário da reunião
+        }
+        $stmt_aulas->close();
+        
+        $db_mysql->close();
+        return true; // Disponível
+        
+    } catch (Exception $e) {
+        error_log("Erro ao verificar disponibilidade: " . $e->getMessage());
+        return true; // Em caso de erro, considerar disponível
+    }
+}
+
+/**
+ * Filtra equipa removendo membros indisponíveis (férias ou aulas)
+ */
+function filtrarEquipaDisponivel($equipa_ids, $utilizadores_redmine, $data = null) {
+    $equipa_disponivel = [];
+    
+    foreach ($equipa_ids as $id) {
+        // Encontrar o username correspondente ao ID
+        $username = null;
+        foreach ($utilizadores_redmine as $user) {
+            if ($user['id'] == $id) {
+                $username = $user['login'] ?? $user['firstname'] ?? 'user_' . $id;
+                break;
+            }
+        }
+        
+        if ($username && verificarDisponibilidadeUtilizador($username, $data)) {
+            $equipa_disponivel[] = $id;
+        }
+    }
+    
+    // Se todos estiverem indisponíveis, retornar a equipa original
+    return empty($equipa_disponivel) ? $equipa_ids : $equipa_disponivel;
+}
+
+
 function getAtividadesUtilizador($user_id) {
     global $db_host, $db_user, $db_pass, $db_name;
     
@@ -698,7 +787,11 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
     $stmt->execute([':hoje' => $hoje]);
     $gestor_hoje = $stmt->fetchColumn();
     
-    if ($gestor_hoje && in_array($gestor_hoje, $equipa)) {
+    // Filtrar equipa para remover membros de férias ou com aulas entre 9h30-12h
+    $utilizadores_redmine = getUtilizadoresRedmine();
+    $equipa_disponivel = filtrarEquipaDisponivel($equipa, $utilizadores_redmine, $hoje);
+    
+    if ($gestor_hoje && in_array($gestor_hoje, $equipa_disponivel)) {
         $_SESSION['gestor'] = $gestor_hoje;
         
         // Remover ou comentar esta parte:
@@ -706,11 +799,17 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         //                      WHERE redmine_id = :id AND data_prevista = :hoje");
         // $stmt->execute([':id' => $gestor_hoje, ':hoje' => $hoje]);
     } else {
-        // Se não houver gestor agendado para hoje, selecionar aleatoriamente
-        $_SESSION['gestor'] = $equipa[array_rand($equipa)];
+        // Se não houver gestor agendado para hoje ou ele não estiver disponível, selecionar aleatoriamente
+        if (!empty($equipa_disponivel)) {
+            $_SESSION['gestor'] = $equipa_disponivel[array_rand($equipa_disponivel)];
+        } else {
+            // Se ninguém estiver disponível, usar a equipa completa
+            $_SESSION['gestor'] = $equipa[array_rand($equipa)];
+            $equipa_disponivel = $equipa;
+        }
     }
         
-        $_SESSION['oradores'] = $equipa;
+        $_SESSION['oradores'] = $equipa_disponivel;
         shuffle($_SESSION['oradores']);
         $_SESSION['em_reuniao'] = true;
         $_SESSION['orador_atual'] = 0;

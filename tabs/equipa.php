@@ -939,9 +939,17 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             border: 2px solid #0d6efd;
             border-left-width: 5px;
+            margin-top: -1rem !important;
         }
         .reuniao-topo .card-header {
             font-size: 1.1rem;
+        }
+        /* Remover padding do container quando em reunião */
+        body.em-reuniao .container-fluid {
+            padding-top: 0 !important;
+        }
+        body.em-reuniao .container-fluid > .row:first-child {
+            margin-top: 0 !important;
         }
         .progress {
             height: 15px;
@@ -994,7 +1002,7 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
         }
     </style>
 </head>
-<body>
+<body<?= $em_reuniao ? ' class="em-reuniao"' : '' ?>>
 
 <?php if ($em_reuniao): ?>
 <script>
@@ -1008,12 +1016,12 @@ window.addEventListener('DOMContentLoaded', function() {
 </script>
 <?php endif; ?>
 
-<div class="container-fluid py-3">
+<div class="container-fluid" style="<?= $em_reuniao ? 'padding-top: 0 !important;' : '' ?>">
     <?php if ($em_reuniao): ?>
         <!-- Reunião em Progresso - Topo (Largura Completa) -->
-        <div class="row">
-            <div class="col-12">
-                <div class="card reuniao-card mb-4 reuniao-topo">
+        <div class="row" style="margin-top: 0;">
+            <div class="col-12" style="padding-top: 0;">
+                <div class="card reuniao-card mb-4 reuniao-topo" style="margin-top: 0; border-radius: 0;">
                     <div class="card-header bg-primary text-white">
                         <div class="d-flex justify-content-between align-items-center">
                             <h4 class="mb-0"><i class="bi bi-calendar-check"></i> Reunião em Progresso</h4>
@@ -1247,7 +1255,7 @@ window.addEventListener('DOMContentLoaded', function() {
     <?php endif; ?>
     
     <!-- Layout Principal -->
-    <div class="row">
+    <div class="row" style="<?= $em_reuniao ? '' : 'padding-top: 1rem;' ?>">
         <!-- Coluna Principal -->
         <div class="<?= $em_reuniao ? 'col-lg-6' : 'col-lg-8' ?>">
             <?php if (!$em_reuniao): ?>

@@ -372,11 +372,28 @@ function formatarData($data_str) {
         display: none;
         margin-top: 5px;
     }
-    .btn-group-vertical .btn {
-        margin-bottom: 2px;
+    .btn-delete-inline {
+        background: none;
+        border: none;
+        color: #dc3545;
+        font-weight: bold;
+        font-size: 0.9em;
+        padding: 0;
+        margin: 0 2px;
+        cursor: pointer;
+        vertical-align: baseline;
     }
-    .btn-group-vertical .btn:last-child {
-        margin-bottom: 0;
+    .btn-delete-inline:hover {
+        color: #a02622;
+        text-decoration: none;
+    }
+    .delete-form {
+        display: inline;
+        margin: 0;
+        padding: 0;
+    }
+    .evento-agrupado {
+        display: block;
     }
 </style>
 
@@ -473,29 +490,30 @@ function formatarData($data_str) {
                             'tipo' => $ev['tipo'],
                             'cor' => $ev['cor'],
                             'hora' => $ev['hora'],
-                            'descricoes' => [],
-                            'ids' => []
+                            'items' => []
                         ];
                     }
-                    $eventos_agrupados[$chave]['descricoes'][] = $ev['descricao'];
-                    $eventos_agrupados[$chave]['ids'][] = $ev['id'];
+                    $eventos_agrupados[$chave]['items'][] = [
+                        'descricao' => $ev['descricao'],
+                        'id' => $ev['id']
+                    ];
                 }
                 
                 foreach ($eventos_agrupados as $grupo): ?>
-                    <div class="d-flex justify-content-between align-items-start mb-1">
-                        <span class="evento <?= !empty($grupo['hora']) ? 'evento-com-hora' : '' ?>" style="background: <?= $grupo['cor'] ?>; flex-grow: 1;">
+                    <div class="evento-agrupado mb-1">
+                        <span class="evento <?= !empty($grupo['hora']) ? 'evento-com-hora' : '' ?>" style="background: <?= $grupo['cor'] ?>;">
                             <?php if (!empty($grupo['hora'])): ?>
                                 <i class="bi bi-clock"></i> <?= date('H:i', strtotime($grupo['hora'])) ?> -
                             <?php endif; ?>
-                            <?= htmlspecialchars($grupo['tipo']) ?>: <?= htmlspecialchars(implode(', ', $grupo['descricoes'])) ?>
+                            <?= htmlspecialchars($grupo['tipo']) ?>: 
+                            <?php 
+                            $nomes = [];
+                            foreach ($grupo['items'] as $item) {
+                                $nomes[] = htmlspecialchars($item['descricao']) . ' <form method="post" class="d-inline delete-form"><button type="submit" name="delete" value="' . $item['id'] . '" class="btn-delete-inline">[x]</button></form>';
+                            }
+                            echo implode(', ', $nomes);
+                            ?>
                         </span>
-                        <div class="btn-group-vertical" style="margin-left: 4px;">
-                            <?php foreach ($grupo['ids'] as $id): ?>
-                                <form method="post" class="d-inline">
-                                    <button type="submit" name="delete" value="<?= $id ?>" class="btn btn-sm btn-outline-danger" style="padding: 0px 4px; font-size: 0.7em; line-height: 1;">x</button>
-                                </form>
-                            <?php endforeach; ?>
-                        </div>
                     </div>
                 <?php endforeach; ?>
             <?php endif; ?>
@@ -570,10 +588,13 @@ function formatarData($data_str) {
                             $eventos_por_data_tipo[$chave_data] = [
                                 'data' => $ev['data'],
                                 'hora' => $ev['hora'],
-                                'descricoes' => []
+                                'items' => []
                             ];
                         }
-                        $eventos_por_data_tipo[$chave_data]['descricoes'][] = $ev['descricao'];
+                        $eventos_por_data_tipo[$chave_data]['items'][] = [
+                            'descricao' => $ev['descricao'],
+                            'id' => $ev['id']
+                        ];
                     }
                     
                     foreach ($eventos_por_data_tipo as $grupo): ?>
@@ -584,7 +605,15 @@ function formatarData($data_str) {
                                     <i class="bi bi-clock"></i> <?= date('H:i', strtotime($grupo['hora'])) ?>
                                 </span>
                             <?php endif; ?>
-                            <span class="evento-descricao"><?= htmlspecialchars(implode(', ', $grupo['descricoes'])) ?></span>
+                            <span class="evento-descricao">
+                                <?php 
+                                $nomes_resumo = [];
+                                foreach ($grupo['items'] as $item) {
+                                    $nomes_resumo[] = htmlspecialchars($item['descricao']);
+                                }
+                                echo implode(', ', $nomes_resumo);
+                                ?>
+                            </span>
                         </div>
                     <?php endforeach; ?>
                 </div>

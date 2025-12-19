@@ -98,11 +98,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $criador = $db->real_escape_string($_SESSION['username'] ?? 'anon');
         $cor = $tipos_eventos[$tipo]['cor'] ?? 'red';
         
-        $query = "INSERT INTO calendar_eventos (data, tipo, descricao, hora, criador, cor) 
-                  VALUES ('$data', '$tipo', '$descricao', $hora, '$criador', '$cor')";
+        // Verificar se é recorrente (apenas para aulas)
+        $semanas_recorrencia = 1; // Por padrão, apenas 1 semana (o evento atual)
+        if ($tipo === 'aulas' && isset($_POST['semanas_recorrencia']) && !empty($_POST['semanas_recorrencia'])) {
+            $semanas_recorrencia = max(1, min(52, (int)$_POST['semanas_recorrencia']));
+        }
         
-        if (!$db->query($query)) {
-            error_log("Erro ao inserir evento: " . $db->error);
+        // Inserir o evento inicial e os recorrentes
+        $data_base = new DateTime($data);
+        for ($i = 0; $i < $semanas_recorrencia; $i++) {
+            $data_atual = clone $data_base;
+            $data_atual->modify("+$i weeks");
+            $data_atual_str = $data_atual->format('Y-m-d');
+            
+            $query = "INSERT INTO calendar_eventos (data, tipo, descricao, hora, criador, cor) 
+                      VALUES ('$data_atual_str', '$tipo', '$descricao', $hora, '$criador', '$cor')";
+            
+            if (!$db->query($query)) {
+                error_log("Erro ao inserir evento recorrente (semana $i): " . $db->error);
+            }
         }
         
     } elseif (isset($_POST['delete'])) {
@@ -372,6 +386,22 @@ function formatarData($data_str) {
         display: none;
         margin-top: 5px;
     }
+    .recorrencia-options {
+        margin-top: 8px;
+        padding: 8px;
+        background: #f8f9fa;
+        border-radius: 4px;
+        border: 1px solid #dee2e6;
+    }
+    .form-check {
+        margin-bottom: 0;
+    }
+    .form-check-input {
+        cursor: pointer;
+    }
+    .form-check-label {
+        cursor: pointer;
+    }
     .btn-delete-inline {
         background: none;
         border: none;
@@ -467,11 +497,14 @@ function formatarData($data_str) {
     </div>
 
     <div class="calendario">
-        <?php foreach ($datas as $data): 
+        <?php 
+        $contador_formulario = 0;
+        foreach ($datas as $data): 
             $data_str = $data->format('Y-m-d');
             $diaSemana = $data->format('N');
             $isHoje = $data->format('Y-m-d') === (new DateTime())->format('Y-m-d');
             $classeExtra = ($diaSemana == 6 || $diaSemana == 7) ? ' fimsemana' : '';
+            $contador_formulario++;
         ?>
         <div class="dia<?= $isHoje ? ' hoje' : '' ?><?= $classeExtra ?>">
             <div class="data"><?= $data->format('D d/m/Y') ?></div>
@@ -543,6 +576,19 @@ function formatarData($data_str) {
                 <div class="hora-input-group" data-tipo="aulas">
                     <label class="form-label" style="font-size: 0.85em;">Hora:</label>
                     <input type="time" name="hora" class="form-control form-control-sm mb-1">
+                    
+                    <div class="form-check mt-2">
+                        <input class="form-check-input" type="checkbox" id="recorrente-<?= $contador_formulario ?>" onchange="toggleRecorrencia(this)">
+                        <label class="form-check-label" style="font-size: 0.85em;" for="recorrente-<?= $contador_formulario ?>">
+                            Recorrente
+                        </label>
+                    </div>
+                    
+                    <div class="recorrencia-options" style="display: none;">
+                        <label class="form-label" style="font-size: 0.85em;">Repetir por quantas semanas?</label>
+                        <input type="number" name="semanas_recorrencia" class="form-control form-control-sm mb-1" min="1" max="52" value="4" placeholder="Nº de semanas">
+                        <small class="text-muted" style="font-size: 0.75em;">Será criada uma aula por semana</small>
+                    </div>
                 </div>
                 <button type="submit" class="btn btn-sm btn-primary w-100">
                     <i class="bi bi-check"></i> Adicionar
@@ -629,6 +675,18 @@ function toggleForm(button) {
     button.classList.toggle('d-none');
     form.classList.add('fade');
     form.classList.add('show');
+}
+
+// Função para mostrar/ocultar opções de recorrência
+function toggleRecorrencia(checkbox) {
+    const form = checkbox.closest('form');
+    const recorrenciaOptions = form.querySelector('.recorrencia-options');
+    
+    if (checkbox.checked) {
+        recorrenciaOptions.style.display = 'block';
+    } else {
+        recorrenciaOptions.style.display = 'none';
+    }
 }
 
 // Função para mostrar/ocultar campo de hora baseado no tipo de evento

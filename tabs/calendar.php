@@ -1,29 +1,45 @@
 <?php
-// calendar.php
+// calendar.php - Versão MySQL com férias e aulas
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-$db_path = __DIR__ . '/../eventos.sqlite';
-$nova_base = !file_exists($db_path);
+// Incluir configuração do MySQL
+include_once __DIR__ . '/../config.php';
 
+// Conectar ao MySQL
 try {
-    $db = new PDO('sqlite:' . $db_path);
-    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-    if ($nova_base) {
-        $db->exec("CREATE TABLE eventos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            data TEXT NOT NULL,
-            tipo TEXT NOT NULL,
-            descricao TEXT,
-            criador TEXT,
-            cor TEXT NOT NULL
-        )");
+    $db = new mysqli($db_host, $db_user, $db_pass, $db_name);
+    
+    if ($db->connect_error) {
+        die("Erro ao conectar à base de dados: " . $db->connect_error);
     }
+    
+    $db->set_charset("utf8mb4");
+    
+    // Criar tabela de eventos se não existir
+    $create_table = "CREATE TABLE IF NOT EXISTS calendar_eventos (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        data DATE NOT NULL,
+        tipo VARCHAR(50) NOT NULL,
+        descricao TEXT,
+        hora TIME DEFAULT NULL,
+        criador VARCHAR(100),
+        cor VARCHAR(50) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_data (data),
+        INDEX idx_tipo (tipo)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+    
+    if (!$db->query($create_table)) {
+        die("Erro ao criar tabela: " . $db->error);
+    }
+    
 } catch (Exception $e) {
     die("Erro ao inicializar base de dados: " . $e->getMessage());
 }
@@ -48,9 +64,9 @@ $auto_alternar = isset($_COOKIE['auto_alternar']) ? $_COOKIE['auto_alternar'] ==
 // Tipos de eventos disponíveis e suas cores
 $tipos_eventos = [
     'ferias' => ['nome' => 'Férias', 'cor' => 'green'],
+    'aulas' => ['nome' => 'Aulas', 'cor' => 'grey'],
     'demo' => ['nome' => 'Demonstração', 'cor' => 'blue'],
     'campo' => ['nome' => 'Saída de campo', 'cor' => 'orange'],
-    'aulas' => ['nome' => 'Aulas', 'cor' => 'grey'],
     'tribe' => ['nome' => 'TRIBE MEETING', 'cor' => 'purple'],
     'outro' => ['nome' => 'Outro', 'cor' => 'red']
 ];
@@ -69,23 +85,30 @@ if (isset($_GET['filtros'])) {
 // Salvar filtros em cookie
 if (isset($_GET['aplicar_filtros'])) {
     $filtros_str = implode(',', $filtros);
-    setcookie('filtros_calendario', $filtros_str, time() + (86400 * 30), "/"); // Cookie válido por 30 dias
+    setcookie('filtros_calendario', $filtros_str, time() + (86400 * 30), "/");
 }
 
+// Processar formulários
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['data'], $_POST['tipo'], $_POST['descricao'])) {
-        $stmt = $db->prepare("INSERT INTO eventos (data, tipo, descricao, criador, cor) VALUES (:data, :tipo, :descricao, :criador, :cor)");
-        $cor = $tipos_eventos[$_POST['tipo']]['cor'] ?? 'red';
-        $stmt->execute([
-            ':data' => $_POST['data'],
-            ':tipo' => $_POST['tipo'],
-            ':descricao' => $_POST['descricao'],
-            ':criador' => $_SESSION['username'] ?? 'anon',
-            ':cor' => $cor
-        ]);
+        $data = $db->real_escape_string($_POST['data']);
+        $tipo = $db->real_escape_string($_POST['tipo']);
+        $descricao = $db->real_escape_string($_POST['descricao']);
+        $hora = isset($_POST['hora']) && !empty($_POST['hora']) ? "'" . $db->real_escape_string($_POST['hora']) . "'" : "NULL";
+        $criador = $db->real_escape_string($_SESSION['username'] ?? 'anon');
+        $cor = $tipos_eventos[$tipo]['cor'] ?? 'red';
+        
+        $query = "INSERT INTO calendar_eventos (data, tipo, descricao, hora, criador, cor) 
+                  VALUES ('$data', '$tipo', '$descricao', $hora, '$criador', '$cor')";
+        
+        if (!$db->query($query)) {
+            error_log("Erro ao inserir evento: " . $db->error);
+        }
+        
     } elseif (isset($_POST['delete'])) {
-        $stmt = $db->prepare("DELETE FROM eventos WHERE id = :id");
-        $stmt->execute([':id' => $_POST['delete']]);
+        $id = (int)$_POST['delete'];
+        $query = "DELETE FROM calendar_eventos WHERE id = $id";
+        $db->query($query);
     }
     
     // Preservar estado do refresh com JavaScript
@@ -104,26 +127,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Buscar eventos com filtro
-$placeholders = implode(',', array_fill(0, count($filtros), '?'));
-$stmt = $db->prepare("SELECT * FROM eventos" . (empty($filtros) ? "" : " WHERE tipo IN ($placeholders)"));
-
+$eventos = [];
 if (!empty($filtros)) {
-    foreach ($filtros as $index => $tipo) {
-        $stmt->bindValue($index + 1, $tipo);
+    $placeholders = implode(',', array_fill(0, count($filtros), '?'));
+    $stmt = $db->prepare("SELECT * FROM calendar_eventos WHERE tipo IN ($placeholders)");
+    
+    // Bind dos parâmetros dinamicamente
+    $types = str_repeat('s', count($filtros));
+    $stmt->bind_param($types, ...$filtros);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    while ($row = $result->fetch_assoc()) {
+        $eventos[] = $row;
     }
+    $stmt->close();
 }
 
-$stmt->execute();
-$eventos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $eventos_por_dia = [];
 foreach ($eventos as $e) {
     $eventos_por_dia[$e['data']][] = $e;
 }
 
 // Buscar todos os eventos para a seção de resumo por categoria
-$stmt_todos = $db->prepare("SELECT * FROM eventos ORDER BY data ASC");
-$stmt_todos->execute();
-$todos_eventos = $stmt_todos->fetchAll(PDO::FETCH_ASSOC);
+$query_todos = "SELECT * FROM calendar_eventos ORDER BY data ASC";
+$result_todos = $db->query($query_todos);
+$todos_eventos = [];
+while ($row = $result_todos->fetch_assoc()) {
+    $todos_eventos[] = $row;
+}
 
 // Agrupar eventos por tipo
 $eventos_por_tipo = [];
@@ -146,7 +178,6 @@ function buildUrl($params = []) {
         $base .= "&offset=$offset";
     }
     
-    // Sempre preservar o parâmetro js_refresh
     $base .= "&js_refresh=true";
     
     if (isset($params['semanas'])) {
@@ -174,6 +205,7 @@ function formatarData($data_str) {
 ?>
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
 <style>
     .calendario { 
         display: grid; 
@@ -182,7 +214,7 @@ function formatarData($data_str) {
     }
     .dia { 
         border: 1px solid #ccc; 
-        min-height: 150px; 
+        min-height: 180px; 
         padding: 5px; 
         position: relative; 
         background: #f9f9f9;
@@ -190,6 +222,7 @@ function formatarData($data_str) {
     }
     .data { 
         font-weight: bold; 
+        margin-bottom: 5px;
     }
     .evento { 
         font-size: 0.85em; 
@@ -199,6 +232,9 @@ function formatarData($data_str) {
         color: white; 
         display: block; 
     }
+    .evento-com-hora {
+        font-weight: bold;
+    }
     .fade { 
         opacity: 0; 
         transition: opacity 0.3s ease-in-out; 
@@ -207,20 +243,109 @@ function formatarData($data_str) {
         opacity: 1; 
     }
     .hoje { 
-        background: #fff4cc !important; 
-        border: 2px solid #f5b041; 
+        background-color: #fff3cd !important; 
+        border: 2px solid #ffc107; 
     }
     .fimsemana { 
-        background: #f0f0f0; 
-        opacity: 0.6; 
-        font-size: 0.85em; 
+        background-color: #f0f0f0; 
+    }
+    .navegacao {
+        margin-bottom: 20px;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 5px;
+    }
+    .botoes-rapidos {
+        display: flex;
+        gap: 5px;
+        margin-top: 5px;
+        flex-wrap: wrap;
+    }
+    .btn-rapido {
+        font-size: 0.75em;
+        padding: 2px 6px;
+        border-radius: 3px;
+        border: 1px solid;
+    }
+    .btn-ferias {
+        background-color: #d4edda;
+        border-color: #28a745;
+        color: #155724;
+    }
+    .btn-ferias:hover {
+        background-color: #28a745;
+        color: white;
+    }
+    .btn-aulas {
+        background-color: #e2e3e5;
+        border-color: #6c757d;
+        color: #383d41;
+    }
+    .btn-aulas:hover {
+        background-color: #6c757d;
+        color: white;
+    }
+    .resumo-eventos {
+        margin-top: 40px;
+        padding: 20px;
+        background: #f8f9fa;
+        border-radius: 5px;
+    }
+    .tipo-evento-lista {
+        margin-bottom: 15px;
+        border: 1px solid #dee2e6;
+        border-radius: 5px;
+        overflow: hidden;
+    }
+    .tipo-evento-header {
+        padding: 10px 15px;
+        background: white;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    .tipo-evento-header:hover {
+        background: #f8f9fa;
+    }
+    .tipo-evento-content {
+        display: none;
+        padding: 10px 15px;
+        background: white;
+        border-top: 1px solid #dee2e6;
+    }
+    .tipo-evento-badge {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        margin-right: 10px;
+        vertical-align: middle;
+    }
+    .evento-item {
+        padding: 8px 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .evento-item:last-child {
+        border-bottom: none;
+    }
+    .evento-data {
+        font-weight: bold;
+        color: #495057;
+        margin-right: 10px;
+    }
+    .evento-hora {
+        color: #007bff;
+        font-weight: bold;
+        margin-left: 5px;
+    }
+    .evento-descricao {
+        color: #6c757d;
     }
     .filter-panel {
-        background-color: #f8f9fa;
-        border: 1px solid #e9ecef;
-        border-radius: 5px;
         padding: 15px;
-        margin-bottom: 20px;
+        background: white;
+        border: 1px solid #dee2e6;
+        border-radius: 5px;
+        margin-bottom: 15px;
     }
     .filter-item {
         display: inline-block;
@@ -229,80 +354,47 @@ function formatarData($data_str) {
     }
     .filter-color {
         display: inline-block;
-        width: 16px;
-        height: 16px;
-        border-radius: 3px;
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
         margin-right: 5px;
         vertical-align: middle;
     }
-    .filter-btn {
-        margin-left: 10px;
-    }
     .filter-toggle {
         cursor: pointer;
-        user-select: none;
-        display: inline-block;
-        margin-bottom: 15px;
+        color: #007bff;
+        text-decoration: none;
     }
-    .resumo-eventos {
-        margin-top: 30px;
-        margin-bottom: 30px;
+    .filter-toggle:hover {
+        text-decoration: underline;
     }
-    .tipo-evento-lista {
-        background-color: #f8f9fa;
-        border: 1px solid #e9ecef;
-        border-radius: 5px;
-        margin-bottom: 10px;
-    }
-    .tipo-evento-header {
-        padding: 10px 15px;
-        cursor: pointer;
-        user-select: none;
-    }
-    .tipo-evento-badge {
-        display: inline-block;
-        width: 20px;
-        height: 20px;
-        border-radius: 3px;
-        margin-right: 8px;
-        vertical-align: middle;
-    }
-    .tipo-evento-content {
-        padding: 0 15px 15px;
+    .hora-input-group {
         display: none;
-    }
-    .evento-item {
-        padding: 8px;
-        border-bottom: 1px solid #eee;
-    }
-    .evento-item:last-child {
-        border-bottom: none;
-    }
-    .evento-data {
-        font-weight: 500;
-        margin-right: 10px;
-    }
-    .evento-descricao {
-        font-style: italic;
+        margin-top: 5px;
     }
 </style>
 
-<div class="container mt-4">
-    <h2 class="mb-4">Calendário da equipa</h2>
-    <div class="d-flex justify-content-between mb-3">
-        <a class="btn btn-secondary" href="<?= buildUrl(['offset' => $offset - 7]) ?>">&laquo; Semana anterior</a>
-        <a class="btn btn-outline-primary" href="<?= buildUrl(['offset' => 0]) ?>">Hoje</a>
-        <a class="btn btn-secondary" href="<?= buildUrl(['offset' => $offset + 7]) ?>">Semana seguinte &raquo;</a>
-    </div>
-
-    <div class="row mb-3">
+<div class="container-fluid">
+    <h2>📅 Calendário de Eventos</h2>
+    
+    <div class="navegacao row">
         <div class="col-md-6">
-            <form method="get" class="d-inline-block">
+            <a href="<?= buildUrl(['offset' => $offset - 7]) ?>" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-chevron-left"></i> Semana Anterior
+            </a>
+            <a href="<?= buildUrl(['offset' => 0]) ?>" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-calendar-today"></i> Hoje
+            </a>
+            <a href="<?= buildUrl(['offset' => $offset + 7]) ?>" class="btn btn-sm btn-outline-primary">
+                Próxima Semana <i class="bi bi-chevron-right"></i>
+            </a>
+            
+            <form method="get" class="d-inline-block ms-3">
                 <input type="hidden" name="tab" value="calendar">
                 <input type="hidden" name="offset" value="<?= $offset ?>">
                 <input type="hidden" name="js_refresh" value="true">
-                <label for="semanas" class="form-label">Número de semanas:</label>
-                <select name="semanas" id="semanas" class="form-select form-select-sm w-auto d-inline-block" onchange="this.form.submit()">
+                <label class="me-2">Semanas:</label>
+                <select name="semanas" class="form-select form-select-sm d-inline-block w-auto" onchange="this.form.submit()">
                     <?php for ($i = 1; $i <= 40; $i++): ?>
                         <option value="<?= $i ?>" <?= $i == $numSemanas ? 'selected' : '' ?>><?= $i ?></option>
                     <?php endfor; ?>
@@ -360,26 +452,50 @@ function formatarData($data_str) {
         ?>
         <div class="dia<?= $isHoje ? ' hoje' : '' ?><?= $classeExtra ?>">
             <div class="data"><?= $data->format('D d/m/Y') ?></div>
+            
             <?php if (isset($eventos_por_dia[$data_str])): ?>
                 <?php foreach ($eventos_por_dia[$data_str] as $ev): ?>
                     <form method="post" class="d-flex justify-content-between align-items-center">
-                        <span class="evento" style="background: <?= $ev['cor'] ?>;">
+                        <span class="evento <?= !empty($ev['hora']) ? 'evento-com-hora' : '' ?>" style="background: <?= $ev['cor'] ?>;">
+                            <?php if (!empty($ev['hora'])): ?>
+                                <i class="bi bi-clock"></i> <?= date('H:i', strtotime($ev['hora'])) ?> -
+                            <?php endif; ?>
                             <?= htmlspecialchars($ev['tipo']) ?>: <?= htmlspecialchars($ev['descricao']) ?>
                         </span>
                         <button type="submit" name="delete" value="<?= $ev['id'] ?>" class="btn btn-sm btn-outline-danger ms-1">x</button>
                     </form>
                 <?php endforeach; ?>
             <?php endif; ?>
-            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="toggleForm(this)">+ Adicionar</button>
+            
+            <!-- Botões rápidos para férias e aulas -->
+            <div class="botoes-rapidos">
+                <button type="button" class="btn btn-rapido btn-ferias" onclick="adicionarRapido(this, '<?= $data_str ?>', 'ferias')">
+                    <i class="bi bi-sun"></i> Férias
+                </button>
+                <button type="button" class="btn btn-rapido btn-aulas" onclick="adicionarRapido(this, '<?= $data_str ?>', 'aulas')">
+                    <i class="bi bi-book"></i> Aulas
+                </button>
+            </div>
+            
+            <button type="button" class="btn btn-sm btn-outline-secondary mt-2 w-100" onclick="toggleForm(this)">
+                <i class="bi bi-plus"></i> Adicionar
+            </button>
+            
             <form method="post" class="mt-2 d-none">
                 <input type="hidden" name="data" value="<?= $data_str ?>">
-                <select name="tipo" class="form-select form-select-sm mb-1">
+                <select name="tipo" class="form-select form-select-sm mb-1" onchange="toggleHoraInput(this)">
                     <?php foreach ($tipos_eventos as $codigo => $info): ?>
                         <option value="<?= $codigo ?>"><?= htmlspecialchars($info['nome']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <input type="text" name="descricao" placeholder="Descrição" class="form-control form-control-sm mb-1" required>
-                <button type="submit" class="btn btn-sm btn-primary">Adicionar</button>
+                <div class="hora-input-group" data-tipo="aulas">
+                    <label class="form-label" style="font-size: 0.85em;">Hora:</label>
+                    <input type="time" name="hora" class="form-control form-control-sm mb-1">
+                </div>
+                <button type="submit" class="btn btn-sm btn-primary w-100">
+                    <i class="bi bi-check"></i> Adicionar
+                </button>
             </form>
         </div>
         <?php endforeach; ?>
@@ -390,12 +506,10 @@ function formatarData($data_str) {
         <h3 class="mb-3">Lista de Eventos por Categoria</h3>
         
         <?php foreach ($tipos_eventos as $codigo => $info): 
-            // Verificar se existem eventos deste tipo
             if (!isset($eventos_por_tipo[$codigo]) || empty($eventos_por_tipo[$codigo])) {
                 continue;
             }
             
-            // Ordenar eventos por data
             usort($eventos_por_tipo[$codigo], function($a, $b) {
                 return strcmp($a['data'], $b['data']);
             });
@@ -414,6 +528,11 @@ function formatarData($data_str) {
                     <?php foreach ($eventos_por_tipo[$codigo] as $ev): ?>
                         <div class="evento-item">
                             <span class="evento-data"><?= formatarData($ev['data']) ?></span>
+                            <?php if (!empty($ev['hora'])): ?>
+                                <span class="evento-hora">
+                                    <i class="bi bi-clock"></i> <?= date('H:i', strtotime($ev['hora'])) ?>
+                                </span>
+                            <?php endif; ?>
                             <span class="evento-descricao"><?= htmlspecialchars($ev['descricao']) ?></span>
                         </div>
                     <?php endforeach; ?>
@@ -432,18 +551,65 @@ function toggleForm(button) {
     form.classList.add('show');
 }
 
+// Função para mostrar/ocultar campo de hora baseado no tipo de evento
+function toggleHoraInput(selectElement) {
+    const form = selectElement.closest('form');
+    const horaGroup = form.querySelector('.hora-input-group');
+    const tipoSelecionado = selectElement.value;
+    
+    if (tipoSelecionado === 'aulas') {
+        horaGroup.style.display = 'block';
+    } else {
+        horaGroup.style.display = 'none';
+    }
+}
+
+// Função para adicionar evento rápido (férias ou aulas)
+function adicionarRapido(button, data, tipo) {
+    const diaDiv = button.closest('.dia');
+    const form = diaDiv.querySelector('form:not([class*="d-flex"])');
+    
+    // Mostrar o formulário se estiver oculto
+    if (form.classList.contains('d-none')) {
+        form.classList.remove('d-none');
+        diaDiv.querySelector('button[onclick*="toggleForm"]').classList.add('d-none');
+    }
+    
+    // Preencher o tipo
+    const selectTipo = form.querySelector('select[name="tipo"]');
+    selectTipo.value = tipo;
+    
+    // Focar no campo de descrição
+    const inputDescricao = form.querySelector('input[name="descricao"]');
+    inputDescricao.focus();
+    
+    // Mostrar campo de hora se for aulas
+    toggleHoraInput(selectTipo);
+    
+    // Se for férias, pode preencher uma descrição padrão
+    if (tipo === 'ferias') {
+        inputDescricao.value = 'Férias';
+        inputDescricao.select();
+    } else if (tipo === 'aulas') {
+        inputDescricao.value = 'Aula';
+        inputDescricao.select();
+    }
+}
+
 // Fechar formulários ao submeter
 window.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('form').forEach(f => {
         f.addEventListener('submit', () => {
             const parent = f.closest('.dia');
-            const btn = parent.querySelector('button[type="button"]');
-            f.classList.add('d-none');
-            if (btn) btn.classList.remove('d-none');
+            if (parent) {
+                const btn = parent.querySelector('button[type="button"]');
+                f.classList.add('d-none');
+                if (btn) btn.classList.remove('d-none');
+            }
         });
     });
     
-    // Verificar se o painel de filtros deve estar aberto com base no localStorage
+    // Verificar se o painel de filtros deve estar aberto
     const filterPanelOpen = localStorage.getItem('filterPanelOpen') === 'true';
     const filterPanel = document.getElementById('filter-panel');
     const filterChevron = document.getElementById('filter-chevron');
@@ -476,7 +642,6 @@ function selecionarTodos(selecionar) {
     });
 }
 
-// Função para alternar exibição das listas de eventos por tipo
 function toggleEventoLista(codigo) {
     const content = document.getElementById('content-' + codigo);
     const chevron = document.getElementById('chevron-' + codigo);
@@ -491,22 +656,9 @@ function toggleEventoLista(codigo) {
         localStorage.setItem('eventoLista-' + codigo, 'true');
     }
 }
-
-// Restaurar estado das listas de eventos por tipo
-document.addEventListener('DOMContentLoaded', function() {
-    // A lista começa fechada por padrão, por isso não precisa de código extra aqui
-    // Se algum dia quiser restaurar o estado, descomentar o código abaixo
-    /*
-    <?php foreach (array_keys($tipos_eventos) as $codigo): ?>
-    if (localStorage.getItem('eventoLista-<?= $codigo ?>') === 'true') {
-        const content = document.getElementById('content-<?= $codigo ?>');
-        const chevron = document.getElementById('chevron-<?= $codigo ?>');
-        if (content && chevron) {
-            content.style.display = 'block';
-            chevron.classList.replace('bi-chevron-down', 'bi-chevron-up');
-        }
-    }
-    <?php endforeach; ?>
-    */
-});
 </script>
+
+<?php
+// Fechar conexão MySQL
+$db->close();
+?>

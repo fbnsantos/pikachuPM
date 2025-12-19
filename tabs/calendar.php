@@ -372,6 +372,12 @@ function formatarData($data_str) {
         display: none;
         margin-top: 5px;
     }
+    .btn-group-vertical .btn {
+        margin-bottom: 2px;
+    }
+    .btn-group-vertical .btn:last-child {
+        margin-bottom: 0;
+    }
 </style>
 
 <div class="container-fluid">
@@ -454,16 +460,43 @@ function formatarData($data_str) {
             <div class="data"><?= $data->format('D d/m/Y') ?></div>
             
             <?php if (isset($eventos_por_dia[$data_str])): ?>
-                <?php foreach ($eventos_por_dia[$data_str] as $ev): ?>
-                    <form method="post" class="d-flex justify-content-between align-items-center">
-                        <span class="evento <?= !empty($ev['hora']) ? 'evento-com-hora' : '' ?>" style="background: <?= $ev['cor'] ?>;">
-                            <?php if (!empty($ev['hora'])): ?>
-                                <i class="bi bi-clock"></i> <?= date('H:i', strtotime($ev['hora'])) ?> -
+                <?php 
+                // Agrupar eventos por tipo
+                $eventos_agrupados = [];
+                foreach ($eventos_por_dia[$data_str] as $ev) {
+                    $chave = $ev['tipo'];
+                    if ($ev['tipo'] === 'aulas' && !empty($ev['hora'])) {
+                        $chave = $ev['tipo'] . '_' . $ev['hora'];
+                    }
+                    if (!isset($eventos_agrupados[$chave])) {
+                        $eventos_agrupados[$chave] = [
+                            'tipo' => $ev['tipo'],
+                            'cor' => $ev['cor'],
+                            'hora' => $ev['hora'],
+                            'descricoes' => [],
+                            'ids' => []
+                        ];
+                    }
+                    $eventos_agrupados[$chave]['descricoes'][] = $ev['descricao'];
+                    $eventos_agrupados[$chave]['ids'][] = $ev['id'];
+                }
+                
+                foreach ($eventos_agrupados as $grupo): ?>
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <span class="evento <?= !empty($grupo['hora']) ? 'evento-com-hora' : '' ?>" style="background: <?= $grupo['cor'] ?>; flex-grow: 1;">
+                            <?php if (!empty($grupo['hora'])): ?>
+                                <i class="bi bi-clock"></i> <?= date('H:i', strtotime($grupo['hora'])) ?> -
                             <?php endif; ?>
-                            <?= htmlspecialchars($ev['tipo']) ?>: <?= htmlspecialchars($ev['descricao']) ?>
+                            <?= htmlspecialchars($grupo['tipo']) ?>: <?= htmlspecialchars(implode(', ', $grupo['descricoes'])) ?>
                         </span>
-                        <button type="submit" name="delete" value="<?= $ev['id'] ?>" class="btn btn-sm btn-outline-danger ms-1">x</button>
-                    </form>
+                        <div class="btn-group-vertical" style="margin-left: 4px;">
+                            <?php foreach ($grupo['ids'] as $id): ?>
+                                <form method="post" class="d-inline">
+                                    <button type="submit" name="delete" value="<?= $id ?>" class="btn btn-sm btn-outline-danger" style="padding: 0px 4px; font-size: 0.7em; line-height: 1;">x</button>
+                                </form>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
                 <?php endforeach; ?>
             <?php endif; ?>
             
@@ -525,15 +558,33 @@ function formatarData($data_str) {
                     <i class="bi bi-chevron-down" id="chevron-<?= $codigo ?>"></i>
                 </div>
                 <div class="tipo-evento-content" id="content-<?= $codigo ?>">
-                    <?php foreach ($eventos_por_tipo[$codigo] as $ev): ?>
+                    <?php 
+                    // Agrupar por data
+                    $eventos_por_data_tipo = [];
+                    foreach ($eventos_por_tipo[$codigo] as $ev) {
+                        $chave_data = $ev['data'];
+                        if ($codigo === 'aulas' && !empty($ev['hora'])) {
+                            $chave_data .= '_' . $ev['hora'];
+                        }
+                        if (!isset($eventos_por_data_tipo[$chave_data])) {
+                            $eventos_por_data_tipo[$chave_data] = [
+                                'data' => $ev['data'],
+                                'hora' => $ev['hora'],
+                                'descricoes' => []
+                            ];
+                        }
+                        $eventos_por_data_tipo[$chave_data]['descricoes'][] = $ev['descricao'];
+                    }
+                    
+                    foreach ($eventos_por_data_tipo as $grupo): ?>
                         <div class="evento-item">
-                            <span class="evento-data"><?= formatarData($ev['data']) ?></span>
-                            <?php if (!empty($ev['hora'])): ?>
+                            <span class="evento-data"><?= formatarData($grupo['data']) ?></span>
+                            <?php if (!empty($grupo['hora'])): ?>
                                 <span class="evento-hora">
-                                    <i class="bi bi-clock"></i> <?= date('H:i', strtotime($ev['hora'])) ?>
+                                    <i class="bi bi-clock"></i> <?= date('H:i', strtotime($grupo['hora'])) ?>
                                 </span>
                             <?php endif; ?>
-                            <span class="evento-descricao"><?= htmlspecialchars($ev['descricao']) ?></span>
+                            <span class="evento-descricao"><?= htmlspecialchars(implode(', ', $grupo['descricoes'])) ?></span>
                         </div>
                     <?php endforeach; ?>
                 </div>
@@ -586,12 +637,10 @@ function adicionarRapido(button, data, tipo) {
     // Mostrar campo de hora se for aulas
     toggleHoraInput(selectTipo);
     
-    // Se for férias, pode preencher uma descrição padrão
-    if (tipo === 'ferias') {
-        inputDescricao.value = 'Férias';
-        inputDescricao.select();
-    } else if (tipo === 'aulas') {
-        inputDescricao.value = 'Aula';
+    // Se for férias ou aulas, preencher com username
+    if (tipo === 'ferias' || tipo === 'aulas') {
+        const username = '<?= $_SESSION['username'] ?? 'user' ?>';
+        inputDescricao.value = username;
         inputDescricao.select();
     }
 }

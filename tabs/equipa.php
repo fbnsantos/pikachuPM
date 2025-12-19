@@ -935,6 +935,14 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
         .reuniao-card {
             border-left: 5px solid #0d6efd;
         }
+        .reuniao-topo {
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border: 2px solid #0d6efd;
+            border-left-width: 5px;
+        }
+        .reuniao-topo .card-header {
+            font-size: 1.1rem;
+        }
         .progress {
             height: 15px;
         }
@@ -989,24 +997,11 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
 <body>
 
 <div class="container-fluid py-3">
-    <div class="row">
-        <div class="col-lg-8">
-            <h2 class="mt-3 mb-4">
-                <i class="bi bi-people-fill"></i> Reunião Diária
-                <?php if ($em_reuniao): ?>
-                    <span class="badge bg-success">Em Progresso</span>
-                <?php endif; ?>
-            </h2>
-
-            <?php if (empty($equipa)): ?>
-                <div class="alert alert-info">
-                    <i class="bi bi-info-circle-fill"></i> A equipa ainda não foi configurada. Por favor adicione membros abaixo para iniciar.
-                </div>
-            <?php endif; ?>
-
-            <!-- Área de Reunião -->
-            <?php if ($em_reuniao): ?>
-                <div class="card reuniao-card mb-4">
+    <?php if ($em_reuniao): ?>
+        <!-- Reunião em Progresso - Topo (Largura Completa) -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card reuniao-card mb-4 reuniao-topo">
                     <div class="card-header bg-primary text-white">
                         <div class="d-flex justify-content-between align-items-center">
                             <h4 class="mb-0"><i class="bi bi-calendar-check"></i> Reunião em Progresso</h4>
@@ -1235,7 +1230,27 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
                         <?php endif; ?>
                     </div>
                 </div>
-            <?php elseif (count($equipa) >= 2): ?>
+            </div>
+        </div>
+    <?php endif; ?>
+    
+    <!-- Layout Principal -->
+    <div class="row">
+        <!-- Coluna Principal -->
+        <div class="<?= $em_reuniao ? 'col-lg-6' : 'col-lg-8' ?>">
+            <?php if (!$em_reuniao): ?>
+                <h2 class="mt-3 mb-4">
+                    <i class="bi bi-people-fill"></i> Reunião Diária
+                </h2>
+
+                <?php if (empty($equipa)): ?>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle-fill"></i> A equipa ainda não foi configurada. Por favor adicione membros abaixo para iniciar.
+                    </div>
+                <?php endif; ?>
+            <?php endif; ?>
+            
+            <?php if (!$em_reuniao && count($equipa) >= 2): ?>
                 <div class="card mb-4">
                     <div class="card-body text-center">
                         <p class="lead mb-3">A reunião ainda não foi iniciada.</p>
@@ -1662,7 +1677,7 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
         </div>
         
         <!-- Coluna Lateral - Faltas Recentes -->
-        <div class="col-lg-4">
+        <div class="<?= $em_reuniao ? 'col-lg-6' : 'col-lg-4' ?>">
             <div class="card">
                 <div class="card-header bg-warning">
                     <h4 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Faltas Recentes</h4>

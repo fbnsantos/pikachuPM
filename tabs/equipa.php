@@ -996,6 +996,18 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
 </head>
 <body>
 
+<?php if ($em_reuniao): ?>
+<script>
+// Scroll para o topo quando a reunião está em progresso
+window.addEventListener('DOMContentLoaded', function() {
+    window.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+    });
+});
+</script>
+<?php endif; ?>
+
 <div class="container-fluid py-3">
     <?php if ($em_reuniao): ?>
         <!-- Reunião em Progresso - Topo (Largura Completa) -->

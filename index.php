@@ -450,6 +450,17 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             background-color: #ffcccc;
             color: #222;
         }
+        
+        /* Ocultar header e nav quando em reunião */
+        body.hide-header-nav header,
+        body.hide-header-nav nav {
+            display: none !important;
+        }
+        
+        body.hide-header-nav main {
+            padding: 0 !important;
+        }
+        
         footer { 
             background-color: #222; 
             color: #999; 
@@ -648,6 +659,26 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
     </style>
 </head>
 <body>
+
+<script>
+// Verificar se está em reunião e ocultar header/nav
+document.addEventListener('DOMContentLoaded', function() {
+    // Verificar se existe o indicador de reunião no equipa.php
+    const checkReuniaoInterval = setInterval(function() {
+        const reuniaoCard = document.querySelector('.reuniao-topo');
+        if (reuniaoCard) {
+            document.body.classList.add('hide-header-nav');
+        } else {
+            document.body.classList.remove('hide-header-nav');
+        }
+    }, 100);
+    
+    // Parar a verificação após 2 segundos (conteúdo já carregado)
+    setTimeout(function() {
+        clearInterval(checkReuniaoInterval);
+    }, 2000);
+});
+</script>
 
 <header>
     <div class="header-container">

@@ -647,30 +647,37 @@ function toggleHoraInput(selectElement) {
 // Função para adicionar evento rápido (férias ou aulas)
 function adicionarRapido(button, data, tipo) {
     const diaDiv = button.closest('.dia');
-    const form = diaDiv.querySelector('form:not([class*="d-flex"])');
+    const form = diaDiv.querySelector('form:not(.delete-form)');
+    const toggleBtn = diaDiv.querySelector('button[onclick*="toggleForm"]');
     
     // Mostrar o formulário se estiver oculto
     if (form.classList.contains('d-none')) {
         form.classList.remove('d-none');
-        diaDiv.querySelector('button[onclick*="toggleForm"]').classList.add('d-none');
+        if (toggleBtn) {
+            toggleBtn.classList.add('d-none');
+        }
     }
     
     // Preencher o tipo
     const selectTipo = form.querySelector('select[name="tipo"]');
-    selectTipo.value = tipo;
+    if (selectTipo) {
+        selectTipo.value = tipo;
+        // Trigger do evento change para mostrar campo de hora se necessário
+        toggleHoraInput(selectTipo);
+    }
     
-    // Focar no campo de descrição
+    // Preencher descrição com username
     const inputDescricao = form.querySelector('input[name="descricao"]');
-    inputDescricao.focus();
-    
-    // Mostrar campo de hora se for aulas
-    toggleHoraInput(selectTipo);
-    
-    // Se for férias ou aulas, preencher com username
-    if (tipo === 'ferias' || tipo === 'aulas') {
-        const username = '<?= $_SESSION['username'] ?? 'user' ?>';
-        inputDescricao.value = username;
-        inputDescricao.select();
+    if (inputDescricao) {
+        if (tipo === 'ferias' || tipo === 'aulas') {
+            const username = '<?= $_SESSION['username'] ?? 'user' ?>';
+            inputDescricao.value = username;
+        }
+        // Focar e selecionar o texto
+        setTimeout(() => {
+            inputDescricao.focus();
+            inputDescricao.select();
+        }, 50);
     }
 }
 

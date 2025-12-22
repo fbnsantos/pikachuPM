@@ -29,6 +29,12 @@ if (isset($_SESSION['success_message'])) {
     unset($_SESSION['success_message']);
 }
 
+// Obter modo de visualização ANTES do processamento POST
+$view_mode = $_GET['view'] ?? 'kanban';
+$filter_responsavel = isset($_GET['responsavel']) ? (int)$_GET['responsavel'] : null;
+$show_completed = isset($_GET['show_completed']);
+$include_autor = isset($_GET['include_autor']);
+
 // Obter todos os utilizadores
 $all_users = [];
 $stmt = $db->prepare('SELECT user_id, username FROM user_tokens ORDER BY username');
@@ -111,7 +117,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->close();
                 // IMPORTANTE: Redirect para evitar POST duplicado (PRG Pattern)
                 $_SESSION['success_message'] = '✅ Tarefa adicionada com sucesso!';
-                header('Location: ' . $_SERVER['PHP_SELF'] . '?tab=todos&view=' . $view_mode);
+                
+                // Construir URL com todos os parâmetros atuais
+                $params = ['tab' => 'todos', 'view' => $view_mode];
+                
+                if ($filter_responsavel) {
+                    $params['responsavel'] = $filter_responsavel;
+                }
+                if ($show_completed) {
+                    $params['show_completed'] = '1';
+                }
+                if ($include_autor) {
+                    $params['include_autor'] = '1';
+                }
+                
+                $redirect_url = $_SERVER['PHP_SELF'] . '?' . http_build_query($params);
+                header('Location: ' . $redirect_url);
                 exit;
             } else {
                 $error_message = '❌ Erro ao adicionar tarefa.';
@@ -137,11 +158,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // OBTER TAREFAS
-$view_mode = $_GET['view'] ?? 'kanban';
-$filter_responsavel = isset($_GET['responsavel']) ? (int)$_GET['responsavel'] : null;
-$show_completed = isset($_GET['show_completed']);
-$include_autor = isset($_GET['include_autor']); // Novo filtro para incluir tarefas onde é autor
-
 $query = 'SELECT t.*, 
           autor.username as autor_nome,
           resp.username as responsavel_nome

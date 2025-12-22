@@ -8,26 +8,16 @@ echo '<i class="bi bi-bug"></i> Abrir Debug';
 echo '</a>';
 echo '</div>';
 
-// Verificar se o usuário tem permissão de admin (pode ajustar conforme necessário)
-if ($_SESSION['username'] !== 'fbsantos' && $_SESSION['user_id'] != 1) {
-    echo "<div class='alert alert-danger'><i class='bi bi-exclamation-triangle'></i> Acesso negado. Esta área é restrita a administradores.</div>";
-    return;
-}
-
 include_once __DIR__ . '/../config.php';
 
 // ========================================
-// GESTÃO DE UTILIZADORES LOCAIS
+// SISTEMA DE CONTROLO DE ACESSO AO ADMIN
 // ========================================
-
-$mensagem_users = '';
-$erro_users = '';
 
 // Função para conectar à base de dados
 function conectarDB($dbName = null) {
     global $db_host, $db_name, $db_name_boom, $db_user, $db_pass;
     
-    // Se não especificar, usar a base de dados principal
     $database = $dbName ?: $db_name;
     
     try {
@@ -39,10 +29,276 @@ function conectarDB($dbName = null) {
     }
 }
 
-// Verificar se as colunas de autenticação local existem
-$pdo_check = conectarDB();
+$pdo = conectarDB();
+
+// Criar tabela admin_users se não existir
 try {
-    $check_columns = $pdo_check->query("SHOW COLUMNS FROM user_tokens LIKE 'is_local_user'");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS admin_users (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            username VARCHAR(100) NOT NULL,
+            added_by INT NULL,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_user (user_id),
+            INDEX idx_username (username)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+} catch (Exception $e) {
+    // Tabela já existe ou erro
+}
+
+// Verificar se há administradores cadastrados
+$stmt = $pdo->query("SELECT COUNT(*) as total FROM admin_users");
+$total_admins = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+$current_user_id = $_SESSION['user_id'] ?? null;
+$current_username = $_SESSION['username'] ?? null;
+
+// Se não há administradores, esta é a primeira configuração
+if ($total_admins == 0) {
+    echo '<div class="alert alert-warning">';
+    echo '<h4><i class="bi bi-exclamation-triangle"></i> Primeira Configuração</h4>';
+    echo '<p>Nenhum administrador configurado. Configure o primeiro administrador do sistema.</p>';
+    echo '<form method="post" class="mt-3">';
+    echo '<input type="hidden" name="setup_first_admin" value="1">';
+    echo '<button type="submit" class="btn btn-primary">';
+    echo '<i class="bi bi-person-badge"></i> Tornar-me Administrador';
+    echo '</button>';
+    echo '</form>';
+    echo '</div>';
+    
+    // Processar primeira configuração
+    if (isset($_POST['setup_first_admin'])) {
+        $stmt = $pdo->prepare("INSERT INTO admin_users (user_id, username, added_by) VALUES (?, ?, NULL)");
+        if ($stmt->execute([$current_user_id, $current_username])) {
+            echo '<div class="alert alert-success">✅ Você foi configurado como primeiro administrador!</div>';
+            echo '<meta http-equiv="refresh" content="1">';
+        }
+    }
+    
+    return; // Parar aqui até que o primeiro admin seja configurado
+}
+
+// Verificar se o utilizador atual é administrador
+$stmt = $pdo->prepare("SELECT * FROM admin_users WHERE user_id = ?");
+$stmt->execute([$current_user_id]);
+$is_admin = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$is_admin) {
+    echo "<div class='alert alert-danger'>";
+    echo "<i class='bi bi-exclamation-triangle'></i> <strong>Acesso Negado</strong><br>";
+    echo "Esta área é restrita a administradores do sistema.";
+    echo "</div>";
+    return;
+}
+
+// ========================================
+// GESTÃO DE PERMISSÕES DE ADMINISTRADOR
+// ========================================
+
+$mensagem_admin = '';
+$erro_admin = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // ADICIONAR NOVO ADMINISTRADOR
+    if (isset($_POST['add_admin'])) {
+        $new_admin_id = (int)$_POST['new_admin_user_id'];
+        $new_admin_username = trim($_POST['new_admin_username']);
+        
+        if (!empty($new_admin_username) && $new_admin_id > 0) {
+            try {
+                $stmt = $pdo->prepare("INSERT INTO admin_users (user_id, username, added_by) VALUES (?, ?, ?)");
+                if ($stmt->execute([$new_admin_id, $new_admin_username, $current_user_id])) {
+                    $mensagem_admin = "✅ Administrador '$new_admin_username' adicionado com sucesso!";
+                }
+            } catch (Exception $e) {
+                $erro_admin = "❌ Erro: " . $e->getMessage();
+            }
+        } else {
+            $erro_admin = "❌ Preencha todos os campos.";
+        }
+    }
+    
+    // REMOVER ADMINISTRADOR
+    if (isset($_POST['remove_admin'])) {
+        $admin_id_to_remove = (int)$_POST['admin_id'];
+        
+        // Não permitir remover o último admin
+        if ($total_admins <= 1) {
+            $erro_admin = "❌ Não é possível remover o único administrador do sistema.";
+        } elseif ($admin_id_to_remove == $is_admin['id']) {
+            $erro_admin = "❌ Não pode remover a si próprio.";
+        } else {
+            $stmt = $pdo->prepare("DELETE FROM admin_users WHERE id = ?");
+            if ($stmt->execute([$admin_id_to_remove])) {
+                $mensagem_admin = "🗑️ Administrador removido com sucesso!";
+            }
+        }
+    }
+}
+
+// Obter lista de administradores
+$stmt = $pdo->query("
+    SELECT au.*, 
+           adder.username as added_by_username
+    FROM admin_users au
+    LEFT JOIN admin_users adder ON au.added_by = adder.user_id
+    ORDER BY au.added_at ASC
+");
+$all_admins = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Obter todos os utilizadores disponíveis para adicionar
+$stmt = $pdo->query("
+    SELECT DISTINCT user_id, username 
+    FROM user_tokens 
+    WHERE user_id NOT IN (SELECT user_id FROM admin_users)
+    ORDER BY username
+");
+$available_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+?>
+
+<div class="card mb-4 shadow-sm">
+    <div class="card-header" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;">
+        <h3 class="mb-0">
+            <i class="bi bi-shield-check"></i> Gestão de Permissões de Administrador
+        </h3>
+    </div>
+    <div class="card-body">
+        
+        <?php if ($mensagem_admin): ?>
+            <div class="alert alert-success alert-dismissible fade show">
+                <?= htmlspecialchars($mensagem_admin) ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+        
+        <?php if ($erro_admin): ?>
+            <div class="alert alert-danger alert-dismissible fade show">
+                <?= htmlspecialchars($erro_admin) ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+        
+        <div class="row">
+            <!-- LISTA DE ADMINISTRADORES -->
+            <div class="col-md-8">
+                <h5 class="border-bottom pb-2 mb-3">
+                    <i class="bi bi-people-fill"></i> Administradores Atuais
+                    <span class="badge bg-success"><?= count($all_admins) ?></span>
+                </h5>
+                
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>User ID</th>
+                                <th>Username</th>
+                                <th>Adicionado por</th>
+                                <th>Data</th>
+                                <th class="text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($all_admins as $admin): ?>
+                                <tr <?= $admin['user_id'] == $current_user_id ? 'class="table-primary"' : '' ?>>
+                                    <td><?= $admin['user_id'] ?></td>
+                                    <td>
+                                        <strong><?= htmlspecialchars($admin['username']) ?></strong>
+                                        <?php if ($admin['user_id'] == $current_user_id): ?>
+                                            <span class="badge bg-info">Você</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($admin['added_by_username']): ?>
+                                            <?= htmlspecialchars($admin['added_by_username']) ?>
+                                        <?php else: ?>
+                                            <em class="text-muted">Primeiro Admin</em>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td><?= date('d/m/Y H:i', strtotime($admin['added_at'])) ?></td>
+                                    <td class="text-center">
+                                        <?php if (count($all_admins) > 1 && $admin['user_id'] != $current_user_id): ?>
+                                            <form method="post" class="d-inline" onsubmit="return confirm('Remover este administrador?')">
+                                                <input type="hidden" name="admin_id" value="<?= $admin['id'] ?>">
+                                                <button type="submit" name="remove_admin" class="btn btn-sm btn-danger">
+                                                    <i class="bi bi-trash"></i> Remover
+                                                </button>
+                                            </form>
+                                        <?php else: ?>
+                                            <span class="text-muted">-</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- ADICIONAR NOVO ADMINISTRADOR -->
+            <div class="col-md-4">
+                <h5 class="border-bottom pb-2 mb-3">
+                    <i class="bi bi-person-plus"></i> Adicionar Administrador
+                </h5>
+                
+                <?php if (empty($available_users)): ?>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> Todos os utilizadores já são administradores.
+                    </div>
+                <?php else: ?>
+                    <form method="post">
+                        <div class="mb-3">
+                            <label class="form-label">Selecionar Utilizador:</label>
+                            <select name="new_admin_user_id" id="userSelect" class="form-select" required>
+                                <option value="">Escolher...</option>
+                                <?php foreach ($available_users as $user): ?>
+                                    <option value="<?= $user['user_id'] ?>" data-username="<?= htmlspecialchars($user['username']) ?>">
+                                        <?= htmlspecialchars($user['username']) ?> (ID: <?= $user['user_id'] ?>)
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        
+                        <input type="hidden" name="new_admin_username" id="selectedUsername">
+                        
+                        <button type="submit" name="add_admin" class="btn btn-success w-100">
+                            <i class="bi bi-plus-circle"></i> Adicionar Administrador
+                        </button>
+                    </form>
+                    
+                    <script>
+                    document.getElementById('userSelect').addEventListener('change', function() {
+                        const selectedOption = this.options[this.selectedIndex];
+                        document.getElementById('selectedUsername').value = selectedOption.dataset.username || '';
+                    });
+                    </script>
+                <?php endif; ?>
+                
+                <div class="alert alert-warning mt-3">
+                    <small>
+                        <i class="bi bi-exclamation-triangle"></i> 
+                        <strong>Atenção:</strong> Administradores têm acesso total ao sistema, incluindo gestão de utilizadores e base de dados.
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<?php
+
+// ========================================
+// GESTÃO DE UTILIZADORES LOCAIS
+// ========================================
+
+$mensagem_users = '';
+$erro_users = '';
+
+// Verificar se as colunas de autenticação local existem
+try {
+    $check_columns = $pdo->query("SHOW COLUMNS FROM user_tokens LIKE 'is_local_user'");
     $has_local_auth = $check_columns->rowCount() > 0;
 } catch (Exception $e) {
     $has_local_auth = false;
@@ -50,12 +306,10 @@ try {
 
 // Processar ações de utilizadores locais (se o sistema estiver instalado)
 if ($has_local_auth && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $pdo = conectarDB();
     
     // APROVAR UTILIZADOR
     if (isset($_POST['approve_user'])) {
         $user_id_to_approve = (int)$_POST['user_id'];
-        $admin_user_id = $_SESSION['user_id'];
         
         $stmt = $pdo->prepare("
             UPDATE user_tokens 
@@ -65,7 +319,7 @@ if ($has_local_auth && $_SERVER['REQUEST_METHOD'] === 'POST') {
             WHERE id = ? AND is_local_user = 1
         ");
         
-        if ($stmt->execute([$admin_user_id, $user_id_to_approve])) {
+        if ($stmt->execute([$current_user_id, $user_id_to_approve])) {
             $mensagem_users = "✅ Utilizador aprovado com sucesso!";
         } else {
             $erro_users = "❌ Erro ao aprovar utilizador.";
@@ -85,7 +339,7 @@ if ($has_local_auth && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
-    // BLOQUEAR UTILIZADOR (remover aprovação)
+    // BLOQUEAR UTILIZADOR
     if (isset($_POST['block_user'])) {
         $user_id_to_block = (int)$_POST['user_id'];
         
@@ -133,7 +387,6 @@ $approved_users = [];
 $login_stats = [];
 
 if ($has_local_auth) {
-    $pdo = conectarDB();
     
     // Obter utilizadores pendentes de aprovação
     $stmt = $pdo->query("
@@ -415,20 +668,21 @@ if ($has_local_auth):
     </div>
 </div>
 
-<hr class="my-5">
-
 <?php 
 endif; // Fim da interface de gestão de utilizadores locais
+?>
 
+<hr class="my-5">
+
+<?php
 // ========================================
 // RESTO DO CÓDIGO ORIGINAL DO ADMIN.PHP
 // ========================================
-?>
 
 // Processar ações
 $mensagem = '';
 $erro = '';
-$dbSelecionada = $_POST['db_selected'] ?? $_GET['db'] ?? $db_name; // Base de dados selecionada
+$dbSelecionada = $_POST['db_selected'] ?? $_GET['db'] ?? $db_name;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -440,6 +694,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $username = trim($_POST['new_username']);
             $token = trim($_POST['new_token']);
             
+            // Se o token estiver vazio, gerar automaticamente
             // Se o token estiver vazio, gerar automaticamente
             if (empty($token)) {
                 $token = bin2hex(random_bytes(32));

@@ -286,6 +286,127 @@ try {
     // Tabela já existe ou erro não crítico
 }
 
+// Tabela para ficheiros de projetos
+try {
+    $pdo->exec("
+    CREATE TABLE IF NOT EXISTS project_files (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        project_id INT NOT NULL,
+        file_name VARCHAR(255) NOT NULL,
+        file_path VARCHAR(500) NOT NULL,
+        file_size BIGINT NOT NULL,
+        uploaded_by INT,
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        INDEX idx_project (project_id),
+        INDEX idx_uploaded_by (uploaded_by)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+} catch (PDOException $e) {
+    // Tabela já existe
+}
+
+// PROCESSAR UPLOAD DE FICHEIROS
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload_project_file') {
+    @ini_set('upload_max_filesize', '300M');
+    @ini_set('post_max_size', '305M');
+    @ini_set('max_execution_time', '600');
+    @ini_set('memory_limit', '512M');
+    
+    header('Content-Type: application/json');
+    
+    $project_id = (int)$_POST['project_id'];
+    
+    if (isset($_FILES['file']) && $_FILES['file']['error'] === UPLOAD_ERR_OK) {
+        $max_file_size = 300 * 1024 * 1024;
+        $blocked_extensions = ['php', 'exe', 'sh', 'bat', 'phtml', 'php3', 'php4', 'php5', 'phps', 'pht', 'phar', 'cmd', 'com', 'scr', 'vbs', 'js', 'jar', 'msi'];
+        
+        $file_name = basename($_FILES['file']['name']);
+        $file_size = $_FILES['file']['size'];
+        $file_tmp = $_FILES['file']['tmp_name'];
+        $file_ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
+        
+        if ($file_size > $max_file_size) {
+            echo json_encode(['success' => false, 'error' => 'Ficheiro muito grande. Máximo 300MB']);
+            exit;
+        }
+        
+        if (in_array($file_ext, $blocked_extensions)) {
+            echo json_encode(['success' => false, 'error' => 'Tipo de ficheiro não permitido: .' . $file_ext]);
+            exit;
+        }
+        
+        if (!is_uploaded_file($file_tmp)) {
+            echo json_encode(['success' => false, 'error' => 'Ficheiro inválido']);
+            exit;
+        }
+        
+        $upload_dir = __DIR__ . '/../files/';
+        if (!is_dir($upload_dir)) {
+            mkdir($upload_dir, 0755, true);
+        }
+        
+        $new_name = uniqid() . '_' . time() . '.' . $file_ext;
+        $file_path = $upload_dir . $new_name;
+        
+        if (move_uploaded_file($file_tmp, $file_path)) {
+            try {
+                $stmt = $pdo->prepare('INSERT INTO project_files (project_id, file_name, file_path, file_size, uploaded_by) VALUES (?, ?, ?, ?, ?)');
+                $stmt->execute([
+                    $project_id,
+                    $file_name,
+                    'files/' . $new_name,
+                    $file_size,
+                    $_SESSION['user_id'] ?? null
+                ]);
+                
+                echo json_encode([
+                    'success' => true,
+                    'file_id' => $pdo->lastInsertId(),
+                    'file_name' => $file_name,
+                    'file_path' => 'files/' . $new_name,
+                    'file_size' => $file_size
+                ]);
+            } catch (PDOException $e) {
+                if (file_exists($file_path)) {
+                    unlink($file_path);
+                }
+                echo json_encode(['success' => false, 'error' => 'Erro ao guardar: ' . $e->getMessage()]);
+            }
+        } else {
+            echo json_encode(['success' => false, 'error' => 'Erro ao mover ficheiro']);
+        }
+    } else {
+        echo json_encode(['success' => false, 'error' => 'Nenhum ficheiro enviado']);
+    }
+    exit;
+}
+
+// PROCESSAR ELIMINAÇÃO DE FICHEIROS
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_project_file') {
+    header('Content-Type: application/json');
+    
+    $file_id = (int)$_POST['file_id'];
+    
+    $stmt = $pdo->prepare('SELECT * FROM project_files WHERE id = ?');
+    $stmt->execute([$file_id]);
+    $file = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($file) {
+        if (file_exists(__DIR__ . '/../' . $file['file_path'])) {
+            unlink(__DIR__ . '/../' . $file['file_path']);
+        }
+        
+        $stmt = $pdo->prepare('DELETE FROM project_files WHERE id = ?');
+        $stmt->execute([$file_id]);
+        
+        echo json_encode(['success' => true]);
+    } else {
+        echo json_encode(['success' => false, 'error' => 'Ficheiro não encontrado']);
+    }
+    exit;
+}
+
 // Processar ações
 $message = '';
 $messageType = 'info';
@@ -808,6 +929,46 @@ if (isset($_GET['project_id'])) {
     margin-bottom: 8px;
 }
 
+.file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    border-left: 3px solid #17a2b8;
+    transition: all 0.2s;
+}
+
+.file-item:hover {
+    background: #e9ecef;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.file-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.file-info i {
+    font-size: 20px;
+    color: #17a2b8;
+}
+
+.file-info a {
+    font-weight: 500;
+    color: #212529;
+    text-decoration: none;
+}
+
+.file-info a:hover {
+    color: #0d6efd;
+    text-decoration: underline;
+}
+
 .member-item {
     display: flex;
     justify-content: space-between;
@@ -1085,6 +1246,67 @@ if (isset($_GET['project_id'])) {
                             </div>
                         <?php endforeach; ?>
                     <?php endif; ?>
+                </div>
+
+                <!-- Ficheiros Anexados -->
+                <div class="detail-section">
+                    <div class="section-title">
+                        <span><i class="bi bi-paperclip"></i> Ficheiros Anexados</span>
+                    </div>
+                    
+                    <!-- Upload de Ficheiro -->
+                    <div class="mb-3">
+                        <input type="file" id="project-file-upload" style="display:none" onchange="uploadProjectFile(<?= $selectedProject['id'] ?>)">
+                        <button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById('project-file-upload').click()">
+                            <i class="bi bi-upload"></i> Adicionar Ficheiro
+                        </button>
+                        <span id="upload-status" class="ms-2 text-muted"></span>
+                    </div>
+                    
+                    <!-- Lista de Ficheiros -->
+                    <div id="project-files-list">
+                        <?php
+                        // Buscar ficheiros do projeto
+                        try {
+                            $stmt = $pdo->prepare('SELECT pf.*, ut.username FROM project_files pf LEFT JOIN user_tokens ut ON pf.uploaded_by = ut.user_id WHERE pf.project_id = ? ORDER BY pf.uploaded_at DESC');
+                            $stmt->execute([$selectedProject['id']]);
+                            $project_files = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                            
+                            if (count($project_files) > 0):
+                        ?>
+                            <?php foreach ($project_files as $file): ?>
+                                <div class="file-item" id="project-file-<?= $file['id'] ?>">
+                                    <div class="file-info">
+                                        <i class="bi bi-file-earmark"></i>
+                                        <a href="<?= htmlspecialchars($file['file_path']) ?>" target="_blank">
+                                            <?= htmlspecialchars($file['file_name']) ?>
+                                        </a>
+                                        <small class="text-muted ms-2">
+                                            (<?= number_format($file['file_size'] / 1024, 0) ?> KB)
+                                            <?php if ($file['username']): ?>
+                                                - por <?= htmlspecialchars($file['username']) ?>
+                                            <?php endif; ?>
+                                            - <?= date('d/m/Y H:i', strtotime($file['uploaded_at'])) ?>
+                                        </small>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteProjectFile(<?= $file['id'] ?>)">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php 
+                            else:
+                        ?>
+                            <p class="text-muted" id="no-files-message">
+                                <i class="bi bi-info-circle"></i> Nenhum ficheiro adicionado ainda
+                            </p>
+                        <?php 
+                            endif;
+                        } catch (PDOException $e) {
+                            echo '<p class="text-danger">Erro ao carregar ficheiros</p>';
+                        }
+                        ?>
+                    </div>
                 </div>
 
                 <!-- Equipa -->
@@ -1935,3 +2157,111 @@ function manageDeliverableTasks(deliverableId, deliverableTitle) {
 }
 </script>
 <?php endif; ?>
+
+<script>
+// ============ FUNÇÕES DE UPLOAD/DELETE DE FICHEIROS DO PROJETO ============
+
+function uploadProjectFile(projectId) {
+    const fileInput = document.getElementById('project-file-upload');
+    const file = fileInput.files[0];
+    const statusSpan = document.getElementById('upload-status');
+    
+    if (!file) {
+        return;
+    }
+    
+    // Validar tamanho (300MB)
+    if (file.size > 300 * 1024 * 1024) {
+        statusSpan.innerHTML = '<i class="bi bi-x-circle"></i> Ficheiro muito grande (máx 300MB)';
+        statusSpan.className = 'ms-2 text-danger';
+        fileInput.value = '';
+        return;
+    }
+    
+    // Mostrar progresso
+    statusSpan.innerHTML = '<span class="spinner-border spinner-border-sm"></span> A enviar...';
+    statusSpan.className = 'ms-2 text-primary';
+    
+    const formData = new FormData();
+    formData.append('action', 'upload_project_file');
+    formData.append('project_id', projectId);
+    formData.append('file', file);
+    
+    fetch(window.location.href, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            statusSpan.innerHTML = '<i class="bi bi-check-circle"></i> Ficheiro adicionado!';
+            statusSpan.className = 'ms-2 text-success';
+            
+            // Limpar input
+            fileInput.value = '';
+            
+            // Recarregar a página após 1 segundo
+            setTimeout(() => {
+                location.reload();
+            }, 1000);
+        } else {
+            statusSpan.innerHTML = '<i class="bi bi-x-circle"></i> Erro: ' + (data.error || 'Erro desconhecido');
+            statusSpan.className = 'ms-2 text-danger';
+            fileInput.value = '';
+        }
+    })
+    .catch(err => {
+        statusSpan.innerHTML = '<i class="bi bi-x-circle"></i> Erro de rede';
+        statusSpan.className = 'ms-2 text-danger';
+        fileInput.value = '';
+        console.error('Erro:', err);
+    });
+}
+
+function deleteProjectFile(fileId) {
+    if (!confirm('Tem certeza que deseja eliminar este ficheiro?')) {
+        return;
+    }
+    
+    const fileElement = document.getElementById(`project-file-${fileId}`);
+    if (fileElement) {
+        fileElement.style.opacity = '0.5';
+    }
+    
+    const formData = new FormData();
+    formData.append('action', 'delete_project_file');
+    formData.append('file_id', fileId);
+    
+    fetch(window.location.href, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            if (fileElement) {
+                fileElement.remove();
+            }
+            
+            // Verificar se não há mais ficheiros e mostrar mensagem
+            const filesList = document.getElementById('project-files-list');
+            const remainingFiles = filesList.querySelectorAll('.file-item');
+            if (remainingFiles.length === 0) {
+                filesList.innerHTML = '<p class="text-muted" id="no-files-message"><i class="bi bi-info-circle"></i> Nenhum ficheiro adicionado ainda</p>';
+            }
+        } else {
+            alert('Erro ao eliminar ficheiro: ' + (data.error || 'Erro desconhecido'));
+            if (fileElement) {
+                fileElement.style.opacity = '1';
+            }
+        }
+    })
+    .catch(err => {
+        alert('Erro de rede ao eliminar ficheiro');
+        if (fileElement) {
+            fileElement.style.opacity = '1';
+        }
+        console.error('Erro:', err);
+    });
+}
+</script>

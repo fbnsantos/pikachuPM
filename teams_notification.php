@@ -1,5 +1,23 @@
 <?php
 /**
+ * Converte cor hex para cor do Adaptive Card
+ */
+function getAdaptiveCardColor($hexColor) {
+    switch ($hexColor) {
+        case '28a745': // Verde
+            return 'Good';
+        case 'dc3545': // Vermelho  
+            return 'Attention';
+        case '007bff': // Azul
+            return 'Accent';
+        case 'ffc107': // Amarelo
+            return 'Warning';
+        default:
+            return 'Default';
+    }
+}
+
+/**
  * Integração Microsoft Teams - Notificações de Reunião
  * 
  * Este arquivo envia notificações para o canal Microsoft Teams
@@ -182,45 +200,58 @@ function prepareGenericNotification($tipo, $dados, $timestamp, $username) {
 function sendToTeams($notification) {
     global $POWER_AUTOMATE_URL;
     
-    // Preparar payload para o Power Automate
+    // Preparar payload no formato Adaptive Card (corrigido)
     $payload = [
-        '@type' => 'MessageCard',
-        '@context' => 'http://schema.org/extensions',
-        'themeColor' => $notification['color'],
-        'summary' => $notification['summary'],
-        'sections' => [
+        'type' => 'AdaptiveCard',
+        'version' => '1.3',
+        'body' => [
             [
-                'activityTitle' => $notification['title'],
-                'activitySubtitle' => $notification['summary'],
-                'activityImage' => 'https://cdn-icons-png.flaticon.com/512/906/906334.png', // Ícone de reunião
-                'facts' => [
-                    [
-                        'name' => 'Detalhes',
-                        'value' => $notification['details']
-                    ]
-                ],
-                'markdown' => true
+                'type' => 'TextBlock',
+                'text' => $notification['title'],
+                'weight' => 'Bolder',
+                'size' => 'Large',
+                'color' => getAdaptiveCardColor($notification['color'])
+            ],
+            [
+                'type' => 'TextBlock',
+                'text' => $notification['summary'],
+                'wrap' => true,
+                'spacing' => 'Small'
             ]
         ]
     ];
     
+    // Adicionar detalhes se existirem
+    if (!empty($notification['details'])) {
+        $payload['body'][] = [
+            'type' => 'TextBlock',
+            'text' => $notification['details'],
+            'wrap' => true,
+            'spacing' => 'Medium',
+            'fontType' => 'Monospace',
+            'size' => 'Small'
+        ];
+    }
+    
     // Adicionar frase motivacional se existir
     if (!empty($notification['motivational'])) {
-        $payload['sections'][0]['text'] = $notification['motivational'];
+        $payload['body'][] = [
+            'type' => 'TextBlock',
+            'text' => $notification['motivational'],
+            'wrap' => true,
+            'spacing' => 'Medium',
+            'weight' => 'Bolder',
+            'color' => 'Good'
+        ];
     }
     
     // Adicionar botões de ação para notificação de reunião iniciada
     if ($notification['type'] === 'meeting_started') {
-        $payload['potentialAction'] = [
+        $payload['actions'] = [
             [
-                '@type' => 'OpenUri',
-                'name' => '🔗 Ir para Reunião',
-                'targets' => [
-                    [
-                        'os' => 'default',
-                        'uri' => getCurrentPageUrl() . '?tab=equipa'
-                    ]
-                ]
+                'type' => 'Action.OpenUrl',
+                'title' => '🔗 Ir para Reunião',
+                'url' => getCurrentPageUrl() . '?tab=equipa'
             ]
         ];
     }

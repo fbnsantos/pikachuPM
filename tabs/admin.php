@@ -16,6 +16,13 @@ if ($_SESSION['username'] !== 'fbsantos' && $_SESSION['user_id'] != 1) {
 
 include_once __DIR__ . '/../config.php';
 
+// ========================================
+// GESTÃO DE UTILIZADORES LOCAIS
+// ========================================
+
+$mensagem_users = '';
+$erro_users = '';
+
 // Função para conectar à base de dados
 function conectarDB($dbName = null) {
     global $db_host, $db_name, $db_name_boom, $db_user, $db_pass;
@@ -31,6 +38,392 @@ function conectarDB($dbName = null) {
         throw new Exception("Erro de conexão com $database: " . $e->getMessage());
     }
 }
+
+// Verificar se as colunas de autenticação local existem
+$pdo_check = conectarDB();
+try {
+    $check_columns = $pdo_check->query("SHOW COLUMNS FROM user_tokens LIKE 'is_local_user'");
+    $has_local_auth = $check_columns->rowCount() > 0;
+} catch (Exception $e) {
+    $has_local_auth = false;
+}
+
+// Processar ações de utilizadores locais (se o sistema estiver instalado)
+if ($has_local_auth && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $pdo = conectarDB();
+    
+    // APROVAR UTILIZADOR
+    if (isset($_POST['approve_user'])) {
+        $user_id_to_approve = (int)$_POST['user_id'];
+        $admin_user_id = $_SESSION['user_id'];
+        
+        $stmt = $pdo->prepare("
+            UPDATE user_tokens 
+            SET is_approved = 1, 
+                approved_by = ?, 
+                approved_at = NOW() 
+            WHERE id = ? AND is_local_user = 1
+        ");
+        
+        if ($stmt->execute([$admin_user_id, $user_id_to_approve])) {
+            $mensagem_users = "✅ Utilizador aprovado com sucesso!";
+        } else {
+            $erro_users = "❌ Erro ao aprovar utilizador.";
+        }
+    }
+    
+    // REJEITAR/ELIMINAR UTILIZADOR
+    if (isset($_POST['reject_user'])) {
+        $user_id_to_reject = (int)$_POST['user_id'];
+        
+        $stmt = $pdo->prepare("DELETE FROM user_tokens WHERE id = ? AND is_local_user = 1");
+        
+        if ($stmt->execute([$user_id_to_reject])) {
+            $mensagem_users = "🗑️ Utilizador eliminado com sucesso!";
+        } else {
+            $erro_users = "❌ Erro ao eliminar utilizador.";
+        }
+    }
+    
+    // BLOQUEAR UTILIZADOR (remover aprovação)
+    if (isset($_POST['block_user'])) {
+        $user_id_to_block = (int)$_POST['user_id'];
+        
+        $stmt = $pdo->prepare("
+            UPDATE user_tokens 
+            SET is_approved = 0 
+            WHERE id = ? AND is_local_user = 1
+        ");
+        
+        if ($stmt->execute([$user_id_to_block])) {
+            $mensagem_users = "🔒 Utilizador bloqueado com sucesso!";
+        } else {
+            $erro_users = "❌ Erro ao bloquear utilizador.";
+        }
+    }
+    
+    // RESET PASSWORD
+    if (isset($_POST['reset_password'])) {
+        $user_id_to_reset = (int)$_POST['user_id'];
+        $new_password = $_POST['new_password'];
+        
+        if (strlen($new_password) >= 6) {
+            $password_hash = password_hash($new_password, PASSWORD_BCRYPT);
+            
+            $stmt = $pdo->prepare("
+                UPDATE user_tokens 
+                SET password_hash = ? 
+                WHERE id = ? AND is_local_user = 1
+            ");
+            
+            if ($stmt->execute([$password_hash, $user_id_to_reset])) {
+                $mensagem_users = "🔑 Password alterada com sucesso!";
+            } else {
+                $erro_users = "❌ Erro ao alterar password.";
+            }
+        } else {
+            $erro_users = "❌ Password deve ter pelo menos 6 caracteres.";
+        }
+    }
+}
+
+// Obter dados de utilizadores locais (se o sistema estiver instalado)
+$pending_users = [];
+$approved_users = [];
+$login_stats = [];
+
+if ($has_local_auth) {
+    $pdo = conectarDB();
+    
+    // Obter utilizadores pendentes de aprovação
+    $stmt = $pdo->query("
+        SELECT * FROM user_tokens 
+        WHERE is_local_user = 1 AND is_approved = 0 
+        ORDER BY created_at DESC
+    ");
+    $pending_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Obter utilizadores aprovados
+    $stmt = $pdo->query("
+        SELECT ut.*, 
+               approver.username as approved_by_username
+        FROM user_tokens ut
+        LEFT JOIN user_tokens approver ON ut.approved_by = approver.user_id
+        WHERE ut.is_local_user = 1 AND ut.is_approved = 1 
+        ORDER BY ut.created_at DESC
+    ");
+    $approved_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Obter estatísticas de login (se a tabela existir)
+    try {
+        $stmt = $pdo->query("
+            SELECT 
+                COUNT(DISTINCT username) as total_users,
+                COUNT(*) as total_attempts,
+                SUM(success) as successful_logins,
+                DATE(attempted_at) as login_date
+            FROM login_attempts 
+            WHERE attempted_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
+            GROUP BY DATE(attempted_at)
+            ORDER BY login_date DESC
+            LIMIT 7
+        ");
+        $login_stats = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        $login_stats = [];
+    }
+}
+
+// Exibir interface de gestão de utilizadores se o sistema estiver instalado
+if ($has_local_auth):
+?>
+
+<div class="card mb-4 shadow-sm">
+    <div class="card-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+        <h3 class="mb-0">
+            <i class="bi bi-people-fill"></i> Gestão de Utilizadores Locais
+        </h3>
+    </div>
+    <div class="card-body">
+        
+        <?php if ($mensagem_users): ?>
+            <div class="alert alert-success alert-dismissible fade show">
+                <?= htmlspecialchars($mensagem_users) ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+        
+        <?php if ($erro_users): ?>
+            <div class="alert alert-danger alert-dismissible fade show">
+                <?= htmlspecialchars($erro_users) ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+        
+        <!-- UTILIZADORES PENDENTES DE APROVAÇÃO -->
+        <div class="mb-4">
+            <h4 class="border-bottom pb-2">
+                <i class="bi bi-hourglass-split"></i> Pendentes de Aprovação
+                <span class="badge bg-warning text-dark"><?= count($pending_users) ?></span>
+            </h4>
+            
+            <?php if (empty($pending_users)): ?>
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> Nenhum utilizador pendente de aprovação.
+                </div>
+            <?php else: ?>
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th>
+                                <th>Nome</th>
+                                <th>Username</th>
+                                <th>Email</th>
+                                <th>Registado em</th>
+                                <th class="text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($pending_users as $user): ?>
+                                <tr>
+                                    <td><?= $user['user_id'] ?></td>
+                                    <td><?= htmlspecialchars($user['full_name'] ?? 'N/A') ?></td>
+                                    <td>
+                                        <strong><?= htmlspecialchars($user['username']) ?></strong>
+                                    </td>
+                                    <td><?= htmlspecialchars($user['email'] ?? 'N/A') ?></td>
+                                    <td><?= date('d/m/Y H:i', strtotime($user['created_at'])) ?></td>
+                                    <td class="text-center">
+                                        <form method="post" class="d-inline" onsubmit="return confirm('Aprovar este utilizador?')">
+                                            <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
+                                            <button type="submit" name="approve_user" class="btn btn-sm btn-success" title="Aprovar">
+                                                <i class="bi bi-check-circle"></i> Aprovar
+                                            </button>
+                                        </form>
+                                        
+                                        <form method="post" class="d-inline" onsubmit="return confirm('Eliminar este utilizador?')">
+                                            <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
+                                            <button type="submit" name="reject_user" class="btn btn-sm btn-danger" title="Eliminar">
+                                                <i class="bi bi-trash"></i> Eliminar
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </div>
+        
+        <!-- UTILIZADORES APROVADOS -->
+        <div class="mb-4">
+            <h4 class="border-bottom pb-2">
+                <i class="bi bi-check-circle-fill"></i> Utilizadores Aprovados
+                <span class="badge bg-success"><?= count($approved_users) ?></span>
+            </h4>
+            
+            <?php if (empty($approved_users)): ?>
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> Nenhum utilizador aprovado ainda.
+                </div>
+            <?php else: ?>
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm">
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th>
+                                <th>Username</th>
+                                <th>Nome/Email</th>
+                                <th>Aprovado</th>
+                                <th>Último Login</th>
+                                <th class="text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($approved_users as $user): ?>
+                                <tr>
+                                    <td><?= $user['user_id'] ?></td>
+                                    <td>
+                                        <strong><?= htmlspecialchars($user['username']) ?></strong>
+                                    </td>
+                                    <td>
+                                        <?= htmlspecialchars($user['full_name'] ?? 'N/A') ?>
+                                        <br><small class="text-muted"><?= htmlspecialchars($user['email'] ?? '') ?></small>
+                                    </td>
+                                    <td>
+                                        <small>
+                                            <?= $user['approved_by_username'] ? htmlspecialchars($user['approved_by_username']) : 'Auto' ?>
+                                            <?= $user['approved_at'] ? '<br>' . date('d/m/Y', strtotime($user['approved_at'])) : '' ?>
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <?php if ($user['last_login']): ?>
+                                            <small><?= date('d/m/Y H:i', strtotime($user['last_login'])) ?></small>
+                                        <?php else: ?>
+                                            <span class="text-muted">Nunca</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="text-center">
+                                        <!-- Botão para Reset Password -->
+                                        <button type="button" class="btn btn-sm btn-warning" 
+                                                data-bs-toggle="modal" 
+                                                data-bs-target="#resetPasswordModal<?= $user['id'] ?>"
+                                                title="Reset Password">
+                                            <i class="bi bi-key"></i>
+                                        </button>
+                                        
+                                        <!-- Botão para Bloquear -->
+                                        <form method="post" class="d-inline" onsubmit="return confirm('Bloquear este utilizador?')">
+                                            <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
+                                            <button type="submit" name="block_user" class="btn btn-sm btn-secondary" title="Bloquear">
+                                                <i class="bi bi-lock"></i>
+                                            </button>
+                                        </form>
+                                        
+                                        <!-- Botão para Eliminar -->
+                                        <form method="post" class="d-inline" onsubmit="return confirm('ATENÇÃO: Eliminar permanentemente?')">
+                                            <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
+                                            <button type="submit" name="reject_user" class="btn btn-sm btn-danger" title="Eliminar">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </form>
+                                        
+                                        <!-- Modal Reset Password -->
+                                        <div class="modal fade" id="resetPasswordModal<?= $user['id'] ?>" tabindex="-1">
+                                            <div class="modal-dialog">
+                                                <div class="modal-content">
+                                                    <div class="modal-header">
+                                                        <h5 class="modal-title">Reset Password - <?= htmlspecialchars($user['username']) ?></h5>
+                                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                    </div>
+                                                    <form method="post">
+                                                        <div class="modal-body">
+                                                            <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
+                                                            <div class="mb-3">
+                                                                <label class="form-label">Nova Password:</label>
+                                                                <input type="password" name="new_password" class="form-control" 
+                                                                       minlength="6" required>
+                                                                <small class="text-muted">Mínimo 6 caracteres</small>
+                                                            </div>
+                                                        </div>
+                                                        <div class="modal-footer">
+                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                            <button type="submit" name="reset_password" class="btn btn-primary">
+                                                                <i class="bi bi-check"></i> Alterar Password
+                                                            </button>
+                                                        </div>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </div>
+        
+        <!-- ESTATÍSTICAS DE LOGIN -->
+        <?php if (!empty($login_stats)): ?>
+        <div class="mb-4">
+            <h4 class="border-bottom pb-2">
+                <i class="bi bi-graph-up"></i> Estatísticas de Login (Últimos 7 dias)
+            </h4>
+            
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Data</th>
+                            <th>Utilizadores</th>
+                            <th>Tentativas</th>
+                            <th>Sucessos</th>
+                            <th>Taxa</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($login_stats as $stat): ?>
+                            <?php
+                            $taxa_sucesso = $stat['total_attempts'] > 0 
+                                ? round(($stat['successful_logins'] / $stat['total_attempts']) * 100, 1) 
+                                : 0;
+                            ?>
+                            <tr>
+                                <td><?= date('d/m/Y', strtotime($stat['login_date'])) ?></td>
+                                <td><?= $stat['total_users'] ?></td>
+                                <td><?= $stat['total_attempts'] ?></td>
+                                <td><?= $stat['successful_logins'] ?></td>
+                                <td>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar <?= $taxa_sucesso > 80 ? 'bg-success' : ($taxa_sucesso > 50 ? 'bg-warning' : 'bg-danger') ?>" 
+                                             style="width: <?= $taxa_sucesso ?>%">
+                                            <?= $taxa_sucesso ?>%
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <?php endif; ?>
+    </div>
+</div>
+
+<hr class="my-5">
+
+<?php 
+endif; // Fim da interface de gestão de utilizadores locais
+
+// ========================================
+// RESTO DO CÓDIGO ORIGINAL DO ADMIN.PHP
+// ========================================
+?>
 
 // Processar ações
 $mensagem = '';

@@ -42,7 +42,8 @@ $tabs = [
         'label' => 'Old',
         'submenu' => [
             'search' => 'Search Redmine',
-            'search1' => 'Search Redmine'
+            'contactos_comerciais' => 'Contactos Comerciais',
+            'financeiro' => 'Financeiro'
         ]
     ],
     'admin' => 'Administration',

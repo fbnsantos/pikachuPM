@@ -829,6 +829,114 @@ $table_definitions = [
           CONSTRAINT `task_files_ibfk_1` FOREIGN KEY (`todo_id`) REFERENCES `todos` (`id`) ON DELETE CASCADE,
           CONSTRAINT `task_files_ibfk_2` FOREIGN KEY (`uploaded_by`) REFERENCES `user_tokens` (`user_id`) ON DELETE CASCADE
         ) ENGINE=InnoDB AUTO_INCREMENT=100 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ",
+    
+    // === TABELAS DE CONTACTOS COMERCIAIS ===
+    'comercial_contactos' => "
+        CREATE TABLE `comercial_contactos` (
+          `id` int NOT NULL AUTO_INCREMENT,
+          `tipo` enum('cliente','fornecedor','parceiro','outro') COLLATE utf8mb4_unicode_ci DEFAULT 'cliente',
+          `empresa` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+          `pessoa_contacto` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `cargo` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `telefone` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `telemovel` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `website` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `morada` text COLLATE utf8mb4_unicode_ci,
+          `cidade` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `pais` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT 'Portugal',
+          `codigo_postal` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `nif` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `notas` text COLLATE utf8mb4_unicode_ci,
+          `tags` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `estado` enum('ativo','inativo','potencial') COLLATE utf8mb4_unicode_ci DEFAULT 'ativo',
+          `criado_por` int DEFAULT NULL,
+          `criado_em` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+          `atualizado_em` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          KEY `idx_tipo` (`tipo`),
+          KEY `idx_empresa` (`empresa`),
+          KEY `idx_estado` (`estado`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ",
+    
+    'comercial_interacoes' => "
+        CREATE TABLE `comercial_interacoes` (
+          `id` int NOT NULL AUTO_INCREMENT,
+          `contacto_id` int NOT NULL,
+          `tipo` enum('reuniao','email','telefone','proposta','negociacao','outro') COLLATE utf8mb4_unicode_ci DEFAULT 'outro',
+          `assunto` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+          `descricao` text COLLATE utf8mb4_unicode_ci,
+          `data_interacao` datetime NOT NULL,
+          `proximo_followup` date DEFAULT NULL,
+          `user_id` int NOT NULL,
+          `criado_em` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          KEY `idx_contacto` (`contacto_id`),
+          KEY `idx_data` (`data_interacao`),
+          KEY `idx_user` (`user_id`),
+          CONSTRAINT `comercial_interacoes_ibfk_1` FOREIGN KEY (`contacto_id`) REFERENCES `comercial_contactos` (`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ",
+    
+    // === TABELAS DE GESTÃO FINANCEIRA ===
+    'financeiro_categorias' => "
+        CREATE TABLE `financeiro_categorias` (
+          `id` int NOT NULL AUTO_INCREMENT,
+          `nome` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+          `tipo` enum('receita','despesa') COLLATE utf8mb4_unicode_ci NOT NULL,
+          `cor` varchar(7) COLLATE utf8mb4_unicode_ci DEFAULT '#6c757d',
+          `icone` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `ativa` tinyint(1) DEFAULT '1',
+          `criado_em` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          UNIQUE KEY `unique_nome_tipo` (`nome`,`tipo`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ",
+    
+    'financeiro_transacoes' => "
+        CREATE TABLE `financeiro_transacoes` (
+          `id` int NOT NULL AUTO_INCREMENT,
+          `tipo` enum('receita','despesa') COLLATE utf8mb4_unicode_ci NOT NULL,
+          `categoria_id` int DEFAULT NULL,
+          `valor` decimal(15,2) NOT NULL,
+          `descricao` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+          `detalhes` text COLLATE utf8mb4_unicode_ci,
+          `data_transacao` date NOT NULL,
+          `data_vencimento` date DEFAULT NULL,
+          `estado` enum('pendente','pago','cancelado') COLLATE utf8mb4_unicode_ci DEFAULT 'pago',
+          `metodo_pagamento` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `referencia` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `fornecedor_cliente` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `nif` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `projeto_id` int DEFAULT NULL,
+          `anexo_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `criado_por` int NOT NULL,
+          `criado_em` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+          `atualizado_em` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          KEY `idx_tipo` (`tipo`),
+          KEY `idx_data` (`data_transacao`),
+          KEY `idx_estado` (`estado`),
+          KEY `idx_categoria` (`categoria_id`),
+          CONSTRAINT `financeiro_transacoes_ibfk_1` FOREIGN KEY (`categoria_id`) REFERENCES `financeiro_categorias` (`id`) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ",
+    
+    'financeiro_orcamentos' => "
+        CREATE TABLE `financeiro_orcamentos` (
+          `id` int NOT NULL AUTO_INCREMENT,
+          `ano` int NOT NULL,
+          `categoria_id` int NOT NULL,
+          `valor_mensal` decimal(15,2) NOT NULL,
+          `notas` text COLLATE utf8mb4_unicode_ci,
+          `criado_em` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          UNIQUE KEY `unique_ano_categoria` (`ano`,`categoria_id`),
+          KEY `fk_categoria` (`categoria_id`),
+          CONSTRAINT `financeiro_orcamentos_ibfk_1` FOREIGN KEY (`categoria_id`) REFERENCES `financeiro_categorias` (`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     "
 ];
 

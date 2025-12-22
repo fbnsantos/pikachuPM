@@ -17,3 +17,7 @@ jobs:
     - name: Trigger PHP Script via cURL
       run: 
        curl -X GET "http://criis-projects.inesctec.pt/pikachu/pikachuPM/git.php?dbhost=${{ secrets.DB_HOST }}"
+  
+    - name: Trigger Git for Vifield
+      run: |
+        curl -X GET "https://vifield.com/PK/git.php?dbhost=${{ secrets.DB_HOST }}"

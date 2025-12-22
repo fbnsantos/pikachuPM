@@ -6,7 +6,7 @@ if (session_status() === PHP_SESSION_NONE) {
 include_once __DIR__ . '/../config.php';
 
 // ===== INTEGRAÇÃO MICROSOFT TEAMS =====
-//include_once __DIR__ . '/../teams_notification.php';
+include_once __DIR__ . '/../teams_notification.php';
 
 // Verificar e criar base de dados SQLite e tabelas, se necessário
 $db_path = __DIR__ . '/../equipa2.sqlite';

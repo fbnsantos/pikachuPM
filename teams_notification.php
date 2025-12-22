@@ -443,7 +443,9 @@ function notifyMeetingEnded($duracao = null) {
 }
 
 // ===== PÁGINA DE TESTE E CONFIGURAÇÃO =====
-if (!isset($_GET['action']) && !isset($_POST['teams_action'])) {
+//if (!isset($_GET['action']) && !isset($_POST['teams_action'])) {
+    // ===== PÁGINA DE TESTE E CONFIGURAÇÃO =====
+if (!isset($_GET['action']) && !isset($_POST['teams_action']) && basename($_SERVER['SCRIPT_NAME']) === 'teams_notification.php') {  
     ?>
     <!DOCTYPE html>
     <html lang="pt">

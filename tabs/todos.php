@@ -23,6 +23,12 @@ $user_id = $_SESSION['user_id'];
 $success_message = '';
 $error_message = '';
 
+// Verificar mensagem de sucesso da sessão (após redirect)
+if (isset($_SESSION['success_message'])) {
+    $success_message = $_SESSION['success_message'];
+    unset($_SESSION['success_message']);
+}
+
 // Obter todos os utilizadores
 $all_users = [];
 $stmt = $db->prepare('SELECT user_id, username FROM user_tokens ORDER BY username');
@@ -102,11 +108,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bind_param('sssiss', $titulo, $descritivo, $data_limite, $user_id, $responsavel, $estado);
             
             if ($stmt->execute()) {
-                $success_message = '✅ Tarefa adicionada com sucesso!';
+                $stmt->close();
+                // IMPORTANTE: Redirect para evitar POST duplicado (PRG Pattern)
+                $_SESSION['success_message'] = '✅ Tarefa adicionada com sucesso!';
+                header('Location: ' . $_SERVER['PHP_SELF'] . '?tab=todos&view=' . $view_mode);
+                exit;
             } else {
                 $error_message = '❌ Erro ao adicionar tarefa.';
+                $stmt->close();
             }
-            $stmt->close();
         }
     }
     
@@ -1339,8 +1349,27 @@ document.addEventListener('DOMContentLoaded', function() {
                     })
                     .then(data => {
                         if (data.success) {
-                            // Sucesso - recarregar página
-                            location.reload();
+                            // Sucesso - Mover visualmente SEM recarregar
+                            // 1. Atualizar o data-estado do card
+                            draggedCard.dataset.estado = newEstado;
+                            
+                            // 2. Mover o card para a nova coluna
+                            this.appendChild(draggedCard);
+                            
+                            // 3. Restaurar opacidade
+                            draggedCard.style.opacity = '1';
+                            
+                            // 4. Feedback visual temporário
+                            const badge = draggedCard.querySelector('.badge');
+                            if (badge) {
+                                badge.classList.add('animate__animated', 'animate__pulse');
+                                setTimeout(() => {
+                                    badge.classList.remove('animate__animated', 'animate__pulse');
+                                }, 1000);
+                            }
+                            
+                            // 5. Mostrar notificação success
+                            console.log('✅ Tarefa movida com sucesso!');
                         } else {
                             // Erro retornado pela API
                             alert('Erro ao mover tarefa: ' + (data.error || 'Erro desconhecido'));

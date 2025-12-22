@@ -41,12 +41,8 @@ $tabs = [
     'old' => [
         'label' => 'Old',
         'submenu' => [
-            'prototypes' => 'Prototypes_v1',
-            'projecto' => 'Projects_1',
             'search' => 'Search Redmine',
-            'oportunidades' => 'Leads',
-            'milestone' => 'Milestones'
-            
+            'search1' => 'Search Redmine'
         ]
     ],
     'admin' => 'Administration',

@@ -84,22 +84,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $modo === 'registar') {
         if ($stmt->fetch()) {
             $erro = "Nome de utilizador ou email já está registado.";
         } else {
+            // Verificar se é o primeiro utilizador local
+            $stmt = $pdo->query("SELECT COUNT(*) as total FROM user_tokens WHERE is_local_user = 1");
+            $total_local_users = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+            $is_first_user = ($total_local_users == 0);
+            
             // Obter o próximo user_id disponível
             $stmt = $pdo->query("SELECT COALESCE(MAX(user_id), 0) + 1 as next_id FROM user_tokens");
             $next_user_id = $stmt->fetch(PDO::FETCH_ASSOC)['next_id'];
             
-            // Criar conta local (pendente de aprovação)
+            // Se for o primeiro utilizador, aprovar automaticamente
+            $is_approved = $is_first_user ? 1 : 0;
+            
+            // Criar conta local
             $password_hash = password_hash($password, PASSWORD_BCRYPT);
             $token = bin2hex(random_bytes(32));
             
             $stmt = $pdo->prepare("
                 INSERT INTO user_tokens 
-                (user_id, username, token, password_hash, is_local_user, is_approved, email, full_name) 
-                VALUES (?, ?, ?, ?, 1, 0, ?, ?)
+                (user_id, username, token, password_hash, is_local_user, is_approved, email, full_name, approved_at) 
+                VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
             ");
             
-            if ($stmt->execute([$next_user_id, $username, $token, $password_hash, $email, $full_name])) {
-                $sucesso = "Registo realizado com sucesso! A sua conta está pendente de aprovação por um administrador.";
+            $approved_at = $is_first_user ? date('Y-m-d H:i:s') : null;
+            
+            if ($stmt->execute([$next_user_id, $username, $token, $password_hash, $is_approved, $email, $full_name, $approved_at])) {
+                if ($is_first_user) {
+                    $sucesso = "Registo realizado com sucesso! Você é o primeiro utilizador e foi automaticamente aprovado. Pode fazer login agora.";
+                } else {
+                    $sucesso = "Registo realizado com sucesso! A sua conta está pendente de aprovação por um administrador.";
+                }
                 $modo = 'login';
             } else {
                 $erro = "Erro ao criar conta. Tente novamente.";

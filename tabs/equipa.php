@@ -5,6 +5,9 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include_once __DIR__ . '/../config.php';
 
+// ===== INTEGRAÇÃO MICROSOFT TEAMS =====
+include_once __DIR__ . '/../teams_notification.php';
+
 // Verificar e criar base de dados SQLite e tabelas, se necessário
 $db_path = __DIR__ . '/../equipa2.sqlite';
 $nova_base_dados = !file_exists($db_path);
@@ -603,7 +606,7 @@ $em_reuniao = $_SESSION['em_reuniao'];
 $oradores = $_SESSION['oradores'];
 $orador_atual = $_SESSION['orador_atual'];
 
-// Processar ações de gestão de gestores
+// Processar acções de gestão de gestores
 if (isset($_POST['gerar_gestores_aleatorios'])) {
     try {
         $membros_ativos = $db->query("SELECT redmine_id FROM equipa")->fetchAll(PDO::FETCH_COLUMN);
@@ -684,7 +687,7 @@ if (isset($_POST['limpar_proximos_gestores'])) {
     exit;
 }
 
-// Processar ações para as notas Markdown
+// Processar acções para as notas Markdown
 if (isset($_POST['acao_nota'])) {
     switch ($_POST['acao_nota']) {
         case 'salvar':
@@ -735,7 +738,7 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
                 
             default:
                 $resposta['sucesso'] = false;
-                $resposta['mensagem'] = 'Ação desconhecida';
+                $resposta['mensagem'] = 'Acção desconhecida';
         }
         
         header('Content-Type: application/json');
@@ -744,7 +747,7 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
     }
 }
 
-// Processar ações POST
+// Processar acções POST
 if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
     // Adicionar membro à equipe
     if (isset($_POST['adicionar'])) {
@@ -779,45 +782,77 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
     // Iniciar reunião
     if (isset($_POST['iniciar'])) {
         // Verificar se existe um gestor agendado para hoje
-    // Verificar se existe um gestor agendado para hoje
-    $hoje = date('Y-m-d');
-    $stmt = $db->prepare("SELECT redmine_id FROM proximos_gestores 
-                         WHERE data_prevista = :hoje 
-                         LIMIT 1");
-    $stmt->execute([':hoje' => $hoje]);
-    $gestor_hoje = $stmt->fetchColumn();
-    
-    // Filtrar equipa para remover membros de férias ou com aulas entre 9h30-12h
-    $utilizadores_redmine = getUtilizadoresRedmine();
-    $equipa_disponivel = filtrarEquipaDisponivel($equipa, $utilizadores_redmine, $hoje);
-    
-    if ($gestor_hoje && in_array($gestor_hoje, $equipa_disponivel)) {
-        $_SESSION['gestor'] = $gestor_hoje;
+        $hoje = date('Y-m-d');
+        $stmt = $db->prepare("SELECT redmine_id FROM proximos_gestores 
+                             WHERE data_prevista = :hoje 
+                             LIMIT 1");
+        $stmt->execute([':hoje' => $hoje]);
+        $gestor_hoje = $stmt->fetchColumn();
         
-        // Remover ou comentar esta parte:
-        // $stmt = $db->prepare("UPDATE proximos_gestores SET concluido = 1 
-        //                      WHERE redmine_id = :id AND data_prevista = :hoje");
-        // $stmt->execute([':id' => $gestor_hoje, ':hoje' => $hoje]);
-    } else {
-        // Se não houver gestor agendado para hoje ou ele não estiver disponível, selecionar aleatoriamente
-        if (!empty($equipa_disponivel)) {
-            $_SESSION['gestor'] = $equipa_disponivel[array_rand($equipa_disponivel)];
+        // Filtrar equipa para remover membros de férias ou com aulas entre 9h30-12h
+        $utilizadores_redmine = getUtilizadoresRedmine();
+        $equipa_disponivel = filtrarEquipaDisponivel($equipa, $utilizadores_redmine, $hoje);
+        
+        if ($gestor_hoje && in_array($gestor_hoje, $equipa_disponivel)) {
+            $_SESSION['gestor'] = $gestor_hoje;
+            
+            // Remover ou comentar esta parte:
+            // $stmt = $db->prepare("UPDATE proximos_gestores SET concluido = 1 
+            //                      WHERE redmine_id = :id AND data_prevista = :hoje");
+            // $stmt->execute([':id' => $gestor_hoje, ':hoje' => $hoje]);
         } else {
-            // Se ninguém estiver disponível, usar a equipa completa
-            $_SESSION['gestor'] = $equipa[array_rand($equipa)];
-            $equipa_disponivel = $equipa;
+            // Se não houver gestor agendado para hoje ou ele não estiver disponível, selecionar aleatoriamente
+            if (!empty($equipa_disponivel)) {
+                $_SESSION['gestor'] = $equipa_disponivel[array_rand($equipa_disponivel)];
+            } else {
+                // Se ninguém estiver disponível, usar a equipa completa
+                $_SESSION['gestor'] = $equipa[array_rand($equipa)];
+                $equipa_disponivel = $equipa;
+            }
         }
-    }
         
         $_SESSION['oradores'] = $equipa_disponivel;
         shuffle($_SESSION['oradores']);
         $_SESSION['em_reuniao'] = true;
         $_SESSION['orador_atual'] = 0;
         $_SESSION['inicio_reuniao'] = time();
+        
+        // ===== INTEGRAÇÃO TEAMS - REUNIÃO INICIADA =====
+        try {
+            $resultado_teams = notifyMeetingStarted();
+            if ($resultado_teams['success']) {
+                error_log("✅ Teams notification sent: " . $resultado_teams['message']);
+            } else {
+                error_log("❌ Teams notification failed: " . $resultado_teams['message']);
+            }
+        } catch (Exception $e) {
+            error_log("❌ Teams integration error: " . $e->getMessage());
+        }
+        // ===== FIM INTEGRAÇÃO TEAMS =====
     }
     
     // Terminar reunião
     if (isset($_POST['terminar'])) {
+        // Calcular duração da reunião
+        $duracao_reuniao = 'N/A';
+        if (isset($_SESSION['inicio_reuniao'])) {
+            $tempo_total = time() - $_SESSION['inicio_reuniao'];
+            $duracao_reuniao = gmdate('H:i:s', $tempo_total);
+        }
+        
+        // ===== INTEGRAÇÃO TEAMS - REUNIÃO FINALIZADA =====
+        try {
+            $resultado_teams = notifyMeetingEnded($duracao_reuniao);
+            if ($resultado_teams['success']) {
+                error_log("✅ Teams end notification sent: " . $resultado_teams['message']);
+            } else {
+                error_log("❌ Teams end notification failed: " . $resultado_teams['message']);
+            }
+        } catch (Exception $e) {
+            error_log("❌ Teams end integration error: " . $e->getMessage());
+        }
+        // ===== FIM INTEGRAÇÃO TEAMS =====
+        
         // Limpar a sessão
         $_SESSION['gestor'] = null;
         $_SESSION['em_reuniao'] = false;
@@ -911,6 +946,84 @@ if ($em_reuniao && isset($_SESSION['inicio_reuniao'])) {
 // Verificar se a reunião terminou (todos os oradores falaram)
 $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
 
+// ===== FUNÇÕES DE DEBUG TEAMS (OPCIONAL) =====
+/**
+ * Função para testar integração Teams - apenas para admin
+ * URL: ?tab=equipa&test_teams=1
+ */
+if (isset($_GET['test_teams']) && $_GET['test_teams'] === '1' && isset($_SESSION['username'])) {
+    // Apenas alguns usuários podem testar
+    $usuarios_admin = ['test', 'criis', 'admin']; // Adicione seus usuários admin aqui
+    
+    if (in_array($_SESSION['username'], $usuarios_admin)) {
+        echo "<div class='alert alert-info mt-3'>";
+        echo "<h5><i class='bi bi-microsoft'></i> Teste Microsoft Teams Integration</h5>";
+        
+        try {
+            $resultado = sendTeamsNotification('meeting_started', [
+                'gestor_nome' => 'Teste - ' . $_SESSION['username'],
+                'total_membros' => 5,
+                'membros_disponiveis' => 4
+            ]);
+            
+            if ($resultado['success']) {
+                echo "<div class='alert alert-success'>✅ Teste enviado com sucesso!</div>";
+                echo "<p><strong>Mensagem:</strong> " . htmlspecialchars($resultado['message']) . "</p>";
+            } else {
+                echo "<div class='alert alert-danger'>❌ Erro no teste!</div>";
+                echo "<p><strong>Erro:</strong> " . htmlspecialchars($resultado['message']) . "</p>";
+            }
+            
+        } catch (Exception $e) {
+            echo "<div class='alert alert-danger'>❌ Exceção durante teste!</div>";
+            echo "<p><strong>Erro:</strong> " . htmlspecialchars($e->getMessage()) . "</p>";
+        }
+        
+        echo "</div>";
+        echo "<hr>";
+    }
+}
+
+/**
+ * Status debug Teams (URL: ?tab=equipa&debug_teams=1)
+ */
+if (isset($_GET['debug_teams']) && $_GET['debug_teams'] === '1') {
+    echo "<div class='alert alert-secondary mt-3'>";
+    echo "<h6><i class='bi bi-info-circle'></i> Teams Integration Status</h6>";
+    echo "<div class='row'>";
+    echo "<div class='col-md-6'>";
+    echo "<ul class='mb-0'>";
+    echo "<li>Power Automate URL: " . (!empty($POWER_AUTOMATE_URL) ? "✅ Configurado" : "❌ Não configurado") . "</li>";
+    echo "<li>Notifications Enabled: " . ($TEAMS_NOTIFICATIONS_ENABLED ? "✅ Sim" : "❌ Não") . "</li>";
+    echo "<li>User: " . ($_SESSION['username'] ?? 'N/A') . "</li>";
+    echo "<li>Meeting Active: " . ($em_reuniao ? "✅ Sim" : "❌ Não") . "</li>";
+    echo "</ul>";
+    echo "</div>";
+    echo "<div class='col-md-6'>";
+    
+    if (file_exists(__DIR__ . '/../logs/teams_notifications.log')) {
+        $log_lines = array_slice(file(__DIR__ . '/../logs/teams_notifications.log'), -5);
+        echo "<strong>Últimos logs:</strong>";
+        echo "<pre style='font-size: 0.8em; max-height: 120px; overflow-y: auto;'>";
+        foreach ($log_lines as $line) {
+            echo htmlspecialchars($line);
+        }
+        echo "</pre>";
+    } else {
+        echo "<p class='text-muted'>Nenhum log encontrado.</p>";
+    }
+    
+    echo "</div></div>";
+    
+    if (!empty($POWER_AUTOMATE_URL) && $TEAMS_NOTIFICATIONS_ENABLED) {
+        echo "<div class='mt-2'>";
+        echo "<a href='?tab=equipa&test_teams=1' class='btn btn-sm btn-outline-primary'>🧪 Enviar Teste</a> ";
+        echo "<a href='teams_notification.php' class='btn btn-sm btn-outline-info' target='_blank'>⚙️ Configuração</a>";
+        echo "</div>";
+    }
+    echo "</div>";
+}
+
 ?>
 
 <!DOCTYPE html>
@@ -999,6 +1112,23 @@ $reuniao_concluida = $em_reuniao && $orador_atual >= count($oradores);
         .nota-lista-item.active {
             background-color: #e9ecef;
             border-left: 3px solid #0d6efd;
+        }
+        
+        /* Estilos para indicador Teams */
+        .teams-status-indicator {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 123, 191, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            z-index: 1000;
+            display: none;
+        }
+        .teams-status-indicator.active {
+            display: block;
         }
     </style>
 </head>
@@ -1208,10 +1338,6 @@ window.addEventListener('DOMContentLoaded', function() {
                                                         <?php endforeach; ?>
                                                     <?php endif; ?>
                                                 </ul>
-
-
-
-
                                             </div>
                                         </div>
                                     </div>
@@ -1456,7 +1582,7 @@ window.addEventListener('DOMContentLoaded', function() {
                                     <tr>
                                         <th>Data Prevista</th>
                                         <th>Gestor</th>
-                                        <th>Ações</th>
+                                        <th>Acções</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1533,7 +1659,7 @@ window.addEventListener('DOMContentLoaded', function() {
                                 <tr>
                                     <th>Nome</th>
                                     <th class="text-center">Faltas</th>
-                                    <th>Ações</th>
+                                    <th>Acções</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1561,7 +1687,7 @@ window.addEventListener('DOMContentLoaded', function() {
                                             <?php endif; ?>
                                         </td>
                                         <td>
-                                            <form method="post" class="d-inline" onsubmit="return confirm('Tem a certeza que deseja remover este item? Esta ação não pode ser desfeita.');">
+                                            <form method="post" class="d-inline" onsubmit="return confirm('Tem a certeza que deseja remover este item? Esta acção não pode ser desfeita.');">
                                                 <input type="hidden" name="remover" value="<?= $id ?>">
                                                 <button type="submit" class="btn btn-sm btn-danger">
                                                     <i class="bi bi-trash"></i> Remover
@@ -1803,10 +1929,78 @@ window.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 
+<!-- Indicador visual Teams (opcional) -->
+<?php if (!empty($POWER_AUTOMATE_URL) && $TEAMS_NOTIFICATIONS_ENABLED && $em_reuniao): ?>
+<div id="teams-status" class="teams-status-indicator">
+    <i class="bi bi-microsoft"></i> Teams Integration Active
+</div>
+<?php endif; ?>
+
 <!-- Script do cronômetro, totalmente no lado do cliente -->
 <script>
 // Executar quando o documento estiver carregado
 document.addEventListener('DOMContentLoaded', function() {
+    // ===== INTEGRAÇÃO TEAMS VIA JAVASCRIPT =====
+    // Função para mostrar toast de sucesso Teams
+    function mostrarToastTeams(mensagem, tipo = 'success') {
+        const toastHtml = `
+            <div class="toast position-fixed top-0 end-0 m-3" role="alert" style="z-index: 9999;">
+                <div class="toast-header bg-${tipo === 'success' ? 'success' : 'danger'} text-white">
+                    <i class="bi bi-microsoft me-2"></i>
+                    <strong class="me-auto">Microsoft Teams</strong>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                </div>
+                <div class="toast-body">
+                    ${mensagem}
+                </div>
+            </div>
+        `;
+        
+        const toastContainer = document.createElement('div');
+        toastContainer.innerHTML = toastHtml;
+        document.body.appendChild(toastContainer);
+        
+        const toastEl = toastContainer.querySelector('.toast');
+        const toast = new bootstrap.Toast(toastEl, {delay: 4000});
+        toast.show();
+        
+        toastEl.addEventListener('hidden.bs.toast', function() {
+            document.body.removeChild(toastContainer);
+        });
+    }
+    
+    // Auto-hide teams indicator
+    <?php if (!empty($POWER_AUTOMATE_URL) && $TEAMS_NOTIFICATIONS_ENABLED && $em_reuniao): ?>
+    const teamsStatus = document.getElementById('teams-status');
+    if (teamsStatus) {
+        teamsStatus.classList.add('active');
+        setTimeout(() => {
+            teamsStatus.style.opacity = '0';
+            teamsStatus.style.transition = 'opacity 0.5s';
+            setTimeout(() => teamsStatus.remove(), 500);
+        }, 5000);
+        
+        // Mostrar toast apenas uma vez por sessão
+        if (!sessionStorage.getItem('teams_toast_shown')) {
+            setTimeout(() => {
+                mostrarToastTeams('📢 Notificação enviada para Microsoft Teams!');
+                sessionStorage.setItem('teams_toast_shown', 'true');
+            }, 2000);
+        }
+    }
+    <?php endif; ?>
+    
+    // Detectar botão de terminar reunião
+    const btnTerminar = document.querySelector('button[name="terminar"]');
+    if (btnTerminar) {
+        btnTerminar.addEventListener('click', function() {
+            setTimeout(() => {
+                mostrarToastTeams('✅ Reunião finalizada! Teams notificado.');
+                sessionStorage.removeItem('teams_toast_shown');
+            }, 1500);
+        });
+    }
+    
     // Verificar se a reunião está ativa e não concluída
     <?php if ($em_reuniao && !$reuniao_concluida && isset($oradorId)): ?>
     
@@ -2028,16 +2222,18 @@ document.addEventListener('DOMContentLoaded', function() {
     const inputId = document.getElementById('id_nota');
     
     // Configuração do Marked.js para renderizar Markdown
-    marked.setOptions({
-        breaks: true,  // Quebras de linha são respeitadas
-        gfm: true,     // GitHub Flavored Markdown
-        headerIds: true, // Adiciona IDs aos cabeçalhos para navegação
-        sanitize: false // Não sanitizar HTML (cuidado com conteúdo não confiável)
-    });
+    if (typeof marked !== 'undefined') {
+        marked.setOptions({
+            breaks: true,  // Quebras de linha são respeitadas
+            gfm: true,     // GitHub Flavored Markdown
+            headerIds: true, // Adiciona IDs aos cabeçalhos para navegação
+            sanitize: false // Não sanitizar HTML (cuidado com conteúdo não confiável)
+        });
+    }
     
     // Função para renderizar o markdown atual
     function renderizarMarkdown() {
-        if (inputConteudo && markdownPreview) {
+        if (inputConteudo && markdownPreview && typeof marked !== 'undefined') {
             const conteudoAtual = inputConteudo.value || '';
             markdownPreview.innerHTML = marked.parse(conteudoAtual);
         }

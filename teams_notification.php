@@ -250,8 +250,8 @@ function sendToTeams($notification) {
         $payload['actions'] = [
             [
                 'type' => 'Action.OpenUrl',
-                'title' => '🔗 Ir para Reunião',
-                'url' => getCurrentPageUrl() . '?tab=equipa'
+                'title' => '🔗 Ir para To Do (Reunião)',
+                'url' => getCurrentPageUrl() . '?tab=todos'
             ]
         ];
     }
@@ -293,13 +293,13 @@ function sendToTeams($notification) {
 }
 
 /**
- * Obtém a URL atual da página
+ * Obtém a URL base do sistema
  */
 function getCurrentPageUrl() {
     $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
     $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
     $script = dirname($_SERVER['SCRIPT_NAME']);
-    return $protocol . '://' . $host . $script;
+    return $protocol . '://' . $host . $script . '/index.php';
 }
 
 /**

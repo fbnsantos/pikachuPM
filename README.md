@@ -1,4 +1,5 @@
-*Documentatio# pikachuPM - Research Project Management System
+
+# pikachuPM - Research Project Management System
 
 A comprehensive PHP-based project management system tailored for research environments, particularly robotics and IoT laboratories. The system provides an integrated platform for managing prototypes, sprints, tasks, research ideas, leads, and publications through a cohesive web interface.
 

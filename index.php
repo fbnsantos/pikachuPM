@@ -44,9 +44,10 @@ $tabs = [
             'lab_management' => 'Lab Management', 
             'contactos_comerciais' => 'Contactos Comerciais',
             'financeiro' => 'Financeiro'
+            'admin' => 'Administration',
         ]
     ],
-    'admin' => 'Administration',
+    
 ];
 
 $tabSelecionada = $_GET['tab'] ?? 'dashboard';

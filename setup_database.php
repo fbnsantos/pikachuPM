@@ -937,6 +937,48 @@ $table_definitions = [
           KEY `fk_categoria` (`categoria_id`),
           CONSTRAINT `financeiro_orcamentos_ibfk_1` FOREIGN KEY (`categoria_id`) REFERENCES `financeiro_categorias` (`id`) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ",
+    
+    'financeiro_emprestimos' => "
+        CREATE TABLE `financeiro_emprestimos` (
+          `id` int NOT NULL AUTO_INCREMENT,
+          `user_id` int NOT NULL,
+          `valor` decimal(15,2) NOT NULL,
+          `descricao` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+          `detalhes` text COLLATE utf8mb4_unicode_ci,
+          `data_emprestimo` date NOT NULL,
+          `transacao_id` int DEFAULT NULL,
+          `estado` enum('pendente','reembolsado','parcial') COLLATE utf8mb4_unicode_ci DEFAULT 'pendente',
+          `valor_reembolsado` decimal(15,2) DEFAULT '0.00',
+          `criado_por` int NOT NULL,
+          `criado_em` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+          `atualizado_em` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          KEY `idx_user` (`user_id`),
+          KEY `idx_estado` (`estado`),
+          KEY `idx_data` (`data_emprestimo`),
+          KEY `fk_transacao` (`transacao_id`),
+          CONSTRAINT `financeiro_emprestimos_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `user_tokens` (`user_id`) ON DELETE CASCADE,
+          CONSTRAINT `financeiro_emprestimos_ibfk_2` FOREIGN KEY (`transacao_id`) REFERENCES `financeiro_transacoes` (`id`) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ",
+    
+    'financeiro_reembolsos' => "
+        CREATE TABLE `financeiro_reembolsos` (
+          `id` int NOT NULL AUTO_INCREMENT,
+          `emprestimo_id` int NOT NULL,
+          `valor` decimal(15,2) NOT NULL,
+          `data_reembolso` date NOT NULL,
+          `metodo_pagamento` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `referencia` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+          `notas` text COLLATE utf8mb4_unicode_ci,
+          `criado_por` int NOT NULL,
+          `criado_em` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          KEY `idx_emprestimo` (`emprestimo_id`),
+          KEY `idx_data` (`data_reembolso`),
+          CONSTRAINT `financeiro_reembolsos_ibfk_1` FOREIGN KEY (`emprestimo_id`) REFERENCES `financeiro_emprestimos` (`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     "
 ];
 

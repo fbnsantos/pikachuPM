@@ -70,6 +70,47 @@ CREATE TABLE IF NOT EXISTS financeiro_orcamentos (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 ");
 
+// Tabela de empréstimos
+$pdo->exec("
+CREATE TABLE IF NOT EXISTS financeiro_emprestimos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    valor DECIMAL(15,2) NOT NULL,
+    descricao VARCHAR(255) NOT NULL,
+    detalhes TEXT,
+    data_emprestimo DATE NOT NULL,
+    transacao_id INT,
+    estado ENUM('pendente', 'reembolsado', 'parcial') DEFAULT 'pendente',
+    valor_reembolsado DECIMAL(15,2) DEFAULT 0.00,
+    criado_por INT NOT NULL,
+    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES user_tokens(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (transacao_id) REFERENCES financeiro_transacoes(id) ON DELETE SET NULL,
+    INDEX idx_user (user_id),
+    INDEX idx_estado (estado),
+    INDEX idx_data (data_emprestimo)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+");
+
+// Tabela de reembolsos
+$pdo->exec("
+CREATE TABLE IF NOT EXISTS financeiro_reembolsos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    emprestimo_id INT NOT NULL,
+    valor DECIMAL(15,2) NOT NULL,
+    data_reembolso DATE NOT NULL,
+    metodo_pagamento VARCHAR(50),
+    referencia VARCHAR(100),
+    notas TEXT,
+    criado_por INT NOT NULL,
+    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (emprestimo_id) REFERENCES financeiro_emprestimos(id) ON DELETE CASCADE,
+    INDEX idx_emprestimo (emprestimo_id),
+    INDEX idx_data (data_reembolso)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+");
+
 // Inserir categorias padrão se não existirem
 $defaultCategories = [
     // Despesas
@@ -210,12 +251,80 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message = "Categoria criada!";
                 $messageType = 'success';
                 break;
+                
+            case 'add_emprestimo':
+                $stmt = $pdo->prepare("
+                    INSERT INTO financeiro_emprestimos 
+                    (user_id, valor, descricao, detalhes, data_emprestimo, transacao_id, criado_por) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([
+                    $_POST['user_id'],
+                    $_POST['valor'],
+                    $_POST['descricao'],
+                    $_POST['detalhes'] ?? null,
+                    $_POST['data_emprestimo'],
+                    $_POST['transacao_id'] ?: null,
+                    $_SESSION['user_id']
+                ]);
+                $message = "Empréstimo registado!";
+                $messageType = 'success';
+                break;
+                
+            case 'add_reembolso':
+                // Adicionar reembolso
+                $stmt = $pdo->prepare("
+                    INSERT INTO financeiro_reembolsos 
+                    (emprestimo_id, valor, data_reembolso, metodo_pagamento, referencia, notas, criado_por) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([
+                    $_POST['emprestimo_id'],
+                    $_POST['valor'],
+                    $_POST['data_reembolso'],
+                    $_POST['metodo_pagamento'] ?? null,
+                    $_POST['referencia'] ?? null,
+                    $_POST['notas'] ?? null,
+                    $_SESSION['user_id']
+                ]);
+                
+                // Atualizar valor reembolsado no empréstimo
+                $stmt = $pdo->prepare("
+                    UPDATE financeiro_emprestimos 
+                    SET valor_reembolsado = valor_reembolsado + ?,
+                        estado = CASE 
+                            WHEN valor_reembolsado + ? >= valor THEN 'reembolsado'
+                            WHEN valor_reembolsado + ? > 0 THEN 'parcial'
+                            ELSE 'pendente'
+                        END
+                    WHERE id = ?
+                ");
+                $stmt->execute([
+                    $_POST['valor'],
+                    $_POST['valor'],
+                    $_POST['valor'],
+                    $_POST['emprestimo_id']
+                ]);
+                
+                $message = "Reembolso registado!";
+                $messageType = 'success';
+                break;
+                
+            case 'delete_emprestimo':
+                $stmt = $pdo->prepare("DELETE FROM financeiro_emprestimos WHERE id=?");
+                $stmt->execute([$_POST['emprestimo_id']]);
+                $message = "Empréstimo eliminado!";
+                $messageType = 'success';
+                break;
         }
     } catch (PDOException $e) {
         $message = "Erro: " . $e->getMessage();
         $messageType = 'danger';
     }
 }
+
+// Obter utilizadores
+$users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
 
 // Filtros
 $anoSelecionado = $_GET['ano'] ?? date('Y');
@@ -274,6 +383,44 @@ foreach ($transacoes as $trans) {
 }
 
 $saldo = $totalReceitas - $totalDespesas;
+
+// Calcular saldos de empréstimos por utilizador
+$stmt = $pdo->query("
+    SELECT 
+        e.user_id,
+        u.username,
+        SUM(e.valor - e.valor_reembolsado) as saldo_pendente,
+        COUNT(CASE WHEN e.estado = 'pendente' THEN 1 END) as num_pendentes,
+        COUNT(CASE WHEN e.estado = 'parcial' THEN 1 END) as num_parciais
+    FROM financeiro_emprestimos e
+    JOIN user_tokens u ON e.user_id = u.user_id
+    WHERE e.estado != 'reembolsado'
+    GROUP BY e.user_id, u.username
+    ORDER BY saldo_pendente DESC
+");
+$saldosEmprestimos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Obter todos os empréstimos (para visualização detalhada)
+$stmt = $pdo->query("
+    SELECT 
+        e.*,
+        u.username,
+        uc.username as criador,
+        (e.valor - e.valor_reembolsado) as saldo_pendente
+    FROM financeiro_emprestimos e
+    JOIN user_tokens u ON e.user_id = u.user_id
+    LEFT JOIN user_tokens uc ON e.criado_por = uc.user_id
+    ORDER BY e.data_emprestimo DESC, e.id DESC
+");
+$todosEmprestimos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+$totalEmprestado = 0;
+$totalReembolsado = 0;
+foreach ($todosEmprestimos as $emp) {
+    $totalEmprestado += $emp['valor'];
+    $totalReembolsado += $emp['valor_reembolsado'];
+}
+$totalPendenteGlobal = $totalEmprestado - $totalReembolsado;
 ?>
 
 <style>
@@ -388,6 +535,47 @@ $saldo = $totalReceitas - $totalDespesas;
 .estado-pendente { background: #fff3cd; color: #856404; }
 .estado-cancelado { background: #f8d7da; color: #842029; }
 
+.emprestimo-card {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    border-left: 4px solid #0d6efd;
+}
+
+.emprestimo-card.pendente { border-left-color: #ffc107; }
+.emprestimo-card.parcial { border-left-color: #fd7e14; }
+.emprestimo-card.reembolsado { border-left-color: #198754; }
+
+.saldo-user-card {
+    background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);
+    color: white;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.saldo-user-card .username {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.saldo-user-card .saldo {
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.reembolso-item {
+    background: #f8f9fa;
+    padding: 10px;
+    border-radius: 6px;
+    margin-top: 10px;
+    border-left: 3px solid #198754;
+}
+
 .filters-bar {
     background: white;
     padding: 15px;
@@ -450,8 +638,10 @@ $saldo = $totalReceitas - $totalDespesas;
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-label">Transações</div>
-            <div class="stat-value"><?= count($transacoes) ?></div>
+            <div class="stat-label">Empréstimos Pendentes</div>
+            <div class="stat-value" style="color: #ffc107;">
+                € <?= number_format($totalPendenteGlobal, 2, ',', '.') ?>
+            </div>
         </div>
     </div>
 
@@ -551,6 +741,153 @@ $saldo = $totalReceitas - $totalDespesas;
         <?php endif; ?>
     </div>
     <?php endif; ?>
+
+    <!-- Secção de Empréstimos -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="chart-container">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4 class="mb-0">
+                        <i class="bi bi-cash-stack"></i> Empréstimos de Membros
+                    </h4>
+                    <button class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#addEmprestimoModal">
+                        <i class="bi bi-plus-lg"></i> Registar Empréstimo
+                    </button>
+                </div>
+
+                <?php if (empty($saldosEmprestimos)): ?>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> Nenhum empréstimo pendente. 
+                        Use o botão acima para registar quando um membro paga uma despesa ou empresta dinheiro.
+                    </div>
+                <?php else: ?>
+                    <!-- Saldos por Utilizador -->
+                    <h5 class="mb-3">Saldos a Reembolsar</h5>
+                    <div class="row">
+                        <?php foreach ($saldosEmprestimos as $saldo_user): ?>
+                            <div class="col-md-4">
+                                <div class="saldo-user-card">
+                                    <div class="username">
+                                        <i class="bi bi-person-circle"></i> 
+                                        <?= htmlspecialchars($saldo_user['username']) ?>
+                                    </div>
+                                    <div class="saldo">
+                                        € <?= number_format($saldo_user['saldo_pendente'], 2, ',', '.') ?>
+                                    </div>
+                                    <div class="small mt-2">
+                                        <?= $saldo_user['num_pendentes'] ?> pendente(s) | 
+                                        <?= $saldo_user['num_parciais'] ?> parcial(is)
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    
+                    <hr class="my-4">
+                <?php endif; ?>
+
+                <!-- Histórico de Empréstimos -->
+                <h5 class="mb-3">Histórico de Todos os Empréstimos</h5>
+                <?php if (empty($todosEmprestimos)): ?>
+                    <p class="text-muted">Nenhum empréstimo registado.</p>
+                <?php else: ?>
+                    <?php foreach ($todosEmprestimos as $emp): ?>
+                        <div class="emprestimo-card <?= $emp['estado'] ?>">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex-grow-1">
+                                    <div class="d-flex align-items-center mb-2">
+                                        <h6 class="mb-0 me-3">
+                                            <i class="bi bi-person-badge"></i> 
+                                            <?= htmlspecialchars($emp['username']) ?>
+                                        </h6>
+                                        <span class="estado-badge estado-<?= $emp['estado'] ?>">
+                                            <?= ucfirst($emp['estado']) ?>
+                                        </span>
+                                    </div>
+                                    
+                                    <div class="mb-2">
+                                        <strong><?= htmlspecialchars($emp['descricao']) ?></strong>
+                                        <?php if ($emp['detalhes']): ?>
+                                            <p class="small text-muted mb-0"><?= nl2br(htmlspecialchars($emp['detalhes'])) ?></p>
+                                        <?php endif; ?>
+                                    </div>
+                                    
+                                    <div class="small text-muted">
+                                        <i class="bi bi-calendar"></i> <?= date('d/m/Y', strtotime($emp['data_emprestimo'])) ?>
+                                        | <i class="bi bi-person"></i> Registado por <?= htmlspecialchars($emp['criador']) ?>
+                                        <?php if ($emp['transacao_id']): ?>
+                                            | <i class="bi bi-link-45deg"></i> Transação #<?= $emp['transacao_id'] ?>
+                                        <?php endif; ?>
+                                    </div>
+                                    
+                                    <div class="mt-2">
+                                        <strong>Valor:</strong> € <?= number_format($emp['valor'], 2, ',', '.') ?>
+                                        | <strong>Reembolsado:</strong> € <?= number_format($emp['valor_reembolsado'], 2, ',', '.') ?>
+                                        | <strong class="text-warning">Pendente:</strong> € <?= number_format($emp['saldo_pendente'], 2, ',', '.') ?>
+                                    </div>
+                                    
+                                    <?php 
+                                    // Buscar reembolsos deste empréstimo
+                                    $stmt = $pdo->prepare("
+                                        SELECT r.*, u.username as criador
+                                        FROM financeiro_reembolsos r
+                                        LEFT JOIN user_tokens u ON r.criado_por = u.user_id
+                                        WHERE r.emprestimo_id = ?
+                                        ORDER BY r.data_reembolso DESC
+                                    ");
+                                    $stmt->execute([$emp['id']]);
+                                    $reembolsos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                                    
+                                    if (!empty($reembolsos)):
+                                    ?>
+                                        <div class="mt-3">
+                                            <small class="text-muted fw-bold">Reembolsos:</small>
+                                            <?php foreach ($reembolsos as $reemb): ?>
+                                                <div class="reembolso-item">
+                                                    <div class="d-flex justify-content-between">
+                                                        <div>
+                                                            <i class="bi bi-check-circle text-success"></i>
+                                                            € <?= number_format($reemb['valor'], 2, ',', '.') ?>
+                                                            em <?= date('d/m/Y', strtotime($reemb['data_reembolso'])) ?>
+                                                            <?php if ($reemb['metodo_pagamento']): ?>
+                                                                | <?= htmlspecialchars($reemb['metodo_pagamento']) ?>
+                                                            <?php endif; ?>
+                                                            <?php if ($reemb['referencia']): ?>
+                                                                | Ref: <?= htmlspecialchars($reemb['referencia']) ?>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                    </div>
+                                                    <?php if ($reemb['notas']): ?>
+                                                        <small class="text-muted"><?= htmlspecialchars($reemb['notas']) ?></small>
+                                                    <?php endif; ?>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                                
+                                <div class="ms-3">
+                                    <?php if ($emp['estado'] !== 'reembolsado'): ?>
+                                        <button class="btn btn-sm btn-success mb-2" 
+                                                onclick="addReembolso(<?= $emp['id'] ?>, '<?= htmlspecialchars($emp['username']) ?>', <?= $emp['saldo_pendente'] ?>)">
+                                            <i class="bi bi-cash"></i> Reembolsar
+                                        </button>
+                                    <?php endif; ?>
+                                    <form method="post" style="display:inline;" onsubmit="return confirm('Eliminar este empréstimo?')">
+                                        <input type="hidden" name="action" value="delete_emprestimo">
+                                        <input type="hidden" name="emprestimo_id" value="<?= $emp['id'] ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
 
     <!-- Lista de Transações -->
     <h5 class="mb-3">Transações</h5>
@@ -935,6 +1272,170 @@ $saldo = $totalReceitas - $totalDespesas;
     </div>
 </div>
 
+<!-- Modal: Novo Empréstimo -->
+<div class="modal fade" id="addEmprestimoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">
+                    <i class="bi bi-cash-stack"></i> Registar Empréstimo de Membro
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="add_emprestimo">
+                    
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        Use este formulário quando um membro paga uma despesa ou empresta dinheiro. 
+                        O sistema mantém registo de quanto deve ser reembolsado a cada membro.
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Membro que Emprestou/Pagou *</label>
+                        <select name="user_id" class="form-select" required>
+                            <option value="">Selecione...</option>
+                            <?php foreach ($users as $user): ?>
+                                <option value="<?= $user['user_id'] ?>">
+                                    <?= htmlspecialchars($user['username']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Valor (€) *</label>
+                                <input type="number" name="valor" class="form-control" step="0.01" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Data *</label>
+                                <input type="date" name="data_emprestimo" class="form-control" 
+                                       value="<?= date('Y-m-d') ?>" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Descrição *</label>
+                        <input type="text" name="descricao" class="form-control" required
+                               placeholder="Ex: Pagamento de material, Adiantamento de despesa, etc">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Detalhes</label>
+                        <textarea name="detalhes" class="form-control" rows="2"
+                                  placeholder="Informações adicionais sobre o empréstimo"></textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Associar a Transação Existente (Opcional)</label>
+                        <select name="transacao_id" class="form-select">
+                            <option value="">Nenhuma</option>
+                            <?php 
+                            // Buscar transações recentes
+                            $stmt = $pdo->query("
+                                SELECT id, descricao, valor, data_transacao 
+                                FROM financeiro_transacoes 
+                                WHERE tipo = 'despesa'
+                                ORDER BY data_transacao DESC 
+                                LIMIT 20
+                            ");
+                            $transacoesRecentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                            foreach ($transacoesRecentes as $trans):
+                            ?>
+                                <option value="<?= $trans['id'] ?>">
+                                    #<?= $trans['id'] ?> - <?= htmlspecialchars($trans['descricao']) ?> 
+                                    (€ <?= number_format($trans['valor'], 2) ?> em <?= date('d/m/Y', strtotime($trans['data_transacao'])) ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">
+                            Link opcional com uma despesa já registada
+                        </small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-warning">
+                        <i class="bi bi-check-circle"></i> Registar Empréstimo
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Registar Reembolso -->
+<div class="modal fade" id="addReembolsoModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-cash"></i> Registar Reembolso
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="add_reembolso">
+                    <input type="hidden" name="emprestimo_id" id="reembolso_emprestimo_id">
+                    
+                    <div class="alert alert-success">
+                        <strong>Reembolsar a:</strong> <span id="reembolso_username"></span><br>
+                        <strong>Valor pendente:</strong> € <span id="reembolso_saldo"></span>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Valor a Reembolsar (€) *</label>
+                        <input type="number" name="valor" id="reembolso_valor" class="form-control" 
+                               step="0.01" required>
+                        <small class="text-muted">
+                            <button type="button" class="btn btn-sm btn-link p-0" 
+                                    onclick="document.getElementById('reembolso_valor').value = document.getElementById('reembolso_saldo').textContent.replace(',', '.')">
+                                Preencher valor total
+                            </button>
+                        </small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Data do Reembolso *</label>
+                        <input type="date" name="data_reembolso" class="form-control" 
+                               value="<?= date('Y-m-d') ?>" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Método de Pagamento</label>
+                        <input type="text" name="metodo_pagamento" class="form-control" 
+                               placeholder="Ex: Transferência, MB Way, Dinheiro">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Referência</label>
+                        <input type="text" name="referencia" class="form-control" 
+                               placeholder="Nº transferência, comprovativo, etc">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Notas</label>
+                        <textarea name="notas" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-check-circle"></i> Registar Reembolso
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
 function updateCategories(tipo, mode) {
     const selectId = mode === 'add' ? 'add_categoria_id' : 'edit_categoria_id';
@@ -988,4 +1489,15 @@ function editTransacao(trans) {
 document.addEventListener('DOMContentLoaded', function() {
     updateCategories('despesa', 'add');
 });
+
+function addReembolso(emprestimoId, username, saldoPendente) {
+    document.getElementById('reembolso_emprestimo_id').value = emprestimoId;
+    document.getElementById('reembolso_username').textContent = username;
+    document.getElementById('reembolso_saldo').textContent = saldoPendente.toFixed(2).replace('.', ',');
+    document.getElementById('reembolso_valor').value = '';
+    document.getElementById('reembolso_valor').max = saldoPendente.toFixed(2);
+    
+    var modal = new bootstrap.Modal(document.getElementById('addReembolsoModal'));
+    modal.show();
+}
 </script>

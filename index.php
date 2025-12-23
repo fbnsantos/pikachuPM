@@ -36,12 +36,12 @@ $tabs = [
     'leads' => 'Leads',
     'equipa' => 'Daily Meeting',
     'calendar' => 'Calendar',
-    'lab_management' => 'Lab Management', 
     'links' => 'Files & Links', 
-    'old' => [
-        'label' => 'Old',
+    'Management' => [
+        'label' => 'Management',
         'submenu' => [
             'search' => 'Search Redmine',
+            'lab_management' => 'Lab Management', 
             'contactos_comerciais' => 'Contactos Comerciais',
             'financeiro' => 'Financeiro'
         ]

@@ -100,6 +100,51 @@ if (!$is_admin) {
 $mensagem_admin = '';
 $erro_admin = '';
 
+// ========================================
+// CONFIGURAÇÃO DE TEMA/CORES
+// ========================================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_theme'])) {
+    $color1 = trim($_POST['gradient_color1']);
+    $color2 = trim($_POST['gradient_color2']);
+    
+    // Validar formato de cor hexadecimal
+    if (preg_match('/^#[0-9A-Fa-f]{6}$/', $color1) && preg_match('/^#[0-9A-Fa-f]{6}$/', $color2)) {
+        try {
+            // Verificar se já existe configuração
+            $stmt = $pdo->query("SELECT COUNT(*) as total FROM system_theme");
+            $has_theme = $stmt->fetch(PDO::FETCH_ASSOC)['total'] > 0;
+            
+            if ($has_theme) {
+                // Atualizar configuração existente
+                $stmt = $pdo->prepare("UPDATE system_theme SET gradient_color1 = ?, gradient_color2 = ?, updated_by = ? ORDER BY id DESC LIMIT 1");
+                $stmt->execute([$color1, $color2, $current_username]);
+            } else {
+                // Inserir nova configuração
+                $stmt = $pdo->prepare("INSERT INTO system_theme (gradient_color1, gradient_color2, updated_by) VALUES (?, ?, ?)");
+                $stmt->execute([$color1, $color2, $current_username]);
+            }
+            
+            $mensagem_admin = "✅ Tema atualizado com sucesso! Recarregue a página para ver as alterações.";
+        } catch (Exception $e) {
+            $erro_admin = "❌ Erro ao salvar tema: " . $e->getMessage();
+        }
+    } else {
+        $erro_admin = "❌ Formato de cor inválido. Use formato hexadecimal (#RRGGBB).";
+    }
+}
+
+// Carregar configurações atuais de tema
+$current_theme = ['gradient_color1' => '#667eea', 'gradient_color2' => '#764ba2'];
+try {
+    $stmt = $pdo->query("SELECT gradient_color1, gradient_color2, updated_at, updated_by FROM system_theme ORDER BY id DESC LIMIT 1");
+    $theme_data = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($theme_data) {
+        $current_theme = $theme_data;
+    }
+} catch (Exception $e) {
+    // Usar valores padrão
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ADICIONAR NOVO ADMINISTRADOR
     if (isset($_POST['add_admin'])) {
@@ -158,6 +203,167 @@ $stmt = $pdo->query("
 $available_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 ?>
+
+<!-- Card de Configuração de Tema -->
+<div class="card mb-4 shadow-sm">
+    <div class="card-header" style="background: linear-gradient(135deg, <?= $current_theme['gradient_color1'] ?> 0%, <?= $current_theme['gradient_color2'] ?> 100%); color: white;">
+        <h3 class="mb-0">
+            <i class="bi bi-palette"></i> Configuração de Tema
+        </h3>
+    </div>
+    <div class="card-body">
+        <form method="post" id="themeForm">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="gradient_color1" class="form-label">
+                        <i class="bi bi-droplet-fill"></i> <strong>Cor do Gradiente 1</strong>
+                    </label>
+                    <div class="input-group">
+                        <input 
+                            type="color" 
+                            class="form-control form-control-color" 
+                            id="gradient_color1" 
+                            name="gradient_color1" 
+                            value="<?= htmlspecialchars($current_theme['gradient_color1']) ?>"
+                            title="Escolha a primeira cor do gradiente"
+                            style="height: 50px; width: 100px;">
+                        <input 
+                            type="text" 
+                            class="form-control" 
+                            id="gradient_color1_text" 
+                            value="<?= htmlspecialchars($current_theme['gradient_color1']) ?>"
+                            readonly
+                            style="max-width: 100px; font-family: monospace;">
+                    </div>
+                    <small class="form-text text-muted">Cor inicial do gradiente (lado esquerdo)</small>
+                </div>
+                
+                <div class="col-md-6 mb-3">
+                    <label for="gradient_color2" class="form-label">
+                        <i class="bi bi-droplet-fill"></i> <strong>Cor do Gradiente 2</strong>
+                    </label>
+                    <div class="input-group">
+                        <input 
+                            type="color" 
+                            class="form-control form-control-color" 
+                            id="gradient_color2" 
+                            name="gradient_color2" 
+                            value="<?= htmlspecialchars($current_theme['gradient_color2']) ?>"
+                            title="Escolha a segunda cor do gradiente"
+                            style="height: 50px; width: 100px;">
+                        <input 
+                            type="text" 
+                            class="form-control" 
+                            id="gradient_color2_text" 
+                            value="<?= htmlspecialchars($current_theme['gradient_color2']) ?>"
+                            readonly
+                            style="max-width: 100px; font-family: monospace;">
+                    </div>
+                    <small class="form-text text-muted">Cor final do gradiente (lado direito)</small>
+                </div>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label"><strong>Pré-visualização</strong></label>
+                <div id="gradientPreview" style="height: 60px; border-radius: 8px; background: linear-gradient(135deg, <?= $current_theme['gradient_color1'] ?> 0%, <?= $current_theme['gradient_color2'] ?> 100%); box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
+                    <i class="bi bi-eye me-2"></i> Pré-visualização do Header
+                </div>
+            </div>
+            
+            <?php if (isset($current_theme['updated_at'])): ?>
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> 
+                <small>
+                    Última atualização: <?= date('d/m/Y H:i', strtotime($current_theme['updated_at'])) ?>
+                    <?php if (isset($current_theme['updated_by'])): ?>
+                        por <strong><?= htmlspecialchars($current_theme['updated_by']) ?></strong>
+                    <?php endif; ?>
+                </small>
+            </div>
+            <?php endif; ?>
+            
+            <div class="d-flex gap-2">
+                <button type="submit" name="save_theme" class="btn btn-primary">
+                    <i class="bi bi-save"></i> Salvar Tema
+                </button>
+                <button type="button" class="btn btn-secondary" onclick="resetToDefault()">
+                    <i class="bi bi-arrow-counterclockwise"></i> Restaurar Padrão
+                </button>
+                <button type="button" class="btn btn-outline-info" data-bs-toggle="collapse" data-bs-target="#themePresets">
+                    <i class="bi bi-palette2"></i> Temas Pré-definidos
+                </button>
+            </div>
+            
+            <!-- Temas pré-definidos -->
+            <div class="collapse mt-3" id="themePresets">
+                <div class="card card-body">
+                    <p class="mb-2"><strong>Selecione um tema:</strong></p>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyPreset('#667eea', '#764ba2')">
+                            <span style="display: inline-block; width: 20px; height: 20px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 4px; margin-right: 5px; vertical-align: middle;"></span>
+                            Roxo (Padrão)
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-success" onclick="applyPreset('#11998e', '#38ef7d')">
+                            <span style="display: inline-block; width: 20px; height: 20px; background: linear-gradient(135deg, #11998e, #38ef7d); border-radius: 4px; margin-right: 5px; vertical-align: middle;"></span>
+                            Verde
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyPreset('#eb3349', '#f45c43')">
+                            <span style="display: inline-block; width: 20px; height: 20px; background: linear-gradient(135deg, #eb3349, #f45c43); border-radius: 4px; margin-right: 5px; vertical-align: middle;"></span>
+                            Vermelho
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-warning" onclick="applyPreset('#f7971e', '#ffd200')">
+                            <span style="display: inline-block; width: 20px; height: 20px; background: linear-gradient(135deg, #f7971e, #ffd200); border-radius: 4px; margin-right: 5px; vertical-align: middle;"></span>
+                            Laranja
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-info" onclick="applyPreset('#00d2ff', '#3a7bd5')">
+                            <span style="display: inline-block; width: 20px; height: 20px; background: linear-gradient(135deg, #00d2ff, #3a7bd5); border-radius: 4px; margin-right: 5px; vertical-align: middle;"></span>
+                            Azul
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="applyPreset('#2c3e50', '#3498db')">
+                            <span style="display: inline-block; width: 20px; height: 20px; background: linear-gradient(135deg, #2c3e50, #3498db); border-radius: 4px; margin-right: 5px; vertical-align: middle;"></span>
+                            Escuro
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-dark" onclick="applyPreset('#434343', '#000000')">
+                            <span style="display: inline-block; width: 20px; height: 20px; background: linear-gradient(135deg, #434343, #000000); border-radius: 4px; margin-right: 5px; vertical-align: middle;"></span>
+                            Preto
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// Atualizar pré-visualização em tempo real
+document.getElementById('gradient_color1').addEventListener('input', function() {
+    updatePreview();
+    document.getElementById('gradient_color1_text').value = this.value;
+});
+
+document.getElementById('gradient_color2').addEventListener('input', function() {
+    updatePreview();
+    document.getElementById('gradient_color2_text').value = this.value;
+});
+
+function updatePreview() {
+    const color1 = document.getElementById('gradient_color1').value;
+    const color2 = document.getElementById('gradient_color2').value;
+    document.getElementById('gradientPreview').style.background = `linear-gradient(135deg, ${color1} 0%, ${color2} 100%)`;
+}
+
+function resetToDefault() {
+    applyPreset('#667eea', '#764ba2');
+}
+
+function applyPreset(color1, color2) {
+    document.getElementById('gradient_color1').value = color1;
+    document.getElementById('gradient_color2').value = color2;
+    document.getElementById('gradient_color1_text').value = color1;
+    document.getElementById('gradient_color2_text').value = color2;
+    updatePreview();
+}
+</script>
 
 <div class="card mb-4 shadow-sm">
     <div class="card-header" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;">

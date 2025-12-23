@@ -16,7 +16,41 @@ if (!isset($_SESSION['username'])) {
 // Definir timezone
 date_default_timezone_set('Europe/Lisbon');
 
+// Carregar configurações de tema do banco de dados
+include_once __DIR__ . '/config.php';
+$tema_cor1 = '#667eea'; // Cor padrão 1
+$tema_cor2 = '#764ba2'; // Cor padrão 2
 
+try {
+    $pdo_config = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+    $pdo_config->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    
+    // Criar tabela se não existir
+    $pdo_config->exec("
+        CREATE TABLE IF NOT EXISTS system_theme (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            gradient_color1 VARCHAR(7) NOT NULL DEFAULT '#667eea',
+            gradient_color2 VARCHAR(7) NOT NULL DEFAULT '#764ba2',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            updated_by VARCHAR(100) NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    
+    // Obter configuração atual
+    $stmt = $pdo_config->query("SELECT gradient_color1, gradient_color2 FROM system_theme ORDER BY id DESC LIMIT 1");
+    $theme = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($theme) {
+        $tema_cor1 = $theme['gradient_color1'];
+        $tema_cor2 = $theme['gradient_color2'];
+    } else {
+        // Inserir configuração padrão se não existir
+        $pdo_config->exec("INSERT INTO system_theme (gradient_color1, gradient_color2) VALUES ('$tema_cor1', '$tema_cor2')");
+    }
+} catch (Exception $e) {
+    // Em caso de erro, usar cores padrão
+    error_log("Erro ao carregar tema: " . $e->getMessage());
+}
 
 // Definição dos horários para reuniões e transições
 $HORA_REUNIAO_EQUIPA = "11:26"; // formato HH:MM - Hora para iniciar contagem para reunião
@@ -171,7 +205,7 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
         }
         header, nav, main { padding: 20px; }
         header { 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, <?= $tema_cor1 ?> 0%, <?= $tema_cor2 ?> 100%);
             color: white; 
             padding: 12px 20px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.15);

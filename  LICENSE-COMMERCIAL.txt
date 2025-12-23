@@ -1,0 +1,23 @@
+COMMERCIAL LICENSE AGREEMENT
+
+Copyright (c) 2025 ViField
+
+This software is made available under a commercial license for use
+in proprietary, commercial, or revenue-generating products and services.
+
+Commercial use includes, but is not limited to:
+- Integration into commercial products
+- Offering as part of a paid service or SaaS
+- Internal use within a for-profit organization
+- Deployment in production environments for business purposes
+
+This license grants the right to:
+- Use, modify, and distribute the software
+- Without the obligation to disclose source code
+
+A commercial license must be obtained prior to any such use.
+
+For licensing terms, pricing, and conditions, contact:
+fbnsantos@fbnsantos.com
+
+Unauthorized commercial use is prohibited.

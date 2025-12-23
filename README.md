@@ -338,13 +338,35 @@ Contributions are welcome! Please follow these guidelines:
 - PHP PDO Documentation: https://www.php.net/manual/en/book.pdo.php
 - Markdown Guide: https://www.markdownguide.org/
 
-## 📄 License
+## Licensing
+
+This project is available under a **dual-licensing model**.
+
+### Open Source License (AGPL-3.0)
+You may use, modify, and redistribute this software for:
+- Academic use
+- Research and experimentation
+- Non-commercial purposes
+
+Provided that you comply with the terms of the AGPL-3.0 license.
+
+### Commercial License
+Any commercial use of this software requires a **commercial license**.
+
+This includes:
+- Commercial products
+- SaaS or cloud services
+- Industrial deployments
+- Internal business use
+
+📩 For commercial licensing inquiries:
+**fbnsantos@fbnsantos.com**
 
 [Specify your license here]
 
 ## 👥 Authors and Acknowledgments
 
-Developed by Filipe for research laboratory project management needs.
+Developed by [Filipe Neves dos Santos](https://www.fbnsantos.com) for TRIBE LAB @ INESCTEC research laboratory project management needs.
 
 ## 🔄 Version History
 

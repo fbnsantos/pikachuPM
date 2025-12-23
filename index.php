@@ -43,8 +43,8 @@ $tabs = [
             'search' => 'Search Redmine',
             'lab_management' => 'Lab Management', 
             'contactos_comerciais' => 'Contactos Comerciais',
-            'financeiro' => 'Financeiro'
-            'admin' => 'Administration',
+            'financeiro' => 'Financeiro',
+            'admin' => 'Administration'
         ]
     ],
     

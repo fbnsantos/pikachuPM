@@ -1,11 +1,13 @@
 <?php
-// tabs/gantt.php - Visualização Gantt das Sprints
+// tabs/gantt.php - Visualização Gantt das Sprints e Entregáveis/PPS/KPIs
 // 
-// Este arquivo exibe um diagrama de Gantt das sprints com:
+// Este arquivo exibe diagramas de Gantt com:
 // - Visualização temporal das sprints
-// - Responsáveis por cada sprint
-// - Estado das sprints (aberta, pausa, fechada)
-// - Link para detalhes da sprint ao clicar
+// - Visualização temporal dos entregáveis/PPS/KPIs dos projetos
+// - Responsáveis por cada sprint/entregável
+// - Estado das sprints/entregáveis
+// - Link para detalhes ao clicar
+// - Controlo por barra lateral (esquerda)
 
 if (!isset($_SESSION['username'])) {
     header('Location: login.php');
@@ -22,25 +24,6 @@ try {
     die("<div class='alert alert-danger'>Erro de conexão à base de dados: " . htmlspecialchars($e->getMessage()) . "</div>");
 }
 
-// Verificar se a tabela sprints existe
-function sprintTableExists($pdo) {
-    try {
-        $result = $pdo->query("SHOW TABLES LIKE 'sprints'");
-        return $result->rowCount() > 0;
-    } catch (PDOException $e) {
-        return false;
-    }
-}
-
-if (!sprintTableExists($pdo)) {
-    echo '<div class="alert alert-warning">
-            <i class="bi bi-exclamation-triangle"></i>
-            A tabela de sprints não existe. Por favor, acesse o módulo 
-            <a href="?tab=sprints">Sprints</a> primeiro para criar as tabelas necessárias.
-          </div>';
-    return;
-}
-
 // Função auxiliar para verificar se tabela existe
 function tableExists($pdo, $tableName) {
     try {
@@ -51,11 +34,28 @@ function tableExists($pdo, $tableName) {
     }
 }
 
-// Obter filtros
+// Verificar quais módulos estão disponíveis
+$has_sprints = tableExists($pdo, 'sprints');
+$has_projects = tableExists($pdo, 'projects') && tableExists($pdo, 'project_deliverables');
+$has_prototypes = tableExists($pdo, 'prototypes') && tableExists($pdo, 'sprint_prototypes');
+
+if (!$has_sprints && !$has_projects) {
+    echo '<div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle"></i>
+            Nem o módulo de Sprints nem o módulo de Projetos estão disponíveis. 
+            Por favor, acesse primeiro o módulo <a href="?tab=sprints">Sprints</a> 
+            ou <a href="?tab=projectos">Projetos</a>.
+          </div>';
+    return;
+}
+
+// Obter tipo de visualização (sprints ou deliverables)
+$view_type = $_GET['view_type'] ?? 'sprints';
+if (!$has_sprints) $view_type = 'deliverables';
+if (!$has_projects) $view_type = 'sprints';
+
+// Obter filtros gerais
 $show_closed = isset($_GET['show_closed']) && $_GET['show_closed'] === '1';
-$filter_my_sprints = isset($_GET['filter_my_sprints']) && $_GET['filter_my_sprints'] === '1';
-$filter_user_id = isset($_GET['filter_user_id']) && !empty($_GET['filter_user_id']) ? $_GET['filter_user_id'] : null;
-$filter_prototipo = isset($_GET['filter_prototipo']) && !empty($_GET['filter_prototipo']) ? $_GET['filter_prototipo'] : null;
 $order_by = $_GET['order_by'] ?? 'inicio'; // 'inicio' ou 'fim'
 $view_range = $_GET['view_range'] ?? 'mes'; // 'semana', 'mes', 'trimestre'
 $current_user_id = $_SESSION['user_id'] ?? null;
@@ -67,133 +67,256 @@ try {
     $users = [];
 }
 
-// Verificar se existe tabela prototypes e sprint_prototypes
-$has_prototypes = tableExists($pdo, 'prototypes') && tableExists($pdo, 'sprint_prototypes');
-
-// Obter lista de protótipos únicos associados às sprints
+// ============================================================================
+// PROCESSAMENTO PARA VISTA DE SPRINTS
+// ============================================================================
+$sprints = [];
 $prototipos = [];
-if ($has_prototypes) {
-    try {
-        $prototipos = $pdo->query("
-            SELECT DISTINCT p.id, p.short_name, p.title
-            FROM prototypes p
-            INNER JOIN sprint_prototypes sp ON p.id = sp.prototype_id
-            ORDER BY p.short_name
-        ")->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        error_log("Erro ao buscar protótipos: " . $e->getMessage());
-        $prototipos = [];
-    }
-}
 
-// Buscar sprints
-try {
-    $query = "
-        SELECT s.*, 
-               u.username as responsavel_nome,
-               DATEDIFF(s.data_fim, CURDATE()) as dias_restantes
-        FROM sprints s
-        LEFT JOIN user_tokens u ON s.responsavel_id = u.user_id
-    ";
+if ($view_type === 'sprints' && $has_sprints) {
+    // Filtros específicos de sprints
+    $filter_my_sprints = isset($_GET['filter_my_sprints']) && $_GET['filter_my_sprints'] === '1';
+    $filter_user_id = isset($_GET['filter_user_id']) && !empty($_GET['filter_user_id']) ? $_GET['filter_user_id'] : null;
+    $filter_prototipo = isset($_GET['filter_prototipo']) && !empty($_GET['filter_prototipo']) ? $_GET['filter_prototipo'] : null;
     
-    // Se filtrar por protótipo, fazer JOIN com sprint_prototypes
-    if ($filter_prototipo && $has_prototypes) {
-        $query .= "
-        INNER JOIN sprint_prototypes sp ON s.id = sp.sprint_id
-        ";
-    }
-    
-    $query .= " WHERE 1=1 ";
-    
-    $params = [];
-    
-    if (!$show_closed) {
-        $query .= " AND s.estado != 'fechada'";
-    }
-    
-    // Filtro: minhas sprints (tem prioridade sobre filtro de pessoa específica)
-    if ($filter_my_sprints && $current_user_id) {
-        $query .= " AND s.responsavel_id = ?";
-        $params[] = $current_user_id;
-    }
-    // Filtro: sprints de pessoa específica
-    elseif ($filter_user_id) {
-        $query .= " AND s.responsavel_id = ?";
-        $params[] = $filter_user_id;
-    }
-    
-    // Filtro: protótipo específico
-    if ($filter_prototipo && $has_prototypes) {
-        $query .= " AND sp.prototype_id = ?";
-        $params[] = $filter_prototipo;
-    }
-    
-    // Ordenação: sprints sem datas aparecem no fim
-    if ($order_by === 'fim') {
-        $query .= " ORDER BY 
-                    CASE WHEN s.data_fim IS NULL THEN 1 ELSE 0 END,
-                    s.data_fim ASC,
-                    s.created_at DESC";
-    } else {
-        $query .= " ORDER BY 
-                    CASE WHEN s.data_inicio IS NULL THEN 1 ELSE 0 END,
-                    s.data_inicio ASC,
-                    s.created_at DESC";
-    }
-    
-    $stmt = $pdo->prepare($query);
-    $stmt->execute($params);
-    $sprints = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Calcular estatísticas para cada sprint
-    foreach ($sprints as &$sprint) {
-        // Verificar se tem tasks associadas
+    // Obter lista de protótipos únicos associados às sprints
+    if ($has_prototypes) {
         try {
-            $stmt = $pdo->prepare("
-                SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN t.estado = 'completada' THEN 1 ELSE 0 END) as completadas
-                FROM sprint_tasks st
-                JOIN todos t ON st.todo_id = t.id
-                WHERE st.sprint_id = ?
-            ");
-            $stmt->execute([$sprint['id']]);
-            $stats = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            $sprint['total_tasks'] = $stats['total'] ?? 0;
-            $sprint['tasks_completadas'] = $stats['completadas'] ?? 0;
-            $sprint['percentagem'] = $sprint['total_tasks'] > 0 
-                ? round(($sprint['tasks_completadas'] / $sprint['total_tasks']) * 100) 
-                : 0;
+            $prototipos = $pdo->query("
+                SELECT DISTINCT p.id, p.short_name, p.title
+                FROM prototypes p
+                INNER JOIN sprint_prototypes sp ON p.id = sp.prototype_id
+                ORDER BY p.short_name
+            ")->fetchAll(PDO::FETCH_ASSOC);
         } catch (PDOException $e) {
-            $sprint['total_tasks'] = 0;
-            $sprint['tasks_completadas'] = 0;
-            $sprint['percentagem'] = 0;
+            error_log("Erro ao buscar protótipos: " . $e->getMessage());
+            $prototipos = [];
         }
     }
-    unset($sprint);
     
-} catch (PDOException $e) {
-    $sprints = [];
-    $error_message = "Erro ao carregar sprints: " . $e->getMessage();
+    // Buscar sprints
+    try {
+        $query = "
+            SELECT s.*, 
+                   u.username as responsavel_nome,
+                   DATEDIFF(s.data_fim, CURDATE()) as dias_restantes
+            FROM sprints s
+            LEFT JOIN user_tokens u ON s.responsavel_id = u.user_id
+        ";
+        
+        if ($filter_prototipo && $has_prototypes) {
+            $query .= "
+            INNER JOIN sprint_prototypes sp ON s.id = sp.sprint_id
+            ";
+        }
+        
+        $query .= " WHERE 1=1 ";
+        
+        $params = [];
+        
+        if (!$show_closed) {
+            $query .= " AND s.estado != 'fechada'";
+        }
+        
+        if ($filter_my_sprints && $current_user_id) {
+            $query .= " AND s.responsavel_id = ?";
+            $params[] = $current_user_id;
+        } elseif ($filter_user_id) {
+            $query .= " AND s.responsavel_id = ?";
+            $params[] = $filter_user_id;
+        }
+        
+        if ($filter_prototipo && $has_prototypes) {
+            $query .= " AND sp.prototype_id = ?";
+            $params[] = $filter_prototipo;
+        }
+        
+        if ($order_by === 'fim') {
+            $query .= " ORDER BY 
+                        CASE WHEN s.data_fim IS NULL THEN 1 ELSE 0 END,
+                        s.data_fim ASC,
+                        s.created_at DESC";
+        } else {
+            $query .= " ORDER BY 
+                        CASE WHEN s.data_inicio IS NULL THEN 1 ELSE 0 END,
+                        s.data_inicio ASC,
+                        s.created_at DESC";
+        }
+        
+        $stmt = $pdo->prepare($query);
+        $stmt->execute($params);
+        $sprints = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Calcular estatísticas para cada sprint
+        foreach ($sprints as &$sprint) {
+            try {
+                $stmt = $pdo->prepare("
+                    SELECT 
+                        COUNT(*) as total,
+                        SUM(CASE WHEN t.estado = 'completada' THEN 1 ELSE 0 END) as completadas
+                    FROM sprint_tasks st
+                    JOIN todos t ON st.todo_id = t.id
+                    WHERE st.sprint_id = ?
+                ");
+                $stmt->execute([$sprint['id']]);
+                $stats = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                $sprint['total_tasks'] = $stats['total'] ?? 0;
+                $sprint['tasks_completadas'] = $stats['completadas'] ?? 0;
+                $sprint['percentagem'] = $sprint['total_tasks'] > 0 
+                    ? round(($sprint['tasks_completadas'] / $sprint['total_tasks']) * 100) 
+                    : 0;
+            } catch (PDOException $e) {
+                $sprint['total_tasks'] = 0;
+                $sprint['tasks_completadas'] = 0;
+                $sprint['percentagem'] = 0;
+            }
+        }
+        unset($sprint);
+        
+    } catch (PDOException $e) {
+        $sprints = [];
+        $error_message = "Erro ao carregar sprints: " . $e->getMessage();
+    }
 }
 
-// Calcular período de visualização do Gantt
+// ============================================================================
+// PROCESSAMENTO PARA VISTA DE ENTREGÁVEIS/PPS/KPIs
+// ============================================================================
+$deliverables = [];
+$projects = [];
+
+if ($view_type === 'deliverables' && $has_projects) {
+    // Filtros específicos de entregáveis
+    $filter_my_deliverables = isset($_GET['filter_my_deliverables']) && $_GET['filter_my_deliverables'] === '1';
+    $filter_project = isset($_GET['filter_project']) && !empty($_GET['filter_project']) ? $_GET['filter_project'] : null;
+    
+    // Obter lista de projetos
+    try {
+        $projects = $pdo->query("
+            SELECT id, short_name, title
+            FROM projects
+            ORDER BY short_name
+        ")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log("Erro ao buscar projetos: " . $e->getMessage());
+        $projects = [];
+    }
+    
+    // Buscar entregáveis
+    try {
+        $query = "
+            SELECT 
+                pd.*,
+                p.short_name as project_short_name,
+                p.title as project_title,
+                u.username as owner_name,
+                DATEDIFF(pd.due_date, CURDATE()) as dias_restantes
+            FROM project_deliverables pd
+            INNER JOIN projects p ON pd.project_id = p.id
+            LEFT JOIN user_tokens u ON p.owner_id = u.user_id
+            WHERE 1=1
+        ";
+        
+        $params = [];
+        
+        if (!$show_closed) {
+            $query .= " AND pd.status != 'completed'";
+        }
+        
+        if ($filter_my_deliverables && $current_user_id) {
+            $query .= " AND p.owner_id = ?";
+            $params[] = $current_user_id;
+        }
+        
+        if ($filter_project) {
+            $query .= " AND pd.project_id = ?";
+            $params[] = $filter_project;
+        }
+        
+        if ($order_by === 'fim') {
+            $query .= " ORDER BY 
+                        CASE WHEN pd.due_date IS NULL THEN 1 ELSE 0 END,
+                        pd.due_date ASC,
+                        pd.created_at DESC";
+        } else {
+            $query .= " ORDER BY 
+                        CASE WHEN pd.created_at IS NULL THEN 1 ELSE 0 END,
+                        pd.created_at ASC";
+        }
+        
+        $stmt = $pdo->prepare($query);
+        $stmt->execute($params);
+        $deliverables = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Calcular estatísticas para cada entregável
+        foreach ($deliverables as &$deliv) {
+            try {
+                $stmt = $pdo->prepare("
+                    SELECT 
+                        COUNT(*) as total,
+                        SUM(CASE WHEN t.estado = 'completada' THEN 1 ELSE 0 END) as completadas
+                    FROM deliverable_tasks dt
+                    JOIN todos t ON dt.todo_id = t.id
+                    WHERE dt.deliverable_id = ?
+                ");
+                $stmt->execute([$deliv['id']]);
+                $stats = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                $deliv['total_tasks'] = $stats['total'] ?? 0;
+                $deliv['tasks_completadas'] = $stats['completadas'] ?? 0;
+                $deliv['percentagem'] = $deliv['total_tasks'] > 0 
+                    ? round(($deliv['tasks_completadas'] / $deliv['total_tasks']) * 100) 
+                    : 0;
+            } catch (PDOException $e) {
+                $deliv['total_tasks'] = 0;
+                $deliv['tasks_completadas'] = 0;
+                $deliv['percentagem'] = 0;
+            }
+        }
+        unset($deliv);
+        
+    } catch (PDOException $e) {
+        $deliverables = [];
+        $error_message = "Erro ao carregar entregáveis: " . $e->getMessage();
+    }
+}
+
+// ============================================================================
+// CALCULAR PERÍODO DE VISUALIZAÇÃO DO GANTT
+// ============================================================================
 $today = new DateTime();
 $min_date = null;
 $max_date = null;
 
-foreach ($sprints as $sprint) {
-    if ($sprint['data_inicio']) {
-        $inicio = new DateTime($sprint['data_inicio']);
-        if ($min_date === null || $inicio < $min_date) {
-            $min_date = clone $inicio;
+if ($view_type === 'sprints') {
+    foreach ($sprints as $sprint) {
+        if ($sprint['data_inicio']) {
+            $inicio = new DateTime($sprint['data_inicio']);
+            if ($min_date === null || $inicio < $min_date) {
+                $min_date = clone $inicio;
+            }
+        }
+        if ($sprint['data_fim']) {
+            $fim = new DateTime($sprint['data_fim']);
+            if ($max_date === null || $fim > $max_date) {
+                $max_date = clone $fim;
+            }
         }
     }
-    if ($sprint['data_fim']) {
-        $fim = new DateTime($sprint['data_fim']);
-        if ($max_date === null || $fim > $max_date) {
-            $max_date = clone $fim;
+} else {
+    foreach ($deliverables as $deliv) {
+        if ($deliv['created_at']) {
+            $inicio = new DateTime($deliv['created_at']);
+            if ($min_date === null || $inicio < $min_date) {
+                $min_date = clone $inicio;
+            }
+        }
+        if ($deliv['due_date']) {
+            $fim = new DateTime($deliv['due_date']);
+            if ($max_date === null || $fim > $max_date) {
+                $max_date = clone $fim;
+            }
         }
     }
 }
@@ -226,505 +349,324 @@ if ($max_date === null) {
     }
 }
 
-// Adicionar margem ao período baseado no view_range
+// Ajustar limites com base no view_range
+$min_date->modify('first day of this month');
+$max_date->modify('last day of this month');
+
+// Expandir range baseado no view_range
 switch ($view_range) {
     case 'semana':
-        $min_date->modify('-3 days');
-        $max_date->modify('+3 days');
+        $min_date->modify('-2 weeks');
+        $max_date->modify('+2 weeks');
         break;
     case 'trimestre':
-        $min_date->modify('-1 week');
-        $max_date->modify('+1 week');
+        $min_date->modify('-1 month');
+        $max_date->modify('+2 months');
         break;
-    default: // mes
-        $min_date->modify('-1 week');
-        $max_date->modify('+1 week');
 }
 
-// Calcular número de dias
-$interval = $min_date->diff($max_date);
-$total_days = $interval->days;
+// Calcular número total de dias
+$total_days = $max_date->diff($min_date)->days + 1;
 ?>
 
 <style>
-.gantt-container {
-    background: white;
-    border-radius: 8px;
-    padding: 20px;
-    margin-top: 20px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+/* ===== LAYOUT GERAL ===== */
+.gantt-layout {
+    display: flex;
+    height: calc(100vh - 150px);
+    gap: 0;
 }
 
-.gantt-header {
+.gantt-sidebar {
+    width: 280px;
+    background: #f8f9fa;
+    border-right: 2px solid #dee2e6;
+    padding: 20px;
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+
+.gantt-main {
+    flex: 1;
+    overflow: auto;
+    padding: 20px;
+    background: white;
+}
+
+/* ===== BARRA LATERAL ===== */
+.sidebar-section {
+    margin-bottom: 25px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.sidebar-section:last-child {
+    border-bottom: none;
+}
+
+.sidebar-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.view-type-toggle {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    gap: 8px;
+    margin-bottom: 15px;
+}
+
+.view-type-btn {
+    flex: 1;
+    padding: 8px 12px;
+    border: 2px solid #dee2e6;
+    background: white;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+}
+
+.view-type-btn:hover {
+    background: #f8f9fa;
+    border-color: #0d6efd;
+}
+
+.view-type-btn.active {
+    background: #0d6efd;
+    color: white;
+    border-color: #0d6efd;
+}
+
+.filter-group {
+    margin-bottom: 15px;
+}
+
+.filter-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: #6c757d;
+    margin-bottom: 5px;
+}
+
+.form-select, .form-control {
+    font-size: 13px;
+    padding: 6px 10px;
+}
+
+.form-check {
+    margin-bottom: 8px;
+}
+
+.form-check-label {
+    font-size: 13px;
+    color: #495057;
+}
+
+.btn-apply-filters {
+    width: 100%;
+    padding: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    background: #0d6efd;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-apply-filters:hover {
+    background: #0b5ed7;
+}
+
+/* ===== CABEÇALHO DO GANTT ===== */
+.gantt-header {
     margin-bottom: 20px;
     padding-bottom: 15px;
-    border-bottom: 2px solid #e9ecef;
+    border-bottom: 2px solid #dee2e6;
 }
 
-.gantt-filters {
+.gantt-title {
+    font-size: 24px;
+    font-weight: 700;
+    color: #212529;
+    margin-bottom: 8px;
+}
+
+.gantt-info {
     display: flex;
-    gap: 15px;
+    gap: 20px;
+    font-size: 13px;
+    color: #6c757d;
+}
+
+.gantt-info-item {
+    display: flex;
     align-items: center;
+    gap: 5px;
+}
+
+/* ===== CONTAINER DO GANTT ===== */
+#ganttContainer {
+    position: relative;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    overflow-x: auto;
+    overflow-y: auto;
+    min-height: 400px;
 }
 
 .gantt-chart {
+    display: table;
     width: 100%;
-    overflow-x: auto;
-    overflow-y: visible;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
 }
 
-.gantt-timeline {
-    display: flex;
-    position: relative;
-    min-height: 50px;
-    border-bottom: 2px solid #dee2e6;
-    margin-bottom: 10px;
-}
-
-.gantt-timeline-month {
-    flex: 1;
-    text-align: center;
-    font-weight: bold;
-    padding: 10px 0;
-    border-right: 1px solid #dee2e6;
+.gantt-header-row {
+    display: table-row;
     background: #f8f9fa;
-}
-
-.gantt-timeline-week {
-    display: flex;
-    width: 100%;
-}
-
-.gantt-timeline-day {
-    flex: 1;
-    text-align: center;
-    padding: 5px 0;
-    font-size: 0.85rem;
-    border-right: 1px solid #e9ecef;
-    position: relative;
-}
-
-.gantt-timeline-day.today {
-    background: #fff3cd;
-    font-weight: bold;
-}
-
-.gantt-timeline-day.weekend {
-    background: #f8f9fa;
-}
-
-.gantt-rows {
-    position: relative;
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
 .gantt-row {
-    display: flex;
-    align-items: center;
-    min-height: var(--gantt-row-height, 60px);
+    display: table-row;
     border-bottom: 1px solid #e9ecef;
-    position: relative;
-    transition: min-height 0.3s ease;
+    transition: background-color 0.2s;
 }
 
 .gantt-row:hover {
     background: #f8f9fa;
 }
 
-.gantt-row-label {
+.gantt-cell {
+    display: table-cell;
+    padding: 12px;
+    vertical-align: middle;
+    border-right: 1px solid #e9ecef;
+}
+
+.gantt-cell.labels-column {
     width: 250px;
-    padding: 10px 15px;
-    font-weight: 500;
-    border-right: 2px solid #dee2e6;
-    flex-shrink: 0;
-    font-size: var(--gantt-label-font-size, 1rem);
-    transition: all 0.3s ease;
-}
-
-.gantt-row-label-name {
-    font-size: var(--gantt-label-name-size, 1rem);
-    margin-bottom: 5px;
-    color: #212529;
-    transition: font-size 0.3s ease;
-}
-
-.gantt-row-label-info {
-    font-size: var(--gantt-label-info-size, 0.85rem);
-    color: #6c757d;
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    transition: font-size 0.3s ease;
-}
-
-.gantt-row-timeline {
-    flex: 1;
-    position: relative;
-    height: var(--gantt-timeline-height, 60px);
-    display: flex;
-    transition: height 0.3s ease;
-}
-
-.gantt-bar {
-    position: absolute;
-    height: var(--gantt-bar-height, 36px);
-    top: calc((var(--gantt-timeline-height, 60px) - var(--gantt-bar-height, 36px)) / 2);
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: flex;
-    align-items: center;
-    padding: 0 10px;
-    color: white;
-    font-size: var(--gantt-bar-font-size, 0.85rem);
-    font-weight: 500;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.gantt-bar:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-    z-index: 10;
-}
-
-.gantt-bar.dragging {
-    opacity: 0.7;
-    cursor: move;
-}
-
-.gantt-bar-resize-handle {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 8px;
-    cursor: ew-resize;
-    z-index: 2;
-}
-
-.gantt-bar-resize-handle.left {
+    min-width: 250px;
+    position: sticky;
     left: 0;
-    border-left: 3px solid rgba(255,255,255,0.5);
-}
-
-.gantt-bar-resize-handle.right {
-    right: 0;
-    border-right: 3px solid rgba(255,255,255,0.5);
-}
-
-.gantt-bar-resize-handle:hover {
-    background: rgba(255,255,255,0.2);
-}
-
-.gantt-no-dates {
-    padding: 10px;
-    text-align: center;
-    color: #6c757d;
-    font-style: italic;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-}
-
-.gantt-no-dates-btn {
-    padding: 4px 12px;
-    font-size: 0.85rem;
-    background: #0d6efd;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.2s;
-}
-
-.gantt-no-dates-btn:hover {
-    background: #0b5ed7;
-}
-
-.date-picker-modal {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 9999;
-    align-items: center;
-    justify-content: center;
-}
-
-.date-picker-modal.show {
-    display: flex;
-}
-
-.date-picker-content {
     background: white;
-    padding: 25px;
-    border-radius: 8px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-    max-width: 400px;
-    width: 90%;
+    z-index: 5;
+    box-shadow: 2px 0 5px rgba(0,0,0,0.05);
 }
 
-.date-picker-header {
-    font-size: 1.2rem;
-    font-weight: bold;
-    margin-bottom: 20px;
-    color: #212529;
-}
-
-.date-picker-body {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-}
-
-.date-picker-field {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-}
-
-.date-picker-field label {
-    font-weight: 500;
+.gantt-header-row .gantt-cell.labels-column {
+    background: #f8f9fa;
+    font-weight: 700;
     color: #495057;
 }
 
-.date-picker-field input {
-    padding: 8px 12px;
-    border: 1px solid #ced4da;
-    border-radius: 4px;
-    font-size: 0.95rem;
+.gantt-cell.timeline-column {
+    min-width: 100%;
+    padding: 0;
 }
 
-.date-picker-footer {
+/* ===== LABELS DAS LINHAS ===== */
+.gantt-label {
     display: flex;
-    gap: 10px;
-    margin-top: 20px;
-    justify-content: flex-end;
-}
-
-.date-picker-footer button {
-    padding: 8px 20px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.95rem;
-    transition: background 0.2s;
-}
-
-.date-picker-footer .btn-cancel {
-    background: #6c757d;
-    color: white;
-}
-
-.date-picker-footer .btn-cancel:hover {
-    background: #5a6268;
-}
-
-.date-picker-footer .btn-save {
-    background: #28a745;
-    color: white;
-}
-
-.date-picker-footer .btn-save:hover {
-    background: #218838;
-}
-
-.date-picker-footer .btn-save:disabled {
-    background: #6c757d;
-    cursor: not-allowed;
-    opacity: 0.6;
-}
-
-.loading-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0,0,0,0.3);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 10000;
-}
-
-.loading-overlay.show {
-    display: flex;
-}
-
-.loading-spinner {
-    background: white;
-    padding: 30px;
-    border-radius: 8px;
-    text-align: center;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-}
-
-.loading-spinner .spinner {
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #0d6efd;
-    border-radius: 50%;
-    width: 40px;
-    height: 40px;
-    animation: spin 1s linear infinite;
-    margin: 0 auto 15px;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
-/* Densidade Normal (padrão) */
-.gantt-container.density-normal {
-    --gantt-row-height: 60px;
-    --gantt-timeline-height: 60px;
-    --gantt-bar-height: 36px;
-    --gantt-label-font-size: 1rem;
-    --gantt-label-name-size: 1rem;
-    --gantt-label-info-size: 0.85rem;
-    --gantt-bar-font-size: 0.85rem;
-}
-
-/* Densidade Média (metade) */
-.gantt-container.density-medium {
-    --gantt-row-height: 40px;
-    --gantt-timeline-height: 40px;
-    --gantt-bar-height: 24px;
-    --gantt-label-font-size: 0.9rem;
-    --gantt-label-name-size: 0.9rem;
-    --gantt-label-info-size: 0.75rem;
-    --gantt-bar-font-size: 0.75rem;
-}
-
-/* Densidade Compacta (1/4) */
-.gantt-container.density-compact {
-    --gantt-row-height: 30px;
-    --gantt-timeline-height: 30px;
-    --gantt-bar-height: 18px;
-    --gantt-label-font-size: 0.8rem;
-    --gantt-label-name-size: 0.8rem;
-    --gantt-label-info-size: 0.7rem;
-    --gantt-bar-font-size: 0.7rem;
-}
-
-/* Ajustes para densidade compacta */
-.gantt-container.density-compact .gantt-row-label {
-    padding: 5px 10px;
-}
-
-.gantt-container.density-compact .gantt-row-label-name {
-    margin-bottom: 2px;
-}
-
-.gantt-container.density-compact .gantt-row-label-info {
-    gap: 5px;
-}
-
-.gantt-container.density-compact .gantt-bar-content {
+    flex-direction: column;
     gap: 4px;
 }
 
-.gantt-container.density-compact .gantt-bar-progress {
-    padding: 1px 4px;
-    font-size: 0.65rem;
+.gantt-label-title {
+    font-weight: 600;
+    color: #212529;
+    font-size: 13px;
+    cursor: pointer;
+    transition: color 0.2s;
 }
 
-/* Ajustes para densidade média */
-.gantt-container.density-medium .gantt-row-label {
-    padding: 8px 12px;
+.gantt-label-title:hover {
+    color: #0d6efd;
+    text-decoration: underline;
 }
 
-.gantt-container.density-medium .gantt-row-label-name {
-    margin-bottom: 3px;
-}
-
-.gantt-container.density-medium .gantt-bar-progress {
-    padding: 1px 5px;
-    font-size: 0.7rem;
-}
-
-.gantt-bar.estado-aberta {
-    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-}
-
-.gantt-bar.estado-pausa {
-    background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
-}
-
-.gantt-bar.estado-fechada {
-    background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
-}
-
-.gantt-bar-content {
+.gantt-label-meta {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    width: 100%;
-    gap: 8px;
-}
-
-.gantt-bar-progress {
-    font-size: 0.75rem;
-    background: rgba(255,255,255,0.3);
-    padding: 2px 6px;
-    border-radius: 3px;
-}
-
-.gantt-today-line {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 2px;
-    background: #dc3545;
-    z-index: 5;
-    pointer-events: none;
-}
-
-.gantt-today-label {
-    position: absolute;
-    top: -25px;
-    left: -20px;
-    background: #dc3545;
-    color: white;
-    padding: 2px 8px;
-    border-radius: 3px;
-    font-size: 0.75rem;
-    font-weight: bold;
-    white-space: nowrap;
-}
-
-.gantt-legend {
-    display: flex;
-    gap: 20px;
-    margin-top: 20px;
-    padding: 15px;
-    background: #f8f9fa;
-    border-radius: 4px;
-}
-
-.gantt-legend-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.9rem;
-}
-
-.gantt-legend-color {
-    width: 20px;
-    height: 20px;
-    border-radius: 3px;
-}
-
-.gantt-empty {
-    text-align: center;
-    padding: 60px 20px;
+    gap: 10px;
+    font-size: 11px;
     color: #6c757d;
+}
+
+.gantt-label-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+/* ===== TIMELINE ===== */
+.gantt-timeline {
+    position: relative;
+    height: 60px;
+    background: linear-gradient(to right, #f8f9fa 0%, #ffffff 100%);
+}
+
+.gantt-months {
+    display: flex;
+    height: 30px;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.gantt-month {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 12px;
+    color: #495057;
+    border-right: 1px solid #dee2e6;
+    background: #f8f9fa;
+}
+
+.gantt-days {
+    display: flex;
+    height: 30px;
+}
+
+.gantt-day {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: #6c757d;
+    border-right: 1px solid #f1f3f5;
+}
+
+.gantt-day.today {
+    background: #fff3cd;
+    font-weight: 700;
+    color: #856404;
+}
+
+.gantt-day.weekend {
+    background: #f8f9fa;
+}
+
+/* ===== BARRAS DO GANTT ===== */
+.gantt-bars {
+    position: relative;
+    height: 40px;
+    display: flex;
+    align-items: center;
 }
 
 .gantt-grid {
@@ -734,347 +676,874 @@ $total_days = $interval->days;
     right: 0;
     bottom: 0;
     display: flex;
-    pointer-events: none;
 }
 
-.gantt-grid-line {
+.gantt-grid-day {
     flex: 1;
-    border-right: 1px solid #f0f0f0;
+    border-right: 1px solid #f1f3f5;
 }
 
-.sprint-tooltip {
+.gantt-grid-day.today {
+    background: #fff3cd20;
+}
+
+.gantt-grid-day.weekend {
+    background: #f8f9fa80;
+}
+
+.gantt-bar {
     position: absolute;
-    background: #212529;
-    color: white;
-    padding: 10px;
+    height: 28px;
     border-radius: 4px;
-    font-size: 0.85rem;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 600;
+    color: white;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.gantt-bar:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    z-index: 5;
+}
+
+/* Estados das barras - SPRINTS */
+.gantt-bar.sprint-aberta {
+    background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+}
+
+.gantt-bar.sprint-pausa {
+    background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+    color: #212529;
+}
+
+.gantt-bar.sprint-fechada {
+    background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+}
+
+/* Estados das barras - ENTREGÁVEIS */
+.gantt-bar.deliverable-pending {
+    background: linear-gradient(135deg, #0dcaf0 0%, #0aa2c0 100%);
+}
+
+.gantt-bar.deliverable-in-progress {
+    background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+}
+
+.gantt-bar.deliverable-completed {
+    background: linear-gradient(135deg, #198754 0%, #146c43 100%);
+}
+
+.gantt-bar.deliverable-blocked {
+    background: linear-gradient(135deg, #dc3545 0%, #b02a37 100%);
+}
+
+.gantt-bar-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    overflow: hidden;
+}
+
+.gantt-bar-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.gantt-bar-progress {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    opacity: 0.9;
+}
+
+/* Barra para items sem datas */
+.gantt-placeholder {
+    position: absolute;
+    height: 28px;
+    left: 10px;
+    right: 10px;
+    border: 2px dashed #dee2e6;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6c757d;
+    font-size: 11px;
+    background: #f8f9fa;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.gantt-placeholder:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+}
+
+/* ===== DENSIDADES ===== */
+.density-compact .gantt-row {
+    height: 35px;
+}
+
+.density-compact .gantt-bars {
+    height: 30px;
+}
+
+.density-compact .gantt-bar {
+    height: 22px;
+    font-size: 10px;
+}
+
+.density-medium .gantt-row {
+    height: 50px;
+}
+
+.density-medium .gantt-bars {
+    height: 45px;
+}
+
+.density-medium .gantt-bar {
+    height: 32px;
+}
+
+.density-normal .gantt-row {
+    height: 65px;
+}
+
+.density-normal .gantt-bars {
+    height: 60px;
+}
+
+.density-normal .gantt-bar {
+    height: 40px;
+}
+
+/* ===== ESTADOS E BADGES ===== */
+.status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-badge.status-aberta,
+.status-badge.status-pending {
+    background: #cfe2ff;
+    color: #084298;
+}
+
+.status-badge.status-pausa {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.status-badge.status-fechada,
+.status-badge.status-completed {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.status-badge.status-in-progress {
+    background: #cfe2ff;
+    color: #084298;
+}
+
+.status-badge.status-blocked {
+    background: #f8d7da;
+    color: #842029;
+}
+
+/* ===== MODAL ===== */
+.gantt-modal {
+    display: none;
+    position: fixed;
     z-index: 1000;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.2s;
-    max-width: 300px;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    align-items: center;
+    justify-content: center;
 }
 
-.sprint-tooltip.show {
-    opacity: 1;
+.gantt-modal.show {
+    display: flex;
 }
 
+.gantt-modal-content {
+    background: white;
+    padding: 30px;
+    border-radius: 8px;
+    max-width: 500px;
+    width: 90%;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+}
+
+.gantt-modal-header {
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.gantt-modal-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #212529;
+    margin: 0;
+}
+
+.gantt-modal-body {
+    margin-bottom: 20px;
+}
+
+.gantt-modal-footer {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+/* ===== LOADING ===== */
+.loading-overlay {
+    display: none;
+    position: fixed;
+    z-index: 2000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255,255,255,0.9);
+    align-items: center;
+    justify-content: center;
+}
+
+.loading-overlay.show {
+    display: flex;
+}
+
+.loading-spinner {
+    text-align: center;
+}
+
+.loading-spinner i {
+    font-size: 48px;
+    color: #0d6efd;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* ===== NOTIFICAÇÕES ===== */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 3000;
+    min-width: 300px;
+    padding: 15px 20px;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.notification.alert-success {
+    background: #d1e7dd;
+    color: #0f5132;
+    border-left: 4px solid #198754;
+}
+
+.notification.alert-danger {
+    background: #f8d7da;
+    color: #842029;
+    border-left: 4px solid #dc3545;
+}
+
+/* ===== MENSAGEM VAZIA ===== */
+.empty-message {
+    text-align: center;
+    padding: 60px 20px;
+    color: #6c757d;
+}
+
+.empty-message i {
+    font-size: 64px;
+    margin-bottom: 20px;
+    opacity: 0.3;
+}
+
+.empty-message h4 {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.empty-message p {
+    font-size: 14px;
+}
+
+/* ===== RESPONSIVO ===== */
 @media (max-width: 768px) {
-    .gantt-row-label {
-        width: 180px;
+    .gantt-layout {
+        flex-direction: column;
+        height: auto;
     }
     
-    .gantt-filters {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 10px;
+    .gantt-sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 2px solid #dee2e6;
+    }
+    
+    .gantt-cell.labels-column {
+        position: relative;
+        width: auto;
     }
 }
 </style>
 
-<div class="container-fluid">
-    <div class="gantt-container density-normal" id="ganttContainer">
-        <div class="gantt-header">
-            <div>
-                <h2 class="mb-0">
-                    <i class="bi bi-calendar-range"></i> Gantt de Sprints
-                </h2>
-                <p class="text-muted mb-0 mt-1">
-                    Visualização temporal das sprints - Arraste para mover, redimensione pelas bordas
-                </p>
+<div class="gantt-layout">
+    <!-- Barra Lateral de Controlo -->
+    <div class="gantt-sidebar">
+        <!-- Selector de Vista -->
+        <div class="sidebar-section">
+            <div class="sidebar-title">Tipo de Vista</div>
+            <div class="view-type-toggle">
+                <?php if ($has_sprints): ?>
+                <button class="view-type-btn <?= $view_type === 'sprints' ? 'active' : '' ?>" 
+                        onclick="changeViewType('sprints')">
+                    <i class="bi bi-lightning"></i> Sprints
+                </button>
+                <?php endif; ?>
+                <?php if ($has_projects): ?>
+                <button class="view-type-btn <?= $view_type === 'deliverables' ? 'active' : '' ?>" 
+                        onclick="changeViewType('deliverables')">
+                    <i class="bi bi-check2-square"></i> Entregáveis
+                </button>
+                <?php endif; ?>
+            </div>
+        </div>
+        
+        <!-- Filtros de Sprints -->
+        <?php if ($view_type === 'sprints' && $has_sprints): ?>
+        <div class="sidebar-section">
+            <div class="sidebar-title">Filtros de Sprints</div>
+            
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="filterMySprints" 
+                       <?= $filter_my_sprints ?? false ? 'checked' : '' ?>>
+                <label class="form-check-label" for="filterMySprints">
+                    Minhas Sprints
+                </label>
             </div>
             
-            <div class="gantt-filters">
-                <div class="row g-2">
-                    <div class="col-auto">
-                        <select class="form-select form-select-sm" id="densitySelect" onchange="changeDensity()" title="Densidade das linhas">
-                            <option value="normal">📏 Normal</option>
-                            <option value="medium">📏 Média (1/2)</option>
-                            <option value="compact">📏 Compacta (1/4)</option>
-                        </select>
-                    </div>
-                    
-                    <div class="col-auto">
-                        <select class="form-select form-select-sm" id="viewRange" onchange="updateFilters()">
-                            <option value="semana" <?= $view_range === 'semana' ? 'selected' : '' ?>>📅 Semana</option>
-                            <option value="mes" <?= $view_range === 'mes' ? 'selected' : '' ?>>📅 Mês</option>
-                            <option value="trimestre" <?= $view_range === 'trimestre' ? 'selected' : '' ?>>📅 Trimestre</option>
-                        </select>
-                    </div>
-                    
-                    <div class="col-auto">
-                        <select class="form-select form-select-sm" id="orderBy" onchange="updateFilters()">
-                            <option value="inicio" <?= $order_by === 'inicio' ? 'selected' : '' ?>>Ordenar por Início</option>
-                            <option value="fim" <?= $order_by === 'fim' ? 'selected' : '' ?>>Ordenar por Fim</option>
-                        </select>
-                    </div>
-                    
-                    <div class="col-auto">
-                        <select class="form-select form-select-sm" id="filterPrototipo" onchange="updateFilters()">
-                            <option value="">🔧 Todos os protótipos</option>
-                            <?php foreach ($prototipos as $prototipo): ?>
-                                <option value="<?= $prototipo['id'] ?>" <?= $filter_prototipo == $prototipo['id'] ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($prototipo['short_name']) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    
-                    <div class="col-auto">
-                        <select class="form-select form-select-sm" id="filterUser" onchange="updateFilters()">
-                            <option value="">👥 Todos os responsáveis</option>
-                            <?php foreach ($users as $user): ?>
-                                <option value="<?= $user['user_id'] ?>" <?= $filter_user_id == $user['user_id'] ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($user['username']) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    
-                    <div class="col-auto">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="filterMySprints" 
-                                   <?= $filter_my_sprints ? 'checked' : '' ?>
-                                   onchange="updateFilters()">
-                            <label class="form-check-label" for="filterMySprints">
-                                Apenas minhas
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div class="col-auto">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="showClosedSprints" 
-                                   <?= $show_closed ? 'checked' : '' ?>
-                                   onchange="updateFilters()">
-                            <label class="form-check-label" for="showClosedSprints">
-                                Fechadas
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div class="col-auto">
-                        <a href="?tab=sprints" class="btn btn-outline-primary btn-sm">
-                            <i class="bi bi-list-task"></i> Ver Lista
-                        </a>
-                    </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="showClosedSprints" 
+                       <?= $show_closed ? 'checked' : '' ?>>
+                <label class="form-check-label" for="showClosedSprints">
+                    Mostrar Fechadas
+                </label>
+            </div>
+            
+            <div class="filter-group">
+                <label class="filter-label" for="filterUser">Responsável</label>
+                <select id="filterUser" class="form-select">
+                    <option value="">Todos</option>
+                    <?php foreach ($users as $user): ?>
+                        <option value="<?= $user['user_id'] ?>" 
+                                <?= ($filter_user_id ?? '') == $user['user_id'] ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($user['username']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            
+            <?php if (!empty($prototipos)): ?>
+            <div class="filter-group">
+                <label class="filter-label" for="filterPrototipo">Protótipo</label>
+                <select id="filterPrototipo" class="form-select">
+                    <option value="">Todos</option>
+                    <?php foreach ($prototipos as $proto): ?>
+                        <option value="<?= $proto['id'] ?>" 
+                                <?= ($filter_prototipo ?? '') == $proto['id'] ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($proto['short_name']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+        
+        <!-- Filtros de Entregáveis -->
+        <?php if ($view_type === 'deliverables' && $has_projects): ?>
+        <div class="sidebar-section">
+            <div class="sidebar-title">Filtros de Entregáveis</div>
+            
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="filterMyDeliverables" 
+                       <?= $filter_my_deliverables ?? false ? 'checked' : '' ?>>
+                <label class="form-check-label" for="filterMyDeliverables">
+                    Meus Projetos
+                </label>
+            </div>
+            
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="showClosedDeliverables" 
+                       <?= $show_closed ? 'checked' : '' ?>>
+                <label class="form-check-label" for="showClosedDeliverables">
+                    Mostrar Completados
+                </label>
+            </div>
+            
+            <?php if (!empty($projects)): ?>
+            <div class="filter-group">
+                <label class="filter-label" for="filterProject">Projeto</label>
+                <select id="filterProject" class="form-select">
+                    <option value="">Todos</option>
+                    <?php foreach ($projects as $proj): ?>
+                        <option value="<?= $proj['id'] ?>" 
+                                <?= ($filter_project ?? '') == $proj['id'] ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($proj['short_name']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+        
+        <!-- Opções de Visualização -->
+        <div class="sidebar-section">
+            <div class="sidebar-title">Visualização</div>
+            
+            <div class="filter-group">
+                <label class="filter-label" for="viewRange">Período</label>
+                <select id="viewRange" class="form-select">
+                    <option value="semana" <?= $view_range === 'semana' ? 'selected' : '' ?>>Semana</option>
+                    <option value="mes" <?= $view_range === 'mes' ? 'selected' : '' ?>>Mês</option>
+                    <option value="trimestre" <?= $view_range === 'trimestre' ? 'selected' : '' ?>>Trimestre</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label class="filter-label" for="orderBy">Ordenar por</label>
+                <select id="orderBy" class="form-select">
+                    <option value="inicio" <?= $order_by === 'inicio' ? 'selected' : '' ?>>Data Início</option>
+                    <option value="fim" <?= $order_by === 'fim' ? 'selected' : '' ?>>Data Fim</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label class="filter-label" for="densitySelect">Densidade</label>
+                <select id="densitySelect" class="form-select" onchange="changeDensity()">
+                    <option value="compact">Compacta</option>
+                    <option value="medium" selected>Média</option>
+                    <option value="normal">Normal</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- Botão Aplicar -->
+        <button class="btn-apply-filters" onclick="updateFilters()">
+            <i class="bi bi-funnel"></i> Aplicar Filtros
+        </button>
+    </div>
+    
+    <!-- Área Principal do Gantt -->
+    <div class="gantt-main">
+        <?php if (isset($error_message)): ?>
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i>
+                <?= htmlspecialchars($error_message) ?>
+            </div>
+        <?php endif; ?>
+        
+        <!-- Cabeçalho -->
+        <div class="gantt-header">
+            <div class="gantt-title">
+                <i class="bi bi-calendar3"></i>
+                <?php if ($view_type === 'sprints'): ?>
+                    Gantt de Sprints
+                <?php else: ?>
+                    Gantt de Entregáveis/PPS/KPIs
+                <?php endif; ?>
+            </div>
+            <div class="gantt-info">
+                <div class="gantt-info-item">
+                    <i class="bi bi-calendar-range"></i>
+                    <?= $min_date->format('d/m/Y') ?> - <?= $max_date->format('d/m/Y') ?>
+                </div>
+                <div class="gantt-info-item">
+                    <i class="bi bi-list-ol"></i>
+                    <?php if ($view_type === 'sprints'): ?>
+                        <?= count($sprints) ?> sprint(s)
+                    <?php else: ?>
+                        <?= count($deliverables) ?> entregável(is)
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
         
-        <?php if (isset($error_message)): ?>
-            <div class="alert alert-danger">
-                <i class="bi bi-exclamation-triangle"></i> <?= htmlspecialchars($error_message) ?>
-            </div>
-        <?php elseif (empty($sprints)): ?>
-            <div class="gantt-empty">
-                <i class="bi bi-calendar-x" style="font-size: 3rem; color: #dee2e6;"></i>
-                <h4 class="mt-3">Nenhuma sprint encontrada</h4>
-                <p>Crie uma nova sprint no módulo de Sprints para visualizá-la aqui.</p>
-                <a href="?tab=sprints" class="btn btn-primary mt-2">
-                    <i class="bi bi-plus-circle"></i> Ir para Sprints
-                </a>
-            </div>
-        <?php else: ?>
-            <div class="gantt-chart">
-                <!-- Timeline Header -->
-                <div class="gantt-timeline">
-                    <div style="width: 250px; flex-shrink: 0; border-right: 2px solid #dee2e6; background: #f8f9fa;"></div>
-                    <div style="flex: 1; display: flex;">
-                        <?php
-                        $current_date = clone $min_date;
-                        $day_width = 100 / $total_days;
-                        
-                        while ($current_date <= $max_date) {
-                            $is_weekend = in_array($current_date->format('N'), [6, 7]);
-                            $is_today = $current_date->format('Y-m-d') === $today->format('Y-m-d');
-                            $classes = ['gantt-timeline-day'];
-                            if ($is_weekend) $classes[] = 'weekend';
-                            if ($is_today) $classes[] = 'today';
-                            
-                            echo '<div class="' . implode(' ', $classes) . '" style="width: ' . $day_width . '%;">';
-                            echo '<div style="font-size: 0.75rem;">' . $current_date->format('d') . '</div>';
-                            if ($current_date->format('d') == '01' || $current_date == $min_date) {
-                                $months_pt = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-                                $month_index = (int)$current_date->format('n') - 1;
-                                echo '<div style="font-size: 0.7rem; color: #6c757d;">' . 
-                                     $months_pt[$month_index] . '</div>';
-                            }
-                            echo '</div>';
-                            
-                            $current_date->modify('+1 day');
-                        }
-                        ?>
+        <!-- Container do Gantt -->
+        <div id="ganttContainer" class="density-medium">
+            <?php
+            // Renderizar Gantt de Sprints
+            if ($view_type === 'sprints'):
+                if (empty($sprints)): ?>
+                    <div class="empty-message">
+                        <i class="bi bi-calendar-x"></i>
+                        <h4>Nenhuma sprint encontrada</h4>
+                        <p>Altere os filtros ou crie uma nova sprint no módulo de Sprints</p>
                     </div>
-                </div>
-                
-                <!-- Gantt Rows -->
-                <div class="gantt-rows">
-                    <?php foreach ($sprints as $sprint): ?>
-                        <div class="gantt-row">
-                            <div class="gantt-row-label">
-                                <div class="gantt-row-label-name">
-                                    <?= htmlspecialchars($sprint['nome']) ?>
-                                </div>
-                                <div class="gantt-row-label-info">
-                                    <span>
-                                        <i class="bi bi-person"></i>
-                                        <?= htmlspecialchars($sprint['responsavel_nome'] ?? 'Sem responsável') ?>
-                                    </span>
-                                    <?php if ($sprint['total_tasks'] > 0): ?>
-                                        <span>
-                                            <i class="bi bi-check-circle"></i>
-                                            <?= $sprint['tasks_completadas'] ?>/<?= $sprint['total_tasks'] ?>
-                                        </span>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                            
-                            <div class="gantt-row-timeline">
-                                <!-- Grid de fundo -->
-                                <div class="gantt-grid">
+                <?php else: ?>
+                    <div class="gantt-chart">
+                        <!-- Cabeçalho -->
+                        <div class="gantt-header-row">
+                            <div class="gantt-cell labels-column">Sprint</div>
+                            <div class="gantt-cell timeline-column">
+                                <div class="gantt-timeline">
                                     <?php
+                                    // Calcular meses para o header
                                     $current_date = clone $min_date;
+                                    $months = [];
                                     while ($current_date <= $max_date) {
-                                        echo '<div class="gantt-grid-line" style="width: ' . $day_width . '%;"></div>';
+                                        $month_key = $current_date->format('Y-m');
+                                        if (!isset($months[$month_key])) {
+                                            $months[$month_key] = [
+                                                'name' => $current_date->format('M Y'),
+                                                'days' => 0
+                                            ];
+                                        }
+                                        $months[$month_key]['days']++;
                                         $current_date->modify('+1 day');
                                     }
                                     ?>
+                                    
+                                    <!-- Meses -->
+                                    <div class="gantt-months">
+                                        <?php foreach ($months as $month): ?>
+                                            <div class="gantt-month" style="flex: <?= $month['days'] ?>;">
+                                                <?= $month['name'] ?>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    
+                                    <!-- Dias -->
+                                    <div class="gantt-days">
+                                        <?php
+                                        $current_date = clone $min_date;
+                                        while ($current_date <= $max_date):
+                                            $is_today = $current_date->format('Y-m-d') === $today->format('Y-m-d');
+                                            $is_weekend = in_array($current_date->format('N'), [6, 7]);
+                                            $class = [];
+                                            if ($is_today) $class[] = 'today';
+                                            if ($is_weekend) $class[] = 'weekend';
+                                        ?>
+                                            <div class="gantt-day <?= implode(' ', $class) ?>">
+                                                <?= $current_date->format('d') ?>
+                                            </div>
+                                        <?php
+                                            $current_date->modify('+1 day');
+                                        endwhile;
+                                        ?>
+                                    </div>
                                 </div>
-                                
-                                <?php if ($sprint['data_inicio'] && $sprint['data_fim']): ?>
-                                    <?php
-                                    $sprint_inicio = new DateTime($sprint['data_inicio']);
-                                    $sprint_fim = new DateTime($sprint['data_fim']);
-                                    
-                                    // Calcular posição e largura da barra
-                                    $days_from_start = $min_date->diff($sprint_inicio)->days;
-                                    $sprint_duration = $sprint_inicio->diff($sprint_fim)->days + 1;
-                                    
-                                    $left_percent = ($days_from_start / $total_days) * 100;
-                                    $width_percent = ($sprint_duration / $total_days) * 100;
-                                    
-                                    $estado_class = 'estado-' . strtolower($sprint['estado']);
-                                    ?>
-                                    
-                                    <div class="gantt-bar <?= $estado_class ?>"
-                                         style="left: <?= $left_percent ?>%; width: <?= $width_percent ?>%;"
-                                         data-sprint-id="<?= $sprint['id'] ?>"
-                                         data-sprint-nome="<?= htmlspecialchars($sprint['nome']) ?>"
-                                         data-sprint-inicio="<?= $sprint['data_inicio'] ?>"
-                                         data-sprint-fim="<?= $sprint['data_fim'] ?>"
-                                         data-sprint-estado="<?= ucfirst($sprint['estado']) ?>"
-                                         data-sprint-responsavel="<?= htmlspecialchars($sprint['responsavel_nome'] ?? 'N/A') ?>"
-                                         data-sprint-progresso="<?= $sprint['percentagem'] ?>%">
-                                        
-                                        <div class="gantt-bar-resize-handle left" data-direction="left"></div>
-                                        
-                                        <div class="gantt-bar-content">
-                                            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                                <?= htmlspecialchars($sprint['nome']) ?>
-                                            </span>
-                                            <?php if ($sprint['total_tasks'] > 0): ?>
-                                                <span class="gantt-bar-progress">
-                                                    <?= $sprint['percentagem'] ?>%
-                                                </span>
-                                            <?php endif; ?>
-                                        </div>
-                                        
-                                        <div class="gantt-bar-resize-handle right" data-direction="right"></div>
-                                    </div>
-                                <?php else: ?>
-                                    <!-- Sprint sem datas - mostrar botão para definir -->
-                                    <div class="gantt-no-dates">
-                                        <i class="bi bi-calendar-x"></i>
-                                        <span>Sem datas definidas</span>
-                                        <button class="gantt-no-dates-btn" onclick="openDatePicker(<?= $sprint['id'] ?>, '<?= htmlspecialchars($sprint['nome']) ?>')">
-                                            <i class="bi bi-plus-circle"></i> Definir Datas
-                                        </button>
-                                    </div>
-                                <?php endif; ?>
                             </div>
                         </div>
-                    <?php endforeach; ?>
-                    
-                    <!-- Linha do dia atual -->
-                    <?php
-                    $days_from_start_today = $min_date->diff($today)->days;
-                    $today_percent = ($days_from_start_today / $total_days) * 100;
-                    ?>
-                    <div class="gantt-today-line" style="left: calc(250px + <?= $today_percent ?>%);">
-                        <div class="gantt-today-label">HOJE</div>
+                        
+                        <!-- Linhas de Sprints -->
+                        <?php foreach ($sprints as $sprint): ?>
+                            <div class="gantt-row">
+                                <div class="gantt-cell labels-column">
+                                    <div class="gantt-label">
+                                        <div class="gantt-label-title" onclick="window.location.href='?tab=sprints&sprint_id=<?= $sprint['id'] ?>'">
+                                            <?= htmlspecialchars($sprint['nome']) ?>
+                                        </div>
+                                        <div class="gantt-label-meta">
+                                            <div class="gantt-label-meta-item">
+                                                <i class="bi bi-person"></i>
+                                                <?= htmlspecialchars($sprint['responsavel_nome'] ?? 'Sem responsável') ?>
+                                            </div>
+                                            <span class="status-badge status-<?= $sprint['estado'] ?>">
+                                                <?= ucfirst($sprint['estado']) ?>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="gantt-cell timeline-column">
+                                    <div class="gantt-bars">
+                                        <!-- Grid de dias -->
+                                        <div class="gantt-grid">
+                                            <?php
+                                            $current_date = clone $min_date;
+                                            while ($current_date <= $max_date):
+                                                $is_today = $current_date->format('Y-m-d') === $today->format('Y-m-d');
+                                                $is_weekend = in_array($current_date->format('N'), [6, 7]);
+                                                $class = [];
+                                                if ($is_today) $class[] = 'today';
+                                                if ($is_weekend) $class[] = 'weekend';
+                                            ?>
+                                                <div class="gantt-grid-day <?= implode(' ', $class) ?>"></div>
+                                            <?php
+                                                $current_date->modify('+1 day');
+                                            endwhile;
+                                            ?>
+                                        </div>
+                                        
+                                        <!-- Barra da sprint -->
+                                        <?php if ($sprint['data_inicio'] && $sprint['data_fim']): 
+                                            $sprint_start = new DateTime($sprint['data_inicio']);
+                                            $sprint_end = new DateTime($sprint['data_fim']);
+                                            
+                                            // Calcular posição e largura
+                                            $days_from_start = $min_date->diff($sprint_start)->days;
+                                            $sprint_duration = $sprint_start->diff($sprint_end)->days + 1;
+                                            
+                                            $left_percent = ($days_from_start / $total_days) * 100;
+                                            $width_percent = ($sprint_duration / $total_days) * 100;
+                                        ?>
+                                            <div class="gantt-bar sprint-<?= $sprint['estado'] ?>"
+                                                 style="left: <?= $left_percent ?>%; width: <?= $width_percent ?>%;"
+                                                 onclick="window.location.href='?tab=sprints&sprint_id=<?= $sprint['id'] ?>'">
+                                                <div class="gantt-bar-content">
+                                                    <span class="gantt-bar-text">
+                                                        <?= htmlspecialchars($sprint['nome']) ?>
+                                                    </span>
+                                                    <?php if ($sprint['total_tasks'] > 0): ?>
+                                                        <div class="gantt-bar-progress">
+                                                            <i class="bi bi-check-circle"></i>
+                                                            <?= $sprint['percentagem'] ?>%
+                                                        </div>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                        <?php else: ?>
+                                            <div class="gantt-placeholder" 
+                                                 onclick="openDatePicker(<?= $sprint['id'] ?>, '<?= htmlspecialchars($sprint['nome']) ?>')">
+                                                <i class="bi bi-calendar-plus"></i> Definir datas
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
                     </div>
-                </div>
-            </div>
-            
-            <!-- Legenda -->
-            <div class="gantt-legend">
-                <div class="gantt-legend-item">
-                    <div class="gantt-legend-color" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);"></div>
-                    <span>Aberta</span>
-                </div>
-                <div class="gantt-legend-item">
-                    <div class="gantt-legend-color" style="background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);"></div>
-                    <span>Em Pausa</span>
-                </div>
-                <div class="gantt-legend-item">
-                    <div class="gantt-legend-color" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);"></div>
-                    <span>Fechada</span>
-                </div>
-                <?php if ($filter_prototipo): 
-                    // Buscar nome do protótipo selecionado
-                    $prototipo_nome = '';
-                    foreach ($prototipos as $p) {
-                        if ($p['id'] == $filter_prototipo) {
-                            $prototipo_nome = $p['short_name'];
-                            if (!empty($p['title'])) {
-                                $prototipo_nome .= ' - ' . $p['title'];
-                            }
-                            break;
-                        }
-                    }
-                ?>
-                <div class="gantt-legend-item" style="margin-left: 20px; color: #0d6efd;">
-                    <i class="bi bi-funnel-fill"></i>
-                    <span><strong>Protótipo:</strong> <?= htmlspecialchars($prototipo_nome) ?> (<?= count($sprints_with_dates) ?> sprint<?= count($sprints_with_dates) != 1 ? 's' : '' ?>)</span>
-                </div>
                 <?php endif; ?>
-                <div class="gantt-legend-item" style="margin-left: auto;">
-                    <i class="bi bi-info-circle"></i>
-                    <span>Clique em uma sprint para ver detalhes</span>
-                </div>
-            </div>
-        <?php endif; ?>
+            
+            <?php
+            // Renderizar Gantt de Entregáveis
+            else:
+                if (empty($deliverables)): ?>
+                    <div class="empty-message">
+                        <i class="bi bi-inbox"></i>
+                        <h4>Nenhum entregável encontrado</h4>
+                        <p>Altere os filtros ou crie um novo entregável no módulo de Projetos</p>
+                    </div>
+                <?php else: ?>
+                    <div class="gantt-chart">
+                        <!-- Cabeçalho -->
+                        <div class="gantt-header-row">
+                            <div class="gantt-cell labels-column">Entregável/PPS/KPI</div>
+                            <div class="gantt-cell timeline-column">
+                                <div class="gantt-timeline">
+                                    <?php
+                                    // Calcular meses para o header
+                                    $current_date = clone $min_date;
+                                    $months = [];
+                                    while ($current_date <= $max_date) {
+                                        $month_key = $current_date->format('Y-m');
+                                        if (!isset($months[$month_key])) {
+                                            $months[$month_key] = [
+                                                'name' => $current_date->format('M Y'),
+                                                'days' => 0
+                                            ];
+                                        }
+                                        $months[$month_key]['days']++;
+                                        $current_date->modify('+1 day');
+                                    }
+                                    ?>
+                                    
+                                    <!-- Meses -->
+                                    <div class="gantt-months">
+                                        <?php foreach ($months as $month): ?>
+                                            <div class="gantt-month" style="flex: <?= $month['days'] ?>;">
+                                                <?= $month['name'] ?>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    
+                                    <!-- Dias -->
+                                    <div class="gantt-days">
+                                        <?php
+                                        $current_date = clone $min_date;
+                                        while ($current_date <= $max_date):
+                                            $is_today = $current_date->format('Y-m-d') === $today->format('Y-m-d');
+                                            $is_weekend = in_array($current_date->format('N'), [6, 7]);
+                                            $class = [];
+                                            if ($is_today) $class[] = 'today';
+                                            if ($is_weekend) $class[] = 'weekend';
+                                        ?>
+                                            <div class="gantt-day <?= implode(' ', $class) ?>">
+                                                <?= $current_date->format('d') ?>
+                                            </div>
+                                        <?php
+                                            $current_date->modify('+1 day');
+                                        endwhile;
+                                        ?>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Linhas de Entregáveis -->
+                        <?php foreach ($deliverables as $deliv): ?>
+                            <div class="gantt-row">
+                                <div class="gantt-cell labels-column">
+                                    <div class="gantt-label">
+                                        <div class="gantt-label-title" onclick="window.location.href='?tab=projectos&project_id=<?= $deliv['project_id'] ?>'">
+                                            <?= htmlspecialchars($deliv['title']) ?>
+                                        </div>
+                                        <div class="gantt-label-meta">
+                                            <div class="gantt-label-meta-item">
+                                                <i class="bi bi-folder"></i>
+                                                <?= htmlspecialchars($deliv['project_short_name']) ?>
+                                            </div>
+                                            <?php if ($deliv['owner_name']): ?>
+                                            <div class="gantt-label-meta-item">
+                                                <i class="bi bi-person"></i>
+                                                <?= htmlspecialchars($deliv['owner_name']) ?>
+                                            </div>
+                                            <?php endif; ?>
+                                            <span class="status-badge status-<?= $deliv['status'] ?>">
+                                                <?= ucfirst(str_replace('-', ' ', $deliv['status'])) ?>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="gantt-cell timeline-column">
+                                    <div class="gantt-bars">
+                                        <!-- Grid de dias -->
+                                        <div class="gantt-grid">
+                                            <?php
+                                            $current_date = clone $min_date;
+                                            while ($current_date <= $max_date):
+                                                $is_today = $current_date->format('Y-m-d') === $today->format('Y-m-d');
+                                                $is_weekend = in_array($current_date->format('N'), [6, 7]);
+                                                $class = [];
+                                                if ($is_today) $class[] = 'today';
+                                                if ($is_weekend) $class[] = 'weekend';
+                                            ?>
+                                                <div class="gantt-grid-day <?= implode(' ', $class) ?>"></div>
+                                            <?php
+                                                $current_date->modify('+1 day');
+                                            endwhile;
+                                            ?>
+                                        </div>
+                                        
+                                        <!-- Barra do entregável -->
+                                        <?php if ($deliv['created_at'] && $deliv['due_date']): 
+                                            $deliv_start = new DateTime($deliv['created_at']);
+                                            $deliv_end = new DateTime($deliv['due_date']);
+                                            
+                                            // Calcular posição e largura
+                                            $days_from_start = $min_date->diff($deliv_start)->days;
+                                            $deliv_duration = $deliv_start->diff($deliv_end)->days + 1;
+                                            
+                                            $left_percent = ($days_from_start / $total_days) * 100;
+                                            $width_percent = ($deliv_duration / $total_days) * 100;
+                                        ?>
+                                            <div class="gantt-bar deliverable-<?= $deliv['status'] ?>"
+                                                 style="left: <?= $left_percent ?>%; width: <?= $width_percent ?>%;"
+                                                 onclick="window.location.href='?tab=projectos&project_id=<?= $deliv['project_id'] ?>'">
+                                                <div class="gantt-bar-content">
+                                                    <span class="gantt-bar-text">
+                                                        <?= htmlspecialchars($deliv['title']) ?>
+                                                    </span>
+                                                    <?php if ($deliv['total_tasks'] > 0): ?>
+                                                        <div class="gantt-bar-progress">
+                                                            <i class="bi bi-check-circle"></i>
+                                                            <?= $deliv['percentagem'] ?>%
+                                                        </div>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                        <?php elseif ($deliv['due_date']): 
+                                            // Se só tem due_date, mostrar como marco
+                                            $deliv_date = new DateTime($deliv['due_date']);
+                                            $days_from_start = $min_date->diff($deliv_date)->days;
+                                            $left_percent = ($days_from_start / $total_days) * 100;
+                                        ?>
+                                            <div class="gantt-bar deliverable-<?= $deliv['status'] ?>"
+                                                 style="left: <?= $left_percent ?>%; width: 5%;"
+                                                 onclick="window.location.href='?tab=projectos&project_id=<?= $deliv['project_id'] ?>'">
+                                                <div class="gantt-bar-content">
+                                                    <i class="bi bi-flag"></i>
+                                                    <span class="gantt-bar-text">
+                                                        <?= htmlspecialchars($deliv['title']) ?>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        <?php else: ?>
+                                            <div class="gantt-placeholder">
+                                                <i class="bi bi-calendar-x"></i> Sem data definida
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            <?php endif; ?>
+        </div>
     </div>
 </div>
 
-<!-- Modal para definir datas -->
-<div id="datePickerModal" class="date-picker-modal">
-    <div class="date-picker-content">
-        <div class="date-picker-header">
-            <i class="bi bi-calendar-plus"></i> Definir Datas da Sprint
+<!-- Modal para definir datas de sprints -->
+<div id="datePickerModal" class="gantt-modal">
+    <div class="gantt-modal-content">
+        <div class="gantt-modal-header">
+            <h3 class="gantt-modal-title">Definir Datas da Sprint</h3>
         </div>
-        <div id="datePickerSprintName" style="color: #6c757d; margin-bottom: 15px; font-size: 0.9rem;"></div>
-        <div class="date-picker-body">
-            <div class="date-picker-field">
-                <label for="sprintStartDate">
-                    <i class="bi bi-calendar-event"></i> Data de Início
-                </label>
-                <input type="date" id="sprintStartDate" required>
+        <div class="gantt-modal-body">
+            <p>Sprint: <strong id="datePickerSprintName"></strong></p>
+            <div class="mb-3">
+                <label class="filter-label">Data de Início</label>
+                <input type="date" id="sprintStartDate" class="form-control">
             </div>
-            <div class="date-picker-field">
-                <label for="sprintEndDate">
-                    <i class="bi bi-calendar-check"></i> Data de Término
-                </label>
-                <input type="date" id="sprintEndDate" required>
+            <div class="mb-3">
+                <label class="filter-label">Data de Término</label>
+                <input type="date" id="sprintEndDate" class="form-control">
             </div>
         </div>
-        <div class="date-picker-footer">
-            <button class="btn-cancel" onclick="closeDatePicker()">
-                <i class="bi bi-x-circle"></i> Cancelar
-            </button>
-            <button class="btn-save" id="saveDatesBtn" onclick="saveDates()">
+        <div class="gantt-modal-footer">
+            <button class="btn btn-secondary" onclick="closeDatePicker()">Cancelar</button>
+            <button class="btn btn-primary" id="saveDatesBtn" onclick="saveDates()">
                 <i class="bi bi-check-circle"></i> Salvar
             </button>
         </div>
@@ -1084,287 +1553,44 @@ $total_days = $interval->days;
 <!-- Loading Overlay -->
 <div id="loadingOverlay" class="loading-overlay">
     <div class="loading-spinner">
-        <div class="spinner"></div>
-        <div>Salvando datas...</div>
+        <i class="bi bi-hourglass-split"></i>
+        <p>Carregando...</p>
     </div>
 </div>
 
-<!-- Tooltip para mostrar informações ao passar o mouse -->
-<div id="sprintTooltip" class="sprint-tooltip"></div>
-
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const tooltip = document.getElementById('sprintTooltip');
-    const ganttBars = document.querySelectorAll('.gantt-bar');
-    
-    // ===== FUNÇÃO SHOWNOTIFICATION =====
-    window.showNotification = function(message, type = 'info') {
-        const alert = document.createElement('div');
-        alert.className = `alert alert-${type} alert-dismissible fade show`;
-        alert.style.position = 'fixed';
-        alert.style.top = '20px';
-        alert.style.right = '20px';
-        alert.style.zIndex = '9999';
-        alert.style.minWidth = '300px';
-        alert.innerHTML = `
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
-        document.body.appendChild(alert);
-        
-        setTimeout(() => {
-            alert.remove();
-        }, 5000);
-    };
-    
-    // ===== TOOLTIP =====
-    ganttBars.forEach(bar => {
-        bar.addEventListener('mouseenter', function(e) {
-            if (this.classList.contains('dragging')) return;
-            
-            const nome = this.dataset.sprintNome;
-            const inicio = this.dataset.sprintInicio;
-            const fim = this.dataset.sprintFim;
-            const estado = this.dataset.sprintEstado;
-            const responsavel = this.dataset.sprintResponsavel;
-            const progresso = this.dataset.sprintProgresso;
-            
-            tooltip.innerHTML = `
-                <strong>${nome}</strong><br>
-                <small>
-                    <i class="bi bi-calendar"></i> ${formatDate(inicio)} - ${formatDate(fim)}<br>
-                    <i class="bi bi-flag"></i> Estado: ${estado}<br>
-                    <i class="bi bi-person"></i> Responsável: ${responsavel}<br>
-                    <i class="bi bi-graph-up"></i> Progresso: ${progresso}
-                </small>
-            `;
-            
-            tooltip.classList.add('show');
-            updateTooltipPosition(e);
-        });
-        
-        bar.addEventListener('mousemove', function(e) {
-            if (!this.classList.contains('dragging')) {
-                updateTooltipPosition(e);
-            }
-        });
-        
-        bar.addEventListener('mouseleave', function() {
-            tooltip.classList.remove('show');
-        });
-    });
-    
-    function updateTooltipPosition(e) {
-        const x = e.clientX;
-        const y = e.clientY;
-        
-        tooltip.style.left = (x + 15) + 'px';
-        tooltip.style.top = (y + 15) + 'px';
-    }
-    
-    function formatDate(dateStr) {
-        if (!dateStr) return 'N/A';
-        const date = new Date(dateStr + 'T00:00:00');
-        return date.toLocaleDateString('pt-PT', { day: '2-digit', month: 'short', year: 'numeric' });
-    }
-    
-    // ===== DRAG & DROP E RESIZE =====
-    const minDate = new Date('<?= $min_date->format('Y-m-d') ?>');
-    const totalDays = <?= $total_days ?>;
-    
-    let isDragging = false;
-    let isResizing = false;
-    let resizeDirection = null;
-    let currentBar = null;
-    let startX = 0;
-    let startLeft = 0;
-    let startWidth = 0;
-    let timelineRect = null;
-    
-    ganttBars.forEach(bar => {
-        // Click para abrir detalhes (apenas se não estiver arrastando)
-        bar.addEventListener('click', function(e) {
-            if (!isDragging && !isResizing && !e.target.classList.contains('gantt-bar-resize-handle')) {
-                window.location.href = '?tab=sprints&sprint_id=' + this.dataset.sprintId;
-            }
-        });
-        
-        // Drag da barra inteira
-        bar.addEventListener('mousedown', function(e) {
-            if (e.target.classList.contains('gantt-bar-resize-handle')) return;
-            
-            isDragging = true;
-            currentBar = this;
-            startX = e.clientX;
-            startLeft = parseFloat(this.style.left);
-            
-            const timeline = this.closest('.gantt-row-timeline');
-            timelineRect = timeline.getBoundingClientRect();
-            
-            this.classList.add('dragging');
-            tooltip.classList.remove('show');
-            
-            e.preventDefault();
-        });
-        
-        // Resize handles
-        const handles = bar.querySelectorAll('.gantt-bar-resize-handle');
-        handles.forEach(handle => {
-            handle.addEventListener('mousedown', function(e) {
-                isResizing = true;
-                resizeDirection = this.dataset.direction;
-                currentBar = this.closest('.gantt-bar');
-                startX = e.clientX;
-                startLeft = parseFloat(currentBar.style.left);
-                startWidth = parseFloat(currentBar.style.width);
-                
-                const timeline = currentBar.closest('.gantt-row-timeline');
-                timelineRect = timeline.getBoundingClientRect();
-                
-                currentBar.classList.add('dragging');
-                tooltip.classList.remove('show');
-                
-                e.stopPropagation();
-                e.preventDefault();
-            });
-        });
-    });
-    
-    document.addEventListener('mousemove', function(e) {
-        if (!isDragging && !isResizing) return;
-        
-        const deltaX = e.clientX - startX;
-        const deltaPercent = (deltaX / timelineRect.width) * 100;
-        
-        if (isDragging) {
-            // Mover a barra
-            let newLeft = startLeft + deltaPercent;
-            newLeft = Math.max(0, Math.min(100 - parseFloat(currentBar.style.width), newLeft));
-            currentBar.style.left = newLeft + '%';
-            
-        } else if (isResizing) {
-            // Redimensionar a barra
-            if (resizeDirection === 'left') {
-                let newLeft = startLeft + deltaPercent;
-                let newWidth = startWidth - deltaPercent;
-                
-                if (newLeft >= 0 && newWidth >= 2) {
-                    currentBar.style.left = newLeft + '%';
-                    currentBar.style.width = newWidth + '%';
-                }
-            } else if (resizeDirection === 'right') {
-                let newWidth = startWidth + deltaPercent;
-                let maxWidth = 100 - startLeft;
-                
-                if (newWidth >= 2 && newWidth <= maxWidth) {
-                    currentBar.style.width = newWidth + '%';
-                }
-            }
-        }
-        
-        e.preventDefault();
-    });
-    
-    document.addEventListener('mouseup', function(e) {
-        if (isDragging || isResizing) {
-            if (currentBar) {
-                currentBar.classList.remove('dragging');
-                
-                // Calcular novas datas
-                const left = parseFloat(currentBar.style.left);
-                const width = parseFloat(currentBar.style.width);
-                
-                const startDays = Math.round((left / 100) * totalDays);
-                const durationDays = Math.round((width / 100) * totalDays);
-                
-                const newStartDate = new Date(minDate);
-                newStartDate.setDate(newStartDate.getDate() + startDays);
-                
-                const newEndDate = new Date(newStartDate);
-                newEndDate.setDate(newEndDate.getDate() + durationDays - 1);
-                
-                const sprintId = currentBar.dataset.sprintId;
-                const startDateStr = newStartDate.toISOString().split('T')[0];
-                const endDateStr = newEndDate.toISOString().split('T')[0];
-                
-                // Atualizar no servidor
-                updateSprintDates(sprintId, startDateStr, endDateStr);
-            }
-            
-            isDragging = false;
-            isResizing = false;
-            resizeDirection = null;
-            currentBar = null;
-        }
-    });
-    
-    function updateSprintDates(sprintId, startDate, endDate) {
-        const formData = new FormData();
-        formData.append('action', 'update_sprint_dates');
-        formData.append('sprint_id', sprintId);
-        formData.append('data_inicio', startDate);
-        formData.append('data_fim', endDate);
-        
-        fetch(window.location.href, {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.text())
-        .then(data => {
-            // Atualizar os dados da barra
-            const bar = document.querySelector(`[data-sprint-id="${sprintId}"]`);
-            if (bar) {
-                bar.dataset.sprintInicio = startDate;
-                bar.dataset.sprintFim = endDate;
-            }
-            
-            // Mostrar notificação de sucesso
-            showNotification('Datas atualizadas com sucesso!', 'success');
-        })
-        .catch(error => {
-            console.error('Erro ao atualizar:', error);
-            showNotification('Erro ao atualizar as datas', 'danger');
-            // Recarregar a página em caso de erro
-            setTimeout(() => location.reload(), 1500);
-        });
-    }
-    
-    function showNotification(message, type) {
-        const alert = document.createElement('div');
-        alert.className = `alert alert-${type} alert-dismissible fade show`;
-        alert.style.position = 'fixed';
-        alert.style.top = '20px';
-        alert.style.right = '20px';
-        alert.style.zIndex = '9999';
-        alert.innerHTML = `
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
-        document.body.appendChild(alert);
-        
-        setTimeout(() => {
-            alert.remove();
-        }, 3000);
-    }
-});
+// Função para mudar tipo de vista
+function changeViewType(type) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('view_type', type);
+    window.location.href = url.toString();
+}
 
 // Função para atualizar filtros
 function updateFilters() {
+    const viewType = '<?= $view_type ?>';
     const viewRange = document.getElementById('viewRange').value;
     const orderBy = document.getElementById('orderBy').value;
-    const filterUser = document.getElementById('filterUser').value;
-    const filterPrototipo = document.getElementById('filterPrototipo').value;
-    const filterMy = document.getElementById('filterMySprints').checked ? '1' : '0';
-    const showClosed = document.getElementById('showClosedSprints').checked ? '1' : '0';
+    const showClosed = viewType === 'sprints' 
+        ? (document.getElementById('showClosedSprints')?.checked ? '1' : '0')
+        : (document.getElementById('showClosedDeliverables')?.checked ? '1' : '0');
     
-    let url = `?tab=gantt&view_range=${viewRange}&order_by=${orderBy}&filter_my_sprints=${filterMy}&show_closed=${showClosed}`;
+    let url = `?tab=gantt&view_type=${viewType}&view_range=${viewRange}&order_by=${orderBy}&show_closed=${showClosed}`;
     
-    if (filterUser) {
-        url += `&filter_user_id=${filterUser}`;
-    }
-    
-    if (filterPrototipo) {
-        url += `&filter_prototipo=${encodeURIComponent(filterPrototipo)}`;
+    if (viewType === 'sprints') {
+        const filterMy = document.getElementById('filterMySprints')?.checked ? '1' : '0';
+        const filterUser = document.getElementById('filterUser')?.value || '';
+        const filterPrototipo = document.getElementById('filterPrototipo')?.value || '';
+        
+        url += `&filter_my_sprints=${filterMy}`;
+        if (filterUser) url += `&filter_user_id=${filterUser}`;
+        if (filterPrototipo) url += `&filter_prototipo=${encodeURIComponent(filterPrototipo)}`;
+    } else {
+        const filterMy = document.getElementById('filterMyDeliverables')?.checked ? '1' : '0';
+        const filterProject = document.getElementById('filterProject')?.value || '';
+        
+        url += `&filter_my_deliverables=${filterMy}`;
+        if (filterProject) url += `&filter_project=${filterProject}`;
     }
     
     window.location.href = url;
@@ -1375,19 +1601,13 @@ function changeDensity() {
     const density = document.getElementById('densitySelect').value;
     const container = document.getElementById('ganttContainer');
     
-    // Remover classes antigas
     container.classList.remove('density-normal', 'density-medium', 'density-compact');
-    
-    // Adicionar nova classe
     container.classList.add('density-' + density);
     
-    // Salvar preferência no localStorage
     localStorage.setItem('gantt-density', density);
-    
-    console.log('📏 Densidade alterada para:', density);
 }
 
-// Carregar densidade salva ao carregar a página
+// Carregar densidade salva
 document.addEventListener('DOMContentLoaded', function() {
     const savedDensity = localStorage.getItem('gantt-density');
     if (savedDensity) {
@@ -1397,26 +1617,16 @@ document.addEventListener('DOMContentLoaded', function() {
         densitySelect.value = savedDensity;
         container.classList.remove('density-normal', 'density-medium', 'density-compact');
         container.classList.add('density-' + savedDensity);
-        
-        console.log('📏 Densidade carregada:', savedDensity);
     }
 });
 
-// Variável global para armazenar o ID da sprint sendo editada
+// Modal de datas (apenas para sprints)
 let currentEditingSprintId = null;
 
-// Função para abrir o modal de definir datas
 function openDatePicker(sprintId, sprintName) {
-    console.log('🔓 Abrindo modal para definir datas');
-    console.log('Sprint ID recebido:', sprintId, '(tipo:', typeof sprintId, ')');
-    console.log('Sprint Nome:', sprintName);
-    
     currentEditingSprintId = sprintId;
-    console.log('currentEditingSprintId definido como:', currentEditingSprintId);
-    
     document.getElementById('datePickerSprintName').textContent = sprintName;
     
-    // Definir data de início como hoje e término como daqui a 2 semanas
     const today = new Date();
     const twoWeeksLater = new Date(today);
     twoWeeksLater.setDate(twoWeeksLater.getDate() + 14);
@@ -1427,18 +1637,13 @@ function openDatePicker(sprintId, sprintName) {
     document.getElementById('datePickerModal').classList.add('show');
 }
 
-// Função para fechar o modal
 function closeDatePicker() {
     document.getElementById('datePickerModal').classList.remove('show');
-    // NÃO resetar o currentEditingSprintId aqui, pois ainda precisamos dele no saveDates
-    // currentEditingSprintId = null; // ← REMOVIDO
 }
 
-// Função para salvar as datas
 function saveDates() {
     const startDate = document.getElementById('sprintStartDate').value;
     const endDate = document.getElementById('sprintEndDate').value;
-    const saveBtn = document.getElementById('saveDatesBtn');
     
     if (!startDate || !endDate) {
         alert('Por favor, preencha ambas as datas.');
@@ -1450,106 +1655,57 @@ function saveDates() {
         return;
     }
     
-    // Desabilitar botão e mostrar loading
+    const saveBtn = document.getElementById('saveDatesBtn');
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Salvando...';
     
-    // Fechar modal
     closeDatePicker();
-    
-    // Mostrar overlay de loading
     document.getElementById('loadingOverlay').classList.add('show');
     
-    console.log('📤 Enviando requisição para atualizar datas...');
-    console.log('Sprint ID:', currentEditingSprintId, '(tipo:', typeof currentEditingSprintId, ')');
-    console.log('Data início:', startDate);
-    console.log('Data fim:', endDate);
-    
-    // Verificar se o sprint_id é válido
-    if (!currentEditingSprintId || currentEditingSprintId === 'null' || currentEditingSprintId === 'undefined') {
-        console.error('❌ Sprint ID inválido!');
-        document.getElementById('loadingOverlay').classList.remove('show');
-        showNotification('Erro: ID da sprint não foi definido corretamente.', 'danger');
-        saveBtn.disabled = false;
-        saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Salvar';
-        return;
-    }
-    
-    // Atualizar no servidor
     const formData = new FormData();
     formData.append('action', 'update_sprint_dates');
     formData.append('sprint_id', currentEditingSprintId);
     formData.append('data_inicio', startDate);
     formData.append('data_fim', endDate);
     
-    // Log do FormData
-    console.log('📦 FormData a ser enviado:');
-    for (let pair of formData.entries()) {
-        console.log('  -', pair[0] + ':', pair[1]);
-    }
-    
     fetch('gantt_ajax.php', {
         method: 'POST',
         body: formData
     })
-    .then(response => {
-        console.log('📥 Resposta recebida. Status:', response.status);
-        if (!response.ok) {
-            throw new Error('Erro na resposta do servidor: ' + response.status);
-        }
-        return response.text();
-    })
-    .then(text => {
-        console.log('📄 Conteúdo da resposta (primeiros 500 chars):', text.substring(0, 500));
-        
-        // Tentar fazer parse do JSON
-        try {
-            const data = JSON.parse(text);
-            console.log('✅ JSON parseado com sucesso:', data);
-            
-            if (data.success) {
-                console.log('🎉 Sucesso! Recarregando página...');
-                // Resetar o ID antes de recarregar
-                currentEditingSprintId = null;
-                // Sucesso - recarregar página
-                setTimeout(() => {
-                    window.location.reload(true);
-                }, 300);
-            } else {
-                // Erro retornado pelo servidor
-                console.error('❌ Servidor retornou erro:', data.message);
-                document.getElementById('loadingOverlay').classList.remove('show');
-                showNotification('Erro ao salvar: ' + (data.message || 'Erro desconhecido'), 'danger');
-                saveBtn.disabled = false;
-                saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Salvar';
-            }
-        } catch (e) {
-            // Resposta não é JSON válido
-            console.error('❌ Erro ao fazer parse do JSON:', e);
-            console.error('❌ Resposta completa:', text);
-            
-            // Verificar se a resposta contém HTML (sinal de que algo deu errado)
-            if (text.includes('<!DOCTYPE') || text.includes('<html')) {
-                console.error('❌ Servidor retornou HTML em vez de JSON!');
-                document.getElementById('loadingOverlay').classList.remove('show');
-                showNotification('Erro: Servidor retornou HTML em vez de JSON. Verifique os logs.', 'danger');
-            } else {
-                throw new Error('Resposta inválida do servidor');
-            }
-            
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            setTimeout(() => {
+                window.location.reload();
+            }, 300);
+        } else {
+            document.getElementById('loadingOverlay').classList.remove('show');
+            showNotification('Erro ao salvar: ' + (data.message || 'Erro desconhecido'), 'danger');
             saveBtn.disabled = false;
             saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Salvar';
         }
     })
     .catch(error => {
-        console.error('❌ Erro na requisição:', error);
         document.getElementById('loadingOverlay').classList.remove('show');
-        
-        // Mostrar mensagem e recarregar para verificar se salvou
-        showNotification('Erro: ' + error.message + '. Verifique o console para mais detalhes.', 'danger');
+        showNotification('Erro: ' + error.message, 'danger');
         saveBtn.disabled = false;
         saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Salvar';
     });
+}
+
+// Função para mostrar notificações
+function showNotification(message, type) {
+    const alert = document.createElement('div');
+    alert.className = `notification alert alert-${type}`;
+    alert.innerHTML = `
+        <i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-triangle'}"></i>
+        ${message}
+    `;
+    document.body.appendChild(alert);
+    
+    setTimeout(() => {
+        alert.remove();
+    }, 3000);
 }
 
 // Fechar modal ao clicar fora

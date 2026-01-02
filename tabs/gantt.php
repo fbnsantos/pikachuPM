@@ -136,6 +136,15 @@ if ($view_type === 'sprints' && $has_sprints) {
                         CASE WHEN s.data_fim IS NULL THEN 1 ELSE 0 END,
                         s.data_fim ASC,
                         s.created_at DESC";
+        } elseif ($order_by === 'deadline') {
+            // Ordenar por deadline mais próxima (dias restantes)
+            $query .= " ORDER BY 
+                        CASE 
+                            WHEN s.data_fim IS NULL THEN 999999
+                            WHEN DATEDIFF(s.data_fim, CURDATE()) < 0 THEN 999998
+                            ELSE DATEDIFF(s.data_fim, CURDATE())
+                        END ASC,
+                        s.data_fim ASC";
         } else {
             $query .= " ORDER BY 
                         CASE WHEN s.data_inicio IS NULL THEN 1 ELSE 0 END,
@@ -239,6 +248,15 @@ if ($view_type === 'deliverables' && $has_projects) {
                         CASE WHEN pd.due_date IS NULL THEN 1 ELSE 0 END,
                         pd.due_date ASC,
                         pd.created_at DESC";
+        } elseif ($order_by === 'deadline') {
+            // Ordenar por deadline mais próxima (dias restantes)
+            $query .= " ORDER BY 
+                        CASE 
+                            WHEN pd.due_date IS NULL THEN 999999
+                            WHEN DATEDIFF(pd.due_date, CURDATE()) < 0 THEN 999998
+                            ELSE DATEDIFF(pd.due_date, CURDATE())
+                        END ASC,
+                        pd.due_date ASC";
         } else {
             $query .= " ORDER BY 
                         CASE WHEN pd.created_at IS NULL THEN 1 ELSE 0 END,
@@ -289,6 +307,7 @@ $today = new DateTime();
 $min_date = null;
 $max_date = null;
 
+// Encontrar datas mínimas e máximas dos dados
 if ($view_type === 'sprints') {
     foreach ($sprints as $sprint) {
         if ($sprint['data_inicio']) {
@@ -321,49 +340,77 @@ if ($view_type === 'sprints') {
     }
 }
 
-// Se não houver datas, usar período padrão
+// Se não houver datas nos dados, usar hoje como referência
 if ($min_date === null) {
     $min_date = clone $today;
-    switch ($view_range) {
-        case 'semana':
-            $min_date->modify('-1 week');
-            break;
-        case 'trimestre':
-            $min_date->modify('-1 month');
-            break;
-        default: // mes
-            $min_date->modify('-2 weeks');
-    }
 }
 if ($max_date === null) {
     $max_date = clone $today;
-    switch ($view_range) {
-        case 'semana':
-            $max_date->modify('+2 weeks');
-            break;
-        case 'trimestre':
-            $max_date->modify('+3 months');
-            break;
-        default: // mes
-            $max_date->modify('+6 weeks');
+}
+
+// Ajustar período baseado no view_range
+switch ($view_range) {
+    case 'semana':
+        // Mostrar 3 semanas: 1 antes e 2 depois
+        $min_date = clone $today;
+        $min_date->modify('monday this week')->modify('-1 week');
+        $max_date = clone $min_date;
+        $max_date->modify('+3 weeks')->modify('-1 day');
+        break;
+        
+    case 'mes':
+        // Mostrar 2 meses: mês atual e próximo
+        $min_date = clone $today;
+        $min_date->modify('first day of this month');
+        $max_date = clone $min_date;
+        $max_date->modify('+2 months')->modify('-1 day');
+        break;
+        
+    case 'trimestre':
+        // Mostrar 3 meses completos
+        $min_date = clone $today;
+        $min_date->modify('first day of this month');
+        $max_date = clone $min_date;
+        $max_date->modify('+3 months')->modify('-1 day');
+        break;
+}
+
+// Expandir período se os dados ultrapassarem os limites
+if ($view_type === 'sprints') {
+    foreach ($sprints as $sprint) {
+        if ($sprint['data_inicio']) {
+            $inicio = new DateTime($sprint['data_inicio']);
+            if ($inicio < $min_date) {
+                $min_date = clone $inicio;
+            }
+        }
+        if ($sprint['data_fim']) {
+            $fim = new DateTime($sprint['data_fim']);
+            if ($fim > $max_date) {
+                $max_date = clone $fim;
+            }
+        }
+    }
+} else {
+    foreach ($deliverables as $deliv) {
+        if ($deliv['created_at']) {
+            $inicio = new DateTime($deliv['created_at']);
+            if ($inicio < $min_date) {
+                $min_date = clone $inicio;
+            }
+        }
+        if ($deliv['due_date']) {
+            $fim = new DateTime($deliv['due_date']);
+            if ($fim > $max_date) {
+                $max_date = clone $fim;
+            }
+        }
     }
 }
 
-// Ajustar limites com base no view_range
-$min_date->modify('first day of this month');
-$max_date->modify('last day of this month');
-
-// Expandir range baseado no view_range
-switch ($view_range) {
-    case 'semana':
-        $min_date->modify('-2 weeks');
-        $max_date->modify('+2 weeks');
-        break;
-    case 'trimestre':
-        $min_date->modify('-1 month');
-        $max_date->modify('+2 months');
-        break;
-}
+// Adicionar margem de segurança
+$min_date->modify('-3 days');
+$max_date->modify('+3 days');
 
 // Calcular número total de dias
 $total_days = $max_date->diff($min_date)->days + 1;
@@ -603,12 +650,28 @@ $total_days = $max_date->diff($min_date)->days + 1;
     gap: 10px;
     font-size: 11px;
     color: #6c757d;
+    flex-wrap: wrap;
 }
 
 .gantt-label-meta-item {
     display: flex;
     align-items: center;
     gap: 3px;
+}
+
+.gantt-label-meta-item.urgent {
+    color: #dc3545;
+    font-weight: 700;
+}
+
+.gantt-label-meta-item.warning {
+    color: #fd7e14;
+    font-weight: 600;
+}
+
+.gantt-label-meta-item.soon {
+    color: #ffc107;
+    font-weight: 600;
 }
 
 /* ===== TIMELINE ===== */
@@ -1153,6 +1216,7 @@ $total_days = $max_date->diff($min_date)->days + 1;
             <div class="filter-group">
                 <label class="filter-label" for="orderBy">Ordenar por</label>
                 <select id="orderBy" class="form-select">
+                    <option value="deadline" <?= $order_by === 'deadline' ? 'selected' : '' ?>>Deadline Mais Próxima</option>
                     <option value="inicio" <?= $order_by === 'inicio' ? 'selected' : '' ?>>Data Início</option>
                     <option value="fim" <?= $order_by === 'fim' ? 'selected' : '' ?>>Data Fim</option>
                 </select>
@@ -1289,6 +1353,36 @@ $total_days = $max_date->diff($min_date)->days + 1;
                                                 <i class="bi bi-person"></i>
                                                 <?= htmlspecialchars($sprint['responsavel_nome'] ?? 'Sem responsável') ?>
                                             </div>
+                                            <?php if ($sprint['data_fim']): 
+                                                $dias = $sprint['dias_restantes'] ?? 0;
+                                                $urgency_class = '';
+                                                $urgency_icon = 'bi-calendar-event';
+                                                
+                                                if ($dias < 0) {
+                                                    $urgency_class = 'urgent';
+                                                    $urgency_icon = 'bi-exclamation-triangle-fill';
+                                                    $urgency_text = abs($dias) . ' dia(s) atrasado';
+                                                } elseif ($dias == 0) {
+                                                    $urgency_class = 'urgent';
+                                                    $urgency_icon = 'bi-exclamation-circle-fill';
+                                                    $urgency_text = 'Termina HOJE';
+                                                } elseif ($dias <= 3) {
+                                                    $urgency_class = 'warning';
+                                                    $urgency_icon = 'bi-clock-fill';
+                                                    $urgency_text = $dias . ' dia(s)';
+                                                } elseif ($dias <= 7) {
+                                                    $urgency_class = 'soon';
+                                                    $urgency_icon = 'bi-clock';
+                                                    $urgency_text = $dias . ' dia(s)';
+                                                } else {
+                                                    $urgency_text = $dias . ' dia(s)';
+                                                }
+                                            ?>
+                                                <div class="gantt-label-meta-item <?= $urgency_class ?>">
+                                                    <i class="<?= $urgency_icon ?>"></i>
+                                                    <?= $urgency_text ?>
+                                                </div>
+                                            <?php endif; ?>
                                             <span class="status-badge status-<?= $sprint['estado'] ?>">
                                                 <?= ucfirst($sprint['estado']) ?>
                                             </span>
@@ -1438,6 +1532,36 @@ $total_days = $max_date->diff($min_date)->days + 1;
                                                 <i class="bi bi-person"></i>
                                                 <?= htmlspecialchars($deliv['owner_name']) ?>
                                             </div>
+                                            <?php endif; ?>
+                                            <?php if ($deliv['due_date']): 
+                                                $dias = $deliv['dias_restantes'] ?? 0;
+                                                $urgency_class = '';
+                                                $urgency_icon = 'bi-calendar-event';
+                                                
+                                                if ($dias < 0) {
+                                                    $urgency_class = 'urgent';
+                                                    $urgency_icon = 'bi-exclamation-triangle-fill';
+                                                    $urgency_text = abs($dias) . ' dia(s) atrasado';
+                                                } elseif ($dias == 0) {
+                                                    $urgency_class = 'urgent';
+                                                    $urgency_icon = 'bi-exclamation-circle-fill';
+                                                    $urgency_text = 'Vence HOJE';
+                                                } elseif ($dias <= 3) {
+                                                    $urgency_class = 'warning';
+                                                    $urgency_icon = 'bi-clock-fill';
+                                                    $urgency_text = $dias . ' dia(s)';
+                                                } elseif ($dias <= 7) {
+                                                    $urgency_class = 'soon';
+                                                    $urgency_icon = 'bi-clock';
+                                                    $urgency_text = $dias . ' dia(s)';
+                                                } else {
+                                                    $urgency_text = $dias . ' dia(s)';
+                                                }
+                                            ?>
+                                                <div class="gantt-label-meta-item <?= $urgency_class ?>">
+                                                    <i class="<?= $urgency_icon ?>"></i>
+                                                    <?= $urgency_text ?>
+                                                </div>
                                             <?php endif; ?>
                                             <span class="status-badge status-<?= $deliv['status'] ?>">
                                                 <?= ucfirst(str_replace('-', ' ', $deliv['status'])) ?>

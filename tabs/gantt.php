@@ -56,8 +56,9 @@ if (!$has_projects) $view_type = 'sprints';
 
 // Obter filtros gerais
 $show_closed = isset($_GET['show_closed']) && $_GET['show_closed'] === '1';
-$order_by = $_GET['order_by'] ?? 'inicio'; // 'inicio' ou 'fim'
-$view_range = $_GET['view_range'] ?? 'mes'; // 'semana', 'mes', 'trimestre'
+$order_by = $_GET['order_by'] ?? 'deadline'; // 'inicio', 'fim', 'deadline'
+$view_range = $_GET['view_range'] ?? 'mes'; // 'semana', 'mes', 'trimestre', 'semestre'
+$time_offset = isset($_GET['time_offset']) ? (int)$_GET['time_offset'] : 0; // Offset em unidades de período
 $current_user_id = $_SESSION['user_id'] ?? null;
 
 // Obter lista de usuários para o filtro
@@ -304,88 +305,78 @@ if ($view_type === 'deliverables' && $has_projects) {
 // CALCULAR PERÍODO DE VISUALIZAÇÃO DO GANTT
 // ============================================================================
 $today = new DateTime();
-$min_date = null;
-$max_date = null;
+$today->setTime(0, 0, 0); // Normalizar para meia-noite
 
-// Encontrar datas mínimas e máximas dos dados
-if ($view_type === 'sprints') {
-    foreach ($sprints as $sprint) {
-        if ($sprint['data_inicio']) {
-            $inicio = new DateTime($sprint['data_inicio']);
-            if ($min_date === null || $inicio < $min_date) {
-                $min_date = clone $inicio;
-            }
-        }
-        if ($sprint['data_fim']) {
-            $fim = new DateTime($sprint['data_fim']);
-            if ($max_date === null || $fim > $max_date) {
-                $max_date = clone $fim;
-            }
-        }
-    }
-} else {
-    foreach ($deliverables as $deliv) {
-        if ($deliv['created_at']) {
-            $inicio = new DateTime($deliv['created_at']);
-            if ($min_date === null || $inicio < $min_date) {
-                $min_date = clone $inicio;
-            }
-        }
-        if ($deliv['due_date']) {
-            $fim = new DateTime($deliv['due_date']);
-            if ($max_date === null || $fim > $max_date) {
-                $max_date = clone $fim;
-            }
-        }
-    }
-}
+// Definir período padrão baseado em view_range
+// O período SEMPRE começa a partir de hoje (ou próximo início de semana/mês)
+// MAIS o offset temporal (para navegação)
+$min_date = clone $today;
+$max_date = clone $today;
 
-// Se não houver datas nos dados, usar hoje como referência
-if ($min_date === null) {
-    $min_date = clone $today;
-}
-if ($max_date === null) {
-    $max_date = clone $today;
-}
-
-// Ajustar período baseado no view_range
 switch ($view_range) {
     case 'semana':
-        // Mostrar 3 semanas: 1 antes e 2 depois
-        $min_date = clone $today;
-        $min_date->modify('monday this week')->modify('-1 week');
+        // Começa na segunda-feira desta semana, mostra 4 semanas
+        $min_date->modify('monday this week');
+        // Aplicar offset
+        if ($time_offset != 0) {
+            $min_date->modify(($time_offset * 4) . ' weeks');
+        }
         $max_date = clone $min_date;
-        $max_date->modify('+3 weeks')->modify('-1 day');
+        $max_date->modify('+4 weeks')->modify('-1 day');
         break;
         
     case 'mes':
-        // Mostrar 2 meses: mês atual e próximo
-        $min_date = clone $today;
+        // Começa no primeiro dia deste mês, mostra 2 meses
         $min_date->modify('first day of this month');
+        // Aplicar offset
+        if ($time_offset != 0) {
+            $min_date->modify(($time_offset * 2) . ' months');
+        }
         $max_date = clone $min_date;
         $max_date->modify('+2 months')->modify('-1 day');
         break;
         
     case 'trimestre':
-        // Mostrar 3 meses completos
-        $min_date = clone $today;
+        // Começa no primeiro dia deste mês, mostra 3 meses
         $min_date->modify('first day of this month');
+        // Aplicar offset
+        if ($time_offset != 0) {
+            $min_date->modify(($time_offset * 3) . ' months');
+        }
         $max_date = clone $min_date;
         $max_date->modify('+3 months')->modify('-1 day');
         break;
+        
+    case 'semestre':
+        // Começa no primeiro dia deste mês, mostra 6 meses
+        $min_date->modify('first day of this month');
+        // Aplicar offset
+        if ($time_offset != 0) {
+            $min_date->modify(($time_offset * 6) . ' months');
+        }
+        $max_date = clone $min_date;
+        $max_date->modify('+6 months')->modify('-1 day');
+        break;
 }
 
-// Expandir período se os dados ultrapassarem os limites
+// Guardar os limites padrão para referência
+$default_min_date = clone $min_date;
+$default_max_date = clone $max_date;
+
+// Expandir período APENAS se houver dados anteriores a min_date ou posteriores a max_date
+// Isso permite ver dados passados e futuros que estão fora do período padrão
 if ($view_type === 'sprints') {
     foreach ($sprints as $sprint) {
         if ($sprint['data_inicio']) {
             $inicio = new DateTime($sprint['data_inicio']);
+            $inicio->setTime(0, 0, 0);
             if ($inicio < $min_date) {
                 $min_date = clone $inicio;
             }
         }
         if ($sprint['data_fim']) {
             $fim = new DateTime($sprint['data_fim']);
+            $fim->setTime(0, 0, 0);
             if ($fim > $max_date) {
                 $max_date = clone $fim;
             }
@@ -395,12 +386,14 @@ if ($view_type === 'sprints') {
     foreach ($deliverables as $deliv) {
         if ($deliv['created_at']) {
             $inicio = new DateTime($deliv['created_at']);
+            $inicio->setTime(0, 0, 0);
             if ($inicio < $min_date) {
                 $min_date = clone $inicio;
             }
         }
         if ($deliv['due_date']) {
             $fim = new DateTime($deliv['due_date']);
+            $fim->setTime(0, 0, 0);
             if ($fim > $max_date) {
                 $max_date = clone $fim;
             }
@@ -408,9 +401,13 @@ if ($view_type === 'sprints') {
     }
 }
 
-// Adicionar margem de segurança
-$min_date->modify('-3 days');
-$max_date->modify('+3 days');
+// Adicionar pequena margem apenas se expandiu para dados passados/futuros
+if ($min_date < $default_min_date) {
+    $min_date->modify('-3 days');
+}
+if ($max_date > $default_max_date) {
+    $max_date->modify('+3 days');
+}
 
 // Calcular número total de dias
 $total_days = $max_date->diff($min_date)->days + 1;
@@ -558,6 +555,53 @@ $total_days = $max_date->diff($min_date)->days + 1;
     display: flex;
     align-items: center;
     gap: 5px;
+}
+
+/* Botões de navegação */
+.btn {
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid #dee2e6;
+    background: white;
+    color: #495057;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.btn:hover {
+    background: #f8f9fa;
+    border-color: #adb5bd;
+}
+
+.btn-primary {
+    background: #0d6efd;
+    color: white;
+    border-color: #0d6efd;
+}
+
+.btn-primary:hover {
+    background: #0b5ed7;
+    border-color: #0a58ca;
+}
+
+.btn-outline-secondary {
+    background: white;
+    color: #6c757d;
+    border-color: #6c757d;
+}
+
+.btn-outline-secondary:hover {
+    background: #6c757d;
+    color: white;
+}
+
+.btn i {
+    font-size: 12px;
 }
 
 /* ===== CONTAINER DO GANTT ===== */
@@ -1207,9 +1251,10 @@ $total_days = $max_date->diff($min_date)->days + 1;
             <div class="filter-group">
                 <label class="filter-label" for="viewRange">Período</label>
                 <select id="viewRange" class="form-select">
-                    <option value="semana" <?= $view_range === 'semana' ? 'selected' : '' ?>>Semana</option>
-                    <option value="mes" <?= $view_range === 'mes' ? 'selected' : '' ?>>Mês</option>
-                    <option value="trimestre" <?= $view_range === 'trimestre' ? 'selected' : '' ?>>Trimestre</option>
+                    <option value="semana" <?= $view_range === 'semana' ? 'selected' : '' ?>>4 Semanas</option>
+                    <option value="mes" <?= $view_range === 'mes' ? 'selected' : '' ?>>2 Meses</option>
+                    <option value="trimestre" <?= $view_range === 'trimestre' ? 'selected' : '' ?>>3 Meses</option>
+                    <option value="semestre" <?= $view_range === 'semestre' ? 'selected' : '' ?>>6 Meses</option>
                 </select>
             </div>
             
@@ -1249,26 +1294,43 @@ $total_days = $max_date->diff($min_date)->days + 1;
         
         <!-- Cabeçalho -->
         <div class="gantt-header">
-            <div class="gantt-title">
-                <i class="bi bi-calendar3"></i>
-                <?php if ($view_type === 'sprints'): ?>
-                    Gantt de Sprints
-                <?php else: ?>
-                    Gantt de Entregáveis/PPS/KPIs
-                <?php endif; ?>
-            </div>
-            <div class="gantt-info">
-                <div class="gantt-info-item">
-                    <i class="bi bi-calendar-range"></i>
-                    <?= $min_date->format('d/m/Y') ?> - <?= $max_date->format('d/m/Y') ?>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div class="gantt-title">
+                        <i class="bi bi-calendar3"></i>
+                        <?php if ($view_type === 'sprints'): ?>
+                            Gantt de Sprints
+                        <?php else: ?>
+                            Gantt de Entregáveis/PPS/KPIs
+                        <?php endif; ?>
+                    </div>
+                    <div class="gantt-info">
+                        <div class="gantt-info-item">
+                            <i class="bi bi-calendar-range"></i>
+                            <?= $min_date->format('d/m/Y') ?> - <?= $max_date->format('d/m/Y') ?>
+                        </div>
+                        <div class="gantt-info-item">
+                            <i class="bi bi-list-ol"></i>
+                            <?php if ($view_type === 'sprints'): ?>
+                                <?= count($sprints) ?> sprint(s)
+                            <?php else: ?>
+                                <?= count($deliverables) ?> entregável(is)
+                            <?php endif; ?>
+                        </div>
+                    </div>
                 </div>
-                <div class="gantt-info-item">
-                    <i class="bi bi-list-ol"></i>
-                    <?php if ($view_type === 'sprints'): ?>
-                        <?= count($sprints) ?> sprint(s)
-                    <?php else: ?>
-                        <?= count($deliverables) ?> entregável(is)
-                    <?php endif; ?>
+                
+                <!-- Controles de Navegação Temporal -->
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="navigateTime(-1)" title="Período Anterior">
+                        <i class="bi bi-chevron-left"></i> Anterior
+                    </button>
+                    <button class="btn btn-sm btn-primary" onclick="navigateTime(0)" title="Voltar para Hoje">
+                        <i class="bi bi-house-fill"></i> Hoje
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="navigateTime(1)" title="Próximo Período">
+                        Próximo <i class="bi bi-chevron-right"></i>
+                    </button>
                 </div>
             </div>
         </div>
@@ -1683,10 +1745,34 @@ $total_days = $max_date->diff($min_date)->days + 1;
 </div>
 
 <script>
+// Função para navegar no tempo
+function navigateTime(direction) {
+    const url = new URL(window.location.href);
+    
+    if (direction === 0) {
+        // Voltar para hoje - remove o offset
+        url.searchParams.delete('time_offset');
+    } else {
+        // Avançar ou retroceder
+        const currentOffset = parseInt(url.searchParams.get('time_offset') || '0');
+        const newOffset = currentOffset + direction;
+        
+        if (newOffset === 0) {
+            url.searchParams.delete('time_offset');
+        } else {
+            url.searchParams.set('time_offset', newOffset.toString());
+        }
+    }
+    
+    window.location.href = url.toString();
+}
+
 // Função para mudar tipo de vista
 function changeViewType(type) {
     const url = new URL(window.location.href);
     url.searchParams.set('view_type', type);
+    // Reset offset ao mudar de vista
+    url.searchParams.delete('time_offset');
     window.location.href = url.toString();
 }
 
@@ -1700,6 +1786,12 @@ function updateFilters() {
         : (document.getElementById('showClosedDeliverables')?.checked ? '1' : '0');
     
     let url = `?tab=gantt&view_type=${viewType}&view_range=${viewRange}&order_by=${orderBy}&show_closed=${showClosed}`;
+    
+    // Preservar offset temporal se existir
+    const currentOffset = new URLSearchParams(window.location.search).get('time_offset');
+    if (currentOffset) {
+        url += `&time_offset=${currentOffset}`;
+    }
     
     if (viewType === 'sprints') {
         const filterMy = document.getElementById('filterMySprints')?.checked ? '1' : '0';
@@ -1844,6 +1936,23 @@ document.addEventListener('click', function(e) {
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
         closeDatePicker();
+    }
+    
+    // Atalhos de navegação temporal
+    // Seta esquerda = período anterior
+    // Seta direita = próximo período
+    // Home = voltar para hoje
+    if (!document.activeElement || document.activeElement.tagName !== 'INPUT') {
+        if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            navigateTime(-1);
+        } else if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            navigateTime(1);
+        } else if (e.key === 'Home') {
+            e.preventDefault();
+            navigateTime(0);
+        }
     }
 });
 </script>

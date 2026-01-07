@@ -585,6 +585,47 @@ if ($has_local_auth && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $erro_users = "❌ Password deve ter pelo menos 6 caracteres.";
         }
     }
+    
+    // EDITAR USERNAME
+    if (isset($_POST['edit_username'])) {
+        $user_id = (int)$_POST['user_id'];
+        $new_username = trim($_POST['new_username']);
+        
+        if (empty($new_username)) {
+            $erro_users = "❌ O username não pode estar vazio.";
+        } elseif (strlen($new_username) < 3) {
+            $erro_users = "❌ O username deve ter pelo menos 3 caracteres.";
+        } elseif (!preg_match('/^[a-zA-Z0-9._-]+$/', $new_username)) {
+            $erro_users = "❌ O username só pode conter letras, números, ponto, underscore e hífen.";
+        } else {
+            // Verificar se o novo username já existe (para outro utilizador)
+            $stmt = $pdo->prepare("SELECT id FROM user_tokens WHERE username = ? AND id != ?");
+            $stmt->execute([$new_username, $user_id]);
+            
+            if ($stmt->rowCount() > 0) {
+                $erro_users = "❌ Já existe um utilizador com o username '$new_username'.";
+            } else {
+                // Obter dados antes da atualização
+                $stmt = $pdo->prepare("SELECT user_id, username FROM user_tokens WHERE id = ?");
+                $stmt->execute([$user_id]);
+                $user_data = $stmt->fetch(PDO::FETCH_ASSOC);
+                $old_username = $user_data['username'];
+                
+                // Atualizar username
+                $stmt = $pdo->prepare("UPDATE user_tokens SET username = ? WHERE id = ?");
+                
+                if ($stmt->execute([$new_username, $user_id])) {
+                    // Atualizar também em admin_users se o utilizador for admin
+                    $stmt = $pdo->prepare("UPDATE admin_users SET username = ? WHERE user_id = ?");
+                    $stmt->execute([$new_username, $user_data['user_id']]);
+                    
+                    $mensagem_users = "✅ Username alterado de '$old_username' para '$new_username'!";
+                } else {
+                    $erro_users = "❌ Erro ao alterar username.";
+                }
+            }
+        }
+    }
 }
 
 // Obter dados de utilizadores locais (se o sistema estiver instalado)
@@ -765,29 +806,187 @@ if ($has_local_auth):
                                         <?php endif; ?>
                                     </td>
                                     <td class="text-center">
-                                        <!-- Botão para Reset Password -->
-                                        <button type="button" class="btn btn-sm btn-warning" 
-                                                data-bs-toggle="modal" 
-                                                data-bs-target="#resetPasswordModal<?= $user['id'] ?>"
-                                                title="Reset Password">
-                                            <i class="bi bi-key"></i>
-                                        </button>
-                                        
-                                        <!-- Botão para Bloquear -->
-                                        <form method="post" class="d-inline" onsubmit="return confirm('Bloquear este utilizador?')">
-                                            <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
-                                            <button type="submit" name="block_user" class="btn btn-sm btn-secondary" title="Bloquear">
+                                        <div class="btn-group" role="group">
+                                            <!-- Botão Editar Username -->
+                                            <button type="button" class="btn btn-sm btn-info" 
+                                                    data-bs-toggle="modal" 
+                                                    data-bs-target="#editUsernameModal<?= $user['id'] ?>"
+                                                    title="Editar Username">
+                                                <i class="bi bi-pencil-square"></i>
+                                            </button>
+                                            
+                                            <!-- Botão Reset Password -->
+                                            <button type="button" class="btn btn-sm btn-warning" 
+                                                    data-bs-toggle="modal" 
+                                                    data-bs-target="#resetPasswordModal<?= $user['id'] ?>"
+                                                    title="Reset Password">
+                                                <i class="bi bi-key"></i>
+                                            </button>
+                                            
+                                            <!-- Botão Bloquear -->
+                                            <button type="button" class="btn btn-sm btn-secondary" 
+                                                    data-bs-toggle="modal" 
+                                                    data-bs-target="#blockUserModal<?= $user['id'] ?>"
+                                                    title="Bloquear">
                                                 <i class="bi bi-lock"></i>
                                             </button>
-                                        </form>
-                                        
-                                        <!-- Botão para Eliminar -->
-                                        <form method="post" class="d-inline" onsubmit="return confirm('ATENÇÃO: Eliminar permanentemente?')">
-                                            <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
-                                            <button type="submit" name="reject_user" class="btn btn-sm btn-danger" title="Eliminar">
+                                            
+                                            <!-- Botão Eliminar -->
+                                            <button type="button" class="btn btn-sm btn-danger" 
+                                                    data-bs-toggle="modal" 
+                                                    data-bs-target="#deleteUserModal<?= $user['id'] ?>"
+                                                    title="Eliminar">
                                                 <i class="bi bi-trash"></i>
                                             </button>
-                                        </form>
+                                        </div>
+                                        
+                                        <!-- Modal: Editar Username -->
+                                        <div class="modal fade" id="editUsernameModal<?= $user['id'] ?>" tabindex="-1">
+                                            <div class="modal-dialog">
+                                                <div class="modal-content">
+                                                    <div class="modal-header bg-info text-white">
+                                                        <h5 class="modal-title">
+                                                            <i class="bi bi-pencil-square"></i> Editar Username
+                                                        </h5>
+                                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                                    </div>
+                                                    <form method="post">
+                                                        <div class="modal-body">
+                                                            <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
+                                                            
+                                                            <div class="alert alert-info">
+                                                                <i class="bi bi-info-circle"></i>
+                                                                <strong>Utilizador:</strong> <?= htmlspecialchars($user['username']) ?>
+                                                                <br>
+                                                                <strong>User ID:</strong> <?= $user['user_id'] ?>
+                                                            </div>
+                                                            
+                                                            <div class="mb-3">
+                                                                <label class="form-label">
+                                                                    <i class="bi bi-person"></i> <strong>Novo Username:</strong>
+                                                                </label>
+                                                                <input 
+                                                                    type="text" 
+                                                                    name="new_username" 
+                                                                    class="form-control form-control-lg" 
+                                                                    value="<?= htmlspecialchars($user['username']) ?>"
+                                                                    required
+                                                                    minlength="3"
+                                                                    maxlength="50"
+                                                                    pattern="[a-zA-Z0-9._-]+"
+                                                                    title="Apenas letras, números, ponto, underscore e hífen"
+                                                                    placeholder="novo.username">
+                                                                <small class="text-muted">
+                                                                    <i class="bi bi-info-circle"></i>
+                                                                    Mínimo 3 caracteres. Apenas: letras, números, . _ -
+                                                                </small>
+                                                            </div>
+                                                            
+                                                            <div class="alert alert-warning">
+                                                                <i class="bi bi-exclamation-triangle"></i>
+                                                                <strong>Atenção:</strong> 
+                                                                <?php if ($user['has_password']): ?>
+                                                                    O utilizador terá que fazer login com o novo username.
+                                                                <?php else: ?>
+                                                                    Esta alteração afeta a identificação do utilizador no sistema.
+                                                                <?php endif; ?>
+                                                            </div>
+                                                        </div>
+                                                        <div class="modal-footer">
+                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                                                <i class="bi bi-x"></i> Cancelar
+                                                            </button>
+                                                            <button type="submit" name="edit_username" class="btn btn-info">
+                                                                <i class="bi bi-check-lg"></i> Alterar Username
+                                                            </button>
+                                                        </div>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Modal: Bloquear Utilizador -->
+                                        <div class="modal fade" id="blockUserModal<?= $user['id'] ?>" tabindex="-1">
+                                            <div class="modal-dialog">
+                                                <div class="modal-content">
+                                                    <div class="modal-header bg-secondary text-white">
+                                                        <h5 class="modal-title">
+                                                            <i class="bi bi-lock"></i> Bloquear Utilizador
+                                                        </h5>
+                                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                                    </div>
+                                                    <form method="post">
+                                                        <div class="modal-body">
+                                                            <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
+                                                            
+                                                            <p>Tens a certeza que queres bloquear o utilizador:</p>
+                                                            <p class="text-center">
+                                                                <strong class="fs-5"><?= htmlspecialchars($user['username']) ?></strong>
+                                                            </p>
+                                                            
+                                                            <div class="alert alert-warning">
+                                                                <i class="bi bi-info-circle"></i>
+                                                                O utilizador não poderá fazer login enquanto estiver bloqueado.
+                                                            </div>
+                                                        </div>
+                                                        <div class="modal-footer">
+                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                                                <i class="bi bi-x"></i> Cancelar
+                                                            </button>
+                                                            <button type="submit" name="block_user" class="btn btn-secondary">
+                                                                <i class="bi bi-lock"></i> Bloquear
+                                                            </button>
+                                                        </div>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Modal: Eliminar Utilizador -->
+                                        <div class="modal fade" id="deleteUserModal<?= $user['id'] ?>" tabindex="-1">
+                                            <div class="modal-dialog">
+                                                <div class="modal-content">
+                                                    <div class="modal-header bg-danger text-white">
+                                                        <h5 class="modal-title">
+                                                            <i class="bi bi-trash"></i> Eliminar Utilizador
+                                                        </h5>
+                                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                                    </div>
+                                                    <form method="post">
+                                                        <div class="modal-body">
+                                                            <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
+                                                            
+                                                            <div class="alert alert-danger">
+                                                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                                                <strong>ATENÇÃO!</strong> Esta ação é permanente e não pode ser desfeita.
+                                                            </div>
+                                                            
+                                                            <p>Tens a certeza que queres eliminar o utilizador:</p>
+                                                            <p class="text-center">
+                                                                <strong class="fs-5"><?= htmlspecialchars($user['username']) ?></strong>
+                                                                <br>
+                                                                <small class="text-muted">User ID: <?= $user['user_id'] ?></small>
+                                                            </p>
+                                                            
+                                                            <?php if ($user['has_password']): ?>
+                                                            <div class="alert alert-warning">
+                                                                <i class="bi bi-shield-check"></i>
+                                                                Este utilizador tem password configurada e pode fazer login.
+                                                            </div>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                        <div class="modal-footer">
+                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                                                <i class="bi bi-x"></i> Cancelar
+                                                            </button>
+                                                            <button type="submit" name="reject_user" class="btn btn-danger">
+                                                                <i class="bi bi-trash"></i> Eliminar Permanentemente
+                                                            </button>
+                                                        </div>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
                                         
                                         <!-- Modal Reset Password -->
                                         <div class="modal fade" id="resetPasswordModal<?= $user['id'] ?>" tabindex="-1">
@@ -1733,4 +1932,169 @@ document.getElementById('sqlExecutorForm').addEventListener('submit', function(e
         }
     }
 });
+
+// ========================================
+// JAVASCRIPT PARA EDIÇÃO DE USERNAME
+// ========================================
+
+// Validação em tempo real do username
+const usernameInputs = document.querySelectorAll('input[name="new_username"]');
+
+usernameInputs.forEach(input => {
+    input.addEventListener('input', function() {
+        const value = this.value;
+        const isValid = /^[a-zA-Z0-9._-]+$/.test(value);
+        
+        // Limpar validações anteriores
+        this.classList.remove('is-valid', 'is-invalid');
+        this.setCustomValidity('');
+        
+        if (value.length === 0) {
+            // Vazio - sem validação
+            return;
+        }
+        
+        if (!isValid) {
+            this.setCustomValidity('Apenas letras, números, ponto, underscore e hífen são permitidos');
+            this.classList.add('is-invalid');
+        } else if (value.length < 3) {
+            this.setCustomValidity('Mínimo 3 caracteres');
+            this.classList.add('is-invalid');
+        } else {
+            this.setCustomValidity('');
+            this.classList.add('is-valid');
+        }
+    });
+    
+    // Validação ao sair do campo
+    input.addEventListener('blur', function() {
+        if (this.value.length >= 3 && /^[a-zA-Z0-9._-]+$/.test(this.value)) {
+            this.classList.add('is-valid');
+            this.classList.remove('is-invalid');
+        }
+    });
+});
+
+// Confirmação ao submeter edição de username
+const editUsernameForms = document.querySelectorAll('form');
+
+editUsernameForms.forEach(form => {
+    form.addEventListener('submit', function(e) {
+        const editUsernameBtn = this.querySelector('button[name="edit_username"]');
+        
+        if (editUsernameBtn) {
+            const newUsername = this.querySelector('input[name="new_username"]').value;
+            const modal = this.closest('.modal');
+            
+            const message = `Alterar username para "${newUsername}"?\n\nEsta ação afetará o login do utilizador.`;
+            
+            if (!confirm(message)) {
+                e.preventDefault();
+                return false;
+            }
+        }
+    });
+});
+
+// Auto-focus no input quando modal abre
+document.querySelectorAll('.modal').forEach(modal => {
+    modal.addEventListener('shown.bs.modal', function() {
+        const usernameInput = this.querySelector('input[name="new_username"]');
+        if (usernameInput) {
+            usernameInput.focus();
+            usernameInput.select();
+        }
+    });
+});
+
+// Feedback visual ao clicar nos botões
+document.querySelectorAll('.btn-group .btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        this.style.transform = 'scale(0.95)';
+        setTimeout(() => {
+            this.style.transform = '';
+        }, 100);
+    });
+});
 </script>
+
+<style>
+/* ============================================
+   ESTILOS PARA EDIÇÃO DE USERNAME
+   ============================================ */
+
+/* Melhorar aparência dos btn-groups */
+.btn-group .btn-sm {
+    padding: 0.375rem 0.5rem;
+    font-size: 0.875rem;
+    border-radius: 0.25rem;
+}
+
+.btn-group .btn {
+    margin: 0 1px;
+}
+
+/* Animação suave ao passar o mouse */
+.btn-group .btn:hover {
+    transform: translateY(-2px);
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+/* Estilos para modais */
+.modal-header.bg-info,
+.modal-header.bg-warning,
+.modal-header.bg-danger,
+.modal-header.bg-secondary {
+    border-bottom: none;
+}
+
+.modal-body .alert {
+    border-left: 4px solid;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+}
+
+.modal-body .alert-info {
+    border-left-color: #0dcaf0;
+    background-color: #cff4fc;
+}
+
+.modal-body .alert-warning {
+    border-left-color: #ffc107;
+    background-color: #fff3cd;
+}
+
+.modal-body .alert-danger {
+    border-left-color: #dc3545;
+    background-color: #f8d7da;
+}
+
+/* Input com validação visual */
+.modal-body input.is-valid {
+    border-color: #198754;
+    padding-right: calc(1.5em + 0.75rem);
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3e%3cpath fill='%23198754' d='M2.3 6.73L.6 4.53c-.4-1.04.46-1.4 1.1-.8l1.1 1.4 3.4-3.8c.6-.63 1.6-.27 1.2.7l-4 4.6c-.43.5-.8.4-1.1.1z'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right calc(0.375em + 0.1875rem) center;
+    background-size: calc(0.75em + 0.375rem) calc(0.75em + 0.375rem);
+}
+
+.modal-body input.is-invalid {
+    border-color: #dc3545;
+}
+
+/* Responsivo */
+@media (max-width: 768px) {
+    .btn-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    
+    .btn-group .btn {
+        width: 100%;
+        margin: 0;
+    }
+}
+</style>

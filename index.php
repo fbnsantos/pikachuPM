@@ -834,7 +834,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <!-- Elemento de áudio para alerta sonoro -->
  <audio id="alert-sound" loop>
-    <source src="/sound/notification.wav" type="audio/wav">
+    <source src="https://criis-projects.inesctec.pt/PK/sound/notification.wav" type="audio/wav">
 </audio>
 
 

@@ -833,11 +833,11 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 
 <!-- Elemento de áudio para alerta sonoro -->
-<audio id="alert-sound" loop>
-    <source src="https://www.soundjay.com/buttons/sounds/button-09.mp3" type="audio/mpeg">
-    <!-- Fallback para navegadores que não suportam o formato MP3 -->
-    <source src="https://www.soundjay.com/buttons/sounds/button-09.ogg" type="audio/ogg">
+ <audio id="alert-sound" loop>
+    <source src="/sound/notification.wav" type="audio/wav">
 </audio>
+
+
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>

@@ -807,7 +807,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <footer>
     <div class="container">
-        <p>PikachuPM V0.3 alpha &copy; <?php echo date("Y"); ?> | Produzido por <a href="mailto:fbnsantos@fbnsantos.com">Filipe Neves dos Santos</a></p>
+        <p>PikachuPM V1.0 alpha &copy; <?php echo date("Y"); ?> | Produzido por <a href="mailto:fbnsantos@fbnsantos.com">Filipe Neves dos Santos</a></p>
     </div>
 </footer>
 

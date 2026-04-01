@@ -302,6 +302,60 @@ if ($view_type === 'deliverables' && $has_projects) {
 }
 
 // ============================================================================
+// PROCESSAMENTO PARA VISTA DE URGENTES (atrasados + próximas 3 semanas)
+// ============================================================================
+$urgentes_deliverables = [];
+$urgentes_sprints = [];
+
+if ($view_type === 'urgentes') {
+    $three_weeks = (new DateTime())->modify('+21 days')->format('Y-m-d');
+
+    if ($has_projects) {
+        try {
+            $stmt = $pdo->prepare("
+                SELECT
+                    pd.id, pd.title, pd.due_date, pd.status, pd.project_id,
+                    p.short_name as project_short_name, p.title as project_title,
+                    u.username as owner_name,
+                    DATEDIFF(pd.due_date, CURDATE()) as dias_restantes
+                FROM project_deliverables pd
+                INNER JOIN projects p ON pd.project_id = p.id
+                LEFT JOIN user_tokens u ON p.owner_id = u.user_id
+                WHERE pd.status != 'completed'
+                  AND pd.due_date IS NOT NULL
+                  AND pd.due_date <= ?
+                ORDER BY pd.due_date ASC
+            ");
+            $stmt->execute([$three_weeks]);
+            $urgentes_deliverables = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            $urgentes_deliverables = [];
+        }
+    }
+
+    if ($has_sprints) {
+        try {
+            $stmt = $pdo->prepare("
+                SELECT
+                    s.id, s.nome, s.data_fim, s.estado,
+                    u.username as responsavel_nome,
+                    DATEDIFF(s.data_fim, CURDATE()) as dias_restantes
+                FROM sprints s
+                LEFT JOIN user_tokens u ON s.responsavel_id = u.user_id
+                WHERE s.estado != 'fechada'
+                  AND s.data_fim IS NOT NULL
+                  AND s.data_fim <= ?
+                ORDER BY s.data_fim ASC
+            ");
+            $stmt->execute([$three_weeks]);
+            $urgentes_sprints = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            $urgentes_sprints = [];
+        }
+    }
+}
+
+// ============================================================================
 // CALCULAR PERÍODO DE VISUALIZAÇÃO DO GANTT
 // ============================================================================
 $today = new DateTime();
@@ -485,6 +539,80 @@ $total_days = $max_date->diff($min_date)->days + 1;
     background: #0d6efd;
     color: white;
     border-color: #0d6efd;
+}
+
+.view-type-btn-urgentes {
+    border-color: #dc3545;
+    color: #dc3545;
+    margin-top: 8px;
+}
+.view-type-btn-urgentes:hover {
+    background: #fff5f5;
+    border-color: #dc3545;
+    color: #dc3545;
+}
+.view-type-btn-urgentes.active-urgentes {
+    background: #dc3545;
+    color: white;
+    border-color: #dc3545;
+}
+
+/* Tabelas de urgentes */
+.urgentes-container {
+    padding: 10px 0;
+}
+.urgentes-table-section {
+    margin-bottom: 32px;
+}
+.urgentes-table-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.urgentes-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+.urgentes-table th {
+    background: #f1f3f5;
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: #495057;
+    border-bottom: 2px solid #dee2e6;
+}
+.urgentes-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #dee2e6;
+    vertical-align: middle;
+}
+.urgentes-table tr:hover td {
+    background: #f8f9fa;
+}
+.urgentes-table tr.atrasado td {
+    background: #fff5f5;
+}
+.urgentes-table tr.atrasado:hover td {
+    background: #ffe9e9;
+}
+.urgentes-badge-atrasado {
+    background: #dc3545; color: white;
+    padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+}
+.urgentes-badge-hoje {
+    background: #fd7e14; color: white;
+    padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+}
+.urgentes-badge-breve {
+    background: #ffc107; color: #333;
+    padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+}
+.urgentes-empty {
+    color: #6c757d; font-style: italic; padding: 20px 0;
 }
 
 .filter-group {
@@ -1147,13 +1275,20 @@ $total_days = $max_date->diff($min_date)->days + 1;
                 </button>
                 <?php endif; ?>
                 <?php if ($has_projects): ?>
-                <button class="view-type-btn <?= $view_type === 'deliverables' ? 'active' : '' ?>" 
+                <button class="view-type-btn <?= $view_type === 'deliverables' ? 'active' : '' ?>"
                         onclick="changeViewType('deliverables')">
                     <i class="bi bi-check2-square"></i> Entregáveis
                 </button>
                 <?php endif; ?>
             </div>
+            <?php if ($has_sprints || $has_projects): ?>
+            <button class="view-type-btn view-type-btn-urgentes <?= $view_type === 'urgentes' ? 'active-urgentes' : '' ?>"
+                    onclick="changeViewType('urgentes')" style="width:100%;">
+                <i class="bi bi-exclamation-triangle-fill"></i> Prazos Urgentes
+            </button>
+            <?php endif; ?>
         </div>
+
         
         <!-- Filtros de Sprints -->
         <?php if ($view_type === 'sprints' && $has_sprints): ?>
@@ -1297,14 +1432,25 @@ $total_days = $max_date->diff($min_date)->days + 1;
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
                     <div class="gantt-title">
-                        <i class="bi bi-calendar3"></i>
-                        <?php if ($view_type === 'sprints'): ?>
-                            Gantt de Sprints
+                        <?php if ($view_type === 'urgentes'): ?>
+                            <i class="bi bi-exclamation-triangle-fill text-danger"></i> Prazos Urgentes
+                        <?php elseif ($view_type === 'sprints'): ?>
+                            <i class="bi bi-calendar3"></i> Gantt de Sprints
                         <?php else: ?>
-                            Gantt de Entregáveis/PPS/KPIs
+                            <i class="bi bi-calendar3"></i> Gantt de Entregáveis/PPS/KPIs
                         <?php endif; ?>
                     </div>
                     <div class="gantt-info">
+                        <?php if ($view_type === 'urgentes'): ?>
+                        <div class="gantt-info-item">
+                            <i class="bi bi-calendar-event"></i>
+                            Atrasados e a fechar nas próximas 3 semanas
+                        </div>
+                        <div class="gantt-info-item">
+                            <i class="bi bi-list-ol"></i>
+                            <?= count($urgentes_deliverables) ?> entregável(is) · <?= count($urgentes_sprints) ?> sprint(s)
+                        </div>
+                        <?php else: ?>
                         <div class="gantt-info-item">
                             <i class="bi bi-calendar-range"></i>
                             <?= $min_date->format('d/m/Y') ?> - <?= $max_date->format('d/m/Y') ?>
@@ -1317,10 +1463,12 @@ $total_days = $max_date->diff($min_date)->days + 1;
                                 <?= count($deliverables) ?> entregável(is)
                             <?php endif; ?>
                         </div>
+                        <?php endif; ?>
                     </div>
                 </div>
                 
                 <!-- Controles de Navegação Temporal -->
+                <?php if ($view_type !== 'urgentes'): ?>
                 <div style="display: flex; gap: 10px; align-items: center;">
                     <button class="btn btn-sm btn-outline-secondary" onclick="navigateTime(-1)" title="Período Anterior">
                         <i class="bi bi-chevron-left"></i> Anterior
@@ -1332,6 +1480,7 @@ $total_days = $max_date->diff($min_date)->days + 1;
                         Próximo <i class="bi bi-chevron-right"></i>
                     </button>
                 </div>
+                <?php endif; ?>
             </div>
         </div>
         
@@ -1511,6 +1660,105 @@ $total_days = $max_date->diff($min_date)->days + 1;
                     </div>
                 <?php endif; ?>
             
+            <?php
+            // Renderizar Vista de Urgentes
+            elseif ($view_type === 'urgentes'): ?>
+                <div class="urgentes-container">
+
+                    <!-- Tabela de Entregáveis Urgentes -->
+                    <div class="urgentes-table-section">
+                        <div class="urgentes-table-title text-danger">
+                            <i class="bi bi-check2-square"></i> Entregáveis / PPS / KPIs Urgentes
+                        </div>
+                        <?php if (empty($urgentes_deliverables)): ?>
+                            <p class="urgentes-empty"><i class="bi bi-check-circle text-success"></i> Nenhum entregável atrasado ou a fechar nas próximas 3 semanas.</p>
+                        <?php else: ?>
+                        <table class="urgentes-table">
+                            <thead>
+                                <tr>
+                                    <th>Entregável</th>
+                                    <th>Projeto</th>
+                                    <th>Responsável</th>
+                                    <th>Data de Entrega</th>
+                                    <th>Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            <?php foreach ($urgentes_deliverables as $ud):
+                                $dias = (int)$ud['dias_restantes'];
+                                $row_class = $dias < 0 ? 'atrasado' : '';
+                                if ($dias < 0) {
+                                    $badge = '<span class="urgentes-badge-atrasado"><i class="bi bi-exclamation-triangle-fill"></i> ' . abs($dias) . ' dia(s) atrasado</span>';
+                                } elseif ($dias === 0) {
+                                    $badge = '<span class="urgentes-badge-hoje"><i class="bi bi-alarm-fill"></i> Hoje</span>';
+                                } else {
+                                    $badge = '<span class="urgentes-badge-breve"><i class="bi bi-hourglass-split"></i> ' . $dias . ' dia(s)</span>';
+                                }
+                            ?>
+                                <tr class="<?= $row_class ?>">
+                                    <td>
+                                        <a href="?tab=projectos&project_id=<?= $ud['project_id'] ?>" style="font-weight:600; text-decoration:none; color:inherit;">
+                                            <?= htmlspecialchars($ud['title']) ?>
+                                        </a>
+                                    </td>
+                                    <td><?= htmlspecialchars($ud['project_short_name']) ?> — <?= htmlspecialchars($ud['project_title']) ?></td>
+                                    <td><?= $ud['owner_name'] ? htmlspecialchars($ud['owner_name']) : '<span class="text-muted">—</span>' ?></td>
+                                    <td><?= date('d/m/Y', strtotime($ud['due_date'])) ?></td>
+                                    <td><?= $badge ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- Tabela de Sprints Urgentes -->
+                    <div class="urgentes-table-section">
+                        <div class="urgentes-table-title text-danger">
+                            <i class="bi bi-lightning-charge-fill"></i> Sprints Urgentes
+                        </div>
+                        <?php if (empty($urgentes_sprints)): ?>
+                            <p class="urgentes-empty"><i class="bi bi-check-circle text-success"></i> Nenhuma sprint atrasada ou a fechar nas próximas 3 semanas.</p>
+                        <?php else: ?>
+                        <table class="urgentes-table">
+                            <thead>
+                                <tr>
+                                    <th>Sprint</th>
+                                    <th>Responsável</th>
+                                    <th>Data de Fecho</th>
+                                    <th>Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            <?php foreach ($urgentes_sprints as $us):
+                                $dias = (int)$us['dias_restantes'];
+                                $row_class = $dias < 0 ? 'atrasado' : '';
+                                if ($dias < 0) {
+                                    $badge = '<span class="urgentes-badge-atrasado"><i class="bi bi-exclamation-triangle-fill"></i> ' . abs($dias) . ' dia(s) atrasada</span>';
+                                } elseif ($dias === 0) {
+                                    $badge = '<span class="urgentes-badge-hoje"><i class="bi bi-alarm-fill"></i> Hoje</span>';
+                                } else {
+                                    $badge = '<span class="urgentes-badge-breve"><i class="bi bi-hourglass-split"></i> ' . $dias . ' dia(s)</span>';
+                                }
+                            ?>
+                                <tr class="<?= $row_class ?>">
+                                    <td>
+                                        <a href="?tab=sprints&sprint_id=<?= $us['id'] ?>" style="font-weight:600; text-decoration:none; color:inherit;">
+                                            <?= htmlspecialchars($us['nome']) ?>
+                                        </a>
+                                    </td>
+                                    <td><?= $us['responsavel_nome'] ? htmlspecialchars($us['responsavel_nome']) : '<span class="text-muted">—</span>' ?></td>
+                                    <td><?= date('d/m/Y', strtotime($us['data_fim'])) ?></td>
+                                    <td><?= $badge ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                        <?php endif; ?>
+                    </div>
+
+                </div>
+
             <?php
             // Renderizar Gantt de Entregáveis
             else:

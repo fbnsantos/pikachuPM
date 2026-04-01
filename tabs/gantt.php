@@ -614,6 +614,36 @@ $total_days = $max_date->diff($min_date)->days + 1;
 .urgentes-empty {
     color: #6c757d; font-style: italic; padding: 20px 0;
 }
+.urgentes-actions-cell {
+    white-space: nowrap;
+    min-width: 230px;
+}
+.urgentes-select {
+    font-size: 12px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    border: 1px solid #ced4da;
+    background: white;
+    cursor: pointer;
+    width: 100%;
+    margin-bottom: 5px;
+}
+.urgentes-date-input {
+    font-size: 12px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    border: 1px solid #ced4da;
+    width: 100%;
+}
+.urgentes-save-indicator {
+    font-size: 11px;
+    margin-top: 3px;
+    height: 14px;
+    transition: opacity 0.5s;
+}
+.urgentes-save-ok   { color: #198754; }
+.urgentes-save-err  { color: #dc3545; }
+.urgentes-save-wait { color: #6c757d; }
 
 .filter-group {
     margin-bottom: 15px;
@@ -1681,6 +1711,7 @@ $total_days = $max_date->diff($min_date)->days + 1;
                                     <th>Responsável</th>
                                     <th>Data de Entrega</th>
                                     <th>Estado</th>
+                                    <th>Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1694,6 +1725,7 @@ $total_days = $max_date->diff($min_date)->days + 1;
                                 } else {
                                     $badge = '<span class="urgentes-badge-breve"><i class="bi bi-hourglass-split"></i> ' . $dias . ' dia(s)</span>';
                                 }
+                                $uid = 'deliv_' . $ud['id'];
                             ?>
                                 <tr class="<?= $row_class ?>">
                                     <td>
@@ -1705,6 +1737,20 @@ $total_days = $max_date->diff($min_date)->days + 1;
                                     <td><?= $ud['owner_name'] ? htmlspecialchars($ud['owner_name']) : '<span class="text-muted">—</span>' ?></td>
                                     <td><?= date('d/m/Y', strtotime($ud['due_date'])) ?></td>
                                     <td><?= $badge ?></td>
+                                    <td class="urgentes-actions-cell">
+                                        <select class="urgentes-select"
+                                                onchange="ganttUpdateDeliverableStatus(<?= $ud['id'] ?>, this.value, '<?= $uid ?>')"
+                                                title="Alterar estado">
+                                            <option value="pending"      <?= $ud['status'] === 'pending'      ? 'selected' : '' ?>>Pendente</option>
+                                            <option value="in-progress"  <?= $ud['status'] === 'in-progress'  ? 'selected' : '' ?>>Em progresso</option>
+                                            <option value="completed"    <?= $ud['status'] === 'completed'    ? 'selected' : '' ?>>Concluído</option>
+                                        </select>
+                                        <input type="date" class="urgentes-date-input"
+                                               value="<?= htmlspecialchars($ud['due_date']) ?>"
+                                               onchange="ganttUpdateDeliverableDueDate(<?= $ud['id'] ?>, this.value, '<?= $uid ?>')"
+                                               title="Alterar data de entrega">
+                                        <div id="ind_<?= $uid ?>" class="urgentes-save-indicator"></div>
+                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                             </tbody>
@@ -1727,6 +1773,7 @@ $total_days = $max_date->diff($min_date)->days + 1;
                                     <th>Responsável</th>
                                     <th>Data de Fecho</th>
                                     <th>Estado</th>
+                                    <th>Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1740,6 +1787,7 @@ $total_days = $max_date->diff($min_date)->days + 1;
                                 } else {
                                     $badge = '<span class="urgentes-badge-breve"><i class="bi bi-hourglass-split"></i> ' . $dias . ' dia(s)</span>';
                                 }
+                                $sid = 'sprint_' . $us['id'];
                             ?>
                                 <tr class="<?= $row_class ?>">
                                     <td>
@@ -1750,6 +1798,21 @@ $total_days = $max_date->diff($min_date)->days + 1;
                                     <td><?= $us['responsavel_nome'] ? htmlspecialchars($us['responsavel_nome']) : '<span class="text-muted">—</span>' ?></td>
                                     <td><?= date('d/m/Y', strtotime($us['data_fim'])) ?></td>
                                     <td><?= $badge ?></td>
+                                    <td class="urgentes-actions-cell">
+                                        <select class="urgentes-select"
+                                                onchange="ganttUpdateSprintEstado(<?= $us['id'] ?>, this.value, '<?= $sid ?>')"
+                                                title="Alterar estado">
+                                            <option value="aberta"      <?= $us['estado'] === 'aberta'      ? 'selected' : '' ?>>Aberta</option>
+                                            <option value="em execução" <?= $us['estado'] === 'em execução' ? 'selected' : '' ?>>Em execução</option>
+                                            <option value="suspensa"    <?= $us['estado'] === 'suspensa'    ? 'selected' : '' ?>>Suspensa</option>
+                                            <option value="concluída"   <?= $us['estado'] === 'concluída'   ? 'selected' : '' ?>>Concluída</option>
+                                        </select>
+                                        <input type="date" class="urgentes-date-input"
+                                               value="<?= htmlspecialchars($us['data_fim']) ?>"
+                                               onchange="ganttUpdateSprintDataFim(<?= $us['id'] ?>, this.value, '<?= $sid ?>')"
+                                               title="Alterar data de fecho">
+                                        <div id="ind_<?= $sid ?>" class="urgentes-save-indicator"></div>
+                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                             </tbody>
@@ -2013,6 +2076,52 @@ function navigateTime(direction) {
     }
     
     window.location.href = url.toString();
+}
+
+// ============================================================================
+// AÇÕES INLINE DA VISTA DE URGENTES
+// ============================================================================
+function ganttAjax(data, indicatorId) {
+    const ind = document.getElementById('ind_' + indicatorId);
+    if (ind) { ind.className = 'urgentes-save-indicator urgentes-save-wait'; ind.textContent = 'A guardar…'; }
+
+    const formData = new FormData();
+    Object.entries(data).forEach(([k, v]) => formData.append(k, v));
+
+    fetch('gantt_ajax.php', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(res => {
+            if (ind) {
+                if (res.success) {
+                    ind.className = 'urgentes-save-indicator urgentes-save-ok';
+                    ind.textContent = '✓ Guardado';
+                } else {
+                    ind.className = 'urgentes-save-indicator urgentes-save-err';
+                    ind.textContent = '✗ ' + (res.message || 'Erro');
+                }
+                setTimeout(() => { ind.textContent = ''; }, 3000);
+            }
+        })
+        .catch(() => {
+            if (ind) {
+                ind.className = 'urgentes-save-indicator urgentes-save-err';
+                ind.textContent = '✗ Erro de rede';
+                setTimeout(() => { ind.textContent = ''; }, 3000);
+            }
+        });
+}
+
+function ganttUpdateDeliverableStatus(id, status, uid) {
+    ganttAjax({ action: 'update_deliverable_status', deliverable_id: id, status: status }, uid);
+}
+function ganttUpdateDeliverableDueDate(id, due_date, uid) {
+    ganttAjax({ action: 'update_deliverable_due_date', deliverable_id: id, due_date: due_date }, uid);
+}
+function ganttUpdateSprintEstado(id, estado, sid) {
+    ganttAjax({ action: 'update_sprint_estado', sprint_id: id, estado: estado }, sid);
+}
+function ganttUpdateSprintDataFim(id, data_fim, sid) {
+    ganttAjax({ action: 'update_sprint_data_fim', sprint_id: id, data_fim: data_fim }, sid);
 }
 
 // Função para mudar tipo de vista

@@ -1052,7 +1052,39 @@ document.getElementById('btnAutoFillTasks').addEventListener('click', function()
                         <i class="bi bi-printer"></i> Imprimir / Exportar PDF
                     </button>
                 </div>
+
+                <div class="col-12">
+                    <hr class="my-2">
+                </div>
+                <div class="col-md-8">
+                    <label class="form-label">
+                        <i class="bi bi-robot"></i>
+                        <strong>Relatório para Análise IA</strong>
+                        <small class="text-muted ms-2">— gera PDF consolidado de N dias para todos os colaboradores</small>
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text">Últimos</span>
+                        <input type="number" id="pdf_days_input" class="form-control" value="7" min="1" max="90" style="max-width:90px;">
+                        <span class="input-group-text">dias</span>
+                        <button type="button" class="btn btn-dark" onclick="openTeamPdfExport()">
+                            <i class="bi bi-file-earmark-pdf"></i> Gerar PDF Consolidado
+                        </button>
+                    </div>
+                </div>
             </form>
+
+<script>
+function openTeamPdfExport() {
+    const days = parseInt(document.getElementById('pdf_days_input').value) || 7;
+    if (days < 1 || days > 90) {
+        alert('Introduza um valor entre 1 e 90 dias.');
+        return;
+    }
+    const url = 'export_team_pdf.php?days=' + days;
+    const win = window.open(url, 'pdf_export', 'width=960,height=800,scrollbars=yes');
+    if (win) win.name = 'pdf_export';
+}
+</script>
             
             <?php if (isset($_GET['show_team_report'])): ?>
                 <?php

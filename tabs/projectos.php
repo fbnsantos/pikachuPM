@@ -604,6 +604,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message = "Entregável removido!";
                 $messageType = 'success';
                 break;
+
+            case 'change_deliverable_status':
+                $allowedStatuses = ['pending', 'in-progress', 'completed'];
+                $newStatus = $_POST['new_status'] ?? '';
+                if (in_array($newStatus, $allowedStatuses)) {
+                    $stmt = $pdo->prepare("UPDATE project_deliverables SET status=? WHERE id=?");
+                    $stmt->execute([$newStatus, $_POST['deliverable_id']]);
+                    $message = "Estado do entregável atualizado!";
+                    $messageType = 'success';
+                } else {
+                    $message = "Estado inválido!";
+                    $messageType = 'danger';
+                }
+                break;
                 
             case 'add_prototype':
                 $stmt = $pdo->prepare("INSERT IGNORE INTO project_prototypes (project_id, prototype_id) VALUES (?, ?)");
@@ -1362,6 +1376,36 @@ if (isset($_GET['project_id'])) {
                                         <span class="status-badge status-<?= $deliv['status'] ?>">
                                             <?= ucfirst(str_replace('-', ' ', $deliv['status'])) ?>
                                         </span>
+                                        <?php if ($deliv['status'] === 'pending'): ?>
+                                        <div class="dropdown d-inline-block">
+                                            <button class="btn btn-sm btn-warning dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Alterar estado">
+                                                <i class="bi bi-arrow-repeat"></i>
+                                            </button>
+                                            <ul class="dropdown-menu">
+                                                <li><h6 class="dropdown-header">Alterar estado para:</h6></li>
+                                                <li>
+                                                    <form method="post" class="px-2">
+                                                        <input type="hidden" name="action" value="change_deliverable_status">
+                                                        <input type="hidden" name="deliverable_id" value="<?= $deliv['id'] ?>">
+                                                        <input type="hidden" name="new_status" value="in-progress">
+                                                        <button type="submit" class="dropdown-item text-primary">
+                                                            <span class="status-badge status-in-progress">Em progresso</span>
+                                                        </button>
+                                                    </form>
+                                                </li>
+                                                <li>
+                                                    <form method="post" class="px-2">
+                                                        <input type="hidden" name="action" value="change_deliverable_status">
+                                                        <input type="hidden" name="deliverable_id" value="<?= $deliv['id'] ?>">
+                                                        <input type="hidden" name="new_status" value="completed">
+                                                        <button type="submit" class="dropdown-item text-success">
+                                                            <span class="status-badge status-completed">Concluído</span>
+                                                        </button>
+                                                    </form>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                        <?php endif; ?>
                                         <button class="btn btn-sm btn-outline-primary" onclick="editDeliverable(<?= htmlspecialchars(json_encode($deliv)) ?>)">
                                             <i class="bi bi-pencil"></i>
                                         </button>

@@ -356,6 +356,149 @@ if ($view_type === 'urgentes') {
 }
 
 // ============================================================================
+// PROCESSAMENTO PARA VISTA DE MÉTRICAS & SAÚDE
+// ============================================================================
+$metricas = [];
+
+if ($view_type === 'metricas') {
+    $analytics_days = max(7, min(60, (int)($_GET['analytics_days'] ?? 14)));
+    $m_start = (new DateTime())->modify("-{$analytics_days} days")->format('Y-m-d');
+    $m_today  = date('Y-m-d');
+
+    // Lista de dias do período
+    $m_days = [];
+    $d = new DateTime($m_start);
+    $dt = new DateTime($m_today);
+    while ($d <= $dt) { $m_days[] = $d->format('Y-m-d'); $d->modify('+1 day'); }
+
+    // ── Actividade diária (concluídas por dia) ─────────────────────────────
+    $m_tasks_day    = array_fill_keys($m_days, 0);
+    $m_sprints_day  = array_fill_keys($m_days, 0);
+    $m_delivs_day   = array_fill_keys($m_days, 0);
+
+    if (tableExists($pdo, 'todos')) {
+        try {
+            $st = $pdo->prepare("SELECT DATE(updated_at) d, COUNT(*) n FROM todos
+                WHERE estado IN ('concluída','fechada') AND DATE(updated_at) BETWEEN ? AND ?
+                GROUP BY DATE(updated_at)");
+            $st->execute([$m_start, $m_today]);
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r)
+                if (isset($m_tasks_day[$r['d']])) $m_tasks_day[$r['d']] = (int)$r['n'];
+        } catch (PDOException $e) {}
+    }
+
+    if ($has_sprints) {
+        try {
+            $st = $pdo->prepare("SELECT DATE(updated_at) d, COUNT(*) n FROM sprints
+                WHERE estado IN ('concluída','fechada','concluida') AND DATE(updated_at) BETWEEN ? AND ?
+                GROUP BY DATE(updated_at)");
+            $st->execute([$m_start, $m_today]);
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r)
+                if (isset($m_sprints_day[$r['d']])) $m_sprints_day[$r['d']] = (int)$r['n'];
+        } catch (PDOException $e) {}
+    }
+
+    if ($has_projects) {
+        try {
+            $st = $pdo->prepare("SELECT DATE(updated_at) d, COUNT(*) n FROM project_deliverables
+                WHERE status = 'completed' AND DATE(updated_at) BETWEEN ? AND ?
+                GROUP BY DATE(updated_at)");
+            $st->execute([$m_start, $m_today]);
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r)
+                if (isset($m_delivs_day[$r['d']])) $m_delivs_day[$r['d']] = (int)$r['n'];
+        } catch (PDOException $e) {}
+    }
+
+    // ── Compliance de reports por utilizador ──────────────────────────────
+    $m_compliance = []; // [username][date] = true
+    $m_has_reports = tableExists($pdo, 'daily_reports');
+    if ($m_has_reports) {
+        $st = $pdo->prepare("SELECT ut.username, dr.report_date
+            FROM daily_reports dr JOIN user_tokens ut ON dr.user_id = ut.user_id
+            WHERE dr.report_date BETWEEN ? AND ?");
+        $st->execute([$m_start, $m_today]);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r)
+            $m_compliance[$r['username']][$r['report_date']] = true;
+    }
+
+    // ── Ranking de faltas ao report ───────────────────────────────────────
+    $working_days = array_filter($m_days, fn($d) => !in_array(date('N', strtotime($d)), [6,7]));
+    $n_working = count($working_days);
+    $m_report_rank = [];
+    foreach ($users as $u) {
+        $submitted = count(array_filter($working_days, fn($d) => isset($m_compliance[$u['username']][$d])));
+        $m_report_rank[] = [
+            'username' => $u['username'],
+            'submitted' => $submitted,
+            'missed'    => $n_working - $submitted,
+            'pct'       => $n_working > 0 ? round($submitted / $n_working * 100) : 0,
+        ];
+    }
+    usort($m_report_rank, fn($a,$b) => $b['missed'] <=> $a['missed']);
+
+    // ── Reuniões no período (calendar_eventos) ───────────────────────────
+    $m_meetings = [];
+    if (tableExists($pdo, 'calendar_eventos')) {
+        try {
+            $st = $pdo->prepare("SELECT * FROM calendar_eventos
+                WHERE data BETWEEN ? AND ? ORDER BY data DESC, hora ASC");
+            $st->execute([$m_start, $m_today]);
+            $m_meetings = $st->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {}
+    }
+
+    // ── Tarefas atrasadas por utilizador ─────────────────────────────────
+    $m_overdue = [];
+    if (tableExists($pdo, 'todos')) {
+        try {
+            $st = $pdo->query("SELECT ut.username, COUNT(*) n
+                FROM todos t
+                JOIN user_tokens ut ON (t.responsavel = ut.user_id OR (t.responsavel IS NULL AND t.autor = ut.user_id))
+                WHERE t.data_limite < CURDATE() AND t.estado NOT IN ('concluída','fechada')
+                GROUP BY ut.username ORDER BY n DESC");
+            $m_overdue = $st->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {}
+    }
+
+    // ── Tarefas paradas (em execução > 7 dias sem update) ─────────────────
+    $m_stalled = [];
+    if (tableExists($pdo, 'todos')) {
+        try {
+            $st = $pdo->prepare("SELECT t.titulo, ut.username,
+                    DATEDIFF(CURDATE(), t.updated_at) AS dias,
+                    t.data_limite
+                FROM todos t
+                JOIN user_tokens ut ON (t.responsavel = ut.user_id OR (t.responsavel IS NULL AND t.autor = ut.user_id))
+                WHERE t.estado = 'em execução'
+                  AND t.updated_at < DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+                ORDER BY t.updated_at ASC LIMIT 30");
+            $st->execute();
+            $m_stalled = $st->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {}
+    }
+
+    // ── Sprints atrasadas ────────────────────────────────────────────────
+    $m_overdue_sprints = [];
+    if ($has_sprints) {
+        try {
+            $st = $pdo->query("SELECT s.nome, u.username AS responsavel,
+                    DATEDIFF(CURDATE(), s.data_fim) AS dias_atraso
+                FROM sprints s LEFT JOIN user_tokens u ON s.responsavel_id = u.user_id
+                WHERE s.data_fim < CURDATE() AND s.estado NOT IN ('concluída','fechada','concluida')
+                ORDER BY s.data_fim ASC");
+            $m_overdue_sprints = $st->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {}
+    }
+
+    $metricas = compact(
+        'analytics_days','m_days','working_days','n_working',
+        'm_tasks_day','m_sprints_day','m_delivs_day',
+        'm_compliance','m_report_rank','m_meetings',
+        'm_overdue','m_stalled','m_overdue_sprints'
+    );
+}
+
+// ============================================================================
 // CALCULAR PERÍODO DE VISUALIZAÇÃO DO GANTT
 // ============================================================================
 $today = new DateTime();
@@ -542,20 +685,90 @@ $total_days = $max_date->diff($min_date)->days + 1;
 }
 
 .view-type-btn-urgentes {
-    border-color: #dc3545;
-    color: #dc3545;
-    margin-top: 8px;
+    border-color: #dc3545; color: #dc3545;
 }
-.view-type-btn-urgentes:hover {
-    background: #fff5f5;
-    border-color: #dc3545;
-    color: #dc3545;
+.view-type-btn-urgentes:hover   { background: #fff5f5; border-color: #dc3545; color: #dc3545; }
+.view-type-btn-urgentes.active-urgentes { background: #dc3545; color: white; border-color: #dc3545; }
+
+.view-type-btn-metricas {
+    border-color: #6f42c1; color: #6f42c1;
 }
-.view-type-btn-urgentes.active-urgentes {
-    background: #dc3545;
-    color: white;
-    border-color: #dc3545;
-}
+.view-type-btn-metricas:hover   { background: #f5f0ff; border-color: #6f42c1; color: #6f42c1; }
+.view-type-btn-metricas.active-metricas { background: #6f42c1; color: white; border-color: #6f42c1; }
+
+/* ── Métricas & Saúde ── */
+.metricas-container { padding: 4px 0; }
+.metricas-section   { margin-bottom: 32px; }
+.metricas-title     { font-size: 17px; font-weight: 700; margin-bottom: 14px;
+                       display: flex; align-items: center; gap: 8px;
+                       padding-bottom: 6px; border-bottom: 2px solid #dee2e6; }
+
+/* Summary boxes */
+.metricas-summary { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.metricas-box     { flex: 1; min-width: 110px; border: 1px solid #dee2e6; border-radius: 8px;
+                    padding: 14px 10px; text-align: center; background: #fafafa; }
+.metricas-box .mval { font-size: 26px; font-weight: 700; line-height: 1; }
+.metricas-box .mlbl { font-size: 11px; color: #6c757d; margin-top: 4px; }
+.metricas-box.ok   { border-color: #198754; } .metricas-box.ok   .mval { color: #198754; }
+.metricas-box.warn { border-color: #dc3545; } .metricas-box.warn .mval { color: #dc3545; }
+.metricas-box.info { border-color: #0d6efd; } .metricas-box.info .mval { color: #0d6efd; }
+
+/* Period quick-select */
+.period-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.period-btn  { padding: 4px 10px; border: 1px solid #dee2e6; background: white;
+               border-radius: 4px; font-size: 12px; cursor: pointer; }
+.period-btn:hover   { background: #e9ecef; }
+.period-btn.active  { background: #6f42c1; color: white; border-color: #6f42c1; }
+
+/* Burn chart */
+.burn-chart-wrap { overflow-x: auto; }
+.burn-svg        { display: block; min-width: 500px; }
+.burn-legend     { display: flex; gap: 18px; font-size: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+.burn-legend-dot { display: inline-block; width: 12px; height: 12px;
+                   border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+
+/* Compliance heatmap */
+.compliance-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.compliance-table th { background: #f1f3f5; padding: 5px 6px; text-align: center;
+                        font-weight: 600; color: #495057; border-bottom: 2px solid #dee2e6; white-space: nowrap; }
+.compliance-table th.name-col { text-align: left; min-width: 110px; }
+.compliance-table td { padding: 4px 3px; border-bottom: 1px solid #f0f0f0; text-align: center; }
+.compliance-table td.name-col { text-align: left; font-weight: 600; padding-left: 6px; }
+.compliance-table tr:hover td { background: #f8f9fa; }
+.cell-report-ok   { background: #d1e7dd; color: #0f5132; border-radius: 3px; font-size: 10px; }
+.cell-report-miss { background: #f8d7da; color: #842029; border-radius: 3px; font-size: 10px; }
+.cell-report-wknd { background: #f1f3f5; color: #adb5bd; border-radius: 3px; font-size: 10px; }
+.pct-bar-wrap  { width: 60px; height: 8px; background: #e9ecef; border-radius: 4px; display: inline-block; vertical-align: middle; }
+.pct-bar-fill  { height: 100%; border-radius: 4px; background: #198754; }
+.pct-bar-fill.low { background: #dc3545; }
+.pct-bar-fill.mid { background: #ffc107; }
+
+/* Critical panels */
+.critical-grid    { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.critical-panel   { border: 1px solid #dee2e6; border-radius: 8px; overflow: hidden; }
+.critical-header  { padding: 10px 14px; font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.critical-body    { padding: 10px 0; }
+.critical-row     { display: flex; justify-content: space-between; align-items: center;
+                    padding: 6px 14px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+.critical-row:last-child { border-bottom: none; }
+.critical-row .cname { font-weight: 500; }
+.critical-row .cval  { font-size: 12px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.cval-danger  { background: #f8d7da; color: #842029; }
+.cval-warn    { background: #fff3cd; color: #664d03; }
+.cval-ok      { background: #d1e7dd; color: #0f5132; }
+.critical-empty { padding: 16px 14px; color: #6c757d; font-style: italic; font-size: 13px; }
+
+/* Meetings list */
+.meeting-item { display: flex; align-items: flex-start; gap: 10px;
+                padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+.meeting-item:last-child { border-bottom: none; }
+.meeting-date-badge { background: #e9ecef; border-radius: 6px; padding: 4px 10px;
+                      font-size: 11px; font-weight: 600; white-space: nowrap; min-width: 70px; text-align: center; }
+.meeting-tipo { font-size: 11px; padding: 2px 7px; border-radius: 10px; font-weight: 600; }
+.tipo-tribe   { background: #cfe2ff; color: #084298; }
+.tipo-demo    { background: #d1e7dd; color: #0f5132; }
+.tipo-aulas   { background: #fff3cd; color: #664d03; }
+.tipo-outro   { background: #e9ecef; color: #495057; }
 
 /* Tabelas de urgentes */
 .urgentes-container {
@@ -1313,8 +1526,12 @@ $total_days = $max_date->diff($min_date)->days + 1;
             </div>
             <?php if ($has_sprints || $has_projects): ?>
             <button class="view-type-btn view-type-btn-urgentes <?= $view_type === 'urgentes' ? 'active-urgentes' : '' ?>"
-                    onclick="changeViewType('urgentes')" style="width:100%;">
+                    onclick="changeViewType('urgentes')" style="width:100%; margin-top:8px;">
                 <i class="bi bi-exclamation-triangle-fill"></i> Prazos Urgentes
+            </button>
+            <button class="view-type-btn view-type-btn-metricas <?= $view_type === 'metricas' ? 'active-metricas' : '' ?>"
+                    onclick="changeViewType('metricas')" style="width:100%; margin-top:6px;">
+                <i class="bi bi-activity"></i> Métricas &amp; Saúde
             </button>
             <?php endif; ?>
         </div>
@@ -1371,6 +1588,28 @@ $total_days = $max_date->diff($min_date)->days + 1;
         </div>
         <?php endif; ?>
         
+        <!-- Filtros de Métricas -->
+        <?php if ($view_type === 'metricas'): ?>
+        <div class="sidebar-section">
+            <div class="sidebar-title">Período de Análise</div>
+            <div class="period-btns">
+                <?php foreach ([7,14,30,60] as $pd): ?>
+                <button class="period-btn <?= ($metricas['analytics_days'] ?? 14) == $pd ? 'active' : '' ?>"
+                        onclick="changeAnalyticsDays(<?= $pd ?>)">
+                    <?= $pd ?>d
+                </button>
+                <?php endforeach; ?>
+            </div>
+            <div class="filter-label" style="margin-top:8px;">Personalizado</div>
+            <div style="display:flex; gap:6px; align-items:center;">
+                <input type="number" id="customDaysInput" class="form-control"
+                       value="<?= $metricas['analytics_days'] ?? 14 ?>" min="7" max="60"
+                       style="width:70px; font-size:12px; padding:4px 6px;">
+                <button class="btn-apply-filters" style="padding:6px;" onclick="applyCustomDays()">OK</button>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <!-- Filtros de Entregáveis -->
         <?php if ($view_type === 'deliverables' && $has_projects): ?>
         <div class="sidebar-section">
@@ -1464,6 +1703,8 @@ $total_days = $max_date->diff($min_date)->days + 1;
                     <div class="gantt-title">
                         <?php if ($view_type === 'urgentes'): ?>
                             <i class="bi bi-exclamation-triangle-fill text-danger"></i> Prazos Urgentes
+                        <?php elseif ($view_type === 'metricas'): ?>
+                            <i class="bi bi-activity" style="color:#6f42c1"></i> Métricas &amp; Saúde da Equipa
                         <?php elseif ($view_type === 'sprints'): ?>
                             <i class="bi bi-calendar3"></i> Gantt de Sprints
                         <?php else: ?>
@@ -1479,6 +1720,15 @@ $total_days = $max_date->diff($min_date)->days + 1;
                         <div class="gantt-info-item">
                             <i class="bi bi-list-ol"></i>
                             <?= count($urgentes_deliverables) ?> entregável(is) · <?= count($urgentes_sprints) ?> sprint(s)
+                        </div>
+                        <?php elseif ($view_type === 'metricas'): ?>
+                        <div class="gantt-info-item">
+                            <i class="bi bi-calendar-range"></i>
+                            Últimos <?= $metricas['analytics_days'] ?? 14 ?> dias
+                        </div>
+                        <div class="gantt-info-item">
+                            <i class="bi bi-people"></i>
+                            <?= count($users) ?> colaboradores
                         </div>
                         <?php else: ?>
                         <div class="gantt-info-item">
@@ -1498,7 +1748,7 @@ $total_days = $max_date->diff($min_date)->days + 1;
                 </div>
                 
                 <!-- Controles de Navegação Temporal -->
-                <?php if ($view_type !== 'urgentes'): ?>
+                <?php if ($view_type !== 'urgentes' && $view_type !== 'metricas'): ?>
                 <div style="display: flex; gap: 10px; align-items: center;">
                     <button class="btn btn-sm btn-outline-secondary" onclick="navigateTime(-1)" title="Período Anterior">
                         <i class="bi bi-chevron-left"></i> Anterior
@@ -1823,6 +2073,396 @@ $total_days = $max_date->diff($min_date)->days + 1;
                 </div>
 
             <?php
+            // Renderizar Vista de Métricas & Saúde
+            elseif ($view_type === 'metricas'):
+                $m = $metricas;
+                $m_days      = $m['m_days'];
+                $working_days= $m['working_days'];
+                $n_working   = $m['n_working'];
+                $tasks_day   = $m['m_tasks_day'];
+                $sprints_day = $m['m_sprints_day'];
+                $delivs_day  = $m['m_delivs_day'];
+                $compliance  = $m['m_compliance'];
+                $report_rank = $m['m_report_rank'];
+                $meetings    = $m['m_meetings'];
+                $overdue     = $m['m_overdue'];
+                $stalled     = $m['m_stalled'];
+                $ov_sprints  = $m['m_overdue_sprints'];
+                $adays       = $m['analytics_days'];
+
+                // Totais do período
+                $tot_tasks   = array_sum($tasks_day);
+                $tot_sprints = array_sum($sprints_day);
+                $tot_delivs  = array_sum($delivs_day);
+                $tot_reports = array_sum(array_map('count', $compliance));
+                $tot_overdue = array_sum(array_column($overdue, 'n'));
+                $tot_stalled = count($stalled);
+                $tot_ov_sp   = count($ov_sprints);
+
+                // Burn chart: max value for scale
+                $chart_max = 1;
+                foreach ($m_days as $day)
+                    $chart_max = max($chart_max, $tasks_day[$day], $sprints_day[$day], $delivs_day[$day]);
+
+                // SVG dimensions
+                $svgW = 820; $svgH = 200;
+                $padL = 42; $padR = 12; $padT = 14; $padB = 38;
+                $cW = $svgW - $padL - $padR;
+                $cH = $svgH - $padT - $padB;
+                $n = count($m_days);
+
+                function chartX($i, $n, $padL, $cW) {
+                    return $padL + ($n > 1 ? ($i / ($n-1)) * $cW : $cW/2);
+                }
+                function chartY($v, $max, $padT, $cH) {
+                    return $padT + (1 - $v / max(1,$max)) * $cH;
+                }
+                function svgPolyline($days, $values, $max, $padL, $padT, $cW, $cH, $color, $strokeW=2) {
+                    $pts = [];
+                    $n = count($days);
+                    foreach ($days as $i => $day) {
+                        $x = chartX($i, $n, $padL, $cW);
+                        $y = chartY($values[$day] ?? 0, $max, $padT, $cH);
+                        $pts[] = round($x,1) . ',' . round($y,1);
+                    }
+                    $p = implode(' ', $pts);
+                    return "<polyline points=\"$p\" fill=\"none\" stroke=\"$color\" stroke-width=\"$strokeW\" stroke-linejoin=\"round\" stroke-linecap=\"round\"/>";
+                }
+                function svgDots($days, $values, $max, $padL, $padT, $cW, $cH, $color, $r=3) {
+                    $out = '';
+                    $n = count($days);
+                    foreach ($days as $i => $day) {
+                        $v = $values[$day] ?? 0;
+                        if ($v > 0) {
+                            $x = round(chartX($i, $n, $padL, $cW), 1);
+                            $y = round(chartY($v, $max, $padT, $cH), 1);
+                            $out .= "<circle cx=\"$x\" cy=\"$y\" r=\"$r\" fill=\"$color\" stroke=\"white\" stroke-width=\"1\"/>";
+                            $out .= "<title>$day: $v</title>";
+                        }
+                    }
+                    return $out;
+                }
+            ?>
+            <div class="metricas-container">
+
+                <!-- ── SUMÁRIO ──────────────────────────────────────── -->
+                <div class="metricas-section">
+                    <div class="metricas-title">
+                        <i class="bi bi-speedometer2" style="color:#6f42c1"></i> Sumário (últimos <?= $adays ?> dias)
+                    </div>
+                    <div class="metricas-summary">
+                        <div class="metricas-box info">
+                            <div class="mval"><?= $tot_tasks ?></div>
+                            <div class="mlbl">Tarefas concluídas</div>
+                        </div>
+                        <div class="metricas-box info">
+                            <div class="mval"><?= $tot_sprints ?></div>
+                            <div class="mlbl">Sprints fechadas</div>
+                        </div>
+                        <div class="metricas-box info">
+                            <div class="mval"><?= $tot_delivs ?></div>
+                            <div class="mlbl">Entregáveis concluídos</div>
+                        </div>
+                        <div class="metricas-box <?= $tot_reports > 0 ? 'ok' : 'warn' ?>">
+                            <div class="mval"><?= $tot_reports ?></div>
+                            <div class="mlbl">Daily reports</div>
+                        </div>
+                        <div class="metricas-box <?= $tot_overdue > 0 ? 'warn' : 'ok' ?>">
+                            <div class="mval"><?= $tot_overdue ?></div>
+                            <div class="mlbl">Tarefas atrasadas</div>
+                        </div>
+                        <div class="metricas-box <?= $tot_stalled > 0 ? 'warn' : 'ok' ?>">
+                            <div class="mval"><?= $tot_stalled ?></div>
+                            <div class="mlbl">Tarefas paradas (&gt;7d)</div>
+                        </div>
+                        <div class="metricas-box <?= $tot_ov_sp > 0 ? 'warn' : 'ok' ?>">
+                            <div class="mval"><?= $tot_ov_sp ?></div>
+                            <div class="mlbl">Sprints atrasadas</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── BURN CHART ──────────────────────────────────── -->
+                <div class="metricas-section">
+                    <div class="metricas-title">
+                        <i class="bi bi-graph-up" style="color:#0d6efd"></i> Actividade Diária (concluídas)
+                    </div>
+                    <div class="burn-legend">
+                        <span><span class="burn-legend-dot" style="background:#0d6efd"></span> Tarefas</span>
+                        <span><span class="burn-legend-dot" style="background:#fd7e14"></span> Sprints</span>
+                        <span><span class="burn-legend-dot" style="background:#198754"></span> Entregáveis</span>
+                    </div>
+                    <div class="burn-chart-wrap">
+                    <svg class="burn-svg" viewBox="0 0 <?= $svgW ?> <?= $svgH ?>" xmlns="http://www.w3.org/2000/svg">
+                        <!-- Grid horizontal -->
+                        <?php for ($gi = 0; $gi <= 4; $gi++):
+                            $yg = round($padT + ($gi/4)*$cH);
+                            $vg = round($chart_max * (1 - $gi/4));
+                        ?>
+                        <line x1="<?= $padL ?>" y1="<?= $yg ?>" x2="<?= $svgW-$padR ?>" y2="<?= $yg ?>"
+                              stroke="#e9ecef" stroke-width="1"/>
+                        <text x="<?= $padL-4 ?>" y="<?= $yg+4 ?>" text-anchor="end"
+                              font-size="10" fill="#adb5bd"><?= $vg ?></text>
+                        <?php endfor; ?>
+
+                        <!-- Grid vertical + X labels -->
+                        <?php
+                        $label_step = max(1, (int)ceil($n / 14));
+                        foreach ($m_days as $i => $day):
+                            $xg = round(chartX($i, $n, $padL, $cW));
+                            $is_weekend = in_array(date('N', strtotime($day)), [6,7]);
+                        ?>
+                        <?php if ($is_weekend): ?>
+                        <rect x="<?= $xg - ($n>1?$cW/($n-1)/2:0) ?>" y="<?= $padT ?>"
+                              width="<?= $n>1?$cW/($n-1):$cW ?>" height="<?= $cH ?>"
+                              fill="#f8f9fa" opacity="0.6"/>
+                        <?php endif; ?>
+                        <?php if ($i % $label_step === 0): ?>
+                        <line x1="<?= $xg ?>" y1="<?= $padT ?>" x2="<?= $xg ?>" y2="<?= $padT+$cH ?>"
+                              stroke="#dee2e6" stroke-width="0.8"/>
+                        <text x="<?= $xg ?>" y="<?= $svgH - 22 ?>" text-anchor="middle"
+                              font-size="9" fill="#6c757d"><?= date('d/m', strtotime($day)) ?></text>
+                        <text x="<?= $xg ?>" y="<?= $svgH - 10 ?>" text-anchor="middle"
+                              font-size="8" fill="#adb5bd"><?= date('D', strtotime($day)) ?></text>
+                        <?php endif; ?>
+                        <?php endforeach; ?>
+
+                        <!-- Linha zero -->
+                        <line x1="<?= $padL ?>" y1="<?= $padT+$cH ?>" x2="<?= $svgW-$padR ?>" y2="<?= $padT+$cH ?>"
+                              stroke="#495057" stroke-width="1.5"/>
+                        <line x1="<?= $padL ?>" y1="<?= $padT ?>" x2="<?= $padL ?>" y2="<?= $padT+$cH ?>"
+                              stroke="#495057" stroke-width="1.5"/>
+
+                        <!-- Linhas de dados -->
+                        <?= svgPolyline($m_days, $tasks_day,   $chart_max, $padL, $padT, $cW, $cH, '#0d6efd', 2) ?>
+                        <?= svgPolyline($m_days, $sprints_day, $chart_max, $padL, $padT, $cW, $cH, '#fd7e14', 2) ?>
+                        <?= svgPolyline($m_days, $delivs_day,  $chart_max, $padL, $padT, $cW, $cH, '#198754', 2) ?>
+
+                        <!-- Pontos de dados -->
+                        <?= svgDots($m_days, $tasks_day,   $chart_max, $padL, $padT, $cW, $cH, '#0d6efd') ?>
+                        <?= svgDots($m_days, $sprints_day, $chart_max, $padL, $padT, $cW, $cH, '#fd7e14') ?>
+                        <?= svgDots($m_days, $delivs_day,  $chart_max, $padL, $padT, $cW, $cH, '#198754') ?>
+                    </svg>
+                    </div>
+                    <?php if ($tot_tasks + $tot_sprints + $tot_delivs === 0): ?>
+                    <p style="color:#6c757d; font-style:italic; font-size:13px; margin-top:8px;">
+                        <i class="bi bi-info-circle"></i> Sem actividade concluída registada no período.
+                        Os itens são contados pela data de última actualização para o estado "concluído".
+                    </p>
+                    <?php endif; ?>
+                </div>
+
+                <!-- ── COMPLIANCE DE REPORTS ──────────────────────── -->
+                <div class="metricas-section">
+                    <div class="metricas-title">
+                        <i class="bi bi-journal-check" style="color:#198754"></i>
+                        Compliance de Daily Reports
+                        <span style="font-size:12px; font-weight:400; color:#6c757d;">
+                            (<?= $n_working ?> dia<?= $n_working!=1?'s':'' ?> útil<?= $n_working!=1?'eis':'' ?> no período)
+                        </span>
+                    </div>
+                    <?php if (empty($compliance) && !$m['m_has_reports'] ?? true): ?>
+                    <p style="color:#6c757d; font-style:italic;">Módulo de Daily Reports não disponível.</p>
+                    <?php else: ?>
+                    <div style="overflow-x:auto;">
+                    <table class="compliance-table">
+                        <thead>
+                            <tr>
+                                <th class="name-col">Colaborador</th>
+                                <?php foreach ($m_days as $day):
+                                    $is_wknd = in_array(date('N', strtotime($day)), [6,7]);
+                                ?>
+                                <th style="<?= $is_wknd ? 'opacity:0.4;' : '' ?> font-size:9px;">
+                                    <?= date('d', strtotime($day)) ?><br>
+                                    <span style="font-weight:400;"><?= date('D', strtotime($day)) ?></span>
+                                </th>
+                                <?php endforeach; ?>
+                                <th style="min-width:80px;">% / Faltas</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($report_rank as $ur): ?>
+                        <tr>
+                            <td class="name-col"><?= htmlspecialchars($ur['username']) ?></td>
+                            <?php foreach ($m_days as $day):
+                                $is_wknd = in_array(date('N', strtotime($day)), [6,7]);
+                                $has_rep = isset($compliance[$ur['username']][$day]);
+                            ?>
+                            <td>
+                                <?php if ($is_wknd): ?>
+                                <span class="cell-report-wknd" title="fim de semana">·</span>
+                                <?php elseif ($has_rep): ?>
+                                <span class="cell-report-ok" title="report entregue">✔</span>
+                                <?php else: ?>
+                                <span class="cell-report-miss" title="sem report">✗</span>
+                                <?php endif; ?>
+                            </td>
+                            <?php endforeach; ?>
+                            <td style="white-space:nowrap; padding-left:8px;">
+                                <?php
+                                $pct = $ur['pct'];
+                                $fill_class = $pct >= 80 ? '' : ($pct >= 50 ? 'mid' : 'low');
+                                ?>
+                                <span style="font-size:11px; font-weight:600;
+                                    color:<?= $pct>=80?'#198754':($pct>=50?'#664d03':'#842029') ?>">
+                                    <?= $pct ?>%
+                                </span>
+                                <div class="pct-bar-wrap" style="margin-left:4px;">
+                                    <div class="pct-bar-fill <?= $fill_class ?>" style="width:<?= $pct ?>%;"></div>
+                                </div>
+                                <?php if ($ur['missed'] > 0): ?>
+                                <span style="font-size:10px; color:#dc3545; margin-left:4px;">
+                                    −<?= $ur['missed'] ?>
+                                </span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
+                <!-- ── PONTOS CRÍTICOS ────────────────────────────── -->
+                <div class="metricas-section">
+                    <div class="metricas-title">
+                        <i class="bi bi-shield-exclamation" style="color:#dc3545"></i> Pontos Críticos
+                    </div>
+                    <div class="critical-grid">
+
+                        <!-- Faltas ao report -->
+                        <div class="critical-panel">
+                            <div class="critical-header" style="background:#f8d7da;">
+                                <i class="bi bi-journal-x" style="color:#842029"></i>
+                                <span style="color:#842029;">Mais faltas ao Daily Report</span>
+                            </div>
+                            <div class="critical-body">
+                            <?php
+                            $shown = array_filter($report_rank, fn($r) => $r['missed'] > 0);
+                            if (empty($shown)): ?>
+                            <div class="critical-empty"><i class="bi bi-check-circle text-success"></i> Todos entregaram reports</div>
+                            <?php else: foreach (array_slice($shown, 0, 8) as $r): ?>
+                            <div class="critical-row">
+                                <span class="cname"><?= htmlspecialchars($r['username']) ?></span>
+                                <span class="cval <?= $r['missed']>=$n_working*0.5?'cval-danger':'cval-warn' ?>">
+                                    <?= $r['missed'] ?> falta<?= $r['missed']!=1?'s':'' ?> · <?= $r['pct'] ?>%
+                                </span>
+                            </div>
+                            <?php endforeach; endif; ?>
+                            </div>
+                        </div>
+
+                        <!-- Tarefas atrasadas por pessoa -->
+                        <div class="critical-panel">
+                            <div class="critical-header" style="background:#fff3cd;">
+                                <i class="bi bi-clock-history" style="color:#664d03"></i>
+                                <span style="color:#664d03;">Tarefas atrasadas por pessoa</span>
+                            </div>
+                            <div class="critical-body">
+                            <?php if (empty($overdue)): ?>
+                            <div class="critical-empty"><i class="bi bi-check-circle text-success"></i> Sem tarefas atrasadas</div>
+                            <?php else: foreach ($overdue as $ou): ?>
+                            <div class="critical-row">
+                                <span class="cname"><?= htmlspecialchars($ou['username']) ?></span>
+                                <span class="cval <?= $ou['n']>=5?'cval-danger':($ou['n']>=2?'cval-warn':'cval-ok') ?>">
+                                    <?= $ou['n'] ?> tarefa<?= $ou['n']!=1?'s':'' ?>
+                                </span>
+                            </div>
+                            <?php endforeach; endif; ?>
+                            </div>
+                        </div>
+
+                        <!-- Sprints atrasadas -->
+                        <div class="critical-panel">
+                            <div class="critical-header" style="background:#cff4fc;">
+                                <i class="bi bi-lightning-charge" style="color:#055160"></i>
+                                <span style="color:#055160;">Sprints atrasadas</span>
+                            </div>
+                            <div class="critical-body">
+                            <?php if (empty($ov_sprints)): ?>
+                            <div class="critical-empty"><i class="bi bi-check-circle text-success"></i> Sem sprints atrasadas</div>
+                            <?php else: foreach ($ov_sprints as $os): ?>
+                            <div class="critical-row">
+                                <span class="cname" style="font-size:12px;"><?= htmlspecialchars($os['nome']) ?><?php if($os['responsavel']): ?> <span style="color:#6c757d;font-weight:400;">· <?= htmlspecialchars($os['responsavel']) ?></span><?php endif; ?></span>
+                                <span class="cval cval-danger">+<?= $os['dias_atraso'] ?>d</span>
+                            </div>
+                            <?php endforeach; endif; ?>
+                            </div>
+                        </div>
+
+                        <!-- Tarefas paradas -->
+                        <div class="critical-panel">
+                            <div class="critical-header" style="background:#e2d9f3;">
+                                <i class="bi bi-pause-circle" style="color:#3d0a91"></i>
+                                <span style="color:#3d0a91;">Tarefas em execução sem actualização (&gt;7d)</span>
+                            </div>
+                            <div class="critical-body">
+                            <?php if (empty($stalled)): ?>
+                            <div class="critical-empty"><i class="bi bi-check-circle text-success"></i> Sem tarefas paradas</div>
+                            <?php else: foreach (array_slice($stalled, 0, 10) as $st): ?>
+                            <div class="critical-row">
+                                <span class="cname" style="font-size:12px;">
+                                    <?= htmlspecialchars($st['titulo']) ?>
+                                    <span style="color:#6c757d; font-weight:400;">· <?= htmlspecialchars($st['username']) ?></span>
+                                </span>
+                                <span class="cval <?= $st['dias']>=14?'cval-danger':'cval-warn' ?>">
+                                    <?= $st['dias'] ?>d
+                                </span>
+                            </div>
+                            <?php endforeach;
+                            if (count($stalled) > 10): ?>
+                            <div class="critical-empty">+ <?= count($stalled)-10 ?> mais...</div>
+                            <?php endif; endif; ?>
+                            </div>
+                        </div>
+
+                    </div><!-- /critical-grid -->
+                </div>
+
+                <!-- ── REUNIÕES DO PERÍODO ────────────────────────── -->
+                <?php if (!empty($meetings)): ?>
+                <div class="metricas-section">
+                    <div class="metricas-title">
+                        <i class="bi bi-calendar-event" style="color:#0dcaf0"></i>
+                        Eventos no Período
+                        <span style="font-size:12px; font-weight:400; color:#6c757d;">
+                            (<?= count($meetings) ?> evento<?= count($meetings)!=1?'s':'' ?> · sem rastreio de presenças)
+                        </span>
+                    </div>
+                    <?php
+                    $tipo_labels = [
+                        'tribe'=>'TRIBE','aulas'=>'Aulas','demonstração'=>'Demo',
+                        'campo'=>'Campo','férias'=>'Férias','outro'=>'Outro'
+                    ];
+                    $tipo_classes = [
+                        'tribe'=>'tipo-tribe','aulas'=>'tipo-aulas','demonstração'=>'tipo-demo',
+                        'campo'=>'tipo-outro','férias'=>'tipo-outro','outro'=>'tipo-outro'
+                    ];
+                    foreach ($meetings as $mv): ?>
+                    <div class="meeting-item">
+                        <div class="meeting-date-badge">
+                            <?= date('d/m', strtotime($mv['data'])) ?><br>
+                            <span style="font-weight:400; font-size:9px;"><?= date('D', strtotime($mv['data'])) ?></span>
+                            <?php if ($mv['hora']): ?><br><span style="font-weight:400;"><?= substr($mv['hora'],0,5) ?></span><?php endif; ?>
+                        </div>
+                        <div>
+                            <span class="meeting-tipo <?= $tipo_classes[$mv['tipo']] ?? 'tipo-outro' ?>">
+                                <?= htmlspecialchars($tipo_labels[$mv['tipo']] ?? ucfirst($mv['tipo'])) ?>
+                            </span>
+                            <span style="margin-left:8px; font-size:13px;"><?= htmlspecialchars($mv['descricao'] ?? '') ?></span>
+                            <?php if ($mv['criador']): ?>
+                            <span style="color:#6c757d; font-size:11px; margin-left:6px;">· <?= htmlspecialchars($mv['criador']) ?></span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+
+            </div><!-- /metricas-container -->
+
+            <?php
             // Renderizar Gantt de Entregáveis
             else:
                 if (empty($deliverables)): ?>
@@ -2079,6 +2719,21 @@ function navigateTime(direction) {
 }
 
 // ============================================================================
+// PERÍODO DE ANÁLISE — MÉTRICAS
+// ============================================================================
+function changeAnalyticsDays(days) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('view_type', 'metricas');
+    url.searchParams.set('analytics_days', days);
+    window.location.href = url.toString();
+}
+function applyCustomDays() {
+    const v = parseInt(document.getElementById('customDaysInput')?.value);
+    if (v >= 7 && v <= 60) changeAnalyticsDays(v);
+    else alert('Introduza um valor entre 7 e 60 dias.');
+}
+
+// ============================================================================
 // AÇÕES INLINE DA VISTA DE URGENTES
 // ============================================================================
 function ganttAjax(data, indicatorId) {
@@ -2136,6 +2791,7 @@ function changeViewType(type) {
 // Função para atualizar filtros
 function updateFilters() {
     const viewType = '<?= $view_type ?>';
+    if (viewType === 'metricas') { changeAnalyticsDays(document.getElementById('customDaysInput')?.value || 14); return; }
     const viewRange = document.getElementById('viewRange').value;
     const orderBy = document.getElementById('orderBy').value;
     const showClosed = viewType === 'sprints' 

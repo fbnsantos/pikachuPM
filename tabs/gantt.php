@@ -310,6 +310,29 @@ $urgentes_sprints = [];
 if ($view_type === 'urgentes') {
     $three_weeks = (new DateTime())->modify('+21 days')->format('Y-m-d');
 
+    // Garantir tabela de notas existe (criada também no ajax, mas pode ser a 1ª visita)
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS gantt_notes (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            ref_type ENUM('deliverable','sprint') NOT NULL,
+            ref_id INT NOT NULL,
+            nota TEXT NOT NULL,
+            autor_id INT DEFAULT NULL,
+            autor_name VARCHAR(100) DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_ref (ref_type, ref_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (PDOException $e) {}
+
+    // Mapa de contagens de notas
+    $note_counts = ['deliverable' => [], 'sprint' => []];
+    try {
+        $nc = $pdo->query("SELECT ref_type, ref_id, COUNT(*) n FROM gantt_notes GROUP BY ref_type, ref_id");
+        foreach ($nc->fetchAll(PDO::FETCH_ASSOC) as $row)
+            $note_counts[$row['ref_type']][$row['ref_id']] = (int)$row['n'];
+    } catch (PDOException $e) {}
+
     if ($has_projects) {
         try {
             $stmt = $pdo->prepare("
@@ -857,6 +880,132 @@ $total_days = $max_date->diff($min_date)->days + 1;
 .urgentes-save-ok   { color: #198754; }
 .urgentes-save-err  { color: #dc3545; }
 .urgentes-save-wait { color: #6c757d; }
+
+/* ── Botão de notas na linha ── */
+.btn-notas {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 9px; font-size: 12px; border-radius: 12px; cursor: pointer;
+    border: 1px solid #6f42c1; color: #6f42c1; background: white;
+    transition: all .15s; white-space: nowrap; margin-top: 5px;
+}
+.btn-notas:hover { background: #f5f0ff; }
+.btn-notas.has-notes { background: #6f42c1; color: white; border-color: #6f42c1; }
+.btn-notas .note-count {
+    background: white; color: #6f42c1; border-radius: 8px;
+    padding: 0 5px; font-size: 10px; font-weight: 700;
+    display: inline-block; min-width: 16px; text-align: center;
+}
+.btn-notas.has-notes .note-count { background: rgba(255,255,255,0.25); color: white; }
+
+/* ── Painel lateral de notas ── */
+#notesPanel {
+    position: fixed; top: 0; right: -440px; width: 420px; height: 100vh;
+    background: white; box-shadow: -4px 0 24px rgba(0,0,0,.18);
+    z-index: 9999; display: flex; flex-direction: column;
+    transition: right .3s cubic-bezier(.4,0,.2,1);
+    font-size: 14px;
+}
+#notesPanel.open { right: 0; }
+
+.notes-panel-header {
+    background: #6f42c1; color: white;
+    padding: 16px 18px 14px; flex-shrink: 0;
+}
+.notes-panel-header h4 { margin: 0; font-size: 15px; font-weight: 700; }
+.notes-panel-header .notes-subtitle {
+    font-size: 11px; opacity: .8; margin-top: 3px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.notes-panel-close {
+    position: absolute; top: 12px; right: 14px;
+    background: rgba(255,255,255,.2); border: none; color: white;
+    border-radius: 50%; width: 28px; height: 28px; cursor: pointer;
+    font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.notes-panel-close:hover { background: rgba(255,255,255,.35); }
+
+.notes-panel-body { flex: 1; overflow-y: auto; padding: 16px 18px; }
+.notes-panel-footer { flex-shrink: 0; border-top: 1px solid #dee2e6; padding: 14px 18px; background: #fafafa; }
+
+/* Área de nova nota */
+.new-note-area textarea {
+    width: 100%; border: 1px solid #dee2e6; border-radius: 6px;
+    padding: 8px 10px; font-size: 13px; resize: vertical; min-height: 80px;
+    font-family: inherit; outline: none;
+}
+.new-note-area textarea:focus { border-color: #6f42c1; box-shadow: 0 0 0 2px rgba(111,66,193,.15); }
+.new-note-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.btn-save-note {
+    background: #6f42c1; color: white; border: none; border-radius: 6px;
+    padding: 6px 16px; font-size: 13px; cursor: pointer; font-weight: 600;
+}
+.btn-save-note:hover { background: #5a32a3; }
+.btn-save-note:disabled { opacity: .6; cursor: not-allowed; }
+.btn-create-task-from-note {
+    background: white; color: #0d6efd; border: 1px solid #0d6efd;
+    border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+}
+.btn-create-task-from-note:hover { background: #e8f0fe; }
+
+/* Formulário inline de tarefa */
+.task-form-inline {
+    background: #f0f4ff; border: 1px solid #c5d5ff; border-radius: 8px;
+    padding: 12px; margin-top: 10px; display: none;
+}
+.task-form-inline.visible { display: block; }
+.task-form-inline label { font-size: 11px; font-weight: 600; color: #495057; display: block; margin-bottom: 3px; }
+.task-form-inline input, .task-form-inline select, .task-form-inline textarea {
+    width: 100%; padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px;
+    font-size: 12px; margin-bottom: 8px; font-family: inherit;
+}
+.task-form-row { display: flex; gap: 8px; }
+.task-form-row > div { flex: 1; }
+.btn-submit-task {
+    background: #0d6efd; color: white; border: none; border-radius: 5px;
+    padding: 6px 16px; font-size: 12px; cursor: pointer; font-weight: 600;
+}
+.btn-submit-task:hover { background: #0b5ed7; }
+.btn-cancel-task {
+    background: white; color: #6c757d; border: 1px solid #dee2e6;
+    border-radius: 5px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+}
+
+/* Lista de notas existentes */
+.notes-list { margin-top: 4px; }
+.notes-list-title {
+    font-size: 11px; font-weight: 700; color: #6c757d; text-transform: uppercase;
+    letter-spacing: .5px; margin-bottom: 10px; margin-top: 4px;
+}
+.note-item {
+    background: #fafafa; border: 1px solid #e9ecef; border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 10px; position: relative;
+}
+.note-item-meta {
+    font-size: 11px; color: #6c757d; margin-bottom: 6px;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.note-item-author { font-weight: 600; color: #495057; }
+.note-item-text { font-size: 13px; white-space: pre-wrap; line-height: 1.5; color: #212529; }
+.note-item-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.btn-note-task {
+    font-size: 11px; padding: 3px 10px; border-radius: 10px;
+    border: 1px solid #0d6efd; color: #0d6efd; background: white; cursor: pointer;
+}
+.btn-note-task:hover { background: #e8f0fe; }
+.btn-note-delete {
+    font-size: 11px; padding: 3px 10px; border-radius: 10px;
+    border: 1px solid #dee2e6; color: #dc3545; background: white; cursor: pointer;
+}
+.btn-note-delete:hover { background: #fff5f5; border-color: #dc3545; }
+.notes-empty { color: #6c757d; font-style: italic; font-size: 13px; text-align: center; padding: 20px 0; }
+.notes-loading { text-align: center; padding: 20px; color: #6c757d; font-size: 13px; }
+
+/* Overlay escuro */
+#notesOverlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.3); z-index: 9998;
+}
+#notesOverlay.open { display: block; }
 
 .filter-group {
     margin-bottom: 15px;
@@ -2000,6 +2149,13 @@ $total_days = $max_date->diff($min_date)->days + 1;
                                                onchange="ganttUpdateDeliverableDueDate(<?= $ud['id'] ?>, this.value, '<?= $uid ?>')"
                                                title="Alterar data de entrega">
                                         <div id="ind_<?= $uid ?>" class="urgentes-save-indicator"></div>
+                                        <?php $nc = $note_counts['deliverable'][$ud['id']] ?? 0; ?>
+                                        <button class="btn-notas <?= $nc > 0 ? 'has-notes' : '' ?>"
+                                                id="notebtn_<?= $uid ?>"
+                                                onclick="openNotesPanel('deliverable', <?= $ud['id'] ?>, <?= htmlspecialchars(json_encode($ud['title'])) ?>, <?= $ud['project_id'] ?>)">
+                                            <i class="bi bi-sticky"></i> Notas
+                                            <span class="note-count" id="nc_<?= $uid ?>"><?= $nc > 0 ? $nc : '' ?></span>
+                                        </button>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -2062,6 +2218,13 @@ $total_days = $max_date->diff($min_date)->days + 1;
                                                onchange="ganttUpdateSprintDataFim(<?= $us['id'] ?>, this.value, '<?= $sid ?>')"
                                                title="Alterar data de fecho">
                                         <div id="ind_<?= $sid ?>" class="urgentes-save-indicator"></div>
+                                        <?php $nc = $note_counts['sprint'][$us['id']] ?? 0; ?>
+                                        <button class="btn-notas <?= $nc > 0 ? 'has-notes' : '' ?>"
+                                                id="notebtn_<?= $sid ?>"
+                                                onclick="openNotesPanel('sprint', <?= $us['id'] ?>, <?= htmlspecialchars(json_encode($us['nome'])) ?>, null)">
+                                            <i class="bi bi-sticky"></i> Notas
+                                            <span class="note-count" id="nc_<?= $sid ?>"><?= $nc > 0 ? $nc : '' ?></span>
+                                        </button>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -2661,6 +2824,99 @@ $total_days = $max_date->diff($min_date)->days + 1;
     </div>
 </div>
 
+<!-- ══ OVERLAY + PAINEL DE NOTAS ══════════════════════════════════════ -->
+<div id="notesOverlay" onclick="closeNotesPanel()"></div>
+
+<div id="notesPanel">
+    <div class="notes-panel-header">
+        <button class="notes-panel-close" onclick="closeNotesPanel()" title="Fechar">✕</button>
+        <h4><i class="bi bi-sticky-fill"></i> <span id="notesPanelType"></span></h4>
+        <div class="notes-subtitle" id="notesPanelTitle"></div>
+    </div>
+
+    <div class="notes-panel-body">
+        <!-- Nova nota -->
+        <div class="new-note-area">
+            <textarea id="newNoteText" placeholder="Escreve uma nota, observação ou ponto de atenção…"></textarea>
+            <div class="new-note-actions">
+                <button class="btn-save-note" id="btnSaveNote" onclick="saveNote()">
+                    <i class="bi bi-send"></i> Guardar nota
+                </button>
+                <button class="btn-create-task-from-note" onclick="toggleTaskForm('new')">
+                    <i class="bi bi-plus-circle"></i> Criar tarefa
+                </button>
+            </div>
+            <!-- Formulário inline: criar tarefa (a partir de texto livre, sem nota prévia) -->
+            <div class="task-form-inline" id="taskFormNew">
+                <label>Título da tarefa *</label>
+                <textarea id="tfn_titulo" rows="2" placeholder="Título…"></textarea>
+                <label>Descrição</label>
+                <textarea id="tfn_desc" rows="2" placeholder="Detalhes…"></textarea>
+                <div class="task-form-row">
+                    <div>
+                        <label>Data limite</label>
+                        <input type="date" id="tfn_data">
+                    </div>
+                    <div>
+                        <label>Responsável</label>
+                        <select id="tfn_resp">
+                            <option value="">—</option>
+                            <?php foreach ($users as $u): ?>
+                            <option value="<?= $u['user_id'] ?>"><?= htmlspecialchars($u['username']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn-submit-task" onclick="submitTask(null)">
+                        <i class="bi bi-check-circle"></i> Criar tarefa
+                    </button>
+                    <button class="btn-cancel-task" onclick="toggleTaskForm('new')">Cancelar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lista de notas -->
+        <div class="notes-list">
+            <div class="notes-list-title" id="notesListTitle" style="margin-top:16px;">Histórico</div>
+            <div id="notesList"><div class="notes-loading"><i class="bi bi-hourglass-split"></i> A carregar…</div></div>
+        </div>
+    </div>
+
+    <div class="notes-panel-footer" style="font-size:11px; color:#6c757d; text-align:center;">
+        As notas são partilhadas com toda a equipa
+    </div>
+</div>
+
+<!-- Template de formulário inline de tarefa (por nota existente, clonado por JS) -->
+<template id="taskFormTemplate">
+    <div class="task-form-inline visible" style="margin-top:8px;">
+        <label>Título da tarefa *</label>
+        <textarea class="tf-titulo" rows="2" placeholder="Título…"></textarea>
+        <label>Descrição</label>
+        <textarea class="tf-desc" rows="2" placeholder="Detalhes…"></textarea>
+        <div class="task-form-row">
+            <div>
+                <label>Data limite</label>
+                <input type="date" class="tf-data">
+            </div>
+            <div>
+                <label>Responsável</label>
+                <select class="tf-resp">
+                    <option value="">—</option>
+                    <?php foreach ($users as $u): ?>
+                    <option value="<?= $u['user_id'] ?>"><?= htmlspecialchars($u['username']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+        </div>
+        <div style="display:flex; gap:8px;">
+            <button class="btn-submit-task tf-submit"><i class="bi bi-check-circle"></i> Criar tarefa</button>
+            <button class="btn-cancel-task tf-cancel">Cancelar</button>
+        </div>
+    </div>
+</template>
+
 <!-- Modal para definir datas de sprints -->
 <div id="datePickerModal" class="gantt-modal">
     <div class="gantt-modal-content">
@@ -2717,6 +2973,216 @@ function navigateTime(direction) {
     
     window.location.href = url.toString();
 }
+
+// ============================================================================
+// PAINEL DE NOTAS
+// ============================================================================
+let _notesRef = { type: null, id: null, title: null, projectId: null };
+let _activeNoteBtnId = null;
+
+function openNotesPanel(refType, refId, title, projectId) {
+    _notesRef = { type: refType, id: refId, title: title, projectId: projectId };
+    _activeNoteBtnId = 'notebtn_' + (refType === 'deliverable' ? 'deliv_' : 'sprint_') + refId;
+
+    document.getElementById('notesPanelType').textContent =
+        refType === 'deliverable' ? 'Entregável' : 'Sprint';
+    document.getElementById('notesPanelTitle').textContent = title;
+    document.getElementById('newNoteText').value = '';
+    document.getElementById('tfn_titulo').value = '';
+    document.getElementById('tfn_desc').value = '';
+    document.getElementById('tfn_data').value = '';
+    document.getElementById('tfn_resp').value = '';
+    document.getElementById('taskFormNew').classList.remove('visible');
+
+    document.getElementById('notesPanel').classList.add('open');
+    document.getElementById('notesOverlay').classList.add('open');
+    document.getElementById('newNoteText').focus();
+
+    loadNotes();
+}
+
+function closeNotesPanel() {
+    document.getElementById('notesPanel').classList.remove('open');
+    document.getElementById('notesOverlay').classList.remove('open');
+}
+
+function loadNotes() {
+    const list = document.getElementById('notesList');
+    list.innerHTML = '<div class="notes-loading"><i class="bi bi-hourglass-split"></i> A carregar…</div>';
+
+    const fd = new FormData();
+    fd.append('action', 'get_notes');
+    fd.append('ref_type', _notesRef.type);
+    fd.append('ref_id', _notesRef.id);
+
+    fetch('gantt_ajax.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(res => {
+            if (!res.success) { list.innerHTML = '<div class="notes-empty">Erro ao carregar notas.</div>'; return; }
+            renderNotes(res.notes);
+        })
+        .catch(() => { list.innerHTML = '<div class="notes-empty">Erro de rede.</div>'; });
+}
+
+function renderNotes(notes) {
+    const list = document.getElementById('notesList');
+    const titleEl = document.getElementById('notesListTitle');
+    titleEl.textContent = notes.length > 0
+        ? `Histórico (${notes.length} nota${notes.length !== 1 ? 's' : ''})`
+        : 'Histórico';
+
+    // Atualizar badge no botão da linha
+    if (_activeNoteBtnId) {
+        const btn  = document.getElementById(_activeNoteBtnId);
+        const ncEl = document.getElementById('nc_' + _activeNoteBtnId.replace('notebtn_',''));
+        if (btn) { btn.classList.toggle('has-notes', notes.length > 0); }
+        if (ncEl) { ncEl.textContent = notes.length > 0 ? notes.length : ''; }
+    }
+
+    if (notes.length === 0) {
+        list.innerHTML = '<div class="notes-empty"><i class="bi bi-sticky"></i><br>Sem notas ainda.<br>Adiciona a primeira acima.</div>';
+        return;
+    }
+
+    list.innerHTML = notes.map(n => {
+        const dt = new Date(n.created_at);
+        const dtStr = dt.toLocaleDateString('pt-PT') + ' ' + dt.toLocaleTimeString('pt-PT', {hour:'2-digit', minute:'2-digit'});
+        const noteHtml = n.nota.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return `
+        <div class="note-item" id="note_${n.id}">
+            <div class="note-item-meta">
+                <span><span class="note-item-author">${n.autor_name || '—'}</span> · ${dtStr}</span>
+            </div>
+            <div class="note-item-text">${noteHtml}</div>
+            <div class="note-item-actions">
+                <button class="btn-note-task" onclick="toggleTaskFormFromNote(${n.id}, ${JSON.stringify(n.nota)})">
+                    <i class="bi bi-plus-circle"></i> Criar tarefa
+                </button>
+                <button class="btn-note-delete" onclick="deleteNote(${n.id})">
+                    <i class="bi bi-trash"></i> Apagar
+                </button>
+            </div>
+            <div id="taskform_${n.id}"></div>
+        </div>`;
+    }).join('');
+}
+
+function saveNote() {
+    const text = document.getElementById('newNoteText').value.trim();
+    if (!text) { document.getElementById('newNoteText').focus(); return; }
+
+    const btn = document.getElementById('btnSaveNote');
+    btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> A guardar…';
+
+    const fd = new FormData();
+    fd.append('action', 'save_note');
+    fd.append('ref_type', _notesRef.type);
+    fd.append('ref_id', _notesRef.id);
+    fd.append('nota', text);
+
+    fetch('gantt_ajax.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(res => {
+            btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> Guardar nota';
+            if (res.success) {
+                document.getElementById('newNoteText').value = '';
+                loadNotes();
+            } else { alert('Erro: ' + (res.message || 'Desconhecido')); }
+        })
+        .catch(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> Guardar nota'; alert('Erro de rede.'); });
+}
+
+function deleteNote(noteId) {
+    if (!confirm('Apagar esta nota?')) return;
+    const fd = new FormData();
+    fd.append('action', 'delete_note');
+    fd.append('note_id', noteId);
+    fetch('gantt_ajax.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(res => { if (res.success) loadNotes(); else alert('Erro ao apagar.'); })
+        .catch(() => alert('Erro de rede.'));
+}
+
+function toggleTaskForm(context) {
+    const form = document.getElementById('taskFormNew');
+    form.classList.toggle('visible');
+    if (form.classList.contains('visible')) {
+        document.getElementById('tfn_titulo').focus();
+    }
+}
+
+function toggleTaskFormFromNote(noteId, noteText) {
+    const container = document.getElementById('taskform_' + noteId);
+    if (container.children.length > 0) { container.innerHTML = ''; return; }
+
+    const tpl = document.getElementById('taskFormTemplate');
+    const clone = tpl.content.cloneNode(true);
+
+    // Pré-preencher título com a 1ª linha da nota
+    const firstLine = noteText.split('\n')[0].trim().substring(0, 200);
+    clone.querySelector('.tf-titulo').value = firstLine;
+
+    clone.querySelector('.tf-submit').addEventListener('click', () => submitTask(noteId));
+    clone.querySelector('.tf-cancel').addEventListener('click', () => { container.innerHTML = ''; });
+
+    container.appendChild(clone);
+    container.querySelector('.tf-titulo').focus();
+}
+
+function submitTask(noteId) {
+    let titulo, desc, data, resp;
+    if (noteId === null) {
+        titulo = document.getElementById('tfn_titulo').value.trim();
+        desc   = document.getElementById('tfn_desc').value.trim();
+        data   = document.getElementById('tfn_data').value;
+        resp   = document.getElementById('tfn_resp').value;
+    } else {
+        const c = document.getElementById('taskform_' + noteId);
+        titulo = c.querySelector('.tf-titulo').value.trim();
+        desc   = c.querySelector('.tf-desc').value.trim();
+        data   = c.querySelector('.tf-data').value;
+        resp   = c.querySelector('.tf-resp').value;
+    }
+
+    if (!titulo) { alert('Título obrigatório.'); return; }
+
+    const fd = new FormData();
+    fd.append('action', 'create_task_from_note');
+    fd.append('titulo', titulo);
+    fd.append('descritivo', desc);
+    if (data) fd.append('data_limite', data);
+    if (resp) fd.append('responsavel', resp);
+    if (_notesRef.projectId) fd.append('projeto_id', _notesRef.projectId);
+
+    fetch('gantt_ajax.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                const msg = `✅ ${res.message}`;
+                if (noteId === null) {
+                    document.getElementById('taskFormNew').classList.remove('visible');
+                    document.getElementById('tfn_titulo').value = '';
+                    document.getElementById('tfn_desc').value = '';
+                    document.getElementById('tfn_data').value = '';
+                    document.getElementById('tfn_resp').value = '';
+                    // Mostrar feedback
+                    const fb = document.createElement('div');
+                    fb.style.cssText = 'color:#198754;font-size:12px;margin-top:6px;';
+                    fb.textContent = msg;
+                    document.querySelector('.new-note-actions').after(fb);
+                    setTimeout(() => fb.remove(), 3000);
+                } else {
+                    document.getElementById('taskform_' + noteId).innerHTML =
+                        `<div style="color:#198754;font-size:12px;padding:6px 0;">${msg}</div>`;
+                    setTimeout(() => { const el = document.getElementById('taskform_' + noteId); if(el) el.innerHTML=''; }, 3000);
+                }
+            } else { alert('Erro: ' + (res.message || 'Desconhecido')); }
+        })
+        .catch(() => alert('Erro de rede.'));
+}
+
+// Fechar painel com Esc
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeNotesPanel(); });
 
 // ============================================================================
 // PERÍODO DE ANÁLISE — MÉTRICAS

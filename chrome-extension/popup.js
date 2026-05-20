@@ -60,10 +60,11 @@ async function loadConfig() {
 }
 
 // ── Utilities ────────────────────────────────────────────────
-function showToast(msg, type = '') {
+function showToast(msg, type = '', duration) {
   elToast.textContent = msg;
   elToast.className = 'toast show' + (type ? ' ' + type : '');
-  setTimeout(() => { elToast.className = 'toast'; }, 2500);
+  const ms = duration ?? (msg.length > 50 ? 4500 : 2500);
+  setTimeout(() => { elToast.className = 'toast'; }, ms);
 }
 
 function escapeHtml(str) {
@@ -197,7 +198,7 @@ function buildTodoCard(todo) {
 
   card.querySelector('.btn-open').addEventListener('click', (e) => {
     e.stopPropagation();
-    chrome.tabs.create({ url: `${apiUrl}#todo-${todo.id}` });
+    chrome.tabs.create({ url: `${apiUrl}/index.php?tab=todos` });
   });
 
   card.querySelector('.btn-delete').addEventListener('click', async (e) => {
@@ -380,6 +381,9 @@ if (btnCompact) {
     compactMode = !compactMode;
     applyCompact(compactMode);
     await chrome.storage.sync.set({ compactMode });
+    if (compactMode) {
+      showToast('Modo compacto ativo — arrasta o bordo esquerdo do painel para o tornar mais estreito', '');
+    }
   });
 }
 

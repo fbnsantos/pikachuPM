@@ -22,9 +22,11 @@
   "permissions": [
     "storage",
     "sidePanel",
-    "windows"
+    "windows",
+    "offscreen",
+    "notifications"
   ],
-  "host_permissions": [
+  "optional_host_permissions": [
     "<all_urls>"
   ],
   "icons": {

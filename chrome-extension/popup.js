@@ -50,10 +50,11 @@ const elToast         = document.getElementById('toast');
 // ── Config ──────────────────────────────────────────────────
 async function loadConfig() {
   return new Promise((resolve) => {
-    chrome.storage.sync.get(['apiUrl', 'token', 'compactMode'], (result) => {
+    chrome.storage.sync.get(['apiUrl', 'token', 'compactMode', 'mqttSound'], (result) => {
       apiUrl      = (result.apiUrl || '').replace(/\/$/, '');
       token       = result.token || '';
       compactMode = !!result.compactMode;
+      _mqttSound  = result.mqttSound !== false; // ativo por omissão
       resolve({ apiUrl, token, compactMode });
     });
   });
@@ -245,7 +246,8 @@ function openModal(todo = null) {
   document.getElementById('todo-titulo').value      = todo ? (todo.titulo || '') : '';
   document.getElementById('todo-descritivo').value  = todo ? (todo.descritivo || '') : '';
   document.getElementById('todo-estado').value      = todo ? (todo.estado || 'aberta') : 'aberta';
-  document.getElementById('todo-data-limite').value = todo ? (todo.data_limite || '') : '';
+  const defaultDate = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
+  document.getElementById('todo-data-limite').value = todo ? (todo.data_limite || '') : defaultDate;
   elModalOverlay.style.display = 'flex';
   document.getElementById('todo-titulo').focus();
 }
@@ -338,6 +340,111 @@ function applyCompact(active) {
   if (btn) btn.classList.toggle('active', active);
 }
 
+// ── MQTT (side panel only) ─────────────────────────────────────
+const MAX_MQTT_MSGS = 30;
+
+// Ping sonoro ao receber mensagem MQTT
+let _audioCtx  = null;
+let _mqttSound = true; // carregado do storage em init()
+
+function playPing() {
+  if (!_mqttSound) return;
+  try {
+    if (!_audioCtx) _audioCtx = new AudioContext();
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+
+    const ctx  = _audioCtx;
+    const t    = ctx.currentTime;
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    // Ping curto em Lá5 (880 Hz), decaimento em 350 ms
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, t);
+    osc.frequency.exponentialRampToValueAtTime(660, t + 0.35);
+    gain.gain.setValueAtTime(0.35, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+
+    osc.start(t);
+    osc.stop(t + 0.35);
+  } catch { /* AudioContext indisponível */ }
+}
+
+const STATE_MQTT_LABEL = {
+  connected:    'Ligado',
+  connecting:   'A ligar…',
+  error:        'Erro de ligação',
+  disconnected: 'Desligado',
+};
+
+function setMqttDot(state, detail = '') {
+  // Tab dot
+  const dot = document.getElementById('mqtt-dot');
+  if (dot) dot.className = 'mqtt-dot ' + (state || '');
+
+  // Status bar inside panel
+  const bar  = document.getElementById('mqtt-status-bar');
+  const text = document.getElementById('mqtt-status-text');
+  if (!bar || !text) return;
+  bar.className = 'mqtt-status-bar ' + (state || '');
+  const label = STATE_MQTT_LABEL[state] || 'Desligado';
+  text.textContent = detail ? `${label} — ${detail}` : label;
+}
+
+function addMqttMessage(topic, payload, direction = 'incoming') {
+  const feed  = document.getElementById('mqtt-feed');
+  const empty = document.getElementById('mqtt-empty');
+  if (!feed) return;
+
+  empty.style.display = 'none';
+
+  const now  = new Date();
+  const time = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  const row = document.createElement('div');
+  row.className = `mqtt-msg ${direction}`;
+  row.innerHTML = `
+    <span class="mqtt-msg-topic" title="${escapeHtml(topic)}">${escapeHtml(topic)}</span>
+    <span class="mqtt-msg-payload" title="${escapeHtml(payload)}">${escapeHtml(payload)}</span>
+    <span class="mqtt-msg-time">${time}</span>`;
+  feed.prepend(row);
+
+  // Keep max messages
+  while (feed.children.length > MAX_MQTT_MSGS) feed.lastChild.remove();
+}
+
+async function loadMqttHistory() {
+  if (!isSidePanel) return;
+  const { mqttMessages = [] } = await chrome.storage.local.get(['mqttMessages']);
+  const feed  = document.getElementById('mqtt-feed');
+  const empty = document.getElementById('mqtt-empty');
+  if (!feed) return;
+
+  feed.innerHTML = '';
+  if (!mqttMessages.length) { empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+
+  mqttMessages.slice(0, MAX_MQTT_MSGS).forEach(m => {
+    const time = new Date(m.ts).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const row  = document.createElement('div');
+    row.className = 'mqtt-msg incoming';
+    row.innerHTML = `
+      <span class="mqtt-msg-topic" title="${escapeHtml(m.topic)}">${escapeHtml(m.topic)}</span>
+      <span class="mqtt-msg-payload" title="${escapeHtml(m.payload)}">${escapeHtml(m.payload)}</span>
+      <span class="mqtt-msg-time">${time}</span>`;
+    feed.appendChild(row);
+  });
+}
+
+async function initMqttPubTopic() {
+  const { mqttPubTopic } = await chrome.storage.sync.get(['mqttPubTopic']);
+  const el = document.getElementById('mqtt-pub-topic-input');
+  if (el && mqttPubTopic) el.value = mqttPubTopic;
+}
+
 // ── Init ──────────────────────────────────────────────────────
 async function init() {
   const config = await loadConfig();
@@ -353,9 +460,12 @@ async function init() {
   elMainContent.style.display   = 'flex';
   elFab.style.display           = 'flex';
 
-  if (isSidePanel) applyCompact(config.compactMode);
-
-  await Promise.all([fetchTodos(), fetchCalendar()]);
+  if (isSidePanel) {
+    applyCompact(config.compactMode);
+    await Promise.all([fetchTodos(), fetchCalendar(), loadMqttHistory(), initMqttPubTopic()]);
+  } else {
+    await fetchTodos();
+  }
 }
 
 // ── Event listeners ───────────────────────────────────────────
@@ -430,5 +540,86 @@ document.getElementById('btn-modal-save').addEventListener('click', saveTodo);
 
 elModalOverlay.addEventListener('click', (e) => { if (e.target === elModalOverlay) closeModal(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+// ── Bottom tabs (Calendar | MQTT) ─────────────────────────────
+document.querySelectorAll('.btab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.btab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const target = btn.dataset.panel;
+    document.querySelectorAll('.bottom-content').forEach(el => {
+      el.style.display = el.id === `panel-${target}` ? 'flex' : 'none';
+    });
+  });
+});
+
+// ── MQTT publish ──────────────────────────────────────────────
+const mqttPubBtn = document.getElementById('mqtt-pub-btn');
+if (mqttPubBtn) {
+  mqttPubBtn.addEventListener('click', async () => {
+    const topicEl   = document.getElementById('mqtt-pub-topic-input');
+    const payloadEl = document.getElementById('mqtt-pub-msg-input');
+    const topic     = topicEl.value.trim();
+    const payload   = payloadEl.value.trim();
+    if (!topic || !payload) { showToast('Preenche o tópico e a mensagem.', 'error'); return; }
+
+    mqttPubBtn.disabled = true;
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'mqtt-publish', topic, payload });
+      if (res && res.ok === false) {
+        showToast(res.error || 'Não foi possível enviar — broker desligado?', 'error');
+      } else {
+        addMqttMessage(topic, payload, 'outgoing');
+        payloadEl.value = '';
+        showToast('Mensagem enviada', 'success');
+      }
+    } catch (err) {
+      showToast('Erro ao enviar: ' + err.message, 'error');
+    } finally {
+      mqttPubBtn.disabled = false;
+    }
+  });
+
+  // Send on Enter in message field
+  document.getElementById('mqtt-pub-msg-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') mqttPubBtn.click();
+  });
+}
+
+// ── MQTT reconnect button ─────────────────────────────────────
+const mqttReconnectBtn = document.getElementById('mqtt-reconnect-btn');
+if (mqttReconnectBtn) {
+  mqttReconnectBtn.addEventListener('click', async () => {
+    const { mqttEnabled } = await chrome.storage.sync.get(['mqttEnabled']);
+    if (!mqttEnabled) { showToast('MQTT não está ativado nas definições.', 'error'); return; }
+    setMqttDot('connecting', '');
+    mqttReconnectBtn.disabled = true;
+    try {
+      await chrome.runtime.sendMessage({ type: 'mqtt-reconnect' });
+    } catch (err) {
+      showToast('Erro ao religar: ' + err.message, 'error');
+    } finally {
+      setTimeout(() => { mqttReconnectBtn.disabled = false; }, 3000);
+    }
+  });
+}
+
+// ── MQTT runtime messages ─────────────────────────────────────
+if (isSidePanel) {
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === 'mqtt-message') {
+      addMqttMessage(msg.topic, msg.payload, 'incoming');
+      playPing();
+    }
+    if (msg.type === 'mqtt-status') {
+      setMqttDot(msg.state, msg.error || msg.brokerUrl || '');
+    }
+  });
+
+  // Ask current connection status on load
+  chrome.runtime.sendMessage({ type: 'mqtt-status-request' }).then(res => {
+    if (res) setMqttDot(res.state || (res.connected ? 'connected' : 'disconnected'));
+  }).catch(() => {});
+}
 
 init();

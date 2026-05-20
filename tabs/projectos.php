@@ -783,21 +783,21 @@ if (isset($_GET['project_id'])) {
             foreach ($selectedProject['deliverables'] as &$deliv) {
                 $stmt = $pdo->prepare("
                     SELECT dt.id as link_id, t.id, t.titulo, t.descritivo, t.estado, t.data_limite, u.username as autor_name
-                    FROM deliverable_tasks dt 
-                    JOIN todos t ON dt.todo_id = t.id 
+                    FROM deliverable_tasks dt
+                    JOIN todos t ON dt.todo_id = t.id
                     LEFT JOIN user_tokens u ON t.autor = u.user_id
                     WHERE dt.deliverable_id = ?
                     ORDER BY t.created_at
                 ");
                 $stmt->execute([$deliv['id']]);
                 $deliv['tasks'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                
+
                 // Obter sprints associadas ao entregável
                 try {
                     $stmt = $pdo->prepare("
                         SELECT ds.id as link_id, s.id, s.nome, s.descricao, s.estado, s.data_inicio, s.data_fim
-                        FROM deliverable_sprints ds 
-                        JOIN sprints s ON ds.sprint_id = s.id 
+                        FROM deliverable_sprints ds
+                        JOIN sprints s ON ds.sprint_id = s.id
                         WHERE ds.deliverable_id = ?
                         ORDER BY s.data_inicio DESC, s.created_at DESC
                     ");
@@ -807,6 +807,9 @@ if (isset($_GET['project_id'])) {
                     $deliv['sprints'] = [];
                 }
             }
+            // CRÍTICO: quebrar a referência ao último elemento para não corromper
+            // os foreach seguintes que usam a mesma variável $deliv sem &
+            unset($deliv);
         }
         
         // Obter protótipos associados

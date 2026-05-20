@@ -71,29 +71,49 @@
           <p>Nenhum todo encontrado.</p>
         </div>
 
+        <!-- FAB dentro da todos-section para não sobrepor o painel inferior -->
+        <button class="fab" id="btn-add-todo" title="Novo todo" style="display:none">+</button>
+
       </div><!-- /todos-section -->
 
-      <!-- BOTTOM: Calendar section (25% height) -->
-      <div class="calendar-section" id="calendar-section">
-        <div class="calendar-header">
-          <span class="calendar-title">📅 Próximos eventos</span>
+      <!-- BOTTOM: tabbed panel (25% height) -->
+      <div class="bottom-panel">
+
+        <!-- Tab bar -->
+        <div class="bottom-tabs">
+          <button class="btab active" data-panel="calendar">📅 Calendário</button>
+          <button class="btab" data-panel="mqtt">
+            📡 MQTT <span class="mqtt-dot" id="mqtt-dot"></span>
+          </button>
+        </div>
+
+        <!-- Calendar tab -->
+        <div class="bottom-content" id="panel-calendar">
+          <div class="calendar-list" id="calendar-list"></div>
           <span class="calendar-loading" id="cal-loading">↻</span>
+          <div class="calendar-empty" id="cal-empty" style="display:none">Sem eventos nos próximos 30 dias.</div>
+          <div class="calendar-error" id="cal-error" style="display:none">Erro ao carregar eventos.</div>
         </div>
-        <div class="calendar-list" id="calendar-list">
-          <!-- populated by JS -->
+
+        <!-- MQTT tab -->
+        <div class="bottom-content" id="panel-mqtt" style="display:none">
+          <div class="mqtt-status-bar" id="mqtt-status-bar">
+            <span class="mqtt-status-icon" id="mqtt-status-icon">⬤</span>
+            <span class="mqtt-status-text" id="mqtt-status-text">Desligado</span>
+            <button class="mqtt-reconnect-btn" id="mqtt-reconnect-btn" title="Religar ao broker">↺</button>
+          </div>
+          <div class="mqtt-feed" id="mqtt-feed"></div>
+          <div class="mqtt-empty" id="mqtt-empty">Sem mensagens recentes.</div>
+          <div class="mqtt-publish">
+            <input type="text" id="mqtt-pub-topic-input" placeholder="tópico" />
+            <input type="text" id="mqtt-pub-msg-input" placeholder="mensagem…" />
+            <button id="mqtt-pub-btn" title="Enviar">↑</button>
+          </div>
         </div>
-        <div class="calendar-empty" id="cal-empty" style="display:none">
-          Sem eventos nos próximos 30 dias.
-        </div>
-        <div class="calendar-error" id="cal-error" style="display:none">
-          Erro ao carregar eventos.
-        </div>
-      </div><!-- /calendar-section -->
+
+      </div><!-- /bottom-panel -->
 
     </div><!-- /panel-layout -->
-
-    <!-- Add new todo FAB -->
-    <button class="fab" id="btn-add-todo" title="Novo todo" style="display:none">+</button>
 
     <!-- Modal: Create/Edit todo -->
     <div class="modal-overlay" id="modal-overlay" style="display:none">

@@ -54,7 +54,7 @@ try {
 
     $sql = "
         SELECT DISTINCT l.id, l.titulo, l.descricao, l.relevancia,
-               l.data_inicio, l.data_fim, l.estado,
+               l.data_inicio, l.data_fim, l.estado, l.criado_em,
                u.username AS responsavel_nome,
                CASE WHEN l.responsavel_id = ? THEN 1 ELSE 0 END AS is_responsible
         FROM leads l

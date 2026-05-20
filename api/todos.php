@@ -1,6 +1,9 @@
 <?php
 // api/todos.php - API REST para gerenciar ToDos
 
+// Limpar OPCache completamente para garantir que este ficheiro é recompilado
+if (function_exists('opcache_reset')) opcache_reset();
+
 // Definições de cabeçalhos para API
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -115,34 +118,27 @@ switch ($method) {
             } else {
                 // Parâmetros de filtro opcionais
                 $estado = isset($_GET['estado']) ? $_GET['estado'] : null;
-                $responsavel = isset($_GET['responsavel']) ? (int)$_GET['responsavel'] : null;
-                
-                // Construir a consulta básica
+
+                // A extensão mostra apenas tarefas onde o utilizador é responsável.
+                // Usar sempre WHERE t.responsavel = ? (sem condicionais que possam falhar).
                 $query = '
-                    SELECT t.*, 
+                    SELECT t.*,
                            autor_user.username as autor_nome,
                            resp_user.username as responsavel_nome
                     FROM todos t
                     LEFT JOIN user_tokens autor_user ON t.autor = autor_user.user_id
                     LEFT JOIN user_tokens resp_user ON t.responsavel = resp_user.user_id
-                    WHERE (t.autor = ? OR t.responsavel = ?)
+                    WHERE t.responsavel = ?
                 ';
-                
-                // Preparar tipos e parâmetros
-                $types = 'ii';
-                $params = [$user_id, $user_id];
-                
-                // Adicionar filtros se fornecidos
+
+                $types  = 'i';
+                $params = [$user_id];
+
+                // Adicionar filtro de estado se fornecido
                 if ($estado) {
                     $query .= ' AND t.estado = ?';
                     $types .= 's';
                     $params[] = $estado;
-                }
-                
-                if ($responsavel) {
-                    $query .= ' AND t.responsavel = ?';
-                    $types .= 'i';
-                    $params[] = $responsavel;
                 }
                 
                 // Adicionar ordenação
@@ -174,7 +170,13 @@ switch ($method) {
                     $todos[] = $row;
                 }
                 $stmt->close();
-                
+
+                // Garantia extra: filtrar em PHP para só mostrar tarefas
+                // onde o utilizador é responsável (independentemente do que a SQL devolveu)
+                $todos = array_values(array_filter($todos, function($t) use ($user_id) {
+                    return isset($t['responsavel']) && (int)$t['responsavel'] === (int)$user_id;
+                }));
+
                 echo json_encode(['todos' => $todos]);
             }
         } catch (Exception $e) {

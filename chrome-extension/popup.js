@@ -3,14 +3,14 @@ const STATE_LABELS = {
   'aberta':      'Aberta',
   'em execução': 'Em Execução',
   'suspensa':    'Suspensa',
-  'concluída':   'Concluída',
+  'completada':  'Concluída',  // API usa 'completada', não 'concluída'
 };
 
 const STATE_CLASSES = {
   'aberta':      'aberta',
   'em execução': 'em-execucao',
   'suspensa':    'suspensa',
-  'concluída':   'concluida',
+  'completada':  'concluida',
 };
 
 const CAL_COLORS = {
@@ -175,7 +175,8 @@ function buildTodoCard(todo) {
     </div>
     <div class="todo-meta">
       ${deadlineHtml}
-      ${todo.responsavel_nome ? `<span>👤 ${escapeHtml(todo.responsavel_nome)}</span>` : ''}
+      ${todo.autor_nome ? `<span title="Criado por">✏️ ${escapeHtml(todo.autor_nome)}</span>` : ''}
+      ${todo.responsavel_nome ? `<span title="Responsável">👤 ${escapeHtml(todo.responsavel_nome)}</span>` : ''}
     </div>
     <div class="todo-actions">
       ${stateButtons}

@@ -42,7 +42,6 @@
           <button class="tab" data-state="aberta">Abertas</button>
           <button class="tab" data-state="em execução">A fazer</button>
           <button class="tab" data-state="suspensa">Pausadas</button>
-          <button class="tab" data-state="concluída">Feitas</button>
         </div>
 
         <!-- Search -->
@@ -81,9 +80,11 @@
 
         <!-- Tab bar -->
         <div class="bottom-tabs">
-          <button class="btab active" data-panel="calendar">📅 Calendário</button>
+          <button class="btab active" data-panel="calendar">📅</button>
+          <button class="btab" data-panel="sprints">🏃 Sprints</button>
+          <button class="btab" data-panel="deliverables">📦 Entregas</button>
           <button class="btab" data-panel="mqtt">
-            📡 MQTT <span class="mqtt-dot" id="mqtt-dot"></span>
+            📡 <span class="mqtt-dot" id="mqtt-dot"></span>
           </button>
         </div>
 
@@ -93,6 +94,20 @@
           <span class="calendar-loading" id="cal-loading">↻</span>
           <div class="calendar-empty" id="cal-empty" style="display:none">Sem eventos nos próximos 30 dias.</div>
           <div class="calendar-error" id="cal-error" style="display:none">Erro ao carregar eventos.</div>
+        </div>
+
+        <!-- Sprints tab -->
+        <div class="bottom-content" id="panel-sprints" style="display:none">
+          <div class="pklist" id="sprints-list"></div>
+          <div class="pk-empty" id="sprints-empty" style="display:none">Sem sprints ativas.</div>
+          <div class="pk-error" id="sprints-error" style="display:none"></div>
+        </div>
+
+        <!-- Deliverables tab -->
+        <div class="bottom-content" id="panel-deliverables" style="display:none">
+          <div class="pklist" id="deliverables-list"></div>
+          <div class="pk-empty" id="deliverables-empty" style="display:none">Sem entregáveis.</div>
+          <div class="pk-error" id="deliverables-error" style="display:none"></div>
         </div>
 
         <!-- MQTT tab -->

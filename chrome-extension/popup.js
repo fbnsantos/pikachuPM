@@ -333,6 +333,131 @@ function buildCalEvent(ev) {
   return row;
 }
 
+// ── Sprints (side panel only) ─────────────────────────────────
+const SPRINT_STATE_LABEL = {
+  'aberta':      'Aberta',
+  'em execução': 'Em curso',
+  'suspensa':    'Pausada',
+  'concluída':   'Concluída',
+};
+const SPRINT_STATE_CLASS = {
+  'aberta':      'state-aberta',
+  'em execução': 'state-em-execucao',
+  'suspensa':    'state-suspensa',
+  'concluída':   'state-concluida',
+};
+
+async function fetchSprints() {
+  if (!isSidePanel) return;
+  const elList  = document.getElementById('sprints-list');
+  const elEmpty = document.getElementById('sprints-empty');
+  const elError = document.getElementById('sprints-error');
+  if (!elList) return;
+
+  elList.innerHTML = '<div class="pk-loading">↻</div>';
+  elEmpty.style.display = 'none';
+  elError.style.display = 'none';
+
+  try {
+    const data = await apiFetch('/api/sprints.php');
+    elList.innerHTML = '';
+    if (!data.length) { elEmpty.style.display = 'block'; return; }
+    data.forEach(s => elList.appendChild(buildSprintRow(s)));
+  } catch (err) {
+    elList.innerHTML = '';
+    elError.style.display = 'block';
+    elError.textContent = `Erro: ${err.message}`;
+  }
+}
+
+function buildSprintRow(s) {
+  const row = document.createElement('div');
+  row.className = 'pk-row';
+
+  const stateClass = SPRINT_STATE_CLASS[s.estado] || '';
+  const stateLabel = SPRINT_STATE_LABEL[s.estado] || s.estado;
+
+  let dateStr = '';
+  if (s.data_inicio || s.data_fim) {
+    const fmt = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' }) : '?';
+    dateStr = `${fmt(s.data_inicio)} – ${fmt(s.data_fim)}`;
+  }
+
+  row.innerHTML = `
+    <div class="pk-row-main">
+      <span class="pk-title">${escapeHtml(s.nome)}</span>
+      <span class="badge badge-${stateClass}">${stateLabel}</span>
+    </div>
+    ${dateStr ? `<div class="pk-row-meta">📅 ${dateStr}</div>` : ''}`;
+
+  row.addEventListener('click', () => {
+    chrome.tabs.create({ url: `${apiUrl}/index.php?tab=sprints&sprint_id=${s.id}` });
+  });
+  return row;
+}
+
+// ── Deliverables (side panel only) ────────────────────────────
+const DELIV_STATE_LABEL = { 'pending': 'Pendente', 'in-progress': 'Em curso', 'completed': 'Concluído' };
+const DELIV_STATE_CLASS = { 'pending': 'state-aberta', 'in-progress': 'state-em-execucao', 'completed': 'state-concluida' };
+
+async function fetchDeliverables() {
+  if (!isSidePanel) return;
+  const elList  = document.getElementById('deliverables-list');
+  const elEmpty = document.getElementById('deliverables-empty');
+  const elError = document.getElementById('deliverables-error');
+  if (!elList) return;
+
+  elList.innerHTML = '<div class="pk-loading">↻</div>';
+  elEmpty.style.display = 'none';
+  elError.style.display = 'none';
+
+  try {
+    const data = await apiFetch('/api/deliverables.php');
+    elList.innerHTML = '';
+    if (!data.length) { elEmpty.style.display = 'block'; return; }
+    data.forEach(d => elList.appendChild(buildDeliverableRow(d)));
+  } catch (err) {
+    elList.innerHTML = '';
+    elError.style.display = 'block';
+    elError.textContent = `Erro: ${err.message}`;
+  }
+}
+
+function buildDeliverableRow(d) {
+  const row = document.createElement('div');
+  row.className = 'pk-row';
+
+  const stateClass = DELIV_STATE_CLASS[d.status] || '';
+  const stateLabel = DELIV_STATE_LABEL[d.status] || d.status;
+
+  let dateStr = '';
+  if (d.due_date) {
+    const date  = new Date(d.due_date + 'T00:00:00');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const diff  = Math.round((date - today) / 86400000);
+    const fmt   = date.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' });
+    const cls   = diff < 0 ? 'overdue' : diff <= 3 ? 'soon' : '';
+    dateStr = `<span class="deadline ${cls}">📅 ${fmt}</span>`;
+  }
+
+  const proj = d.short_name ? escapeHtml(d.short_name) : escapeHtml(d.project_title || '');
+
+  row.innerHTML = `
+    <div class="pk-row-main">
+      <span class="pk-title">${escapeHtml(d.title)}</span>
+      <span class="badge badge-${stateClass}">${stateLabel}</span>
+    </div>
+    <div class="pk-row-meta">
+      <span class="pk-project">📁 ${proj}</span>
+      ${dateStr}
+    </div>`;
+
+  row.addEventListener('click', () => {
+    chrome.tabs.create({ url: `${apiUrl}/index.php?tab=projectos&project_id=${d.project_id}` });
+  });
+  return row;
+}
+
 // ── Compact mode (side panel only) ────────────────────────────
 function applyCompact(active) {
   document.body.classList.toggle('compact', active);
@@ -462,7 +587,11 @@ async function init() {
 
   if (isSidePanel) {
     applyCompact(config.compactMode);
-    await Promise.all([fetchTodos(), fetchCalendar(), loadMqttHistory(), initMqttPubTopic()]);
+    await Promise.all([
+      fetchTodos(), fetchCalendar(),
+      fetchSprints(), fetchDeliverables(),
+      loadMqttHistory(), initMqttPubTopic(),
+    ]);
   } else {
     await fetchTodos();
   }
@@ -480,6 +609,8 @@ document.getElementById('btn-go-settings').addEventListener('click', () => {
 document.getElementById('btn-refresh').addEventListener('click', () => {
   fetchTodos();
   fetchCalendar();
+  fetchSprints();
+  fetchDeliverables();
 });
 
 document.getElementById('btn-retry').addEventListener('click', fetchTodos);

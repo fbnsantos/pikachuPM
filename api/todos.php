@@ -1,9 +1,6 @@
 <?php
 // api/todos.php - API REST para gerenciar ToDos
 
-// Limpar OPCache completamente para garantir que este ficheiro é recompilado
-if (function_exists('opcache_reset')) opcache_reset();
-
 // Definições de cabeçalhos para API
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');

@@ -83,6 +83,7 @@
           <button class="btab active" data-panel="calendar">📅</button>
           <button class="btab" data-panel="sprints">🏃 Sprints</button>
           <button class="btab" data-panel="deliverables">📦 Entregas</button>
+          <button class="btab" data-panel="leads">🎯 Leads</button>
           <button class="btab" data-panel="mqtt">
             📡 <span class="mqtt-dot" id="mqtt-dot"></span>
           </button>
@@ -108,6 +109,13 @@
           <div class="pklist" id="deliverables-list"></div>
           <div class="pk-empty" id="deliverables-empty" style="display:none">Sem entregáveis.</div>
           <div class="pk-error" id="deliverables-error" style="display:none"></div>
+        </div>
+
+        <!-- Leads tab -->
+        <div class="bottom-content" id="panel-leads" style="display:none">
+          <div class="pklist" id="leads-list"></div>
+          <div class="pk-empty" id="leads-empty" style="display:none">Sem leads abertas.</div>
+          <div class="pk-error" id="leads-error" style="display:none"></div>
         </div>
 
         <!-- MQTT tab -->

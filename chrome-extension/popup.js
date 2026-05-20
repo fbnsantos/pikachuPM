@@ -459,6 +459,68 @@ function buildDeliverableRow(d) {
   return row;
 }
 
+// ── Leads (side panel only) ──────────────────────────────────
+async function fetchLeads() {
+  if (!isSidePanel) return;
+  const elList  = document.getElementById('leads-list');
+  const elEmpty = document.getElementById('leads-empty');
+  const elError = document.getElementById('leads-error');
+  if (!elList) return;
+
+  elList.innerHTML = '<div class="pk-loading">↻</div>';
+  elEmpty.style.display = 'none';
+  elError.style.display = 'none';
+
+  try {
+    const data = await apiFetch('/api/leads.php');
+    elList.innerHTML = '';
+    if (!data.length) { elEmpty.style.display = 'block'; return; }
+    data.forEach(l => elList.appendChild(buildLeadRow(l)));
+  } catch (err) {
+    elList.innerHTML = '';
+    elError.style.display = 'block';
+    elError.textContent = `Erro: ${err.message}`;
+  }
+}
+
+function buildLeadRow(l) {
+  const row = document.createElement('div');
+  row.className = 'pk-row';
+
+  // Relevância: pontos preenchidos de 1 a 10 (mostrar só até 5 para não ocupar espaço)
+  const rel = Math.min(Math.max(parseInt(l.relevancia) || 0, 0), 10);
+  const relDots = '●'.repeat(Math.round(rel / 2)) + '○'.repeat(5 - Math.round(rel / 2));
+
+  let dateStr = '';
+  if (l.data_fim) {
+    const date  = new Date(l.data_fim + 'T00:00:00');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const diff  = Math.round((date - today) / 86400000);
+    const fmt   = date.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' });
+    const cls   = diff < 0 ? 'overdue' : diff <= 3 ? 'soon' : '';
+    dateStr = `<span class="deadline ${cls}">📅 ${fmt}</span>`;
+  }
+
+  const role = l.is_responsible == 1
+    ? '<span class="pk-role">responsável</span>'
+    : '<span class="pk-role pk-role-member">membro</span>';
+
+  row.innerHTML = `
+    <div class="pk-row-main">
+      <span class="pk-title">${escapeHtml(l.titulo)}</span>
+      <span class="pk-relevance" title="Relevância ${rel}/10">${relDots}</span>
+    </div>
+    <div class="pk-row-meta">
+      ${role}
+      ${dateStr}
+    </div>`;
+
+  row.addEventListener('click', () => {
+    chrome.tabs.create({ url: `${apiUrl}/index.php?tab=leads&lead_id=${l.id}` });
+  });
+  return row;
+}
+
 // ── Compact mode (side panel only) ────────────────────────────
 function applyCompact(active) {
   document.body.classList.toggle('compact', active);
@@ -590,7 +652,7 @@ async function init() {
     applyCompact(config.compactMode);
     await Promise.all([
       fetchTodos(), fetchCalendar(),
-      fetchSprints(), fetchDeliverables(),
+      fetchSprints(), fetchDeliverables(), fetchLeads(),
       loadMqttHistory(), initMqttPubTopic(),
     ]);
   } else {
@@ -612,6 +674,7 @@ document.getElementById('btn-refresh').addEventListener('click', () => {
   fetchCalendar();
   fetchSprints();
   fetchDeliverables();
+  fetchLeads();
 });
 
 document.getElementById('btn-retry').addEventListener('click', fetchTodos);

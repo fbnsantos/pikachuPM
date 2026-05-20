@@ -241,6 +241,27 @@ body {
   text-overflow: ellipsis;
 }
 
+.pk-relevance {
+  font-size: 9px;
+  color: var(--primary);
+  letter-spacing: 1px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.pk-role {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--primary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pk-role.pk-role-member {
+  color: var(--text-muted);
+}
+
 .pk-loading {
   color: var(--text-muted);
   font-size: 13px;

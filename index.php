@@ -52,6 +52,19 @@ try {
     error_log("Erro ao carregar tema: " . $e->getMessage());
 }
 
+// Buscar token da API do utilizador atual
+$user_api_token = '';
+try {
+    if (isset($pdo_config)) {
+        $stmt_tok = $pdo_config->prepare("SELECT token FROM user_tokens WHERE user_id = ?");
+        $stmt_tok->execute([$_SESSION['user_id']]);
+        $tok_row = $stmt_tok->fetch(PDO::FETCH_ASSOC);
+        if ($tok_row) $user_api_token = $tok_row['token'];
+    }
+} catch (Exception $e) {
+    error_log("Erro ao buscar token API: " . $e->getMessage());
+}
+
 // Definição dos horários para reuniões e transições
 $HORA_REUNIAO_EQUIPA = "11:26"; // formato HH:MM - Hora para iniciar contagem para reunião
 $HORA_TRANSICAO_CALENDARIO = "12:00"; // formato HH:MM - Hora para transição para o calendário
@@ -717,7 +730,12 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="header-left">
             <img src="images/pikachu_logo.png" alt="PikachuPM Logo" class="logo">
             <div>
-                <h1 class="header-title">Bem-vindo, <?= htmlspecialchars($_SESSION['username']) ?></h1>
+                <h1 class="header-title">
+                    Bem-vindo, <?= htmlspecialchars($_SESSION['username']) ?>
+                    <button class="btn-api-token" onclick="pkApiTokenModal(true)" title="Ver token da API (para extensão Chrome)">
+                        <i class="bi bi-key"></i> Token API
+                    </button>
+                </h1>
                 
                 <?php if (!empty($notices)): ?>
                 <div class="notices-container">
@@ -1327,6 +1345,177 @@ document.addEventListener('DOMContentLoaded', function() {
     if (alertSoundEl) {
         alertSoundEl.load();
     }
+});
+</script>
+
+<!-- Modal: Token da API -->
+<div id="pk-token-modal" style="display:none" onclick="if(event.target===this)pkApiTokenModal(false)" role="dialog" aria-modal="true" aria-labelledby="pk-token-title">
+    <div id="pk-token-box">
+        <div id="pk-token-header">
+            <span id="pk-token-title"><i class="bi bi-key-fill"></i> Token da API</span>
+            <button onclick="pkApiTokenModal(false)" title="Fechar" aria-label="Fechar">&times;</button>
+        </div>
+        <div id="pk-token-body">
+            <p>Usa este token para autenticar na <strong>extensão Chrome do pikachuPM</strong> e na API REST.</p>
+            <div id="pk-token-field">
+                <code id="pk-token-value"><?= htmlspecialchars($user_api_token ?: '(token não disponível)') ?></code>
+                <button id="pk-token-copy" onclick="pkCopyToken()" title="Copiar token">
+                    <i class="bi bi-clipboard" id="pk-copy-icon"></i>
+                </button>
+            </div>
+            <p id="pk-token-hint">
+                <i class="bi bi-info-circle"></i>
+                URL base: <code><?= htmlspecialchars((isset($_SERVER['HTTPS']) ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/')) ?></code>
+            </p>
+        </div>
+    </div>
+</div>
+
+<style>
+.btn-api-token {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: 10px;
+    padding: 3px 10px;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 20px;
+    color: inherit;
+    font-size: 0.65em;
+    font-weight: 500;
+    cursor: pointer;
+    vertical-align: middle;
+    transition: background 0.2s, border-color 0.2s;
+    letter-spacing: 0.3px;
+}
+.btn-api-token:hover {
+    background: rgba(255,255,255,0.28);
+    border-color: rgba(255,255,255,0.6);
+}
+#pk-token-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    backdrop-filter: blur(3px);
+}
+#pk-token-box {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    width: 520px;
+    max-width: 95vw;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+    animation: pkModalIn 0.18s ease;
+}
+@keyframes pkModalIn {
+    from { opacity: 0; transform: scale(0.95) translateY(10px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+#pk-token-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid #334155;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #f1f5f9;
+}
+#pk-token-header button {
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    color: #64748b;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 2px;
+    transition: color 0.15s;
+}
+#pk-token-header button:hover { color: #f1f5f9; }
+#pk-token-body {
+    padding: 18px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    color: #94a3b8;
+    font-size: 0.88rem;
+}
+#pk-token-body strong { color: #f1f5f9; }
+#pk-token-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+#pk-token-value {
+    flex: 1;
+    font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+    font-size: 0.78rem;
+    color: #f59e0b;
+    word-break: break-all;
+    letter-spacing: 0.5px;
+}
+#pk-token-copy {
+    flex-shrink: 0;
+    background: #334155;
+    border: none;
+    border-radius: 6px;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 6px 10px;
+    font-size: 1rem;
+    transition: background 0.15s, color 0.15s;
+}
+#pk-token-copy:hover { background: #475569; color: #f1f5f9; }
+#pk-token-copy.copied { background: #166534; color: #86efac; }
+#pk-token-hint {
+    font-size: 0.8rem;
+    color: #64748b;
+    line-height: 1.5;
+}
+#pk-token-hint code {
+    background: rgba(255,255,255,0.07);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    color: #94a3b8;
+}
+</style>
+
+<script>
+function pkApiTokenModal(open) {
+    document.getElementById('pk-token-modal').style.display = open ? 'flex' : 'none';
+    if (open) {
+        // Reset copy button state
+        const btn = document.getElementById('pk-token-copy');
+        btn.classList.remove('copied');
+        document.getElementById('pk-copy-icon').className = 'bi bi-clipboard';
+    }
+}
+
+function pkCopyToken() {
+    const token = document.getElementById('pk-token-value').textContent;
+    navigator.clipboard.writeText(token).then(() => {
+        const btn = document.getElementById('pk-token-copy');
+        btn.classList.add('copied');
+        document.getElementById('pk-copy-icon').className = 'bi bi-clipboard-check';
+        setTimeout(() => {
+            btn.classList.remove('copied');
+            document.getElementById('pk-copy-icon').className = 'bi bi-clipboard';
+        }, 2500);
+    });
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') pkApiTokenModal(false);
 });
 </script>
 

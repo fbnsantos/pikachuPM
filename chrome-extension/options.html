@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>pikachuPM — Definições</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>⚡ pikachuPM <span>Definições</span></h1>
+    </header>
+
+    <form id="settings-form">
+      <div class="card">
+        <h2>Ligação à API</h2>
+
+        <div class="form-group">
+          <label for="api-url">URL base do pikachuPM</label>
+          <input
+            type="url"
+            id="api-url"
+            placeholder="https://criis-projects.inesctec.pt/PK"
+            autocomplete="off"
+          />
+          <p class="hint">O URL raiz da tua instância do pikachuPM, sem barra final.</p>
+        </div>
+
+        <div class="form-group">
+          <label for="api-token">Token de API</label>
+          <div class="input-with-toggle">
+            <input
+              type="password"
+              id="api-token"
+              placeholder="O teu token de 64 caracteres"
+              autocomplete="off"
+            />
+            <button type="button" class="toggle-visibility" id="toggle-token" title="Mostrar/ocultar">👁</button>
+          </div>
+          <p class="hint">Encontra o teu token nas definições do pikachuPM ou na tabela <code>user_tokens</code>.</p>
+        </div>
+      </div>
+
+      <div class="actions">
+        <div class="status" id="status"></div>
+        <button type="submit" class="btn btn-primary" id="btn-save">Guardar definições</button>
+      </div>
+    </form>
+
+    <div class="card info-card">
+      <h2>Como obter o token</h2>
+      <ol>
+        <li>Inicia sessão no pikachuPM.</li>
+        <li>Vai a <strong>Definições → Conta</strong> ou pede ao admin.</li>
+        <li>Copia o token de API de 64 caracteres.</li>
+        <li>Cola-o no campo acima.</li>
+      </ol>
+    </div>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>

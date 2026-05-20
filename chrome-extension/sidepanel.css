@@ -1,0 +1,42 @@
+/* Overrides for full-height persistent side panel */
+
+body {
+  width: 100%;
+  min-height: 100vh;
+  max-height: none;
+}
+
+.app {
+  height: 100vh;
+}
+
+.main-content {
+  height: calc(100vh - 45px); /* subtract header */
+}
+
+.todos-list {
+  max-height: none;
+  flex: 1;
+}
+
+/* Modal slides up from bottom of the full panel */
+.modal {
+  max-height: 80vh;
+}
+
+/* FAB stays fixed in the panel */
+.fab {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+}
+
+/* Slightly wider cards in side panel */
+.todo-card {
+  padding: 11px 14px;
+}
+
+/* Always show actions in sidepanel (no hover needed) */
+.todo-card.expanded .todo-actions {
+  display: flex;
+}

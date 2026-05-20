@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>pikachuPM Todos</title>
+  <link rel="stylesheet" href="popup.css">
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body data-mode="sidepanel">
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <span class="logo">⚡ pikachuPM</span>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" id="btn-unpin" title="Desafixar painel lateral">⊟</button>
+        <button class="icon-btn" id="btn-refresh" title="Atualizar">↻</button>
+        <button class="icon-btn" id="btn-settings" title="Definições">⚙</button>
+      </div>
+    </header>
+
+    <!-- Not configured state -->
+    <div class="not-configured" id="not-configured">
+      <div class="empty-icon">🔑</div>
+      <p>Configura o teu token de API para começar.</p>
+      <button class="btn btn-primary" id="btn-go-settings">Configurar</button>
+    </div>
+
+    <!-- Main content -->
+    <div class="main-content" id="main-content" style="display:none">
+
+      <!-- Filter tabs -->
+      <div class="tabs">
+        <button class="tab active" data-state="all">Todas</button>
+        <button class="tab" data-state="aberta">Abertas</button>
+        <button class="tab" data-state="em execução">A fazer</button>
+        <button class="tab" data-state="suspensa">Pausadas</button>
+        <button class="tab" data-state="concluída">Feitas</button>
+      </div>
+
+      <!-- Search -->
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="Pesquisar todos..." />
+      </div>
+
+      <!-- Loading -->
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <span>A carregar...</span>
+      </div>
+
+      <!-- Error -->
+      <div class="error-msg" id="error-msg" style="display:none">
+        <span id="error-text"></span>
+        <button class="btn btn-sm" id="btn-retry">Tentar novamente</button>
+      </div>
+
+      <!-- Todos list -->
+      <div class="todos-list" id="todos-list"></div>
+
+      <!-- Empty state -->
+      <div class="empty-state" id="empty-state" style="display:none">
+        <div class="empty-icon">📋</div>
+        <p>Nenhum todo encontrado.</p>
+      </div>
+
+    </div>
+
+    <!-- Add new todo FAB -->
+    <button class="fab" id="btn-add-todo" title="Novo todo" style="display:none">+</button>
+
+    <!-- Modal: Create/Edit todo -->
+    <div class="modal-overlay" id="modal-overlay" style="display:none">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 id="modal-title">Novo Todo</h3>
+          <button class="icon-btn modal-close" id="btn-modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Título <span class="required">*</span></label>
+            <input type="text" id="todo-titulo" placeholder="O que tens a fazer?" maxlength="255" />
+          </div>
+          <div class="form-group">
+            <label>Descrição</label>
+            <textarea id="todo-descritivo" placeholder="Detalhes (suporta Markdown)..." rows="4"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Estado</label>
+              <select id="todo-estado">
+                <option value="aberta">Aberta</option>
+                <option value="em execução">Em Execução</option>
+                <option value="suspensa">Suspensa</option>
+                <option value="concluída">Concluída</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Data limite</label>
+              <input type="date" id="todo-data-limite" />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-modal-cancel">Cancelar</button>
+          <button class="btn btn-primary" id="btn-modal-save">Guardar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div class="toast" id="toast"></div>
+
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

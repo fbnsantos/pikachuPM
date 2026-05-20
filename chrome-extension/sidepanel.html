@@ -16,8 +16,9 @@
         <span class="logo">⚡ pikachuPM</span>
       </div>
       <div class="header-actions">
+        <button class="icon-btn" id="btn-compact" title="Alternar modo compacto (meia largura)">◧</button>
         <button class="icon-btn" id="btn-unpin" title="Desafixar painel lateral">⊟</button>
-        <button class="icon-btn" id="btn-refresh" title="Atualizar">↻</button>
+        <button class="icon-btn" id="btn-refresh" title="Atualizar tudo">↻</button>
         <button class="icon-btn" id="btn-settings" title="Definições">⚙</button>
       </div>
     </header>
@@ -29,45 +30,67 @@
       <button class="btn btn-primary" id="btn-go-settings">Configurar</button>
     </div>
 
-    <!-- Main content -->
-    <div class="main-content" id="main-content" style="display:none">
+    <!-- Main layout when configured -->
+    <div class="panel-layout" id="main-content" style="display:none">
 
-      <!-- Filter tabs -->
-      <div class="tabs">
-        <button class="tab active" data-state="all">Todas</button>
-        <button class="tab" data-state="aberta">Abertas</button>
-        <button class="tab" data-state="em execução">A fazer</button>
-        <button class="tab" data-state="suspensa">Pausadas</button>
-        <button class="tab" data-state="concluída">Feitas</button>
-      </div>
+      <!-- TOP: Todos section (75% height) -->
+      <div class="todos-section">
 
-      <!-- Search -->
-      <div class="search-bar">
-        <input type="text" id="search-input" placeholder="Pesquisar todos..." />
-      </div>
+        <!-- Filter tabs -->
+        <div class="tabs">
+          <button class="tab active" data-state="all">Todas</button>
+          <button class="tab" data-state="aberta">Abertas</button>
+          <button class="tab" data-state="em execução">A fazer</button>
+          <button class="tab" data-state="suspensa">Pausadas</button>
+          <button class="tab" data-state="concluída">Feitas</button>
+        </div>
 
-      <!-- Loading -->
-      <div class="loading" id="loading">
-        <div class="spinner"></div>
-        <span>A carregar...</span>
-      </div>
+        <!-- Search -->
+        <div class="search-bar">
+          <input type="text" id="search-input" placeholder="Pesquisar todos..." />
+        </div>
 
-      <!-- Error -->
-      <div class="error-msg" id="error-msg" style="display:none">
-        <span id="error-text"></span>
-        <button class="btn btn-sm" id="btn-retry">Tentar novamente</button>
-      </div>
+        <!-- Loading -->
+        <div class="loading" id="loading">
+          <div class="spinner"></div>
+          <span>A carregar...</span>
+        </div>
 
-      <!-- Todos list -->
-      <div class="todos-list" id="todos-list"></div>
+        <!-- Error -->
+        <div class="error-msg" id="error-msg" style="display:none">
+          <span id="error-text"></span>
+          <button class="btn btn-sm" id="btn-retry">Tentar novamente</button>
+        </div>
 
-      <!-- Empty state -->
-      <div class="empty-state" id="empty-state" style="display:none">
-        <div class="empty-icon">📋</div>
-        <p>Nenhum todo encontrado.</p>
-      </div>
+        <!-- Todos list -->
+        <div class="todos-list" id="todos-list"></div>
 
-    </div>
+        <!-- Empty state -->
+        <div class="empty-state" id="empty-state" style="display:none">
+          <div class="empty-icon">📋</div>
+          <p>Nenhum todo encontrado.</p>
+        </div>
+
+      </div><!-- /todos-section -->
+
+      <!-- BOTTOM: Calendar section (25% height) -->
+      <div class="calendar-section" id="calendar-section">
+        <div class="calendar-header">
+          <span class="calendar-title">📅 Próximos eventos</span>
+          <span class="calendar-loading" id="cal-loading">↻</span>
+        </div>
+        <div class="calendar-list" id="calendar-list">
+          <!-- populated by JS -->
+        </div>
+        <div class="calendar-empty" id="cal-empty" style="display:none">
+          Sem eventos nos próximos 30 dias.
+        </div>
+        <div class="calendar-error" id="cal-error" style="display:none">
+          Erro ao carregar eventos.
+        </div>
+      </div><!-- /calendar-section -->
+
+    </div><!-- /panel-layout -->
 
     <!-- Add new todo FAB -->
     <button class="fab" id="btn-add-todo" title="Novo todo" style="display:none">+</button>

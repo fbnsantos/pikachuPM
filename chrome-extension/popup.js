@@ -33,6 +33,7 @@ let editingId     = null;
 let apiUrl        = '';
 let token         = '';
 let compactMode   = false;
+const detailsCache = new Map();
 
 // ── DOM refs ────────────────────────────────────────────────
 const elNotConfigured = document.getElementById('not-configured');
@@ -154,6 +155,120 @@ function renderTodos() {
   filtered.forEach(todo => elTodosList.appendChild(buildTodoCard(todo)));
 }
 
+// ── Markdown (minimal) ──────────────────────────────────────
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = escapeHtml(text);
+
+  html = html.replace(/^### (.+)$/gm, '<h3 class="md-h">$1</h3>');
+  html = html.replace(/^## (.+)$/gm,  '<h2 class="md-h">$1</h2>');
+  html = html.replace(/^# (.+)$/gm,   '<h1 class="md-h">$1</h1>');
+
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g,     '<em>$1</em>');
+  html = html.replace(/__(.+?)__/g,     '<strong>$1</strong>');
+  html = html.replace(/_(.+?)_/g,       '<em>$1</em>');
+
+  html = html.replace(/`([^`]+)`/g, '<code class="md-code">$1</code>');
+
+  html = html.replace(/^[ \t]*[-*] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul class="md-ul">$1</ul>');
+
+  html = html
+    .split(/\n{2,}/)
+    .map(block => {
+      block = block.trim();
+      if (!block) return '';
+      if (/^<(h[123]|ul|li)/.test(block)) return block;
+      return '<p>' + block.replace(/\n/g, '<br>') + '</p>';
+    })
+    .join('');
+
+  return html;
+}
+
+// ── Task details (description + checklist) ───────────────────
+async function fetchTaskDetails(todoId) {
+  if (detailsCache.has(todoId)) return detailsCache.get(todoId);
+  const data = await apiFetch(`/api/task_details.php?id=${todoId}`);
+  detailsCache.set(todoId, data);
+  return data;
+}
+
+function renderTaskDetails(container, data) {
+  const { task, checklist } = data;
+  const hasDesc      = task.descritivo && task.descritivo.trim();
+  const hasChecklist = checklist && checklist.length > 0;
+
+  if (!hasDesc && !hasChecklist) {
+    container.innerHTML = '<span class="td-empty">Sem descrição nem checklist.</span>';
+    return;
+  }
+
+  let html = '';
+  if (hasDesc) {
+    html += `<div class="td-desc">${renderMarkdown(task.descritivo)}</div>`;
+  }
+  if (hasChecklist) {
+    const done  = checklist.filter(i => i.checked).length;
+    const total = checklist.length;
+    const pct   = Math.round((done / total) * 100);
+    html += `
+      <div class="td-checklist">
+        <div class="td-cl-header">
+          <span class="td-cl-label">Checklist</span>
+          <span class="td-cl-progress">${done}/${total}</span>
+          <div class="td-cl-bar"><div class="td-cl-fill" style="width:${pct}%"></div></div>
+        </div>`;
+    checklist.forEach(item => {
+      const cls = item.checked ? 'td-cl-item checked' : 'td-cl-item';
+      html += `
+        <label class="${cls}" data-id="${item.id}">
+          <input type="checkbox" ${item.checked ? 'checked' : ''}>
+          <span>${escapeHtml(item.text)}</span>
+        </label>`;
+    });
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+
+  container.querySelectorAll('.td-cl-item input').forEach(chk => {
+    chk.addEventListener('change', async (e) => {
+      e.stopPropagation();
+      const label  = chk.closest('.td-cl-item');
+      const itemId = parseInt(label.dataset.id);
+      const checked = chk.checked;
+
+      label.classList.toggle('checked', checked);
+      const cached = detailsCache.get(parseInt(container.closest('[data-todo-id]')?.dataset.todoId));
+      if (cached) {
+        const ci = cached.checklist.find(i => i.id === itemId);
+        if (ci) ci.checked = checked;
+        const cl    = cached.checklist;
+        const done  = cl.filter(i => i.checked).length;
+        const total = cl.length;
+        const pct   = Math.round((done / total) * 100);
+        const bar  = container.querySelector('.td-cl-fill');
+        const prog = container.querySelector('.td-cl-progress');
+        if (bar)  bar.style.width    = pct + '%';
+        if (prog) prog.textContent   = `${done}/${total}`;
+      }
+
+      try {
+        await apiFetch('/api/task_details.php', {
+          method: 'PUT',
+          body: JSON.stringify({ checklist_id: itemId, checked }),
+        });
+      } catch (err) {
+        chk.checked = !checked;
+        label.classList.toggle('checked', !checked);
+        showToast(err.message, 'error');
+      }
+    });
+  });
+}
+
 function buildTodoCard(todo) {
   const stateKey = STATE_CLASSES[todo.estado] || 'aberta';
   const card = document.createElement('div');
@@ -168,6 +283,7 @@ function buildTodoCard(todo) {
     `<button class="btn-state ${todo.estado === val ? 'active' : ''}" data-state="${val}">${lbl}</button>`
   ).join('');
 
+  card.dataset.todoId = todo.id;
   card.innerHTML = `
     <div class="todo-header">
       <span class="todo-title">${escapeHtml(todo.titulo || '(sem título)')}</span>
@@ -178,15 +294,17 @@ function buildTodoCard(todo) {
       ${todo.autor_nome ? `<span title="Criado por">✏️ ${escapeHtml(todo.autor_nome)}</span>` : ''}
       ${todo.responsavel_nome ? `<span title="Responsável">👤 ${escapeHtml(todo.responsavel_nome)}</span>` : ''}
     </div>
+    <div class="todo-details" id="details-${todo.id}"></div>
     <div class="todo-actions">
       ${stateButtons}
+      <button class="btn-details" title="Ver descrição e checklist">📋</button>
       <button class="btn-open" title="Abrir no pikachuPM">↗ Abrir</button>
       <button class="btn-delete" title="Eliminar">🗑</button>
     </div>`;
 
   card.addEventListener('click', (e) => {
-    if (e.target.closest('button')) return;
-    card.classList.toggle('expanded');
+    if (e.target.closest('button') || e.target.closest('input')) return;
+    card.classList.remove('expanded');
   });
 
   card.querySelectorAll('.btn-state').forEach(btn => {
@@ -196,6 +314,24 @@ function buildTodoCard(todo) {
       if (newState === todo.estado) return;
       await updateTodoState(todo, newState, card);
     });
+  });
+
+  card.querySelector('.btn-details').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const detEl = card.querySelector('.todo-details');
+    const isOpen = card.classList.contains('expanded');
+    if (isOpen) { card.classList.remove('expanded'); return; }
+    card.classList.add('expanded');
+    if (!detEl.dataset.loaded) {
+      detEl.innerHTML = '<span class="td-loading">↻</span>';
+      try {
+        const data = await fetchTaskDetails(todo.id);
+        detEl.dataset.loaded = '1';
+        renderTaskDetails(detEl, data);
+      } catch (err) {
+        detEl.innerHTML = `<span class="td-error">${escapeHtml(err.message)}</span>`;
+      }
+    }
   });
 
   card.querySelector('.btn-open').addEventListener('click', (e) => {

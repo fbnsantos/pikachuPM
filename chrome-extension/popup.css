@@ -345,6 +345,23 @@ body {
   font-weight: 600;
 }
 
+.btn-details {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 7px;
+  transition: all 0.15s;
+}
+
+.btn-details:hover,
+.todo-card.expanded .btn-details {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
 .btn-open {
   margin-left: auto;
   background: none;
@@ -595,3 +612,107 @@ textarea {
 
 .toast.success { border-color: var(--concluida); color: #86efac; }
 .toast.error { border-color: var(--danger); color: #fca5a5; }
+
+/* ── Task details (description + checklist) ── */
+.todo-details {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.todo-card.expanded .todo-details { display: flex; }
+
+.td-loading {
+  font-size: 13px;
+  color: var(--text-muted);
+  animation: spin 1s linear infinite;
+  display: inline-block;
+  align-self: flex-start;
+}
+
+.td-error { font-size: 11px; color: #fca5a5; }
+.td-empty { font-size: 11px; color: var(--text-muted); }
+
+.td-desc {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.td-desc p { margin-bottom: 5px; }
+.td-desc p:last-child { margin-bottom: 0; }
+.td-desc .md-h { font-size: 12px; font-weight: 700; color: var(--primary); margin-bottom: 3px; }
+.td-desc .md-ul { padding-left: 14px; margin-bottom: 5px; }
+.td-desc .md-ul li { margin-bottom: 2px; }
+.td-desc .md-code {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+}
+
+.td-checklist { display: flex; flex-direction: column; gap: 4px; }
+
+.td-cl-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.td-cl-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.td-cl-progress {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.td-cl-bar {
+  flex: 1;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.td-cl-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+.td-cl-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  padding: 2px 0;
+  line-height: 1.4;
+}
+
+.td-cl-item input[type="checkbox"] {
+  margin-top: 2px;
+  accent-color: var(--primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.td-cl-item.checked span {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}

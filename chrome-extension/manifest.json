@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "pikachuPM Todos",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Gere os teus todos do pikachuPM diretamente do browser.",
   "action": {
     "default_popup": "popup.html",

@@ -200,3 +200,4 @@ function showStatus(msg, type) {
     setTimeout(() => { elStatus.textContent = ''; elStatus.className = 'status'; }, 6000);
   }
 }
+

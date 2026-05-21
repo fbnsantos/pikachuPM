@@ -459,6 +459,153 @@ function buildDeliverableRow(d) {
   return row;
 }
 
+// ── Clock (side panel only) ───────────────────────────────────
+function startClock() {
+  if (!isSidePanel) return;
+  const el = document.getElementById('header-clock');
+  if (!el) return;
+  const tick = () => {
+    el.textContent = new Date().toLocaleTimeString('pt-PT', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+  };
+  tick();
+  setInterval(tick, 1000);
+}
+
+// ── Pomodoro (side panel only) ────────────────────────────────
+const POM = {
+  focus:      25 * 60,
+  shortBreak:  5 * 60,
+  longBreak:  15 * 60,
+};
+const POM_LABEL = {
+  focus:      '🍅 Foco',
+  shortBreak: '☕ Pausa',
+  longBreak:  '🛋 Pausa Longa',
+};
+const POM_COLOR = {
+  focus:      '#ef4444',
+  shortBreak: '#22c55e',
+  longBreak:  '#3b82f6',
+};
+
+let pomPhase    = 'focus';
+let pomLeft     = POM.focus;
+let pomTotal    = POM.focus;
+let pomRunning  = false;
+let pomInterval = null;
+let pomCount    = 0;   // sessões de foco concluídas no ciclo atual
+
+function pomFmt(s) {
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function pomRender() {
+  const elTimer  = document.getElementById('pom-timer');
+  const elPhase  = document.getElementById('pom-phase');
+  const elToggle = document.getElementById('pom-toggle');
+  const elBar    = document.getElementById('pom-bar');
+  const elDots   = document.getElementById('pom-dots');
+  if (!elTimer) return;
+
+  elTimer.textContent  = pomFmt(pomLeft);
+  elPhase.textContent  = POM_LABEL[pomPhase];
+  elToggle.textContent = pomRunning ? '⏸' : '▶';
+  elToggle.classList.toggle('active', pomRunning);
+
+  const pct = ((pomTotal - pomLeft) / pomTotal) * 100;
+  elBar.style.width      = pct + '%';
+  elBar.style.background = POM_COLOR[pomPhase];
+
+  // 4 pontos: ● concluído, ○ por fazer (ciclo de 4)
+  const done = pomCount % 4;
+  elDots.textContent = '●'.repeat(done) + '○'.repeat(4 - done);
+  elDots.style.color = POM_COLOR[pomPhase];
+}
+
+function pomPlayDone() {
+  try {
+    if (!_audioCtx) _audioCtx = new AudioContext();
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+    const ctx = _audioCtx;
+    // 3 notas ascendentes: Dó5 → Mi5 → Sol5
+    [523, 659, 784].forEach((freq, i) => {
+      const t    = ctx.currentTime + i * 0.35;
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.45, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      osc.start(t); osc.stop(t + 0.35);
+    });
+  } catch { /* AudioContext indisponível */ }
+}
+
+function pomNotify(label) {
+  try {
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/icon48.png',
+      title: 'pikachuPM Pomodoro',
+      message: label,
+    });
+  } catch { /* notificações indisponíveis */ }
+}
+
+function pomAdvance() {
+  pomPlayDone();
+  if (pomPhase === 'focus') {
+    pomCount++;
+    pomPhase = (pomCount % 4 === 0) ? 'longBreak' : 'shortBreak';
+    pomNotify(pomCount % 4 === 0
+      ? `🍅 × ${pomCount} — Pausa longa! Descansa 15 minutos.`
+      : '🍅 Foco terminado! Pausa de 5 minutos.');
+  } else {
+    pomPhase = 'focus';
+    pomNotify('☕ Pausa terminada! Hora de focar.');
+  }
+  pomLeft    = POM[pomPhase];
+  pomTotal   = pomLeft;
+  pomRunning = false;
+  clearInterval(pomInterval);
+  pomRender();
+}
+
+function pomTick() {
+  if (pomLeft <= 1) { pomAdvance(); return; }
+  pomLeft--;
+  pomRender();
+}
+
+function pomToggle() {
+  if (pomRunning) {
+    clearInterval(pomInterval);
+    pomRunning = false;
+  } else {
+    pomRunning  = true;
+    pomInterval = setInterval(pomTick, 1000);
+  }
+  pomRender();
+}
+
+function pomReset() {
+  clearInterval(pomInterval);
+  pomRunning = false;
+  pomLeft    = POM[pomPhase];
+  pomTotal   = pomLeft;
+  pomRender();
+}
+
+function initPomodoro() {
+  if (!isSidePanel) return;
+  pomRender();
+  document.getElementById('pom-toggle')?.addEventListener('click', pomToggle);
+  document.getElementById('pom-reset')?.addEventListener('click', pomReset);
+}
+
 // ── Leads (side panel only) ──────────────────────────────────
 async function fetchLeads() {
   if (!isSidePanel) return;
@@ -650,6 +797,8 @@ async function init() {
 
   if (isSidePanel) {
     applyCompact(config.compactMode);
+    startClock();
+    initPomodoro();
     await Promise.all([
       fetchTodos(), fetchCalendar(),
       fetchSprints(), fetchDeliverables(), fetchLeads(),

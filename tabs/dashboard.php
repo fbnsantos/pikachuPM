@@ -343,6 +343,7 @@ function renderContentFrame($content, $height = 450) {
     <title>Dashboard - Conteúdo Multimídia</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
         body {
             background-color: #f9f9f9;
@@ -712,6 +713,55 @@ function renderContentFrame($content, $height = 450) {
             0% { top: 0; }
             100% { top: -100%; }
         }
+
+        /* ── Noise Heatmap ── */
+        #nh-canvas {
+            display: block;
+            width: 100%;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            background: #f0f0f0;
+        }
+        .nh-legend-bar {
+            width: 140px;
+            height: 10px;
+            border-radius: 5px;
+            background: linear-gradient(to right, #2563eb, #22c55e, #eab308, #ef4444);
+        }
+        .nh-mic-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 9px;
+            border-radius: 12px;
+            background: #f0f0f0;
+            font-size: 12px;
+            border: 1px solid #e0e0e0;
+        }
+        .nh-mic-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #ccc;
+            flex-shrink: 0;
+        }
+        .nh-mic-dot.live { background: #22c55e; }
+        .nh-mic-dot.stale { background: #f59e0b; }
+        .nh-cfg-input {
+            width: 100%;
+            padding: 5px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .nh-cfg-table td, .nh-cfg-table th {
+            padding: 5px 8px;
+        }
+        @keyframes nh-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .nh-connecting { animation: nh-pulse 1s infinite; }
     </style>
 </head>
 <body>
@@ -837,6 +887,119 @@ function renderContentFrame($content, $height = 450) {
             </div>
         <?php endif; ?>
         
+        <!-- ══ Mapa de Ruído das Salas ══ -->
+        <div class="section-card" id="noise-heatmap-card">
+            <div class="section-header" onclick="toggleSection('noise-heatmap-section')">
+                <h2 style="display:flex;align-items:center;gap:10px;">
+                    <i class="bi bi-soundwave"></i> Mapa de Ruído das Salas
+                    <span id="nh-mqtt-dot" style="width:9px;height:9px;border-radius:50%;background:#ccc;display:inline-block;flex-shrink:0;" title="MQTT: desligado"></span>
+                </h2>
+                <i class="bi bi-chevron-down rotate-icon" id="noise-heatmap-section-icon"></i>
+            </div>
+
+            <div class="section-content" id="noise-heatmap-section" style="display:none;">
+
+                <!-- Canvas heatmap -->
+                <div style="position:relative;width:100%;max-width:800px;margin:0 auto;">
+                    <canvas id="nh-canvas"></canvas>
+                </div>
+
+                <!-- Legend + mic badges -->
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:10px;justify-content:center;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span style="font-size:11px;color:#666;">30 dB</span>
+                        <div class="nh-legend-bar"></div>
+                        <span style="font-size:11px;color:#666;">90+ dB</span>
+                    </div>
+                    <div id="nh-mics-status" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+                </div>
+
+                <!-- Toolbar -->
+                <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;">
+                    <button onclick="nhToggleConfig()" class="btn btn-sm btn-outline-secondary" style="font-size:12px;">
+                        <i class="bi bi-gear"></i> Configurar
+                    </button>
+                    <button onclick="nhReconnect()" class="btn btn-sm btn-outline-secondary" style="font-size:12px;" id="nh-reconnect-btn">
+                        <i class="bi bi-arrow-repeat"></i> Religar
+                    </button>
+                    <span id="nh-last-update" style="font-size:11px;color:#999;"></span>
+                </div>
+
+                <!-- Config panel (hidden) -->
+                <div id="nh-config-panel" style="display:none;margin-top:14px;padding:16px;background:#f8f9fa;border-radius:8px;border:1px solid #ddd;">
+                    <h5 style="margin-top:0;margin-bottom:14px;">⚙ Configuração do Mapa de Ruído</h5>
+
+                    <!-- MQTT -->
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+                        <div style="flex:3;min-width:200px;">
+                            <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">MQTT Broker URL <span style="font-weight:400;color:#999;">(ws://host:porta)</span></label>
+                            <input type="url" id="nh-cfg-broker" class="nh-cfg-input" placeholder="ws://192.168.1.10:9001">
+                        </div>
+                        <div style="flex:1;min-width:110px;">
+                            <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Utilizador <span style="font-weight:400;color:#999;">(opt.)</span></label>
+                            <input type="text" id="nh-cfg-user" class="nh-cfg-input" placeholder="">
+                        </div>
+                        <div style="flex:1;min-width:110px;">
+                            <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Password <span style="font-weight:400;color:#999;">(opt.)</span></label>
+                            <input type="password" id="nh-cfg-pass" class="nh-cfg-input" placeholder="">
+                        </div>
+                    </div>
+
+                    <!-- Canvas size -->
+                    <div style="margin-bottom:12px;">
+                        <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Resolução interna do canvas (px)</label>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <input type="number" id="nh-cfg-cw" class="nh-cfg-input" style="width:90px;" value="700" min="200" max="1400">
+                            <span>×</span>
+                            <input type="number" id="nh-cfg-ch" class="nh-cfg-input" style="width:90px;" value="350" min="100" max="800">
+                        </div>
+                    </div>
+
+                    <!-- dB range -->
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+                        <div style="min-width:110px;">
+                            <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">dB mínimo (azul)</label>
+                            <input type="number" id="nh-cfg-dbmin" class="nh-cfg-input" style="width:90px;" value="30" min="0" max="80">
+                        </div>
+                        <div style="min-width:110px;">
+                            <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">dB máximo (vermelho)</label>
+                            <input type="number" id="nh-cfg-dbmax" class="nh-cfg-input" style="width:90px;" value="90" min="40" max="140">
+                        </div>
+                        <div style="min-width:110px;">
+                            <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Dados válidos por (s)</label>
+                            <input type="number" id="nh-cfg-ttl" class="nh-cfg-input" style="width:90px;" value="30" min="5" max="300">
+                        </div>
+                    </div>
+
+                    <!-- Microphones -->
+                    <label style="font-weight:600;font-size:12px;display:block;margin-bottom:6px;">Microfones <span style="font-weight:400;color:#999;">(tópico: /som/placa<b>N</b>/delta)</span></label>
+                    <div style="overflow-x:auto;">
+                        <table class="nh-cfg-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+                            <thead>
+                                <tr style="background:#e9ecef;text-align:left;">
+                                    <th>Nº Placa</th>
+                                    <th>Nome</th>
+                                    <th>X (%)</th>
+                                    <th>Y (%)</th>
+                                    <th>Escala</th>
+                                    <th>Ativo</th>
+                                </tr>
+                            </thead>
+                            <tbody id="nh-mic-rows"></tbody>
+                        </table>
+                    </div>
+
+                    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+                        <button onclick="nhSaveConfig()" class="btn btn-primary btn-sm"><i class="bi bi-floppy"></i> Guardar</button>
+                        <button onclick="nhToggleConfig()" class="btn btn-secondary btn-sm">Cancelar</button>
+                        <button onclick="nhAddMic()" class="btn btn-outline-secondary btn-sm"><i class="bi bi-plus"></i> Adicionar microfone</button>
+                        <button onclick="nhResetConfig()" class="btn btn-outline-danger btn-sm">Repor padrões</button>
+                    </div>
+                </div><!-- /config -->
+
+            </div><!-- /section-content -->
+        </div><!-- /noise-heatmap-card -->
+
         <!-- Seção de Gerenciamento de Conteúdo -->
         <div class="section-card">
             <div class="section-header" onclick="toggleSection('content-section')">
@@ -1126,10 +1289,442 @@ function renderContentFrame($content, $height = 450) {
         document.addEventListener('DOMContentLoaded', function() {
             // Ajustar velocidade do scroll
             adjustScrollSpeed();
-            
+
             // As seções de gerenciamento começam recolhidas por padrão
             // Os valores já estão definidos como style="display: none;" no HTML
         });
+
+    // ══════════════════════════════════════════════
+    // NOISE HEATMAP
+    // ══════════════════════════════════════════════
+    (function() {
+        const STORAGE_KEY = 'pk_noise_heatmap_cfg_v2';
+        const DEFAULT_CFG = {
+            broker: '',
+            user: '',
+            pass: '',
+            canvasW: 700,
+            canvasH: 350,
+            dbMin: 30,
+            dbMax: 90,
+            ttl: 30,       // seconds before reading is considered stale
+            mics: [
+                { plate: 1, name: 'Mic 1', x: 20, y: 50, scale: 1.0, active: true },
+                { plate: 2, name: 'Mic 2', x: 50, y: 20, scale: 1.0, active: true },
+                { plate: 3, name: 'Mic 3', x: 80, y: 50, scale: 1.0, active: true },
+                { plate: 4, name: 'Mic 4', x: 30, y: 80, scale: 1.0, active: true },
+                { plate: 5, name: 'Mic 5', x: 70, y: 80, scale: 1.0, active: true },
+            ]
+        };
+
+        let cfg = JSON.parse(JSON.stringify(DEFAULT_CFG));
+        let mqttClient = null;
+        let micData = {};        // plate -> { db, ts }
+        let animFrame = null;
+        const RENDER_RES = 6;    // canvas pixels per IDW sample cell
+
+        // ── Load / save config ─────────────────────────
+        function loadCfg() {
+            try {
+                const s = localStorage.getItem(STORAGE_KEY);
+                if (s) {
+                    const parsed = JSON.parse(s);
+                    cfg = Object.assign(JSON.parse(JSON.stringify(DEFAULT_CFG)), parsed);
+                }
+            } catch(e) {}
+        }
+        function saveCfg() {
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg)); } catch(e) {}
+        }
+
+        // ── Canvas ──────────────────────────────────────
+        const canvas = document.getElementById('nh-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width  = cfg.canvasW || 700;
+            canvas.height = cfg.canvasH || 350;
+        }
+
+        // ── Color ramp: blue→green→yellow→red ──────────
+        function colorRamp(t) {
+            t = Math.max(0, Math.min(1, t));
+            // Keyframes: 0=blue, 0.33=green, 0.66=yellow, 1=red
+            const stops = [
+                [37,  99,  235],   // blue
+                [34,  197, 94 ],   // green
+                [234, 179, 8  ],   // yellow
+                [239, 68,  68 ],   // red
+            ];
+            const seg  = t * (stops.length - 1);
+            const lo   = Math.floor(seg);
+            const hi   = Math.min(lo + 1, stops.length - 1);
+            const frac = seg - lo;
+            return stops[lo].map((c, i) => Math.round(c + (stops[hi][i] - c) * frac));
+        }
+
+        // ── IDW interpolation at canvas coords (px, py) ─
+        function idwAt(px, py) {
+            const W = canvas.width, H = canvas.height;
+            const pts = [];
+            for (const m of cfg.mics) {
+                if (!m.active) continue;
+                const d = micData[m.plate];
+                if (!d) continue;
+                const age = (Date.now() - d.ts) / 1000;
+                if (age > (cfg.ttl || 30)) continue;
+                const mx = (m.x / 100) * W;
+                const my = (m.y / 100) * H;
+                const dx = px - mx, dy = py - my;
+                const dist2 = dx * dx + dy * dy;
+                const dbScaled = d.db * (m.scale || 1);
+                pts.push({ dbScaled, dist2 });
+            }
+            if (pts.length === 0) return null;
+            // If standing on a mic, return its value
+            const exact = pts.find(p => p.dist2 < 4);
+            if (exact) return exact.dbScaled;
+            // IDW (power = 2)
+            let num = 0, den = 0;
+            for (const p of pts) {
+                const w = 1 / p.dist2;
+                num += w * p.dbScaled;
+                den += w;
+            }
+            return den > 0 ? num / den : null;
+        }
+
+        // ── Render ──────────────────────────────────────
+        function render() {
+            const W = canvas.width, H = canvas.height;
+            const dbMin = cfg.dbMin || 30, dbMax = cfg.dbMax || 90;
+
+            // Background
+            ctx.fillStyle = '#ececec';
+            ctx.fillRect(0, 0, W, H);
+
+            // Count live mics
+            const now = Date.now();
+            const liveMics = cfg.mics.filter(m => {
+                if (!m.active) return false;
+                const d = micData[m.plate];
+                return d && (now - d.ts) / 1000 <= (cfg.ttl || 30);
+            });
+
+            if (liveMics.length > 0) {
+                // Build low-res imageData, then scale up (smooth)
+                const cols = Math.ceil(W / RENDER_RES);
+                const rows = Math.ceil(H / RENDER_RES);
+                const img  = ctx.createImageData(cols, rows);
+
+                for (let row = 0; row < rows; row++) {
+                    for (let col = 0; col < cols; col++) {
+                        const px = col * RENDER_RES + RENDER_RES / 2;
+                        const py = row * RENDER_RES + RENDER_RES / 2;
+                        const db = idwAt(px, py);
+                        const idx = (row * cols + col) * 4;
+                        if (db !== null) {
+                            const t = (db - dbMin) / (dbMax - dbMin);
+                            const [r, g, b] = colorRamp(t);
+                            img.data[idx]     = r;
+                            img.data[idx + 1] = g;
+                            img.data[idx + 2] = b;
+                            img.data[idx + 3] = 210;
+                        } else {
+                            img.data[idx]     = 220;
+                            img.data[idx + 1] = 220;
+                            img.data[idx + 2] = 220;
+                            img.data[idx + 3] = 255;
+                        }
+                    }
+                }
+
+                // Paint low-res buffer to offscreen canvas, then stretch to full size
+                const offscreen = Object.assign(document.createElement('canvas'), { width: cols, height: rows });
+                offscreen.getContext('2d').putImageData(img, 0, 0);
+                ctx.save();
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(offscreen, 0, 0, W, H);
+                ctx.restore();
+            } else {
+                // No data: placeholder
+                ctx.fillStyle = 'rgba(0,0,0,0.25)';
+                ctx.font = `bold 15px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('A aguardar dados dos microfones…', W / 2, H / 2);
+            }
+
+            // Grid overlay
+            ctx.strokeStyle = 'rgba(0,0,0,0.07)';
+            ctx.lineWidth = 1;
+            for (let x = W / 5; x < W; x += W / 5) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+            }
+            for (let y = H / 3; y < H; y += H / 3) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+            }
+
+            // Room border
+            ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(1, 1, W - 2, H - 2);
+
+            // Microphones
+            for (const m of cfg.mics) {
+                if (!m.active) continue;
+                const mx = (m.x / 100) * W;
+                const my = (m.y / 100) * H;
+                const d    = micData[m.plate];
+                const age  = d ? (now - d.ts) / 1000 : Infinity;
+                const live = age <= (cfg.ttl || 30);
+                const db   = d ? (d.db * (m.scale || 1)) : null;
+
+                // Shadow
+                ctx.save();
+                ctx.shadowColor = 'rgba(0,0,0,0.3)';
+                ctx.shadowBlur  = 6;
+
+                // Circle
+                ctx.beginPath();
+                ctx.arc(mx, my, 15, 0, 2 * Math.PI);
+                ctx.fillStyle = live ? 'rgba(15,23,42,0.82)' : 'rgba(150,150,150,0.75)';
+                ctx.fill();
+                ctx.strokeStyle = live ? '#ffffff' : '#bbb';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.restore();
+
+                // Microphone icon
+                ctx.font = '12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('🎙', mx, my - 1);
+
+                // Name label
+                ctx.font = 'bold 10px sans-serif';
+                ctx.fillStyle = '#222';
+                ctx.textBaseline = 'top';
+                ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+                ctx.lineWidth = 3;
+                ctx.strokeText(m.name || `Mic ${m.plate}`, mx, my + 17);
+                ctx.fillText(m.name || `Mic ${m.plate}`, mx, my + 17);
+
+                // dB value
+                if (live && db !== null) {
+                    const [r, g, b] = colorRamp((db - dbMin) / (dbMax - dbMin));
+                    ctx.font = 'bold 11px sans-serif';
+                    ctx.fillStyle = `rgb(${r},${g},${b})`;
+                    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+                    ctx.lineWidth = 3;
+                    ctx.strokeText(`${db.toFixed(0)} dB`, mx, my + 28);
+                    ctx.fillText(`${db.toFixed(0)} dB`, mx, my + 28);
+                }
+            }
+        }
+
+        // ── Animation loop ──────────────────────────────
+        function startLoop() {
+            if (animFrame) return;
+            function tick() { render(); animFrame = requestAnimationFrame(tick); }
+            tick();
+        }
+
+        // ── Status badges ───────────────────────────────
+        function updateMicBadges() {
+            const el = document.getElementById('nh-mics-status');
+            if (!el) return;
+            const now = Date.now();
+            el.innerHTML = cfg.mics.filter(m => m.active).map(m => {
+                const d    = micData[m.plate];
+                const age  = d ? (now - d.ts) / 1000 : Infinity;
+                const live = age <= (cfg.ttl || 30);
+                const db   = live && d ? (d.db * (m.scale || 1)).toFixed(0) + ' dB' : '--';
+                return `<span class="nh-mic-badge">
+                    <span class="nh-mic-dot ${live ? 'live' : 'stale'}"></span>
+                    ${escHtml(m.name || 'Mic ' + m.plate)}: ${db}
+                </span>`;
+            }).join('');
+        }
+        setInterval(updateMicBadges, 2000);
+
+        // ── MQTT dot ────────────────────────────────────
+        function setDot(state) {
+            const el = document.getElementById('nh-mqtt-dot');
+            if (!el) return;
+            const map = { connected: '#22c55e', connecting: '#f59e0b', error: '#ef4444', disconnected: '#94a3b8' };
+            el.style.background = map[state] || '#94a3b8';
+            el.className = state === 'connecting' ? 'nh-connecting' : '';
+            el.title = 'MQTT: ' + state;
+        }
+
+        // ── MQTT connection ─────────────────────────────
+        function nhConnect() {
+            if (mqttClient) { try { mqttClient.end(true); } catch(e) {} mqttClient = null; }
+            if (!cfg.broker) { setDot('disconnected'); return; }
+
+            setDot('connecting');
+            try {
+                const opts = {
+                    clientId: 'pk_noise_' + Math.random().toString(16).slice(2),
+                    keepalive: 60,
+                    reconnectPeriod: 5000,
+                };
+                if (cfg.user) opts.username = cfg.user;
+                if (cfg.pass) opts.password = cfg.pass;
+
+                mqttClient = mqtt.connect(cfg.broker, opts);
+
+                mqttClient.on('connect', () => {
+                    setDot('connected');
+                    mqttClient.subscribe('/som/+/delta', { qos: 0 });
+                });
+
+                mqttClient.on('message', (topic, payload) => {
+                    // topic pattern: /som/placaN/delta
+                    const m = topic.match(/\/som\/placa(\d+)\/delta/i);
+                    if (!m) return;
+                    const plate = parseInt(m[1]);
+                    const raw   = payload.toString().trim();
+                    // Payload: "delta=X" OR just "X"
+                    let db;
+                    if (/^delta=/i.test(raw)) {
+                        db = parseFloat(raw.replace(/^delta=/i, ''));
+                    } else {
+                        db = parseFloat(raw);
+                    }
+                    if (!isNaN(db)) {
+                        micData[plate] = { db, ts: Date.now() };
+                        updateMicBadges();
+                        const el = document.getElementById('nh-last-update');
+                        if (el) el.textContent = 'Última leitura: ' + new Date().toLocaleTimeString() + ' — placa ' + plate + ' → ' + db.toFixed(1) + ' dB';
+                    }
+                });
+
+                mqttClient.on('error',      () => setDot('error'));
+                mqttClient.on('close',      () => setDot('disconnected'));
+                mqttClient.on('offline',    () => setDot('disconnected'));
+                mqttClient.on('reconnect',  () => setDot('connecting'));
+            } catch (e) {
+                setDot('error');
+                console.error('[NoiseHeatmap] MQTT error:', e);
+            }
+        }
+
+        window.nhReconnect = function() { nhConnect(); };
+
+        // ── Config panel helpers ─────────────────────────
+        window.nhToggleConfig = function() {
+            const p = document.getElementById('nh-config-panel');
+            if (!p) return;
+            if (p.style.display === 'none') {
+                nhFillForm();
+                p.style.display = 'block';
+            } else {
+                p.style.display = 'none';
+            }
+        };
+
+        function nhFillForm() {
+            document.getElementById('nh-cfg-broker').value = cfg.broker || '';
+            document.getElementById('nh-cfg-user').value   = cfg.user   || '';
+            document.getElementById('nh-cfg-pass').value   = cfg.pass   || '';
+            document.getElementById('nh-cfg-cw').value     = cfg.canvasW || 700;
+            document.getElementById('nh-cfg-ch').value     = cfg.canvasH || 350;
+            document.getElementById('nh-cfg-dbmin').value  = cfg.dbMin  || 30;
+            document.getElementById('nh-cfg-dbmax').value  = cfg.dbMax  || 90;
+            document.getElementById('nh-cfg-ttl').value    = cfg.ttl    || 30;
+            renderMicRows(cfg.mics);
+        }
+
+        function renderMicRows(mics) {
+            const tbody = document.getElementById('nh-mic-rows');
+            if (!tbody) return;
+            tbody.innerHTML = mics.map((m, i) => `
+                <tr data-idx="${i}" style="border-bottom:1px solid #e0e0e0;">
+                    <td><input type="number" class="nh-cfg-input" style="width:65px;" value="${m.plate}" min="1" max="30" data-field="plate"></td>
+                    <td><input type="text"   class="nh-cfg-input" style="width:110px;" value="${escHtml(m.name||'')}" placeholder="Mic ${m.plate}" data-field="name"></td>
+                    <td><input type="number" class="nh-cfg-input" style="width:70px;" value="${m.x}" min="0" max="100" step="0.5" data-field="x"> <small>%</small></td>
+                    <td><input type="number" class="nh-cfg-input" style="width:70px;" value="${m.y}" min="0" max="100" step="0.5" data-field="y"> <small>%</small></td>
+                    <td><input type="number" class="nh-cfg-input" style="width:70px;" value="${m.scale||1}" min="0.01" max="10" step="0.05" data-field="scale"></td>
+                    <td style="text-align:center;"><input type="checkbox" data-field="active" ${m.active ? 'checked' : ''}></td>
+                </tr>
+            `).join('');
+        }
+
+        function readMicRows() {
+            const rows = document.querySelectorAll('#nh-mic-rows tr[data-idx]');
+            return Array.from(rows).map(row => {
+                const g = (f) => row.querySelector(`[data-field="${f}"]`);
+                return {
+                    plate:  parseInt(g('plate')?.value)  || 1,
+                    name:   g('name')?.value?.trim()     || '',
+                    x:      parseFloat(g('x')?.value)    || 50,
+                    y:      parseFloat(g('y')?.value)    || 50,
+                    scale:  parseFloat(g('scale')?.value)|| 1,
+                    active: g('active')?.checked ?? true,
+                };
+            });
+        }
+
+        window.nhAddMic = function() {
+            const mics = readMicRows();
+            const nextPlate = Math.max(0, ...mics.map(m => m.plate)) + 1;
+            mics.push({ plate: nextPlate, name: 'Mic ' + nextPlate, x: 50, y: 50, scale: 1, active: true });
+            renderMicRows(mics);
+        };
+
+        window.nhSaveConfig = function() {
+            cfg.broker   = document.getElementById('nh-cfg-broker').value.trim();
+            cfg.user     = document.getElementById('nh-cfg-user').value.trim();
+            cfg.pass     = document.getElementById('nh-cfg-pass').value;
+            cfg.canvasW  = parseInt(document.getElementById('nh-cfg-cw').value)    || 700;
+            cfg.canvasH  = parseInt(document.getElementById('nh-cfg-ch').value)    || 350;
+            cfg.dbMin    = parseInt(document.getElementById('nh-cfg-dbmin').value) || 30;
+            cfg.dbMax    = parseInt(document.getElementById('nh-cfg-dbmax').value) || 90;
+            cfg.ttl      = parseInt(document.getElementById('nh-cfg-ttl').value)   || 30;
+            cfg.mics     = readMicRows();
+            saveCfg();
+            resizeCanvas();
+            nhConnect();
+            document.getElementById('nh-config-panel').style.display = 'none';
+        };
+
+        window.nhResetConfig = function() {
+            if (!confirm('Repor configuração padrão do mapa de ruído?')) return;
+            cfg = JSON.parse(JSON.stringify(DEFAULT_CFG));
+            saveCfg();
+            nhFillForm();
+        };
+
+        // ── Utility ──────────────────────────────────────
+        function escHtml(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        // ── Init ─────────────────────────────────────────
+        function init() {
+            loadCfg();
+            resizeCanvas();
+            updateMicBadges();
+            startLoop();
+            if (cfg.broker) nhConnect();
+        }
+
+        // Wait for mqtt.js CDN (async load)
+        if (typeof mqtt !== 'undefined') {
+            init();
+        } else {
+            const t = setInterval(() => {
+                if (typeof mqtt !== 'undefined') { clearInterval(t); init(); }
+            }, 100);
+            // Timeout after 10s — run without MQTT
+            setTimeout(() => { clearInterval(t); if (!mqttClient) init(); }, 10000);
+        }
+
+    })(); // end noise heatmap IIFE
     </script>
 </body>
 </html>

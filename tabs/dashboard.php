@@ -728,25 +728,67 @@ function renderContentFrame($content, $height = 450) {
             border-radius: 5px;
             background: linear-gradient(to right, #2563eb, #22c55e, #eab308, #ef4444);
         }
-        .nh-mic-badge {
-            display: inline-flex;
+        /* Status bar */
+        .nh-status-bar {
+            display: flex;
             align-items: center;
-            gap: 5px;
-            padding: 3px 9px;
-            border-radius: 12px;
-            background: #f0f0f0;
-            font-size: 12px;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 7px;
+            font-size: 13px;
+            border: 1px solid transparent;
+            flex-wrap: wrap;
+        }
+        .nh-state-disconnected { background: #f1f3f5; border-color: #dee2e6; color: #6c757d; }
+        .nh-state-connecting   { background: #fff8e6; border-color: #ffd97d; color: #7d5a00; }
+        .nh-state-connected    { background: #e8f9ef; border-color: #9be0b5; color: #145a30; }
+        .nh-state-error        { background: #fef2f2; border-color: #fca5a5; color: #7f1d1d; }
+        .nh-status-icon { font-size: 9px; }
+        .nh-status-text { font-weight: 700; }
+        .nh-status-broker { font-family: monospace; font-size: 12px; opacity: .75; }
+        .nh-reconnect-btn {
+            background: none; border: 1px solid currentColor; border-radius: 4px;
+            cursor: pointer; font-size: 14px; padding: 1px 7px; opacity:.7;
+            transition: opacity .15s;
+        }
+        .nh-reconnect-btn:hover { opacity:1; }
+        .nh-cfg-btn {
+            background: none; border: 1px solid currentColor; border-radius: 4px;
+            cursor: pointer; font-size: 12px; padding: 2px 8px; opacity:.7;
+            transition: opacity .15s; font-family: inherit;
+        }
+        .nh-cfg-btn:hover { opacity:1; }
+        /* Mic reading cards */
+        .nh-mic-card {
             border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 8px 10px;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            transition: border-color .2s;
+        }
+        .nh-mic-card.live  { border-left: 3px solid #22c55e; }
+        .nh-mic-card.stale { border-left: 3px solid #f59e0b; }
+        .nh-mic-card.off   { border-left: 3px solid #ccc; opacity:.6; }
+        .nh-mic-card-header {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 12px; font-weight: 700; color: #333;
         }
         .nh-mic-dot {
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            background: #ccc;
-            flex-shrink: 0;
+            width: 7px; height: 7px; border-radius: 50%; background: #ccc; flex-shrink:0;
         }
-        .nh-mic-dot.live { background: #22c55e; }
-        .nh-mic-dot.stale { background: #f59e0b; }
+        .nh-mic-dot.live  { background: #22c55e; }
+        .nh-mic-dot.stale { background: #f59e0b; animation: nh-pulse 1.5s infinite; }
+        .nh-mic-db {
+            font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums;
+            line-height: 1; margin: 2px 0;
+        }
+        .nh-mic-sub {
+            font-size: 10px; color: #888; display: flex; gap: 8px; flex-wrap: wrap;
+        }
+        /* Config inputs */
         .nh-cfg-input {
             width: 100%;
             padding: 5px 8px;
@@ -754,12 +796,10 @@ function renderContentFrame($content, $height = 450) {
             border-radius: 4px;
             font-size: 13px;
         }
-        .nh-cfg-table td, .nh-cfg-table th {
-            padding: 5px 8px;
-        }
+        .nh-cfg-table td, .nh-cfg-table th { padding: 5px 8px; }
         @keyframes nh-pulse {
             0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
+            50%       { opacity: 0.3; }
         }
         .nh-connecting { animation: nh-pulse 1s infinite; }
     </style>
@@ -899,30 +939,36 @@ function renderContentFrame($content, $height = 450) {
 
             <div class="section-content" id="noise-heatmap-section" style="display:none;">
 
-                <!-- Canvas heatmap -->
-                <div style="position:relative;width:100%;max-width:800px;margin:0 auto;">
-                    <canvas id="nh-canvas"></canvas>
+                <!-- ── Status bar MQTT ── -->
+                <div id="nh-status-bar" class="nh-status-bar nh-state-disconnected">
+                    <span id="nh-status-icon" class="nh-status-icon">⬤</span>
+                    <span id="nh-status-text" class="nh-status-text">Desligado</span>
+                    <span id="nh-status-broker" class="nh-status-broker"></span>
+                    <div style="flex:1;"></div>
+                    <button onclick="nhReconnect()" class="nh-reconnect-btn" id="nh-reconnect-btn" title="Religar ao broker">↺</button>
+                    <button onclick="nhToggleConfig()" class="nh-cfg-btn" title="Configurar"><i class="bi bi-gear"></i> Configurar</button>
                 </div>
 
-                <!-- Legend + mic badges -->
-                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:10px;justify-content:center;">
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        <span style="font-size:11px;color:#666;">30 dB</span>
-                        <div class="nh-legend-bar"></div>
-                        <span style="font-size:11px;color:#666;">90+ dB</span>
+                <!-- ── Canvas heatmap + legend ── -->
+                <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-top:10px;">
+                    <div style="flex:1;min-width:260px;">
+                        <canvas id="nh-canvas"></canvas>
+                        <!-- Legend -->
+                        <div style="display:flex;align-items:center;gap:6px;margin-top:6px;justify-content:center;">
+                            <span id="nh-leg-min" style="font-size:11px;color:#666;">30 dB</span>
+                            <div class="nh-legend-bar"></div>
+                            <span id="nh-leg-max" style="font-size:11px;color:#666;">90+ dB</span>
+                        </div>
+                        <div style="text-align:center;margin-top:4px;">
+                            <span id="nh-last-update" style="font-size:11px;color:#999;"></span>
+                        </div>
                     </div>
-                    <div id="nh-mics-status" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
-                </div>
 
-                <!-- Toolbar -->
-                <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;">
-                    <button onclick="nhToggleConfig()" class="btn btn-sm btn-outline-secondary" style="font-size:12px;">
-                        <i class="bi bi-gear"></i> Configurar
-                    </button>
-                    <button onclick="nhReconnect()" class="btn btn-sm btn-outline-secondary" style="font-size:12px;" id="nh-reconnect-btn">
-                        <i class="bi bi-arrow-repeat"></i> Religar
-                    </button>
-                    <span id="nh-last-update" style="font-size:11px;color:#999;"></span>
+                    <!-- ── Microphone readings panel ── -->
+                    <div style="flex:0 0 220px;min-width:180px;">
+                        <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px;">Leituras</div>
+                        <div id="nh-mics-status" style="display:flex;flex-direction:column;gap:6px;"></div>
+                    </div>
                 </div>
 
                 <!-- Config panel (hidden) -->
@@ -1532,32 +1578,88 @@ function renderContentFrame($content, $height = 450) {
             tick();
         }
 
-        // ── Status badges ───────────────────────────────
+        // ── Mic reading cards ───────────────────────────
         function updateMicBadges() {
             const el = document.getElementById('nh-mics-status');
             if (!el) return;
             const now = Date.now();
             el.innerHTML = cfg.mics.filter(m => m.active).map(m => {
-                const d    = micData[m.plate];
-                const age  = d ? (now - d.ts) / 1000 : Infinity;
-                const live = age <= (cfg.ttl || 30);
-                const db   = live && d ? (d.db * (m.scale || 1)).toFixed(0) + ' dB' : '--';
-                return `<span class="nh-mic-badge">
-                    <span class="nh-mic-dot ${live ? 'live' : 'stale'}"></span>
-                    ${escHtml(m.name || 'Mic ' + m.plate)}: ${db}
-                </span>`;
+                const d       = micData[m.plate];
+                const age     = d ? (now - d.ts) / 1000 : Infinity;
+                const live    = age <= (cfg.ttl || 30);
+                const hasData = d !== undefined;
+                const stateClass = !hasData ? 'off' : live ? 'live' : 'stale';
+                const dotClass   = !hasData ? ''    : live ? 'live' : 'stale';
+
+                const rawDb    = hasData ? d.db : null;
+                const scaledDb = hasData ? d.db * (m.scale || 1) : null;
+                const dbMin = cfg.dbMin || 30, dbMax = cfg.dbMax || 90;
+
+                // Color for the dB number
+                let dbColor = '#333';
+                if (scaledDb !== null && live) {
+                    const t = Math.max(0, Math.min(1, (scaledDb - dbMin) / (dbMax - dbMin)));
+                    const [r, g, b] = colorRamp(t);
+                    dbColor = `rgb(${r},${g},${b})`;
+                }
+
+                const ageStr = !hasData ? 'sem dados' :
+                               live     ? (age < 60 ? Math.round(age) + 's atrás' : 'há ' + Math.floor(age/60) + 'min') :
+                                          'desatualizado';
+
+                const rawStr    = rawDb    !== null ? rawDb.toFixed(1)    + ' dB' : '--';
+                const scaledStr = scaledDb !== null && live ? scaledDb.toFixed(1) + ' dB' : '--';
+                const showScale = Math.abs((m.scale || 1) - 1) > 0.01; // only show raw if scale ≠ 1
+
+                return `<div class="nh-mic-card ${stateClass}">
+                    <div class="nh-mic-card-header">
+                        <span class="nh-mic-dot ${dotClass}"></span>
+                        ${escHtml(m.name || 'Mic ' + m.plate)}
+                        <span style="font-weight:400;color:#999;font-size:10px;margin-left:auto;">placa ${m.plate}</span>
+                    </div>
+                    <div class="nh-mic-db" style="color:${dbColor}">
+                        ${live && scaledDb !== null ? scaledDb.toFixed(1) + ' <span style="font-size:13px;font-weight:500;">dB</span>' : '<span style="font-size:14px;color:#bbb;">—</span>'}
+                    </div>
+                    <div class="nh-mic-sub">
+                        ${showScale ? `<span>raw: ${rawStr}</span>` : ''}
+                        ${showScale ? `<span>×${(m.scale||1).toFixed(2)}</span>` : ''}
+                        <span style="margin-left:auto;">${ageStr}</span>
+                    </div>
+                </div>`;
             }).join('');
         }
-        setInterval(updateMicBadges, 2000);
+        setInterval(updateMicBadges, 1000);
 
-        // ── MQTT dot ────────────────────────────────────
+        // ── MQTT status bar ─────────────────────────────
         function setDot(state) {
-            const el = document.getElementById('nh-mqtt-dot');
-            if (!el) return;
-            const map = { connected: '#22c55e', connecting: '#f59e0b', error: '#ef4444', disconnected: '#94a3b8' };
-            el.style.background = map[state] || '#94a3b8';
-            el.className = state === 'connecting' ? 'nh-connecting' : '';
-            el.title = 'MQTT: ' + state;
+            // Small dot in header
+            const dot = document.getElementById('nh-mqtt-dot');
+            const dotColors = { connected: '#22c55e', connecting: '#f59e0b', error: '#ef4444', disconnected: '#94a3b8' };
+            if (dot) {
+                dot.style.background = dotColors[state] || '#94a3b8';
+                dot.className        = state === 'connecting' ? 'nh-connecting' : '';
+                dot.title            = 'MQTT: ' + state;
+            }
+            // Full status bar inside the section
+            const bar     = document.getElementById('nh-status-bar');
+            const icon    = document.getElementById('nh-status-icon');
+            const text    = document.getElementById('nh-status-text');
+            const broker  = document.getElementById('nh-status-broker');
+            if (!bar) return;
+
+            const stateLabels = {
+                connected:    'Conectado',
+                connecting:   'A ligar…',
+                error:        'Erro de ligação',
+                disconnected: 'Desligado',
+            };
+            bar.className = 'nh-status-bar nh-state-' + state;
+            if (icon) {
+                icon.textContent = '⬤';
+                icon.className   = 'nh-status-icon' + (state === 'connecting' ? ' nh-connecting' : '');
+            }
+            if (text) text.textContent = stateLabels[state] || state;
+            if (broker) broker.textContent = cfg.broker ? '— ' + cfg.broker : (state === 'disconnected' ? '(broker não configurado)' : '');
         }
 
         // ── MQTT connection ─────────────────────────────
@@ -1587,19 +1689,17 @@ function renderContentFrame($content, $height = 450) {
                     const m = topic.match(/\/som\/placa(\d+)\/delta/i);
                     if (!m) return;
                     const plate = parseInt(m[1]);
-                    const raw   = payload.toString().trim();
-                    // Payload: "delta=X" OR just "X"
-                    let db;
-                    if (/^delta=/i.test(raw)) {
-                        db = parseFloat(raw.replace(/^delta=/i, ''));
-                    } else {
-                        db = parseFloat(raw);
-                    }
+                    const raw = payload.toString().trim();
+                    const db  = parseFloat(raw);
                     if (!isNaN(db)) {
-                        micData[plate] = { db, ts: Date.now() };
+                        const prev = micData[plate];
+                        micData[plate] = { db, ts: Date.now(), prev: prev?.db };
                         updateMicBadges();
+                        // Find mic name
+                        const micCfg = cfg.mics.find(mc => mc.plate === plate);
+                        const name   = micCfg ? micCfg.name : 'placa ' + plate;
                         const el = document.getElementById('nh-last-update');
-                        if (el) el.textContent = 'Última leitura: ' + new Date().toLocaleTimeString() + ' — placa ' + plate + ' → ' + db.toFixed(1) + ' dB';
+                        if (el) el.textContent = new Date().toLocaleTimeString() + ' — ' + name + ': ' + db.toFixed(1) + ' dB';
                     }
                 });
 
@@ -1688,9 +1788,17 @@ function renderContentFrame($content, $height = 450) {
             cfg.mics     = readMicRows();
             saveCfg();
             resizeCanvas();
+            updateLegendLabels();
             nhConnect();
             document.getElementById('nh-config-panel').style.display = 'none';
         };
+
+        function updateLegendLabels() {
+            const mn = document.getElementById('nh-leg-min');
+            const mx = document.getElementById('nh-leg-max');
+            if (mn) mn.textContent = (cfg.dbMin || 30) + ' dB';
+            if (mx) mx.textContent = (cfg.dbMax || 90) + '+ dB';
+        }
 
         window.nhResetConfig = function() {
             if (!confirm('Repor configuração padrão do mapa de ruído?')) return;
@@ -1708,9 +1816,11 @@ function renderContentFrame($content, $height = 450) {
         function init() {
             loadCfg();
             resizeCanvas();
+            updateLegendLabels();
+            setDot(cfg.broker ? 'connecting' : 'disconnected');
             updateMicBadges();
             startLoop();
-            if (cfg.broker) nhConnect();
+            if (cfg.broker) nhConnect(); else setDot('disconnected');
         }
 
         // Wait for mqtt.js CDN (async load)

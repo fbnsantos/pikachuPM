@@ -752,6 +752,9 @@ function attachEvents() {
     if (activePanel === 'leads')        loadLeads();
   });
 
+  // Install
+  document.getElementById('btn-install').addEventListener('click', triggerInstall);
+
   // Settings
   document.getElementById('btn-settings').addEventListener('click', openSettings);
   document.getElementById('btn-settings-close').addEventListener('click', closeSettings);
@@ -834,6 +837,40 @@ function attachEvents() {
   document.getElementById('mqtt-pub-msg-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') mqttPublish();
   });
+}
+
+// ══════════════════════════════════════════════════════
+// PWA INSTALL PROMPT
+// ══════════════════════════════════════════════════════
+let _installPrompt = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _installPrompt = e;
+  const btn = document.getElementById('btn-install');
+  if (btn) btn.style.display = '';
+});
+
+window.addEventListener('appinstalled', () => {
+  _installPrompt = null;
+  const btn = document.getElementById('btn-install');
+  if (btn) btn.style.display = 'none';
+  showToast('App instalada! 🎉', 'success');
+});
+
+async function triggerInstall() {
+  if (!_installPrompt) {
+    // Fallback: instructions if prompt not available
+    showToast('Chrome ⋮ → "Adicionar ao ecrã principal"', '');
+    return;
+  }
+  _installPrompt.prompt();
+  const { outcome } = await _installPrompt.userChoice;
+  if (outcome === 'accepted') {
+    _installPrompt = null;
+    const btn = document.getElementById('btn-install');
+    if (btn) btn.style.display = 'none';
+  }
 }
 
 // ══════════════════════════════════════════════════════

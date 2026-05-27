@@ -34,6 +34,7 @@ html, body {
   max-height: 100dvh;
   overflow: hidden;
   padding-top: var(--safe-top);
+  position: relative;
 }
 
 /* ── Header ── */
@@ -70,6 +71,7 @@ html, body {
   display: flex; align-items: center; justify-content: center;
 }
 .icon-btn:hover, .icon-btn:active { color: var(--primary); border-color: var(--primary); }
+#btn-install { color: var(--primary); border-color: var(--primary); animation: pulse 2s infinite; }
 
 /* ── Pomodoro ── */
 .pomodoro-section {
@@ -472,7 +474,7 @@ html, body {
 
 /* ── Settings screen ── */
 .settings-screen {
-  position: absolute; inset: 0; z-index: 100;
+  position: fixed; inset: 0; z-index: 100;
   background: var(--bg);
   display: flex; flex-direction: column;
   overflow: hidden;
@@ -480,6 +482,7 @@ html, body {
 .settings-header {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 14px;
+  padding-top: calc(12px + var(--safe-top));
   background: var(--bg-card); border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }

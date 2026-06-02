@@ -1341,10 +1341,19 @@ function registerSW() {
   if (!('serviceWorker' in navigator)) return;
 
   navigator.serviceWorker.register('./sw.js', {
-    updateViaCache: 'none',   // nunca serve sw.js do cache HTTP
-  }).then(reg => {
+    updateViaCache: 'none',
+  }).then(async reg => {
     _swReg = reg;
-    reg.update();             // verifica update logo ao abrir
+    reg.update();
+
+    // Mostrar versão do cache instalado no logo
+    try {
+      const keys    = await caches.keys();
+      const active  = keys.find(k => /pikachu-pwa-v\d+/.test(k)) || '';
+      const ver     = active.match(/v(\d+)/)?.[1];
+      const swVerEl = document.getElementById('sw-ver');
+      if (swVerEl && ver) swVerEl.textContent = `(sw${ver}) `;
+    } catch {}
   }).catch(e => console.warn('SW registration failed:', e));
 
   // Quando o novo SW assume o controlo, recarrega a página automaticamente
@@ -1362,34 +1371,37 @@ async function checkForUpdate() {
   showToast('A verificar actualização…', '');
 
   try {
-    // 1. Buscar sw.js do servidor ignorando TODOS os caches
-    const fresh    = await fetch('./sw.js?_=' + Date.now(), { cache: 'no-store' });
-    const freshTxt = await fresh.text();
-    const serverV  = parseInt((freshTxt.match(/pikachu-pwa-v(\d+)/) || ['','0'])[1], 10);
+    // Buscar sw.js do servidor sem qualquer cache
+    const fresh   = await fetch('./sw.js', { cache: 'no-store' });
+    const swText  = await fresh.text();
+    const serverV = parseInt((swText.match(/pikachu-pwa-v(\d+)/) || ['','0'])[1], 10);
 
-    // 2. Versão instalada: ler do nome do cache activo
+    // Versão instalada actualmente
     const cacheKeys = await caches.keys();
     const activeKey = cacheKeys.find(k => /pikachu-pwa-v\d+/.test(k)) || '';
     const localV    = parseInt((activeKey.match(/v(\d+)/) || ['','0'])[1], 10);
 
     if (serverV > 0 && serverV !== localV) {
-      // Há versão nova → limpar caches + desregistar SW + recarregar
-      showToast(`Nova versão (v${serverV})! A actualizar…`, 'success');
+      // Versões diferentes → limpar tudo e recarregar
+      showToast(`Nova versão (v${serverV})! A limpar cache…`, 'success');
       await Promise.all(cacheKeys.map(k => caches.delete(k)));
       const regs = await navigator.serviceWorker.getRegistrations();
       await Promise.all(regs.map(r => r.unregister()));
-      setTimeout(() => window.location.reload(), 600);
+      setTimeout(() => window.location.reload(), 700);
+    } else if (serverV === localV && localV > 0) {
+      showToast(`Versão v${localV} — já é a mais recente ✓`, 'success');
     } else {
-      // Tentar update normal como fallback
+      // Fallback: deixar o SW normal tratar
       const reg = _swReg || await navigator.serviceWorker.getRegistration('./sw.js');
       if (reg) {
         let found = false;
         reg.addEventListener('updatefound', () => { found = true; }, { once: true });
         await reg.update();
-        await new Promise(r => setTimeout(r, 2500));
+        await new Promise(r => setTimeout(r, 3000));
         if (!found) showToast('Já tens a versão mais recente ✓', 'success');
       } else {
-        showToast('Já tens a versão mais recente ✓', 'success');
+        showToast('A recarregar…', '');
+        setTimeout(() => window.location.reload(), 500);
       }
     }
   } catch(e) {

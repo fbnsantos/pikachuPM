@@ -1,0 +1,12 @@
+# sw.js nunca deve ser guardado em cache HTTP
+# O browser tem de ir sempre ao servidor para o verificar
+<Files "sw.js">
+  Header set Cache-Control "no-cache, no-store, must-revalidate"
+  Header set Pragma "no-cache"
+  Header set Expires "0"
+</Files>
+
+# manifest.json também não deve ser cached (para PWA install)
+<Files "manifest.json">
+  Header set Cache-Control "no-cache"
+</Files>

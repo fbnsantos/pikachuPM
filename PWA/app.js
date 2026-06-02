@@ -705,29 +705,41 @@ function mqttPublish() {
 }
 
 // ══════════════════════════════════════════════════════
-// PERSONAL CHECKLIST (localStorage — nunca sai do dispositivo)
+// PERSONAL CHECKLIST — offline-first com sync ao servidor
+// Cada item: { id, serverId?, text, done, _dirty?, _delete? }
+//   id       = "local_X" enquanto não sincronizado, depois = serverId (string)
+//   _dirty   = precisa de ser enviado (create ou update)
+//   _delete  = apagado localmente, aguarda DELETE no servidor
 // ══════════════════════════════════════════════════════
-const PERSONAL_KEY = 'pikachu_personal_v1';
+const PERSONAL_KEY = 'pikachu_personal_v2';
 
-function personalLoad() {
+function pLoad() {
   try { return JSON.parse(localStorage.getItem(PERSONAL_KEY) || '[]'); } catch { return []; }
 }
-function personalSave(items) {
+function pSave(items) {
   try { localStorage.setItem(PERSONAL_KEY, JSON.stringify(items)); } catch {}
 }
 
+// ── Render ────────────────────────────────────────────
 function personalRender() {
-  const items   = personalLoad();
+  const items   = pLoad().filter(i => !i._delete);
   const listEl  = document.getElementById('personal-list');
   const emptyEl = document.getElementById('personal-empty');
   const clearEl = document.getElementById('personal-clear');
+  const syncEl  = document.getElementById('personal-sync-status');
   if (!listEl) return;
 
   if (clearEl) clearEl.style.display = items.some(i => i.done) ? '' : 'none';
   if (emptyEl) emptyEl.style.display = items.length === 0 ? '' : 'none';
 
+  const hasDirty = pLoad().some(i => i._dirty || i._delete);
+  if (syncEl) {
+    syncEl.textContent = hasDirty ? (navigator.onLine ? '↑ A sincronizar…' : '⚠ Offline — guardado localmente') : '';
+    syncEl.className   = 'personal-sync-status' + (hasDirty && !navigator.onLine ? ' offline' : '');
+  }
+
   listEl.innerHTML = items.map(item => `
-    <div class="p-item${item.done ? ' done' : ''}" data-id="${item.id}">
+    <div class="p-item${item.done ? ' done' : ''}${item._dirty ? ' p-dirty' : ''}" data-id="${escHtml(item.id)}">
       <label class="p-check">
         <input type="checkbox"${item.done ? ' checked' : ''} data-id="${escHtml(item.id)}">
         <span class="p-text">${escHtml(item.text)}</span>
@@ -736,38 +748,203 @@ function personalRender() {
     </div>`).join('');
 
   listEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      const arr  = personalLoad();
-      const item = arr.find(i => i.id === cb.dataset.id);
-      if (item) { item.done = cb.checked; personalSave(arr); personalRender(); }
-    });
+    cb.addEventListener('change', () => personalToggle(cb.dataset.id, cb.checked));
   });
   listEl.querySelectorAll('.p-del').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      personalSave(personalLoad().filter(i => i.id !== btn.dataset.id));
-      personalRender();
-    });
+    btn.addEventListener('click', e => { e.stopPropagation(); personalDelete(btn.dataset.id); });
   });
 }
 
-function personalAdd(text) {
-  text = (text || '').trim();
-  if (!text) return;
-  const items = personalLoad();
-  items.unshift({ id: Date.now() + '_' + Math.random().toString(36).slice(2, 6), text, done: false });
-  personalSave(items);
-  personalRender();
+// ── API helpers ───────────────────────────────────────
+function pApiUrl() { return apiUrl('personal_notes.php'); }
+
+async function pApiFetch(method, params = '', body = null) {
+  const url  = pApiUrl() + (params ? '?' + params : '');
+  const opts = {
+    method,
+    headers: { 'Authorization': `Bearer ${cfg.token}`, 'Content-Type': 'application/json' },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const resp = await fetch(url, opts);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
 }
 
+// ── Add ───────────────────────────────────────────────
+async function personalAdd(text) {
+  text = (text || '').trim();
+  if (!text) return;
+  const localId = 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5);
+  const items = pLoad();
+  items.unshift({ id: localId, text, done: false, _dirty: true });
+  pSave(items);
+  personalRender();
+
+  if (navigator.onLine) {
+    try {
+      const res  = await pApiFetch('POST', '', { text });
+      const arr  = pLoad();
+      const item = arr.find(i => i.id === localId);
+      if (item) { item.id = String(res.id); item.serverId = res.id; delete item._dirty; }
+      pSave(arr);
+      personalRender();
+    } catch { /* fica dirty, sync depois */ }
+  }
+}
+
+// ── Toggle done ───────────────────────────────────────
+async function personalToggle(id, done) {
+  const arr  = pLoad();
+  const item = arr.find(i => i.id === id);
+  if (!item) return;
+  item.done   = done;
+  item._dirty = true;
+  pSave(arr);
+  personalRender();
+
+  if (navigator.onLine && item.serverId) {
+    try {
+      await pApiFetch('PUT', `id=${item.serverId}`, { done });
+      const arr2  = pLoad();
+      const item2 = arr2.find(i => i.id === id);
+      if (item2) delete item2._dirty;
+      pSave(arr2);
+      personalRender();
+    } catch { /* fica dirty */ }
+  }
+}
+
+// ── Delete ────────────────────────────────────────────
+async function personalDelete(id) {
+  const arr  = pLoad();
+  const item = arr.find(i => i.id === id);
+  if (!item) return;
+
+  if (!item.serverId) {
+    // Nunca chegou ao servidor — apagar apenas localmente
+    pSave(arr.filter(i => i.id !== id));
+    personalRender();
+    return;
+  }
+
+  item._delete = true;
+  pSave(arr);
+  personalRender();
+
+  if (navigator.onLine) {
+    try {
+      await pApiFetch('DELETE', `id=${item.serverId}`);
+      pSave(pLoad().filter(i => i.id !== id));
+      personalRender();
+    } catch { /* fica marcado, sync depois */ }
+  }
+}
+
+// ── Clear done ────────────────────────────────────────
+function personalClearDone() {
+  const done = pLoad().filter(i => i.done && !i._delete);
+  done.forEach(i => personalDelete(i.id));
+}
+
+// ── Sync — envia todos os itens dirty ao servidor ─────
+async function personalSync() {
+  if (!navigator.onLine || !isConfigured()) return;
+  const arr = pLoad();
+  let changed = false;
+
+  for (const item of arr) {
+    try {
+      // Criar no servidor (item local ainda sem serverId)
+      if (item._dirty && !item.serverId && !item._delete) {
+        const res  = await pApiFetch('POST', '', { text: item.text });
+        item.id       = String(res.id);
+        item.serverId = res.id;
+        delete item._dirty;
+        changed = true;
+      }
+      // Actualizar no servidor
+      else if (item._dirty && item.serverId && !item._delete) {
+        await pApiFetch('PUT', `id=${item.serverId}`, { done: item.done, text: item.text });
+        delete item._dirty;
+        changed = true;
+      }
+      // Apagar no servidor
+      else if (item._delete && item.serverId) {
+        await pApiFetch('DELETE', `id=${item.serverId}`);
+        item._synced_delete = true;
+        changed = true;
+      }
+    } catch { /* tentar novamente na próxima sync */ }
+  }
+
+  if (changed) {
+    pSave(arr.filter(i => !i._synced_delete));
+    personalRender();
+  }
+}
+
+// ── Fetch from server → merge com localStorage ────────
+async function personalFetchFromServer() {
+  if (!navigator.onLine || !isConfigured()) return;
+  try {
+    const res    = await pApiFetch('GET');
+    const server = res.notes || [];
+    const local  = pLoad();
+
+    // Manter itens dirty/delete locais; substituir o resto pelos do servidor
+    const dirtyIds  = new Set(local.filter(i => i._dirty || i._delete).map(i => i.serverId).filter(Boolean));
+    const localOnly = local.filter(i => !i.serverId); // ainda sem ID de servidor
+
+    const merged = [
+      ...localOnly,
+      ...server
+        .filter(s => !dirtyIds.has(s.id))
+        .map(s => ({ id: String(s.id), serverId: s.id, text: s.text, done: s.done })),
+      ...local.filter(i => i.serverId && (i._dirty || i._delete)),
+    ];
+
+    pSave(merged);
+    personalRender();
+  } catch { /* offline ou erro — mostra o que está em cache */ }
+}
+
+// ── Init ──────────────────────────────────────────────
 function initPersonal() {
   const input    = document.getElementById('personal-input');
   const addBtn   = document.getElementById('personal-add-btn');
   const clearBtn = document.getElementById('personal-clear');
-  addBtn?.addEventListener('click', () => { if (input) { personalAdd(input.value); input.value = ''; input.focus(); } });
-  input?.addEventListener('keydown', e => { if (e.key === 'Enter') { personalAdd(input.value); input.value = ''; } });
-  clearBtn?.addEventListener('click', () => { personalSave(personalLoad().filter(i => !i.done)); personalRender(); });
+
+  addBtn?.addEventListener('click', () => {
+    if (input) { personalAdd(input.value); input.value = ''; input.focus(); }
+  });
+  input?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { personalAdd(input.value); input.value = ''; }
+  });
+  clearBtn?.addEventListener('click', personalClearDone);
+
+  // Migrar dados da v1 (localStorage antigo)
+  try {
+    const old = localStorage.getItem('pikachu_personal_v1');
+    if (old && !localStorage.getItem(PERSONAL_KEY)) {
+      const oldItems = JSON.parse(old).map(i => ({
+        id: 'local_' + (i.id || Date.now()),
+        text: i.text, done: i.done || false, _dirty: true,
+      }));
+      pSave(oldItems);
+      localStorage.removeItem('pikachu_personal_v1');
+    }
+  } catch {}
+
   personalRender();
+
+  // Fetch inicial do servidor (em background)
+  personalFetchFromServer().then(() => personalSync());
+
+  // Sync quando voltar online
+  window.addEventListener('online', () => {
+    personalSync().then(personalFetchFromServer);
+    showToast('Online — a sincronizar notas…', '');
+  });
 }
 
 function showPersonalView(show) {

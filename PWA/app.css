@@ -806,6 +806,19 @@ html, body {
   line-height: 1.7;
 }
 
+.personal-sync-status {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 2px 12px 4px;
+  flex-shrink: 0;
+  min-height: 16px;
+  transition: color 0.2s;
+}
+.personal-sync-status.offline { color: #fbbf24; }
+
+/* item com alterações por sincronizar */
+.p-item.p-dirty { border-left: 2px solid #fbbf2466; }
+
 .personal-clear {
   background: none;
   border: none;

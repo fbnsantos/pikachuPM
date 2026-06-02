@@ -938,7 +938,9 @@ async function personalSync() {
 
 async function personalFetchFromServer() {
   if (!canSync()) return;
+  const syncEl = document.getElementById('personal-sync-status');
   try {
+    if (syncEl) { syncEl.textContent = '↓ A sincronizar…'; syncEl.className = 'personal-sync-status'; }
     const res    = await apiFetch(pUrl());
     const server = res.notes || [];
     const local  = personalLoad();
@@ -950,7 +952,9 @@ async function personalFetchFromServer() {
       ...local.filter(i => i.serverId && (i._dirty || i._delete)),
     ]);
     personalRender();
-  } catch { /* offline ou erro */ }
+  } catch(e) {
+    if (syncEl) { syncEl.textContent = '⚠ ' + e.message; syncEl.className = 'personal-sync-status offline'; }
+  }
 }
 
 function initPersonal() {

@@ -886,7 +886,9 @@ async function personalSync() {
 // ── Fetch from server → merge com localStorage ────────
 async function personalFetchFromServer() {
   if (!navigator.onLine || !isConfigured()) return;
+  const syncEl = document.getElementById('personal-sync-status');
   try {
+    if (syncEl) { syncEl.textContent = '↓ A sincronizar…'; syncEl.className = 'personal-sync-status'; }
     const res    = await pApiFetch('GET');
     const server = res.notes || [];
     const local  = pLoad();
@@ -905,7 +907,9 @@ async function personalFetchFromServer() {
 
     pSave(merged);
     personalRender();
-  } catch { /* offline ou erro — mostra o que está em cache */ }
+  } catch(e) {
+    if (syncEl) { syncEl.textContent = '⚠ Erro sync: ' + e.message; syncEl.className = 'personal-sync-status offline'; }
+  }
 }
 
 // ── Init ──────────────────────────────────────────────
@@ -1242,23 +1246,41 @@ function registerSW() {
 async function checkForUpdate() {
   const btn = document.getElementById('btn-update-app');
   if (btn) btn.classList.add('spin');
+  showToast('A verificar actualização…', '');
 
   try {
-    const reg = _swReg || await navigator.serviceWorker.getRegistration('./sw.js');
-    if (!reg) { showToast('Service worker não disponível', 'error'); return; }
+    // 1. Buscar sw.js do servidor ignorando TODOS os caches
+    const fresh    = await fetch('./sw.js?_=' + Date.now(), { cache: 'no-store' });
+    const freshTxt = await fresh.text();
+    const serverV  = parseInt((freshTxt.match(/pikachu-pwa-v(\d+)/) || ['','0'])[1], 10);
 
-    let foundUpdate = false;
-    reg.addEventListener('updatefound', () => { foundUpdate = true; }, { once: true });
+    // 2. Versão instalada: ler do nome do cache activo
+    const cacheKeys = await caches.keys();
+    const activeKey = cacheKeys.find(k => /pikachu-pwa-v\d+/.test(k)) || '';
+    const localV    = parseInt((activeKey.match(/v(\d+)/) || ['','0'])[1], 10);
 
-    await reg.update();   // busca sw.js da rede (bypassando HTTP cache)
-
-    // Aguarda brevemente — se houver update o controllerchange recarrega a página
-    await new Promise(r => setTimeout(r, 1800));
-
-    if (!foundUpdate) showToast('Já tens a versão mais recente ✓', 'success');
-
+    if (serverV > 0 && serverV !== localV) {
+      // Há versão nova → limpar caches + desregistar SW + recarregar
+      showToast(`Nova versão (v${serverV})! A actualizar…`, 'success');
+      await Promise.all(cacheKeys.map(k => caches.delete(k)));
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+      setTimeout(() => window.location.reload(), 600);
+    } else {
+      // Tentar update normal como fallback
+      const reg = _swReg || await navigator.serviceWorker.getRegistration('./sw.js');
+      if (reg) {
+        let found = false;
+        reg.addEventListener('updatefound', () => { found = true; }, { once: true });
+        await reg.update();
+        await new Promise(r => setTimeout(r, 2500));
+        if (!found) showToast('Já tens a versão mais recente ✓', 'success');
+      } else {
+        showToast('Já tens a versão mais recente ✓', 'success');
+      }
+    }
   } catch(e) {
-    showToast('Erro ao verificar: ' + e.message, 'error');
+    showToast('Erro: ' + e.message, 'error');
   } finally {
     if (btn) btn.classList.remove('spin');
   }

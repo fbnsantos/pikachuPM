@@ -744,11 +744,15 @@ function personalRender() {
         <input type="checkbox"${item.done ? ' checked' : ''} data-id="${escHtml(item.id)}">
         <span class="p-text">${escHtml(item.text)}</span>
       </label>
+      <button class="p-speak" data-text="${escHtml(item.text)}" title="Ouvir nota">🔊</button>
       <button class="p-del" data-id="${escHtml(item.id)}" title="Apagar">✕</button>
     </div>`).join('');
 
   listEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', () => personalToggle(cb.dataset.id, cb.checked));
+  });
+  listEl.querySelectorAll('.p-speak').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); speakText(btn.dataset.text, btn); });
   });
   listEl.querySelectorAll('.p-del').forEach(btn => {
     btn.addEventListener('click', e => { e.stopPropagation(); personalDelete(btn.dataset.id); });
@@ -912,6 +916,93 @@ async function personalFetchFromServer() {
   }
 }
 
+// ══════════════════════════════════════════════════════
+// VOZ — SpeechRecognition + SpeechSynthesis
+// ══════════════════════════════════════════════════════
+let _recognition = null;
+
+function startVoiceInput() {
+  const SR     = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const micBtn = document.getElementById('personal-mic-btn');
+  const input  = document.getElementById('personal-input');
+
+  if (!SR) {
+    showToast('Ditado por voz não suportado neste browser', 'error');
+    return;
+  }
+
+  // A gravar → parar
+  if (_recognition) {
+    _recognition.stop();
+    return;
+  }
+
+  _recognition = new SR();
+  _recognition.lang            = navigator.language || 'pt-PT';
+  _recognition.continuous      = false;
+  _recognition.interimResults  = true;
+  _recognition.maxAlternatives = 1;
+
+  if (micBtn) micBtn.classList.add('listening');
+  if (input)  input.placeholder = '🎤 A ouvir…';
+
+  _recognition.onresult = e => {
+    const t = Array.from(e.results).map(r => r[0].transcript).join('');
+    if (input) input.value = t;
+  };
+
+  _recognition.onend = () => {
+    _recognition = null;
+    if (micBtn) micBtn.classList.remove('listening');
+    if (input)  input.placeholder = 'Nova nota pessoal…';
+    // Se ficou texto, guardar automaticamente
+    if (input?.value.trim()) {
+      personalAdd(input.value);
+      input.value = '';
+    }
+  };
+
+  _recognition.onerror = e => {
+    _recognition = null;
+    if (micBtn) micBtn.classList.remove('listening');
+    if (input)  input.placeholder = 'Nova nota pessoal…';
+    if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      showToast('Microfone: ' + e.error, 'error');
+    }
+  };
+
+  try { _recognition.start(); }
+  catch(e) {
+    _recognition = null;
+    if (micBtn) micBtn.classList.remove('listening');
+    if (input)  input.placeholder = 'Nova nota pessoal…';
+    showToast('Erro ao aceder ao microfone', 'error');
+  }
+}
+
+function speakText(text, btn = null) {
+  if (!window.speechSynthesis) { showToast('Síntese de voz não suportada', 'error'); return; }
+
+  // A falar → parar
+  if (window.speechSynthesis.speaking) {
+    window.speechSynthesis.cancel();
+    document.querySelectorAll('.p-speak.speaking').forEach(b => b.classList.remove('speaking'));
+    return;
+  }
+
+  const utt  = new SpeechSynthesisUtterance(text);
+  utt.lang   = navigator.language || 'pt-PT';
+  utt.rate   = 1.0;
+  utt.pitch  = 1.0;
+  utt.volume = 1.0;
+
+  if (btn) btn.classList.add('speaking');
+  utt.onend   = () => { if (btn) btn.classList.remove('speaking'); };
+  utt.onerror = () => { if (btn) btn.classList.remove('speaking'); };
+
+  window.speechSynthesis.speak(utt);
+}
+
 // ── Sync manual ───────────────────────────────────────
 async function personalSyncManual() {
   const btn    = document.getElementById('personal-sync-btn');
@@ -946,6 +1037,7 @@ function initPersonal() {
   });
   clearBtn?.addEventListener('click', personalClearDone);
   syncBtn?.addEventListener('click', personalSyncManual);
+  document.getElementById('personal-mic-btn')?.addEventListener('click', startVoiceInput);
 
   // Migrar dados da v1 (localStorage antigo)
   try {

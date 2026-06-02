@@ -85,21 +85,82 @@ async function deleteTodo(id) {
 
 async function fetchSprints() {
   const data = await apiFetch('sprints.php');
-  return data.sprints || [];
+  return Array.isArray(data) ? data : (data.sprints || []);
 }
 
 async function fetchDeliverables() {
   const data = await apiFetch('deliverables.php');
-  return data.deliverables || [];
+  return Array.isArray(data) ? data : (data.deliverables || []);
 }
 
 async function fetchLeads() {
   const data = await apiFetch('leads.php');
-  return data.leads || [];
+  return Array.isArray(data) ? data : (data.leads || []);
+}
+
+async function fetchCalendar() {
+  const data = await apiFetch('calendar.php?days=30');
+  return Array.isArray(data) ? data : (data.events || []);
 }
 
 // ══════════════════════════════════════════════════════
 // RENDER: TODOS
+// ══════════════════════════════════════════════════════
+// CALENDAR HELPERS
+// ══════════════════════════════════════════════════════
+const CAL_COLORS = {
+  green: '#22c55e', grey: '#6b7280', gray: '#6b7280',
+  blue: '#3b82f6', orange: '#f59e0b', purple: '#a855f7', red: '#ef4444',
+};
+const TIPO_LABELS = {
+  ferias: 'Férias', aulas: 'Aulas', demo: 'Demo',
+  campo: 'Campo', tribe: 'Tribe', outro: 'Outro',
+};
+
+function formatCalDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = Math.round((d - today) / 86400000);
+  if (diff === 0) return { label: 'Hoje', isToday: true };
+  if (diff === 1) return { label: 'Amanhã', isToday: false };
+  if (diff <= 6) return { label: d.toLocaleDateString('pt-PT', { weekday: 'short' }), isToday: false };
+  return { label: d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' }), isToday: false };
+}
+
+function buildCalEvent(ev) {
+  const color = CAL_COLORS[ev.cor] || CAL_COLORS[ev.tipo] || '#6b7280';
+  const { label, isToday } = formatCalDate(ev.data);
+  const tipo = TIPO_LABELS[ev.tipo] || ev.tipo || '';
+  const hora = ev.hora ? ev.hora.slice(0, 5) + ' · ' : '';
+  return `<div class="cal-event${isToday ? ' cal-today' : ''}">
+    <span class="cal-dot" style="background:${color}"></span>
+    <span class="cal-date">${escHtml(label)}</span>
+    <span class="cal-desc">${escHtml(hora + (ev.descricao || tipo))}</span>
+    <span class="cal-tipo">${escHtml(tipo)}</span>
+  </div>`;
+}
+
+async function loadCalendar() {
+  const listEl  = document.getElementById('calendar-list');
+  const emptyEl = document.getElementById('cal-empty');
+  const errEl   = document.getElementById('cal-error');
+  const spinEl  = document.getElementById('cal-loading');
+  if (!listEl) return;
+  if (spinEl) spinEl.style.display = '';
+  listEl.innerHTML = '';
+  if (emptyEl) emptyEl.style.display = 'none';
+  if (errEl)   errEl.style.display   = 'none';
+  try {
+    const events = await fetchCalendar();
+    if (spinEl) spinEl.style.display = 'none';
+    if (!events.length) { if (emptyEl) emptyEl.style.display = ''; return; }
+    listEl.innerHTML = events.map(buildCalEvent).join('');
+  } catch(e) {
+    if (spinEl) spinEl.style.display = 'none';
+    if (errEl)  { errEl.textContent = 'Erro: ' + e.message; errEl.style.display = ''; }
+  }
+}
+
 // ══════════════════════════════════════════════════════
 const ESTADO_LABEL = {
   'aberta':      'Aberta',
@@ -228,16 +289,21 @@ function buildPkRow(item, isLead = false) {
     : '';
   const roleClass = item.is_responsible ? '' : 'pk-role-member';
   const roleLabel = item.is_responsible ? 'Responsável' : 'Membro';
-  const dateEnd   = item.data_fim ? fmtDate(item.data_fim) : '';
+  // data_fim (sprints/leads) ou due_date (deliverables)
+  const dateEnd   = item.data_fim ? fmtDate(item.data_fim) : (item.due_date ? fmtDate(item.due_date) : '');
+  // título: varios campos possíveis consoante a API
+  const titulo    = item.titulo || item.nome || item.title || '';
+  // projeto: varios campos possíveis
+  const projeto   = item.projeto_nome || item.project_name || item.project_title || item.short_name || '';
 
   return `<div class="pk-row">
     <div class="pk-row-main">
-      <span class="pk-title">${escHtml(item.titulo || item.nome || '')}</span>
+      <span class="pk-title">${escHtml(titulo)}</span>
       ${relevDots ? `<span class="pk-relevance">${relevDots}</span>` : ''}
       ${isLead ? `<span class="pk-role ${roleClass}">${roleLabel}</span>` : ''}
     </div>
     <div class="pk-row-meta">
-      ${item.projeto_nome || item.project_name ? `<span class="pk-project">${escHtml(item.projeto_nome || item.project_name)}</span>` : ''}
+      ${projeto ? `<span class="pk-project">${escHtml(projeto)}</span>` : ''}
       ${dateEnd ? `<span>📅 ${dateEnd}</span>` : ''}
     </div>
   </div>`;
@@ -297,7 +363,7 @@ async function loadLeads() {
 // ══════════════════════════════════════════════════════
 // BOTTOM PANEL
 // ══════════════════════════════════════════════════════
-let activePanel     = 'sprints';
+let activePanel     = 'calendar';
 let panelOpen       = true;
 let panelExpandedH  = 220;  // updated by drag and localStorage
 
@@ -330,13 +396,14 @@ function switchPanel(panel) {
   const target = document.getElementById('panel-' + panel);
   if (target) { target.style.display = ''; target.classList.add('active'); }
 
-  // Load data on first switch
+  // Load data on first switch (lazy)
+  if (panel === 'calendar'     && !calendar_loaded)     { calendar_loaded     = true; loadCalendar(); }
   if (panel === 'sprints'      && !sprints_loaded)      { sprints_loaded      = true; loadSprints(); }
   if (panel === 'deliverables' && !deliverables_loaded)  { deliverables_loaded = true; loadDeliverables(); }
   if (panel === 'leads'        && !leads_loaded)         { leads_loaded        = true; loadLeads(); }
 }
 
-let sprints_loaded = false, deliverables_loaded = false, leads_loaded = false;
+let calendar_loaded = false, sprints_loaded = false, deliverables_loaded = false, leads_loaded = false;
 
 // ══════════════════════════════════════════════════════
 // MODAL: Create / Edit Todo
@@ -451,7 +518,7 @@ function saveSetup() {
   document.getElementById('setup-screen').style.display  = 'none';
   document.getElementById('main-content').style.display  = '';
   loadTodos();
-  loadSprints(); sprints_loaded = true;
+  loadCalendar(); calendar_loaded = true;
 }
 
 // ══════════════════════════════════════════════════════
@@ -1133,10 +1200,11 @@ function attachEvents() {
   // Refresh
   document.getElementById('btn-refresh').addEventListener('click', () => {
     loadTodos();
-    sprints_loaded = deliverables_loaded = leads_loaded = false;
-    if (activePanel === 'sprints')      loadSprints();
-    if (activePanel === 'deliverables') loadDeliverables();
-    if (activePanel === 'leads')        loadLeads();
+    calendar_loaded = sprints_loaded = deliverables_loaded = leads_loaded = false;
+    if (activePanel === 'calendar')     { calendar_loaded     = true; loadCalendar(); }
+    if (activePanel === 'sprints')      { sprints_loaded      = true; loadSprints(); }
+    if (activePanel === 'deliverables') { deliverables_loaded = true; loadDeliverables(); }
+    if (activePanel === 'leads')        { leads_loaded        = true; loadLeads(); }
   });
 
   // Update app
@@ -1436,7 +1504,7 @@ function init() {
     document.getElementById('setup-screen').style.display = 'none';
     document.getElementById('main-content').style.display = '';
     loadTodos();
-    loadSprints(); sprints_loaded = true;
+    loadCalendar(); calendar_loaded = true;
 
     if (cfg.mqttEnabled && cfg.mqttBroker) {
       if (typeof mqtt !== 'undefined') mqttConnect();

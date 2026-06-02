@@ -738,6 +738,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     <a class="btn-api-token btn-pwa" href="PWA/index.html" target="_blank" title="Abrir app móvel (PWA)">
                         <i class="bi bi-phone"></i> App móvel
                     </a>
+                    <button class="btn-api-token btn-ext" onclick="pkExtModal(true)" title="Instalar extensão Chrome">
+                        <i class="bi bi-puzzle"></i> Extensão Chrome
+                    </button>
                 </h1>
                 
                 <?php if (!empty($notices)): ?>
@@ -1407,6 +1410,16 @@ document.addEventListener('DOMContentLoaded', function() {
     border-color: #34d399;
     color: #fff;
 }
+.btn-ext {
+    background: rgba(99,102,241,0.18);
+    border-color: rgba(99,102,241,0.5);
+    color: #c7d2fe;
+}
+.btn-ext:hover {
+    background: rgba(99,102,241,0.32);
+    border-color: #818cf8;
+    color: #fff;
+}
 #pk-token-modal {
     position: fixed;
     inset: 0;
@@ -1504,6 +1517,129 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 </style>
 
+<!-- Modal: Extensão Chrome -->
+<div id="pk-ext-modal" style="display:none" onclick="if(event.target===this)pkExtModal(false)" role="dialog" aria-modal="true">
+    <div id="pk-ext-box">
+        <div id="pk-ext-header">
+            <span><i class="bi bi-puzzle-fill"></i> Extensão Chrome</span>
+            <button onclick="pkExtModal(false)" title="Fechar">&times;</button>
+        </div>
+        <div id="pk-ext-body">
+            <p>Instala a extensão <strong>pikachuPM</strong> no Chrome para teres acesso rápido aos todos, sprints, pomodoro e MQTT no painel lateral.</p>
+            <a href="chrome-extension.zip" download class="pk-ext-download">
+                <i class="bi bi-download"></i> Descarregar extensão (.zip)
+            </a>
+            <div class="pk-ext-steps">
+                <div class="pk-ext-step"><span class="pk-ext-num">1</span><span>Descomprime o ficheiro <code>.zip</code> numa pasta</span></div>
+                <div class="pk-ext-step"><span class="pk-ext-num">2</span><span>Abre <code>chrome://extensions</code> no Chrome</span></div>
+                <div class="pk-ext-step"><span class="pk-ext-num">3</span><span>Ativa <strong>Modo de programador</strong> (canto superior direito)</span></div>
+                <div class="pk-ext-step"><span class="pk-ext-num">4</span><span>Clica <strong>Carregar sem compactação</strong> e seleciona a pasta</span></div>
+                <div class="pk-ext-step"><span class="pk-ext-num">5</span><span>Abre a extensão e cola o teu <strong>Token API</strong> nas definições</span></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+#pk-ext-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    backdrop-filter: blur(3px);
+}
+#pk-ext-box {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    width: 480px;
+    max-width: 95vw;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+    animation: pkModalIn 0.18s ease;
+}
+#pk-ext-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid #334155;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #f1f5f9;
+}
+#pk-ext-header button {
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    color: #64748b;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 2px;
+    transition: color 0.15s;
+}
+#pk-ext-header button:hover { color: #f1f5f9; }
+#pk-ext-body {
+    padding: 18px 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    color: #94a3b8;
+    font-size: 0.88rem;
+}
+#pk-ext-body strong { color: #f1f5f9; }
+#pk-ext-body p { line-height: 1.6; }
+.pk-ext-download {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #6366f1;
+    color: #fff;
+    text-decoration: none;
+    padding: 9px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.88rem;
+    transition: background 0.15s;
+    align-self: flex-start;
+}
+.pk-ext-download:hover { background: #4f46e5; color: #fff; }
+.pk-ext-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+.pk-ext-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    line-height: 1.5;
+}
+.pk-ext-num {
+    background: rgba(99,102,241,0.25);
+    color: #a5b4fc;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+#pk-ext-body code {
+    background: rgba(255,255,255,0.07);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    color: #94a3b8;
+}
+</style>
+
 <script>
 function pkApiTokenModal(open) {
     document.getElementById('pk-token-modal').style.display = open ? 'flex' : 'none';
@@ -1513,6 +1649,10 @@ function pkApiTokenModal(open) {
         btn.classList.remove('copied');
         document.getElementById('pk-copy-icon').className = 'bi bi-clipboard';
     }
+}
+
+function pkExtModal(open) {
+    document.getElementById('pk-ext-modal').style.display = open ? 'flex' : 'none';
 }
 
 function pkCopyToken() {

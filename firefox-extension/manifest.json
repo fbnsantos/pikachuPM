@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "pikachuPM Todos",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "Gere os teus todos do pikachuPM diretamente do browser.",
   "browser_specific_settings": {
     "gecko": {

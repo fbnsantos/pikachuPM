@@ -735,6 +735,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     <button class="btn-api-token" onclick="pkApiTokenModal(true)" title="Ver token da API (para extensão Chrome)">
                         <i class="bi bi-key"></i> Token API
                     </button>
+                    <a class="btn-api-token btn-pwa" href="PWA/index.html" target="_blank" title="Abrir app móvel (PWA)">
+                        <i class="bi bi-phone"></i> App móvel
+                    </a>
                 </h1>
                 
                 <?php if (!empty($notices)): ?>
@@ -1392,6 +1395,17 @@ document.addEventListener('DOMContentLoaded', function() {
 .btn-api-token:hover {
     background: rgba(255,255,255,0.28);
     border-color: rgba(255,255,255,0.6);
+}
+.btn-pwa {
+    text-decoration: none;
+    background: rgba(52,211,153,0.18);
+    border-color: rgba(52,211,153,0.5);
+    color: #a7f3d0;
+}
+.btn-pwa:hover {
+    background: rgba(52,211,153,0.32);
+    border-color: #34d399;
+    color: #fff;
 }
 #pk-token-modal {
     position: fixed;

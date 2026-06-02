@@ -724,6 +724,19 @@ html, body {
   line-height: 1;
 }
 .personal-add-row button:active { background: #16a34a; color: #fff; }
+.personal-sync-btn {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-muted) !important;
+  font-size: 15px !important;
+  font-weight: 400 !important;
+}
+.personal-sync-btn:hover, .personal-sync-btn:active {
+  color: var(--primary) !important;
+  border-color: var(--primary) !important;
+  background: var(--bg-card) !important;
+}
+.personal-sync-btn.spin { animation: spin 0.8s linear infinite; color: var(--primary) !important; }
 
 .personal-list {
   flex: 1;

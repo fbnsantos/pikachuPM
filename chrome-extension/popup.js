@@ -957,13 +957,32 @@ async function personalFetchFromServer() {
   }
 }
 
+async function personalSyncManual() {
+  const btn    = document.getElementById('personal-sync-btn');
+  const syncEl = document.getElementById('personal-sync-status');
+  if (btn) btn.classList.add('spin');
+  if (syncEl) { syncEl.textContent = '↓ A sincronizar…'; syncEl.className = 'personal-sync-status'; }
+  try {
+    await personalSync();
+    await personalFetchFromServer();
+    if (syncEl && !syncEl.textContent.startsWith('⚠')) {
+      syncEl.textContent = '✓ Sincronizado';
+      setTimeout(() => { if (syncEl.textContent === '✓ Sincronizado') syncEl.textContent = ''; }, 2500);
+    }
+  } finally {
+    if (btn) btn.classList.remove('spin');
+  }
+}
+
 function initPersonal() {
   const input    = document.getElementById('personal-input');
   const addBtn   = document.getElementById('personal-add-btn');
   const clearBtn = document.getElementById('personal-clear');
+  const syncBtn  = document.getElementById('personal-sync-btn');
   addBtn?.addEventListener('click', () => { if (input) { personalAdd(input.value); input.value = ''; input.focus(); } });
   input?.addEventListener('keydown', e => { if (e.key === 'Enter') { personalAdd(input.value); input.value = ''; } });
   clearBtn?.addEventListener('click', personalClearDone);
+  syncBtn?.addEventListener('click', personalSyncManual);
 
   // Migrar v1
   try {

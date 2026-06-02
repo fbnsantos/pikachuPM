@@ -675,6 +675,16 @@ body.compact .fab { width: 34px; height: 34px; font-size: 20px; bottom: 10px; ri
   line-height: 1.7;
 }
 
+.personal-sync-status {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 2px 10px 3px;
+  flex-shrink: 0;
+  min-height: 14px;
+}
+.personal-sync-status.offline { color: #fbbf24; }
+.p-item.p-dirty { border-left: 2px solid #fbbf2455; }
+
 .personal-clear {
   background: none;
   border: none;

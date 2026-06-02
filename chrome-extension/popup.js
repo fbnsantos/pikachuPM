@@ -804,8 +804,9 @@ function buildLeadRow(l) {
   return row;
 }
 
-// ── Personal checklist (local, never sent to server) ─────────
-const PERSONAL_KEY = 'pikachu_personal_v1';
+// ── Personal checklist — offline-first, sincronizado com o servidor ──────────
+// item: { id, serverId?, text, done, _dirty?, _delete? }
+const PERSONAL_KEY = 'pikachu_personal_v2';
 
 function personalLoad() {
   try { return JSON.parse(localStorage.getItem(PERSONAL_KEY) || '[]'); } catch { return []; }
@@ -815,17 +816,24 @@ function personalSave(items) {
 }
 
 function personalRender() {
-  const items   = personalLoad();
+  const items   = personalLoad().filter(i => !i._delete);
   const listEl  = document.getElementById('personal-list');
   const emptyEl = document.getElementById('personal-empty');
   const clearEl = document.getElementById('personal-clear');
+  const syncEl  = document.getElementById('personal-sync-status');
   if (!listEl) return;
 
   if (clearEl) clearEl.style.display = items.some(i => i.done) ? '' : 'none';
   if (emptyEl) emptyEl.style.display = items.length === 0 ? '' : 'none';
 
+  const hasDirty = personalLoad().some(i => i._dirty || i._delete);
+  if (syncEl) {
+    syncEl.textContent = hasDirty ? (navigator.onLine ? '↑ A sincronizar…' : '⚠ Offline — guardado localmente') : '';
+    syncEl.className   = 'personal-sync-status' + (hasDirty && !navigator.onLine ? ' offline' : '');
+  }
+
   listEl.innerHTML = items.map(item => `
-    <div class="p-item${item.done ? ' done' : ''}" data-id="${item.id}">
+    <div class="p-item${item.done ? ' done' : ''}${item._dirty ? ' p-dirty' : ''}" data-id="${escapeHtml(item.id)}">
       <label class="p-check">
         <input type="checkbox"${item.done ? ' checked' : ''} data-id="${escapeHtml(item.id)}">
         <span class="p-text">${escapeHtml(item.text)}</span>
@@ -834,28 +842,115 @@ function personalRender() {
     </div>`).join('');
 
   listEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      const arr  = personalLoad();
-      const item = arr.find(i => i.id === cb.dataset.id);
-      if (item) { item.done = cb.checked; personalSave(arr); personalRender(); }
-    });
+    cb.addEventListener('change', () => personalToggle(cb.dataset.id, cb.checked));
   });
   listEl.querySelectorAll('.p-del').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      personalSave(personalLoad().filter(i => i.id !== btn.dataset.id));
-      personalRender();
-    });
+    btn.addEventListener('click', e => { e.stopPropagation(); personalDelete(btn.dataset.id); });
   });
 }
 
-function personalAdd(text) {
+function pUrl(params = '') {
+  return '/api/personal_notes.php' + (params ? '?' + params : '');
+}
+function canSync() { return !!(navigator.onLine && apiUrl && token); }
+
+async function personalAdd(text) {
   text = (text || '').trim();
   if (!text) return;
+  const localId = 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5);
   const items = personalLoad();
-  items.unshift({ id: Date.now() + '_' + Math.random().toString(36).slice(2, 6), text, done: false });
+  items.unshift({ id: localId, text, done: false, _dirty: true });
   personalSave(items);
   personalRender();
+
+  if (canSync()) {
+    try {
+      const res  = await apiFetch(pUrl(), { method: 'POST', body: JSON.stringify({ text }) });
+      const arr  = personalLoad();
+      const item = arr.find(i => i.id === localId);
+      if (item) { item.id = String(res.id); item.serverId = res.id; delete item._dirty; }
+      personalSave(arr); personalRender();
+    } catch { /* fica dirty, sync depois */ }
+  }
+}
+
+async function personalToggle(id, done) {
+  const arr  = personalLoad();
+  const item = arr.find(i => i.id === id);
+  if (!item) return;
+  item.done = done; item._dirty = true;
+  personalSave(arr); personalRender();
+
+  if (canSync() && item.serverId) {
+    try {
+      await apiFetch(pUrl(`id=${item.serverId}`), { method: 'PUT', body: JSON.stringify({ done }) });
+      const arr2  = personalLoad();
+      const item2 = arr2.find(i => i.id === id);
+      if (item2) delete item2._dirty;
+      personalSave(arr2); personalRender();
+    } catch { /* fica dirty */ }
+  }
+}
+
+async function personalDelete(id) {
+  const arr  = personalLoad();
+  const item = arr.find(i => i.id === id);
+  if (!item) return;
+
+  if (!item.serverId) {
+    personalSave(arr.filter(i => i.id !== id)); personalRender(); return;
+  }
+  item._delete = true;
+  personalSave(arr); personalRender();
+
+  if (canSync()) {
+    try {
+      await apiFetch(pUrl(`id=${item.serverId}`), { method: 'DELETE' });
+      personalSave(personalLoad().filter(i => i.id !== id)); personalRender();
+    } catch { /* fica marcado */ }
+  }
+}
+
+function personalClearDone() {
+  personalLoad().filter(i => i.done && !i._delete).forEach(i => personalDelete(i.id));
+}
+
+async function personalSync() {
+  if (!canSync()) return;
+  const arr = personalLoad();
+  let changed = false;
+  for (const item of arr) {
+    try {
+      if (item._dirty && !item.serverId && !item._delete) {
+        const res = await apiFetch(pUrl(), { method: 'POST', body: JSON.stringify({ text: item.text }) });
+        item.id = String(res.id); item.serverId = res.id; delete item._dirty; changed = true;
+      } else if (item._dirty && item.serverId && !item._delete) {
+        await apiFetch(pUrl(`id=${item.serverId}`), { method: 'PUT', body: JSON.stringify({ done: item.done, text: item.text }) });
+        delete item._dirty; changed = true;
+      } else if (item._delete && item.serverId) {
+        await apiFetch(pUrl(`id=${item.serverId}`), { method: 'DELETE' });
+        item._synced_delete = true; changed = true;
+      }
+    } catch { /* tentar depois */ }
+  }
+  if (changed) { personalSave(arr.filter(i => !i._synced_delete)); personalRender(); }
+}
+
+async function personalFetchFromServer() {
+  if (!canSync()) return;
+  try {
+    const res    = await apiFetch(pUrl());
+    const server = res.notes || [];
+    const local  = personalLoad();
+    const dirtyIds  = new Set(local.filter(i => i._dirty || i._delete).map(i => i.serverId).filter(Boolean));
+    const localOnly = local.filter(i => !i.serverId);
+    personalSave([
+      ...localOnly,
+      ...server.filter(s => !dirtyIds.has(s.id)).map(s => ({ id: String(s.id), serverId: s.id, text: s.text, done: s.done })),
+      ...local.filter(i => i.serverId && (i._dirty || i._delete)),
+    ]);
+    personalRender();
+  } catch { /* offline ou erro */ }
 }
 
 function initPersonal() {
@@ -864,8 +959,21 @@ function initPersonal() {
   const clearBtn = document.getElementById('personal-clear');
   addBtn?.addEventListener('click', () => { if (input) { personalAdd(input.value); input.value = ''; input.focus(); } });
   input?.addEventListener('keydown', e => { if (e.key === 'Enter') { personalAdd(input.value); input.value = ''; } });
-  clearBtn?.addEventListener('click', () => { personalSave(personalLoad().filter(i => !i.done)); personalRender(); });
+  clearBtn?.addEventListener('click', personalClearDone);
+
+  // Migrar v1
+  try {
+    const old = localStorage.getItem('pikachu_personal_v1');
+    if (old && !localStorage.getItem(PERSONAL_KEY)) {
+      const migrated = JSON.parse(old).map(i => ({ id: 'local_' + (i.id || Date.now()), text: i.text, done: !!i.done, _dirty: true }));
+      personalSave(migrated);
+      localStorage.removeItem('pikachu_personal_v1');
+    }
+  } catch {}
+
   personalRender();
+  personalFetchFromServer().then(() => personalSync());
+  window.addEventListener('online', () => personalSync().then(personalFetchFromServer));
 }
 
 // Helper: show/hide todos vs personal panel

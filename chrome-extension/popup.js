@@ -804,6 +804,84 @@ function buildLeadRow(l) {
   return row;
 }
 
+// ── Personal checklist (local, never sent to server) ─────────
+const PERSONAL_KEY = 'pikachu_personal_v1';
+
+function personalLoad() {
+  try { return JSON.parse(localStorage.getItem(PERSONAL_KEY) || '[]'); } catch { return []; }
+}
+function personalSave(items) {
+  try { localStorage.setItem(PERSONAL_KEY, JSON.stringify(items)); } catch {}
+}
+
+function personalRender() {
+  const items   = personalLoad();
+  const listEl  = document.getElementById('personal-list');
+  const emptyEl = document.getElementById('personal-empty');
+  const clearEl = document.getElementById('personal-clear');
+  if (!listEl) return;
+
+  if (clearEl) clearEl.style.display = items.some(i => i.done) ? '' : 'none';
+  if (emptyEl) emptyEl.style.display = items.length === 0 ? '' : 'none';
+
+  listEl.innerHTML = items.map(item => `
+    <div class="p-item${item.done ? ' done' : ''}" data-id="${item.id}">
+      <label class="p-check">
+        <input type="checkbox"${item.done ? ' checked' : ''} data-id="${escapeHtml(item.id)}">
+        <span class="p-text">${escapeHtml(item.text)}</span>
+      </label>
+      <button class="p-del" data-id="${escapeHtml(item.id)}" title="Apagar">✕</button>
+    </div>`).join('');
+
+  listEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const arr  = personalLoad();
+      const item = arr.find(i => i.id === cb.dataset.id);
+      if (item) { item.done = cb.checked; personalSave(arr); personalRender(); }
+    });
+  });
+  listEl.querySelectorAll('.p-del').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      personalSave(personalLoad().filter(i => i.id !== btn.dataset.id));
+      personalRender();
+    });
+  });
+}
+
+function personalAdd(text) {
+  text = (text || '').trim();
+  if (!text) return;
+  const items = personalLoad();
+  items.unshift({ id: Date.now() + '_' + Math.random().toString(36).slice(2, 6), text, done: false });
+  personalSave(items);
+  personalRender();
+}
+
+function initPersonal() {
+  const input    = document.getElementById('personal-input');
+  const addBtn   = document.getElementById('personal-add-btn');
+  const clearBtn = document.getElementById('personal-clear');
+  addBtn?.addEventListener('click', () => { if (input) { personalAdd(input.value); input.value = ''; input.focus(); } });
+  input?.addEventListener('keydown', e => { if (e.key === 'Enter') { personalAdd(input.value); input.value = ''; } });
+  clearBtn?.addEventListener('click', () => { personalSave(personalLoad().filter(i => !i.done)); personalRender(); });
+  personalRender();
+}
+
+// Helper: show/hide todos vs personal panel
+function showPersonalView(show) {
+  const searchBar    = document.getElementById('search-bar');
+  const personalEl   = document.getElementById('personal-panel');
+  if (searchBar)  searchBar.style.display  = show ? 'none' : '';
+  elTodosList.style.display    = show ? 'none' : '';
+  elLoading.style.display      = show ? 'none' : '';
+  elErrorMsg.style.display     = show ? 'none' : '';
+  elEmptyState.style.display   = show ? 'none' : '';
+  elFab.style.display          = show ? 'none' : 'flex';
+  if (personalEl) personalEl.style.display = show ? 'flex' : 'none';
+  if (show) personalRender();
+}
+
 // ── Compact mode (side panel only) ────────────────────────────
 function applyCompact(active) {
   document.body.classList.toggle('compact', active);
@@ -931,6 +1009,8 @@ async function init() {
   elMainContent.style.display   = 'flex';
   elFab.style.display           = 'flex';
 
+  initPersonal();
+
   if (isSidePanel) {
     applyCompact(config.compactMode);
     startClock();
@@ -1004,7 +1084,12 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     currentFilter = tab.dataset.state;
-    renderTodos();
+    if (currentFilter === 'personal') {
+      showPersonalView(true);
+    } else {
+      showPersonalView(false);
+      renderTodos();
+    }
   });
 });
 

@@ -72,10 +72,11 @@
       <button class="tab" data-state="aberta">Abertas</button>
       <button class="tab" data-state="em execução">A fazer</button>
       <button class="tab" data-state="suspensa">Pausadas</button>
+      <button class="tab tab-personal" data-state="personal">✅ Pessoal</button>
     </div>
 
     <!-- Search -->
-    <div class="search-bar">
+    <div class="search-bar" id="search-bar">
       <input type="text" id="search-input" placeholder="Pesquisar todos..." autocomplete="off">
     </div>
 
@@ -95,11 +96,26 @@
     <!-- Todos list -->
     <div class="todos-list" id="todos-list"></div>
 
+    <!-- Personal checklist (visível só quando personal tab activa) -->
+    <div class="personal-panel" id="personal-panel" style="display:none">
+      <div class="personal-add-row">
+        <input type="text" id="personal-input" placeholder="Nova nota pessoal…" maxlength="200" autocomplete="off">
+        <button id="personal-add-btn" title="Adicionar">+</button>
+      </div>
+      <div class="personal-list" id="personal-list"></div>
+      <div class="personal-empty" id="personal-empty">Sem notas pessoais.<br>Adiciona a primeira acima ↑</div>
+      <button class="personal-clear" id="personal-clear" style="display:none">🗑 Limpar concluídos</button>
+    </div>
+
     <!-- FAB -->
     <button class="fab" id="btn-add-todo" title="Novo todo">+</button>
 
     <!-- ── Bottom panel ── -->
     <div class="bottom-panel" id="bottom-panel">
+      <!-- Drag handle para redimensionar -->
+      <div class="panel-resize-handle" id="panel-resize-handle">
+        <div class="panel-resize-pill"></div>
+      </div>
       <div class="bottom-tabs">
         <button class="btab active" data-panel="sprints">🏃 Sprints</button>
         <button class="btab" data-panel="deliverables">📦 Entregas</button>

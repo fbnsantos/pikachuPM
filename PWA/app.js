@@ -297,22 +297,26 @@ async function loadLeads() {
 // ══════════════════════════════════════════════════════
 // BOTTOM PANEL
 // ══════════════════════════════════════════════════════
-let activePanel = 'sprints';
-let panelOpen   = true;
+let activePanel     = 'sprints';
+let panelOpen       = true;
+let panelExpandedH  = 220;  // updated by drag and localStorage
 
 function switchPanel(panel) {
   const samePanel = panel === activePanel;
+  const panelEl   = document.getElementById('bottom-panel');
 
   if (samePanel) {
     // Toggle open/closed
     panelOpen = !panelOpen;
-    document.getElementById('bottom-panel').classList.toggle('collapsed', !panelOpen);
+    panelEl.classList.toggle('collapsed', !panelOpen);
+    panelEl.style.height = panelOpen ? panelExpandedH + 'px' : '44px';
     return;
   }
 
   panelOpen   = true;
   activePanel = panel;
-  document.getElementById('bottom-panel').classList.remove('collapsed');
+  panelEl.classList.remove('collapsed');
+  panelEl.style.height = panelExpandedH + 'px';
 
   // Tabs
   document.querySelectorAll('.btab').forEach(b => b.classList.remove('active'));
@@ -701,6 +705,90 @@ function mqttPublish() {
 }
 
 // ══════════════════════════════════════════════════════
+// PERSONAL CHECKLIST (localStorage — nunca sai do dispositivo)
+// ══════════════════════════════════════════════════════
+const PERSONAL_KEY = 'pikachu_personal_v1';
+
+function personalLoad() {
+  try { return JSON.parse(localStorage.getItem(PERSONAL_KEY) || '[]'); } catch { return []; }
+}
+function personalSave(items) {
+  try { localStorage.setItem(PERSONAL_KEY, JSON.stringify(items)); } catch {}
+}
+
+function personalRender() {
+  const items   = personalLoad();
+  const listEl  = document.getElementById('personal-list');
+  const emptyEl = document.getElementById('personal-empty');
+  const clearEl = document.getElementById('personal-clear');
+  if (!listEl) return;
+
+  if (clearEl) clearEl.style.display = items.some(i => i.done) ? '' : 'none';
+  if (emptyEl) emptyEl.style.display = items.length === 0 ? '' : 'none';
+
+  listEl.innerHTML = items.map(item => `
+    <div class="p-item${item.done ? ' done' : ''}" data-id="${item.id}">
+      <label class="p-check">
+        <input type="checkbox"${item.done ? ' checked' : ''} data-id="${escHtml(item.id)}">
+        <span class="p-text">${escHtml(item.text)}</span>
+      </label>
+      <button class="p-del" data-id="${escHtml(item.id)}" title="Apagar">✕</button>
+    </div>`).join('');
+
+  listEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const arr  = personalLoad();
+      const item = arr.find(i => i.id === cb.dataset.id);
+      if (item) { item.done = cb.checked; personalSave(arr); personalRender(); }
+    });
+  });
+  listEl.querySelectorAll('.p-del').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      personalSave(personalLoad().filter(i => i.id !== btn.dataset.id));
+      personalRender();
+    });
+  });
+}
+
+function personalAdd(text) {
+  text = (text || '').trim();
+  if (!text) return;
+  const items = personalLoad();
+  items.unshift({ id: Date.now() + '_' + Math.random().toString(36).slice(2, 6), text, done: false });
+  personalSave(items);
+  personalRender();
+}
+
+function initPersonal() {
+  const input    = document.getElementById('personal-input');
+  const addBtn   = document.getElementById('personal-add-btn');
+  const clearBtn = document.getElementById('personal-clear');
+  addBtn?.addEventListener('click', () => { if (input) { personalAdd(input.value); input.value = ''; input.focus(); } });
+  input?.addEventListener('keydown', e => { if (e.key === 'Enter') { personalAdd(input.value); input.value = ''; } });
+  clearBtn?.addEventListener('click', () => { personalSave(personalLoad().filter(i => !i.done)); personalRender(); });
+  personalRender();
+}
+
+function showPersonalView(show) {
+  const searchBar  = document.getElementById('search-bar');
+  const personalEl = document.getElementById('personal-panel');
+  const todosList  = document.getElementById('todos-list');
+  const loadEl     = document.getElementById('loading');
+  const errEl      = document.getElementById('error-msg');
+  const emptyEl    = document.getElementById('empty-state');
+  const fabEl      = document.getElementById('btn-add-todo');
+  if (searchBar)  searchBar.style.display  = show ? 'none' : '';
+  if (todosList)  todosList.style.display  = show ? 'none' : '';
+  if (loadEl)     loadEl.style.display     = show ? 'none' : '';
+  if (errEl)      errEl.style.display      = show ? 'none' : '';
+  if (emptyEl)    emptyEl.style.display    = show ? 'none' : '';
+  if (fabEl)      fabEl.style.display      = show ? 'none' : '';
+  if (personalEl) personalEl.style.display = show ? '' : 'none';
+  if (show) personalRender();
+}
+
+// ══════════════════════════════════════════════════════
 // PULL-TO-REFRESH
 // ══════════════════════════════════════════════════════
 function setupPullToRefresh() {
@@ -729,7 +817,12 @@ function attachEvents() {
       document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       filterState = btn.dataset.state;
-      loadTodos();
+      if (filterState === 'personal') {
+        showPersonalView(true);
+      } else {
+        showPersonalView(false);
+        loadTodos();
+      }
     });
   });
 
@@ -840,6 +933,75 @@ function attachEvents() {
 }
 
 // ══════════════════════════════════════════════════════
+// PANEL RESIZE (drag handle)
+// ══════════════════════════════════════════════════════
+function initPanelResize() {
+  const handle  = document.getElementById('panel-resize-handle');
+  const panelEl = document.getElementById('bottom-panel');
+  if (!handle || !panelEl) return;
+
+  // Restore saved height
+  try {
+    const saved = parseInt(localStorage.getItem('pk_panel_h') || '0');
+    if (saved >= 60) { panelExpandedH = saved; panelEl.style.height = saved + 'px'; }
+  } catch {}
+
+  let startY = 0, startH = 0, active = false;
+
+  function dragStart(y) {
+    startY  = y;
+    startH  = panelEl.offsetHeight;
+    active  = true;
+    panelEl.classList.add('resizing');
+    // If collapsed, start expanding from the handle
+    if (panelEl.classList.contains('collapsed')) {
+      startH  = 44;
+      panelEl.classList.remove('collapsed');
+      panelOpen = true;
+    }
+  }
+
+  function dragMove(y) {
+    if (!active) return;
+    const dy  = startY - y;                          // up = grow
+    const max = Math.floor(window.innerHeight * 0.75);
+    const h   = Math.min(Math.max(startH + dy, 44), max);
+    panelEl.style.height = h + 'px';
+  }
+
+  function dragEnd() {
+    if (!active) return;
+    active = false;
+    panelEl.classList.remove('resizing');
+    const h = panelEl.offsetHeight;
+    if (h <= 52) {
+      panelEl.classList.add('collapsed');
+      panelEl.style.height = '44px';
+      panelOpen = false;
+    } else {
+      panelExpandedH = h;
+      panelOpen = true;
+      try { localStorage.setItem('pk_panel_h', h); } catch {}
+    }
+  }
+
+  // Touch
+  handle.addEventListener('touchstart', e => { e.preventDefault(); dragStart(e.touches[0].clientY); }, { passive: false });
+  handle.addEventListener('touchmove',  e => { e.preventDefault(); dragMove(e.touches[0].clientY);  }, { passive: false });
+  handle.addEventListener('touchend',   dragEnd, { passive: true });
+
+  // Mouse (browser/desktop)
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    dragStart(e.clientY);
+    const onMM = ev => dragMove(ev.clientY);
+    const onMU = ()  => { dragEnd(); document.removeEventListener('mousemove', onMM); document.removeEventListener('mouseup', onMU); };
+    document.addEventListener('mousemove', onMM);
+    document.addEventListener('mouseup', onMU);
+  });
+}
+
+// ══════════════════════════════════════════════════════
 // PWA INSTALL PROMPT
 // ══════════════════════════════════════════════════════
 let _installPrompt = null;
@@ -891,6 +1053,8 @@ function init() {
   registerSW();
   startClock();
   initPomodoro();
+  initPersonal();
+  initPanelResize();
   attachEvents();
   setupPullToRefresh();
 

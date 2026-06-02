@@ -57,10 +57,11 @@
           <button class="tab" data-state="aberta">Abertas</button>
           <button class="tab" data-state="em execução">A fazer</button>
           <button class="tab" data-state="suspensa">Pausadas</button>
+          <button class="tab tab-personal" data-state="personal">✅ Pessoal</button>
         </div>
 
         <!-- Search -->
-        <div class="search-bar">
+        <div class="search-bar" id="search-bar">
           <input type="text" id="search-input" placeholder="Pesquisar todos..." />
         </div>
 
@@ -83,6 +84,17 @@
         <div class="empty-state" id="empty-state" style="display:none">
           <div class="empty-icon">📋</div>
           <p>Nenhum todo encontrado.</p>
+        </div>
+
+        <!-- Personal checklist (visível só quando personal tab está activa) -->
+        <div class="personal-panel" id="personal-panel" style="display:none">
+          <div class="personal-add-row">
+            <input type="text" id="personal-input" placeholder="Nova nota pessoal…" maxlength="200" autocomplete="off">
+            <button id="personal-add-btn" title="Adicionar">+</button>
+          </div>
+          <div class="personal-list" id="personal-list"></div>
+          <div class="personal-empty" id="personal-empty">Sem notas pessoais.<br>Adiciona a primeira acima ↑</div>
+          <button class="personal-clear" id="personal-clear" style="display:none">🗑 Limpar concluídos</button>
         </div>
 
         <!-- FAB dentro da todos-section para não sobrepor o painel inferior -->

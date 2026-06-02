@@ -1039,10 +1039,33 @@ async function triggerInstall() {
 // SERVICE WORKER
 // ══════════════════════════════════════════════════════
 function registerSW() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js')
-      .catch(e => console.warn('SW registration failed:', e));
-  }
+  if (!('serviceWorker' in navigator)) return;
+
+  navigator.serviceWorker.register('./sw.js', {
+    updateViaCache: 'none',   // nunca serve sw.js do cache HTTP
+  }).then(reg => {
+    // Força verificação de update em cada carregamento
+    reg.update();
+
+    // Quando um novo SW termina de instalar, avisa
+    reg.addEventListener('updatefound', () => {
+      const next = reg.installing;
+      next.addEventListener('statechange', () => {
+        if (next.state === 'installed' && navigator.serviceWorker.controller) {
+          // Novo SW pronto mas ainda não activou → com skipWaiting já está a activar
+          // O controllerchange abaixo vai recarregar
+        }
+      });
+    });
+  }).catch(e => console.warn('SW registration failed:', e));
+
+  // Quando o novo SW assume o controlo, recarrega a página automaticamente
+  let _reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (_reloading) return;
+    _reloading = true;
+    window.location.reload();
+  });
 }
 
 // ══════════════════════════════════════════════════════

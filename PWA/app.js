@@ -845,6 +845,9 @@ function attachEvents() {
     if (activePanel === 'leads')        loadLeads();
   });
 
+  // Update app
+  document.getElementById('btn-update-app').addEventListener('click', checkForUpdate);
+
   // Install
   document.getElementById('btn-install').addEventListener('click', triggerInstall);
 
@@ -1038,25 +1041,16 @@ async function triggerInstall() {
 // ══════════════════════════════════════════════════════
 // SERVICE WORKER
 // ══════════════════════════════════════════════════════
+let _swReg = null;
+
 function registerSW() {
   if (!('serviceWorker' in navigator)) return;
 
   navigator.serviceWorker.register('./sw.js', {
     updateViaCache: 'none',   // nunca serve sw.js do cache HTTP
   }).then(reg => {
-    // Força verificação de update em cada carregamento
-    reg.update();
-
-    // Quando um novo SW termina de instalar, avisa
-    reg.addEventListener('updatefound', () => {
-      const next = reg.installing;
-      next.addEventListener('statechange', () => {
-        if (next.state === 'installed' && navigator.serviceWorker.controller) {
-          // Novo SW pronto mas ainda não activou → com skipWaiting já está a activar
-          // O controllerchange abaixo vai recarregar
-        }
-      });
-    });
+    _swReg = reg;
+    reg.update();             // verifica update logo ao abrir
   }).catch(e => console.warn('SW registration failed:', e));
 
   // Quando o novo SW assume o controlo, recarrega a página automaticamente
@@ -1066,6 +1060,31 @@ function registerSW() {
     _reloading = true;
     window.location.reload();
   });
+}
+
+async function checkForUpdate() {
+  const btn = document.getElementById('btn-update-app');
+  if (btn) btn.classList.add('spin');
+
+  try {
+    const reg = _swReg || await navigator.serviceWorker.getRegistration('./sw.js');
+    if (!reg) { showToast('Service worker não disponível', 'error'); return; }
+
+    let foundUpdate = false;
+    reg.addEventListener('updatefound', () => { foundUpdate = true; }, { once: true });
+
+    await reg.update();   // busca sw.js da rede (bypassando HTTP cache)
+
+    // Aguarda brevemente — se houver update o controllerchange recarrega a página
+    await new Promise(r => setTimeout(r, 1800));
+
+    if (!foundUpdate) showToast('Já tens a versão mais recente ✓', 'success');
+
+  } catch(e) {
+    showToast('Erro ao verificar: ' + e.message, 'error');
+  } finally {
+    if (btn) btn.classList.remove('spin');
+  }
 }
 
 // ══════════════════════════════════════════════════════

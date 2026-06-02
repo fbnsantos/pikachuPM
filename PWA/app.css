@@ -62,7 +62,25 @@ html, body {
   font-weight: 500;
   color: var(--text-muted);
   letter-spacing: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
+.btn-update-ver {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 1px 2px;
+  border-radius: 3px;
+  transition: color 0.15s;
+  display: flex;
+  align-items: center;
+}
+.btn-update-ver:hover  { color: var(--primary); }
+.btn-update-ver.spin   { animation: spin 0.7s linear infinite; color: var(--primary); }
 
 .header-actions { display: flex; gap: 6px; }
 

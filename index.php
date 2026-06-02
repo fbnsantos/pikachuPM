@@ -741,6 +741,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     <button class="btn-api-token btn-ext" onclick="pkExtModal(true)" title="Instalar extensão Chrome">
                         <i class="bi bi-puzzle"></i> Extensão Chrome
                     </button>
+                    <button class="btn-api-token btn-ff" onclick="pkFfModal(true)" title="Instalar extensão Firefox">
+                        🦊 Firefox
+                    </button>
                 </h1>
                 
                 <?php if (!empty($notices)): ?>
@@ -1420,6 +1423,16 @@ document.addEventListener('DOMContentLoaded', function() {
     border-color: #818cf8;
     color: #fff;
 }
+.btn-ff {
+    background: rgba(251,146,60,0.18);
+    border-color: rgba(251,146,60,0.5);
+    color: #fed7aa;
+}
+.btn-ff:hover {
+    background: rgba(251,146,60,0.32);
+    border-color: #fb923c;
+    color: #fff;
+}
 #pk-token-modal {
     position: fixed;
     inset: 0;
@@ -1640,6 +1653,56 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 </style>
 
+<!-- Modal: Extensão Firefox -->
+<div id="pk-ff-modal" style="display:none" onclick="if(event.target===this)pkFfModal(false)" role="dialog" aria-modal="true">
+    <div id="pk-ff-box">
+        <div id="pk-ext-header" style="border-color:#fb923c33">
+            <span>🦊 Extensão Firefox</span>
+            <button onclick="pkFfModal(false)" title="Fechar">&times;</button>
+        </div>
+        <div id="pk-ext-body">
+            <p>Instala a extensão <strong>pikachuPM</strong> no Firefox para teres o painel lateral com todos, sprints, pomodoro e MQTT.</p>
+            <a href="firefox-extension.zip" download class="pk-ext-download" style="background:#fb923c">
+                <i class="bi bi-download"></i> Descarregar extensão (.zip)
+            </a>
+            <div class="pk-ext-steps">
+                <div class="pk-ext-step"><span class="pk-ext-num" style="background:rgba(251,146,60,0.2);color:#fed7aa">1</span><span>Descomprime o ficheiro <code>.zip</code> numa pasta</span></div>
+                <div class="pk-ext-step"><span class="pk-ext-num" style="background:rgba(251,146,60,0.2);color:#fed7aa">2</span><span>Abre <code>about:debugging</code> no Firefox</span></div>
+                <div class="pk-ext-step"><span class="pk-ext-num" style="background:rgba(251,146,60,0.2);color:#fed7aa">3</span><span>Clica <strong>Este Firefox</strong> → <strong>Carregar add-on temporário</strong></span></div>
+                <div class="pk-ext-step"><span class="pk-ext-num" style="background:rgba(251,146,60,0.2);color:#fed7aa">4</span><span>Seleciona o ficheiro <code>manifest.json</code> dentro da pasta</span></div>
+                <div class="pk-ext-step"><span class="pk-ext-num" style="background:rgba(251,146,60,0.2);color:#fed7aa">5</span><span>Abre a extensão → definições → cola o teu <strong>Token API</strong></span></div>
+            </div>
+            <p style="font-size:0.78rem;color:#64748b;border-top:1px solid #334155;padding-top:10px;margin-top:4px">
+                <i class="bi bi-info-circle"></i>
+                Para instalação permanente (sem expirar), submete no <a href="https://addons.mozilla.org/" target="_blank" style="color:#fb923c">addons.mozilla.org</a> ou usa uma política de empresa.
+            </p>
+        </div>
+    </div>
+</div>
+<style>
+#pk-ff-box {
+    background: #1e293b;
+    border: 1px solid #fb923c44;
+    border-radius: 12px;
+    width: 480px;
+    max-width: 95vw;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+    animation: pkModalIn 0.18s ease;
+    position: relative;
+    z-index: 10000;
+}
+#pk-ff-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    backdrop-filter: blur(3px);
+}
+</style>
+
 <script>
 function pkApiTokenModal(open) {
     document.getElementById('pk-token-modal').style.display = open ? 'flex' : 'none';
@@ -1653,6 +1716,10 @@ function pkApiTokenModal(open) {
 
 function pkExtModal(open) {
     document.getElementById('pk-ext-modal').style.display = open ? 'flex' : 'none';
+}
+
+function pkFfModal(open) {
+    document.getElementById('pk-ff-modal').style.display = open ? 'flex' : 'none';
 }
 
 function pkCopyToken() {

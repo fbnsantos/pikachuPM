@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>pikachuPM — Definições</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>⚡ pikachuPM <span>Definições</span></h1>
+    </header>
+
+    <form id="settings-form">
+      <!-- API -->
+      <div class="card">
+        <h2>Ligação à API</h2>
+        <div class="form-group">
+          <label for="api-url">URL base do pikachuPM</label>
+          <input type="url" id="api-url"
+            placeholder="https://criis-projects.inesctec.pt/PK" autocomplete="off" />
+          <p class="hint">URL raiz da instância pikachuPM, sem barra final.</p>
+        </div>
+        <div class="form-group">
+          <label for="api-token">Token de API</label>
+          <div class="input-with-toggle">
+            <input type="password" id="api-token"
+              placeholder="O teu token de 64 caracteres" autocomplete="off" />
+            <button type="button" class="toggle-visibility" id="toggle-token" title="Mostrar/ocultar">👁</button>
+          </div>
+          <p class="hint">Disponível no pikachuPM em <strong>Bem-vindo → Token API</strong>.</p>
+        </div>
+      </div>
+
+      <!-- MQTT -->
+      <div class="card">
+        <h2>
+          MQTT
+          <label class="toggle-switch" title="Ativar/desativar MQTT">
+            <input type="checkbox" id="mqtt-enabled" />
+            <span class="toggle-track"></span>
+          </label>
+        </h2>
+
+        <div id="mqtt-fields">
+          <div class="form-group">
+            <label for="mqtt-broker">Broker URL (WebSocket)</label>
+            <input type="url" id="mqtt-broker"
+              placeholder="ws://localhost:9001" autocomplete="off" />
+            <p class="hint">O Mosquitto tem de ter o listener WebSocket activo (ex: porta 9001).</p>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="mqtt-user">Utilizador <span class="optional">opcional</span></label>
+              <input type="text" id="mqtt-user" placeholder="mqtt_user" autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="mqtt-pass">Password <span class="optional">opcional</span></label>
+              <div class="input-with-toggle">
+                <input type="password" id="mqtt-pass" placeholder="••••••" autocomplete="off" />
+                <button type="button" class="toggle-visibility" id="toggle-mqtt-pass" title="Mostrar/ocultar">👁</button>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="mqtt-topics">Tópicos a subscrever</label>
+            <textarea id="mqtt-topics" rows="3"
+              placeholder="pikachuPM/alerts&#10;casa/sensores/#&#10;trabalho/+/status"></textarea>
+            <p class="hint">Um tópico por linha. Suporta wildcards MQTT (<code>#</code> e <code>+</code>).</p>
+          </div>
+          <div class="form-group">
+            <label for="mqtt-pub-topic">Tópico de publicação padrão</label>
+            <input type="text" id="mqtt-pub-topic"
+              placeholder="pikachuPM/commands" autocomplete="off" />
+            <p class="hint">Pré-preenchido no campo de envio do painel lateral.</p>
+          </div>
+          <div class="form-group form-group-inline">
+            <label for="mqtt-sound">Ping sonoro ao receber mensagem</label>
+            <label class="toggle-switch" title="Ativar/desativar som">
+              <input type="checkbox" id="mqtt-sound" />
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+<div class="actions">
+        <div class="status" id="status"></div>
+        <button type="submit" class="btn btn-primary" id="btn-save">Guardar definições</button>
+      </div>
+    </form>
+
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>

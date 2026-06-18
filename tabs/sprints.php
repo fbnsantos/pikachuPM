@@ -894,21 +894,89 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                 }
             }
             
-            // Obter protótipos
+            // Obter protótipos: explícitos (sprint_prototypes) + implícitos (via story_tasks na sprint)
             $selectedSprint['prototypes'] = [];
-            if ($checkPrototypes && tableExists($pdo, 'sprint_prototypes')) {
-                try {
+            $selectedSprint['prototype_stories'] = [];
+            try {
+                // Protótipos explicitamente associados
+                $explicitProtos = [];
+                if ($checkPrototypes && tableExists($pdo, 'sprint_prototypes')) {
                     $stmt = $pdo->prepare("
-                        SELECT sp.*, p.short_name, p.title 
-                        FROM sprint_prototypes sp 
-                        JOIN prototypes p ON sp.prototype_id = p.id 
-                        WHERE sp.sprint_id=?
+                        SELECT p.id, p.short_name, p.title, TRUE as explicit
+                        FROM sprint_prototypes sp
+                        JOIN prototypes p ON sp.prototype_id = p.id
+                        WHERE sp.sprint_id = ?
                     ");
                     $stmt->execute([$selectedSprint['id']]);
-                    $selectedSprint['prototypes'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                    
-                    // Obter todas as user stories abertas de todos os protótipos
-                    $selectedSprint['prototype_stories'] = [];
+                    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                        $explicitProtos[$r['id']] = $r;
+                    }
+                }
+
+                // Protótipos implícitos via tasks da sprint → story_tasks → user_stories
+                $implicitProtos = [];
+                if (tableExists($pdo, 'story_tasks') && tableExists($pdo, 'user_stories')) {
+                    $stmt = $pdo->prepare("
+                        SELECT DISTINCT p.id, p.short_name, p.title, FALSE as explicit
+                        FROM sprint_tasks st
+                        JOIN story_tasks stk ON stk.todo_id = st.todo_id
+                        JOIN user_stories us ON stk.story_id = us.id
+                        JOIN prototypes p ON us.prototype_id = p.id
+                        WHERE st.sprint_id = ?
+                    ");
+                    $stmt->execute([$selectedSprint['id']]);
+                    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                        if (!isset($explicitProtos[$r['id']])) {
+                            $implicitProtos[$r['id']] = $r;
+                        }
+                    }
+                }
+
+                // Merge: explícitos primeiro, depois implícitos
+                $allSprintProtos = $explicitProtos + $implicitProtos;
+                $selectedSprint['prototypes'] = array_values($allSprintProtos);
+
+                // Para cada protótipo da sprint, carregar as user stories com tasks associadas
+                if (!empty($allSprintProtos) && tableExists($pdo, 'user_stories')) {
+                    $protoIds = array_keys($allSprintProtos);
+                    $ph = implode(',', array_fill(0, count($protoIds), '?'));
+
+                    // Stories que têm tasks nesta sprint
+                    $stmt = $pdo->prepare("
+                        SELECT us.id as story_id, us.story_text, us.moscow_priority, us.status,
+                               p.id as prototype_id, p.short_name as prototype_name, p.title as prototype_title,
+                               COUNT(DISTINCT st.todo_id) as task_count,
+                               SUM(t.estado = 'concluída') as tasks_done
+                        FROM user_stories us
+                        JOIN prototypes p ON us.prototype_id = p.id
+                        LEFT JOIN story_tasks stk ON stk.story_id = us.id
+                        LEFT JOIN sprint_tasks st ON st.todo_id = stk.todo_id AND st.sprint_id = ?
+                        LEFT JOIN todos t ON t.id = st.todo_id
+                        WHERE us.prototype_id IN ($ph)
+                          AND st.sprint_id IS NOT NULL
+                        GROUP BY us.id, p.id
+                        ORDER BY p.short_name,
+                                 FIELD(us.moscow_priority, 'Must', 'Should', 'Could', 'Won''t'),
+                                 us.id
+                    ");
+                    $stmt->execute(array_merge([$selectedSprint['id']], $protoIds));
+                    $selectedSprint['sprint_proto_stories'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                    // Todas as stories abertas de todos os protótipos (para o modal criar task)
+                    $stmt = $pdo->prepare("
+                        SELECT us.id as story_id, us.story_text, us.moscow_priority, us.status,
+                               p.id as prototype_id, p.short_name as prototype_name, p.title as prototype_title
+                        FROM user_stories us
+                        JOIN prototypes p ON us.prototype_id = p.id
+                        WHERE us.status = 'open'
+                        ORDER BY p.short_name,
+                                 FIELD(us.moscow_priority, 'Must', 'Should', 'Could', 'Won''t'),
+                                 us.id
+                    ");
+                    $stmt->execute();
+                    $selectedSprint['prototype_stories'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                } else {
+                    // Modal criar task: todas as stories abertas mesmo sem protótipos na sprint
                     if (tableExists($pdo, 'user_stories')) {
                         $stmt = $pdo->prepare("
                             SELECT us.id as story_id, us.story_text, us.moscow_priority, us.status,
@@ -923,9 +991,9 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                         $stmt->execute();
                         $selectedSprint['prototype_stories'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     }
-                } catch (PDOException $e) {
-                    // Ignorar erro
                 }
+            } catch (PDOException $e) {
+                // ignorar
             }
             
             // Obter tasks da sprint organizadas em kanban
@@ -1607,25 +1675,69 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                     <i class="bi bi-link-45deg"></i> Associar
                 </button>
             </div>
-            <div class="prototype-list">
-                <?php if (!empty($selectedSprint['prototypes'])): ?>
-                    <?php foreach ($selectedSprint['prototypes'] as $prototype): ?>
-                        <div class="prototype-badge">
-                            <span>🔧 <?= htmlspecialchars($prototype['short_name']) ?></span>
+            <?php
+            $sprintStoriesByProto = [];
+            foreach ($selectedSprint['sprint_proto_stories'] ?? [] as $ps) {
+                $sprintStoriesByProto[$ps['prototype_id']][] = $ps;
+            }
+            $moscowColors = ['Must' => 'danger', 'Should' => 'warning', 'Could' => 'info', "Won't" => 'secondary'];
+            ?>
+            <?php if (!empty($selectedSprint['prototypes'])): ?>
+                <?php foreach ($selectedSprint['prototypes'] as $prototype): ?>
+                <div class="card mb-2 border-0 shadow-sm">
+                    <div class="card-body py-2 px-3">
+                        <div class="d-flex align-items-center justify-content-between mb-1">
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <strong>🔧 <?= htmlspecialchars($prototype['short_name']) ?></strong>
+                                <span class="text-muted small"><?= htmlspecialchars($prototype['title']) ?></span>
+                                <?php if (empty($prototype['explicit'])): ?>
+                                <span class="badge bg-light text-secondary border" style="font-size:10px;" title="Ligado automaticamente via tasks desta sprint">via tasks</span>
+                                <?php endif; ?>
+                            </div>
+                            <?php if (!empty($prototype['explicit'])): ?>
                             <form method="POST" style="display:inline;" onsubmit="return confirm('Remover este protótipo?')">
                                 <input type="hidden" name="action" value="remove_prototype">
                                 <input type="hidden" name="prototype_id" value="<?= $prototype['id'] ?>">
                                 <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
-                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" style="text-decoration:none;">
+                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Remover associação explícita">
                                     <i class="bi bi-x"></i>
                                 </button>
                             </form>
+                            <?php endif; ?>
                         </div>
-                    <?php endforeach; ?>
-                <?php else: ?>
-                    <p class="text-muted">Nenhum protótipo associado</p>
-                <?php endif; ?>
-            </div>
+                        <?php $stories = $sprintStoriesByProto[$prototype['id']] ?? []; ?>
+                        <?php if (!empty($stories)): ?>
+                        <div class="ps-2 border-start border-2 border-primary-subtle">
+                            <?php foreach ($stories as $ps): ?>
+                            <?php
+                                $tasksDone  = (int)$ps['tasks_done'];
+                                $tasksTotal = (int)$ps['task_count'];
+                                $mColor = $moscowColors[$ps['moscow_priority']] ?? 'secondary';
+                                $isClosed = $ps['status'] === 'closed';
+                            ?>
+                            <div class="d-flex align-items-center gap-1 py-1 flex-wrap" style="font-size:13px;">
+                                <span class="badge bg-<?= $mColor ?> opacity-75" style="font-size:10px;"><?= htmlspecialchars($ps['moscow_priority']) ?></span>
+                                <span class="flex-grow-1 <?= $isClosed ? 'text-decoration-line-through text-muted' : '' ?>">
+                                    <?= htmlspecialchars(mb_strimwidth($ps['story_text'], 0, 80, '…')) ?>
+                                </span>
+                                <span class="badge <?= $isClosed ? 'bg-secondary' : 'bg-success' ?>" style="font-size:10px;">
+                                    <?= $isClosed ? 'Fechada' : 'Aberta' ?>
+                                </span>
+                                <?php if ($tasksTotal > 0): ?>
+                                <span class="text-muted" style="font-size:11px;"><?= $tasksDone ?>/<?= $tasksTotal ?> tasks</span>
+                                <?php endif; ?>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php else: ?>
+                        <div class="text-muted small ps-1">Sem user stories com tasks nesta sprint</div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <p class="text-muted small">Nenhum protótipo associado nem user stories ligadas a tasks desta sprint.</p>
+            <?php endif; ?>
             <?php endif; ?>
             
             <!-- Kanban Board -->

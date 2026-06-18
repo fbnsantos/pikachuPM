@@ -19,6 +19,33 @@ try {
     die("<div class='alert alert-danger'>Erro de conexão à base de dados: " . htmlspecialchars($e->getMessage()) . "</div>");
 }
 
+// AJAX: listar tasks disponíveis para herdar de outra sprint
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'inherit_tasks') {
+    $sourceId = (int)($_GET['source_sprint_id'] ?? 0);
+    $targetId = (int)($_GET['target_sprint_id'] ?? 0);
+    $tasks = [];
+    if ($sourceId && $targetId) {
+        try {
+            $stmt = $pdo->prepare("
+                SELECT t.id, t.titulo, t.estado, t.data_limite,
+                       u.username as responsavel_nome
+                FROM sprint_tasks st
+                JOIN todos t ON st.todo_id = t.id
+                LEFT JOIN user_tokens u ON t.responsavel = u.user_id
+                WHERE st.sprint_id = ?
+                  AND t.estado != 'completada'
+                  AND t.id NOT IN (SELECT todo_id FROM sprint_tasks WHERE sprint_id = ?)
+                ORDER BY t.titulo
+            ");
+            $stmt->execute([$sourceId, $targetId]);
+            $tasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {}
+    }
+    header('Content-Type: application/json');
+    echo json_encode($tasks);
+    exit;
+}
+
 // Função para verificar se tabela existe
 function tableExists($pdo, $tableName) {
     try {
@@ -495,6 +522,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $pdo->prepare("DELETE FROM sprint_tasks WHERE sprint_id=? AND todo_id=?");
                     $stmt->execute([$_POST['sprint_id'], $_POST['task_id']]);
                     $message = "Task removida da sprint!";
+                }
+                break;
+
+            case 'inherit_task':
+                if ($checkTodos) {
+                    $targetSprintId = (int)$_POST['sprint_id'];
+                    $sourceSprint   = (int)$_POST['source_sprint_id'];
+                    $todoId         = (int)$_POST['todo_id'];
+                    // Mover: remover da sprint de origem e inserir na sprint destino
+                    $pdo->prepare("DELETE FROM sprint_tasks WHERE sprint_id=? AND todo_id=?")->execute([$sourceSprint, $todoId]);
+                    $pdo->prepare("INSERT IGNORE INTO sprint_tasks (sprint_id, todo_id) VALUES (?,?)")->execute([$targetSprintId, $todoId]);
+                    $message = "Task herdada com sucesso!";
+                    $messageType = 'success';
                 }
                 break;
                 
@@ -1560,6 +1600,9 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                     <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#addTaskModal">
                         <i class="bi bi-link-45deg"></i> Associar Task
                     </button>
+                    <button class="btn btn-sm btn-warning" data-bs-toggle="modal" data-bs-target="#inheritTaskModal">
+                        <i class="bi bi-box-arrow-in-down"></i> Herdar Task
+                    </button>
                     <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#generateTasksModal">
                         <i class="bi bi-magic"></i> Gerar Tarefas Padrão
                     </button>
@@ -1928,6 +1971,131 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
         </div>
     </div>
 </div>
+<?php endif; ?>
+
+<!-- Modal: Herdar Task de Outra Sprint -->
+<?php if ($checkTodos && $selectedSprint): ?>
+<?php
+// Buscar outras sprints que têm tasks não completadas
+$otherSprintsWithTasks = [];
+try {
+    $stmt = $pdo->query("
+        SELECT DISTINCT s.id, s.nome, s.estado
+        FROM sprints s
+        JOIN sprint_tasks st ON st.sprint_id = s.id
+        JOIN todos t ON st.todo_id = t.id
+        WHERE s.id != {$selectedSprint['id']}
+          AND t.estado != 'completada'
+        ORDER BY FIELD(s.estado,'aberta','em execução','suspensa','concluída'), s.nome
+    ");
+    $otherSprintsWithTasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {}
+?>
+<div class="modal fade" id="inheritTaskModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-box-arrow-in-down"></i> Herdar Task de Outra Sprint</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    A task será <strong>removida</strong> da sprint de origem e <strong>movida</strong> para <em><?= htmlspecialchars($selectedSprint['nome']) ?></em>.
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Sprint de Origem</label>
+                    <select id="inheritSourceSprint" class="form-select" onchange="loadInheritTasks(this.value)">
+                        <option value="">Selecione uma sprint...</option>
+                        <?php foreach ($otherSprintsWithTasks as $os): ?>
+                            <option value="<?= $os['id'] ?>">
+                                <?= htmlspecialchars($os['nome']) ?> (<?= htmlspecialchars($os['estado']) ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label">Filtrar tasks</label>
+                    <input type="text" id="inheritTaskFilter" class="form-control" placeholder="Escrever para filtrar..."
+                           oninput="filterInheritTasks()" disabled>
+                </div>
+
+                <div id="inheritTaskList" style="max-height:340px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px; display:none;">
+                    <div id="inheritTaskItems"></div>
+                </div>
+                <div id="inheritLoading" style="display:none; text-align:center; padding:20px; color:#6b7280;">
+                    <i class="bi bi-hourglass-split"></i> A carregar tasks...
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function loadInheritTasks(sourceSprintId) {
+    const list   = document.getElementById('inheritTaskList');
+    const items  = document.getElementById('inheritTaskItems');
+    const filter = document.getElementById('inheritTaskFilter');
+    const loading = document.getElementById('inheritLoading');
+
+    if (!sourceSprintId) { list.style.display='none'; filter.disabled=true; return; }
+
+    loading.style.display = 'block';
+    list.style.display    = 'none';
+    filter.disabled       = true;
+    filter.value          = '';
+
+    fetch('?tab=sprints&ajax=inherit_tasks&source_sprint_id=' + sourceSprintId + '&target_sprint_id=<?= $selectedSprint['id'] ?>')
+        .then(r => r.json())
+        .then(tasks => {
+            loading.style.display = 'none';
+            if (!tasks.length) {
+                items.innerHTML = '<div style="padding:16px; color:#9ca3af; text-align:center;">Sem tasks disponíveis para herdar</div>';
+            } else {
+                items.innerHTML = tasks.map(t => `
+                    <div class="inherit-task-row d-flex align-items-center gap-3 p-2"
+                         style="border-bottom:1px solid #f1f5f9; cursor:default;"
+                         data-title="${t.titulo.toLowerCase()}">
+                        <div style="flex:1;">
+                            <div style="font-weight:500; font-size:13px;">${t.titulo}</div>
+                            <div style="font-size:11px; color:#6b7280;">
+                                <span class="badge bg-secondary">${t.estado}</span>
+                                ${t.responsavel_nome ? '👤 '+t.responsavel_nome : ''}
+                                ${t.data_limite ? '📅 '+t.data_limite : ''}
+                            </div>
+                        </div>
+                        <form method="POST" style="margin:0;" onsubmit="return confirm('Mover task para esta sprint?')">
+                            <input type="hidden" name="action" value="inherit_task">
+                            <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
+                            <input type="hidden" name="source_sprint_id" value="${sourceSprintId}">
+                            <input type="hidden" name="todo_id" value="${t.id}">
+                            <button type="submit" class="btn btn-sm btn-warning" style="white-space:nowrap;">
+                                <i class="bi bi-box-arrow-in-down"></i> Herdar
+                            </button>
+                        </form>
+                    </div>`).join('');
+            }
+            list.style.display = 'block';
+            filter.disabled    = false;
+        })
+        .catch(() => {
+            loading.style.display = 'none';
+            items.innerHTML = '<div style="padding:16px; color:#dc3545;">Erro ao carregar tasks.</div>';
+            list.style.display = 'block';
+        });
+}
+
+function filterInheritTasks() {
+    const q = document.getElementById('inheritTaskFilter').value.toLowerCase();
+    document.querySelectorAll('.inherit-task-row').forEach(row => {
+        row.style.display = row.dataset.title.includes(q) ? '' : 'none';
+    });
+}
+</script>
 <?php endif; ?>
 
 <!-- Modal: Associar Task -->

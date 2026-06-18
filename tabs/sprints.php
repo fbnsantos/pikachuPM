@@ -543,7 +543,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($checkTodos) {
                     $stmt = $pdo->prepare("UPDATE todos SET estado=? WHERE id=?");
                     $stmt->execute([$_POST['estado'], $_POST['todo_id']]);
-                    $message = "Estado da task atualizado!";
+
+                    // Fechar stories associadas se solicitado
+                    if (!empty($_POST['close_story_ids']) && is_array($_POST['close_story_ids']) && tableExists($pdo, 'user_stories')) {
+                        $closeIds = array_map('intval', $_POST['close_story_ids']);
+                        $ph = implode(',', array_fill(0, count($closeIds), '?'));
+                        $closeStmt = $pdo->prepare("
+                            UPDATE user_stories
+                            SET status = 'closed', closed_at = NOW(), updated_at = NOW()
+                            WHERE id IN ($ph) AND status = 'open'
+                        ");
+                        $closeStmt->execute($closeIds);
+                        $closed = $closeStmt->rowCount();
+                        $message = "Task concluída" . ($closed > 0 ? " e $closed user " . ($closed > 1 ? 'stories fechadas' : 'story fechada') . "!" : "!");
+                    } else {
+                        $message = "Estado da task atualizado!";
+                    }
                 } else {
                     $message = "Módulo de ToDos não está instalado!";
                     $messageType = 'warning';
@@ -936,7 +951,29 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                     ");
                     $stmt->execute([$selectedSprint['id']]);
                     $selectedSprint['tasks'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                    
+
+                    // Obter stories associadas a cada task (para prompt de fechar)
+                    $taskStoryMap = [];
+                    if (tableExists($pdo, 'story_tasks') && tableExists($pdo, 'user_stories')) {
+                        $todoIds = array_column($selectedSprint['tasks'], 'id');
+                        if (!empty($todoIds)) {
+                            $ph = implode(',', array_fill(0, count($todoIds), '?'));
+                            $stStmt = $pdo->prepare("
+                                SELECT st.todo_id, us.id as story_id, us.story_text, us.status,
+                                       proto.short_name as prototype_name
+                                FROM story_tasks st
+                                JOIN user_stories us ON st.story_id = us.id
+                                JOIN prototypes proto ON us.prototype_id = proto.id
+                                WHERE st.todo_id IN ($ph) AND us.status = 'open'
+                            ");
+                            $stStmt->execute($todoIds);
+                            foreach ($stStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                                $taskStoryMap[$row['todo_id']][] = $row;
+                            }
+                        }
+                    }
+                    $selectedSprint['task_story_map'] = $taskStoryMap;
+
                     // Agrupar tasks por estado para o kanban
                     foreach ($selectedSprint['tasks'] as $task) {
                         $estado = $task['estado'] ?? 'aberta';
@@ -2469,15 +2506,42 @@ function confirmCreateTask(e) {
     return true;
 }
 
+const taskStoryMap = <?= json_encode($selectedSprint['task_story_map'] ?? [], JSON_UNESCAPED_UNICODE) ?>;
+
 function changeTaskStatus(taskId, newStatus) {
+    if (newStatus === 'concluída') {
+        const stories = taskStoryMap[taskId] || [];
+        const openStories = stories.filter(s => s.status === 'open');
+        if (openStories.length > 0) {
+            const storyList = openStories.map(s =>
+                '• [' + s.prototype_name + '] ' + s.story_text.substring(0, 80) + (s.story_text.length > 80 ? '…' : '')
+            ).join('\n');
+            const closeStory = confirm(
+                'Esta task está associada à' + (openStories.length > 1 ? 's seguintes User Stories abertas' : ' seguinte User Story aberta') + ':\n\n' +
+                storyList + '\n\n' +
+                'Deseja também fechar a' + (openStories.length > 1 ? 's User Stories' : ' User Story') + '?'
+            );
+            const storyIds = closeStory ? openStories.map(s => s.story_id) : [];
+            submitStatusChange(taskId, newStatus, storyIds);
+            return;
+        }
+    }
+    submitStatusChange(taskId, newStatus, []);
+}
+
+function submitStatusChange(taskId, newStatus, closeStoryIds) {
     const form = document.createElement('form');
     form.method = 'POST';
-    form.innerHTML = `
+    let html = `
         <input type="hidden" name="action" value="change_task_status">
         <input type="hidden" name="todo_id" value="${taskId}">
         <input type="hidden" name="estado" value="${newStatus}">
         <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?? '' ?>">
     `;
+    closeStoryIds.forEach(id => {
+        html += `<input type="hidden" name="close_story_ids[]" value="${id}">`;
+    });
+    form.innerHTML = html;
     document.body.appendChild(form);
     form.submit();
 }

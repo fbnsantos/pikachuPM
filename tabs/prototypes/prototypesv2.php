@@ -688,6 +688,7 @@ if (!$selectedPrototype) {
             SELECT
                 p.id, p.short_name, p.title, p.parent_id,
                 p.updated_at as proto_updated_at,
+                p.repo_links, p.documentation_links,
                 u.username as responsavel_nome,
                 COUNT(DISTINCT us.id)                                        as total_stories,
                 SUM(us.status = 'closed')                                    as closed_stories,
@@ -1595,6 +1596,31 @@ if ($selectedPrototype && $checkTodos) {
                         </div>
                         <?php else: ?>
                         <span style="font-size:11px; color:#9ca3af;"><i class="bi bi-inbox"></i> Sem user stories</span>
+                        <?php endif; ?>
+
+                        <?php
+                        $ovRepoLinks = parseLinksArr($ov['repo_links'] ?? '');
+                        $ovDocLinks  = parseLinksArr($ov['documentation_links'] ?? '');
+                        if (!empty($ovRepoLinks) || !empty($ovDocLinks)):
+                        ?>
+                        <div class="d-flex flex-wrap gap-1 mt-2" onclick="event.stopPropagation()">
+                            <?php foreach ($ovRepoLinks as $lnk): ?>
+                                <a href="<?= htmlspecialchars($lnk['url']) ?>" target="_blank"
+                                   style="display:inline-flex; align-items:center; gap:4px; background:#1a202c; color:#fff; border-radius:4px; padding:2px 8px; font-size:11px; text-decoration:none; font-weight:500; white-space:nowrap;"
+                                   title="<?= htmlspecialchars($lnk['url']) ?>">
+                                    <i class="bi bi-github"></i>
+                                    <?= htmlspecialchars($lnk['label'] ?: parse_url($lnk['url'], PHP_URL_HOST) ?: $lnk['url']) ?>
+                                </a>
+                            <?php endforeach; ?>
+                            <?php foreach ($ovDocLinks as $lnk): ?>
+                                <a href="<?= htmlspecialchars($lnk['url']) ?>" target="_blank"
+                                   style="display:inline-flex; align-items:center; gap:4px; background:#4b5563; color:#fff; border-radius:4px; padding:2px 8px; font-size:11px; text-decoration:none; font-weight:500; white-space:nowrap;"
+                                   title="<?= htmlspecialchars($lnk['url']) ?>">
+                                    <i class="bi bi-link-45deg"></i>
+                                    <?= htmlspecialchars($lnk['label'] ?: parse_url($lnk['url'], PHP_URL_HOST) ?: $lnk['url']) ?>
+                                </a>
+                            <?php endforeach; ?>
+                        </div>
                         <?php endif; ?>
                     </div>
 

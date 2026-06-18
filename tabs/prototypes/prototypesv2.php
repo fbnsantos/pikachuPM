@@ -100,6 +100,8 @@ try {
     if (!$checkClosedAt) {
         $pdo->exec("ALTER TABLE user_stories ADD COLUMN closed_at DATETIME NULL AFTER created_by");
     }
+    // Backfill sempre que existam stories fechadas sem closed_at (cobre migração incremental)
+    $pdo->exec("UPDATE user_stories SET closed_at = COALESCE(updated_at, created_at) WHERE status = 'closed' AND closed_at IS NULL");
     
     // Criar tabela story_tasks para associar tasks a stories (se todos existe)
     if ($checkTodos) {
@@ -1598,37 +1600,38 @@ if ($selectedPrototype && $checkTodos) {
                     </div>
                     <?php endif; ?>
                 </div>
-            </div>
-            
-            <!-- Membros -->
-            <div class="detail-section">
-                <div class="section-header">
-                    <h5><i class="bi bi-people"></i> Membros da Equipa</h5>
-                    <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#addMemberModal">
-                        <i class="bi bi-person-plus"></i> Adicionar
-                    </button>
-                </div>
-                
-                <div class="member-list">
-                    <?php if (!empty($selectedPrototype['members'])): ?>
-                        <?php foreach ($selectedPrototype['members'] as $member): ?>
-                            <div class="member-badge">
-                                <span>👤 <?= htmlspecialchars($member['username']) ?></span>
-                                <?php if ($member['role'] !== 'member'): ?>
-                                    <span class="badge bg-secondary"><?= htmlspecialchars($member['role']) ?></span>
-                                <?php endif; ?>
-                                <form method="POST" style="display:inline;" onsubmit="return confirm('Remover este membro?')">
-                                    <input type="hidden" name="action" value="remove_member">
-                                    <input type="hidden" name="member_id" value="<?= $member['id'] ?>">
-                                    <button type="submit" class="btn btn-sm btn-link text-danger p-0">
-                                        <i class="bi bi-x-lg"></i>
-                                    </button>
-                                </form>
-                            </div>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <p class="text-muted">Nenhum membro adicionado</p>
-                    <?php endif; ?>
+
+                <!-- Membros da Equipa (dentro das Informações Básicas) -->
+                <div class="mt-3 pt-3" style="border-top:1px solid #e5e7eb;">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <div class="info-label mb-0"><i class="bi bi-people"></i> Equipa</div>
+                        <button class="btn btn-sm btn-outline-success py-0 px-2" style="font-size:12px;" data-bs-toggle="modal" data-bs-target="#addMemberModal">
+                            <i class="bi bi-person-plus"></i> Adicionar
+                        </button>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <?php if (!empty($selectedPrototype['members'])): ?>
+                            <?php foreach ($selectedPrototype['members'] as $member): ?>
+                                <span class="d-inline-flex align-items-center gap-1"
+                                      style="background:#f1f5f9; border:1px solid #e2e8f0; border-radius:20px; padding:3px 10px 3px 8px; font-size:13px;">
+                                    <i class="bi bi-person-circle" style="color:#6b7280;"></i>
+                                    <?= htmlspecialchars($member['username']) ?>
+                                    <?php if ($member['role'] !== 'member'): ?>
+                                        <span style="font-size:11px; color:#6b7280; margin-left:2px;">(<?= htmlspecialchars($member['role']) ?>)</span>
+                                    <?php endif; ?>
+                                    <form method="POST" style="display:inline;" onsubmit="return confirm('Remover <?= htmlspecialchars(addslashes($member['username'])) ?>?')">
+                                        <input type="hidden" name="action" value="remove_member">
+                                        <input type="hidden" name="member_id" value="<?= $member['id'] ?>">
+                                        <button type="submit" style="background:none; border:none; padding:0; margin-left:2px; color:#9ca3af; cursor:pointer; line-height:1;" title="Remover">
+                                            <i class="bi bi-x" style="font-size:14px;"></i>
+                                        </button>
+                                    </form>
+                                </span>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <span class="text-muted" style="font-size:13px;">Nenhum membro adicionado</span>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </div>
             

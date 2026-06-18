@@ -323,16 +323,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $stmt = $pdo->prepare("INSERT INTO sprint_tasks (sprint_id, todo_id) VALUES (?, ?)");
                         $stmt->execute([$sprint_id, $todo_id]);
 
-                        // Associar à user story se fornecida
-                        $story_id = !empty($_POST['story_id']) ? (int)$_POST['story_id'] : null;
+                        // Associar/criar user story conforme o modo
+                        $story_mode = $_POST['story_mode'] ?? 'none';
+                        $story_id   = !empty($_POST['story_id']) ? (int)$_POST['story_id'] : null;
+
+                        if ($story_mode === 'is_story' && !empty($_POST['new_story_prototype_id']) && tableExists($pdo, 'user_stories') && tableExists($pdo, 'story_tasks')) {
+                            // Criar nova user story com o texto da task
+                            $newStoryStmt = $pdo->prepare("
+                                INSERT INTO user_stories (prototype_id, story_text, moscow_priority, status, completion_percentage, created_at, created_by)
+                                VALUES (?, ?, ?, 'open', 0, NOW(), ?)
+                            ");
+                            $newStoryStmt->execute([
+                                (int)$_POST['new_story_prototype_id'],
+                                $titulo,
+                                $_POST['new_story_priority'] ?? 'Should',
+                                $current_user_id
+                            ]);
+                            $story_id = (int)$pdo->lastInsertId();
+                        }
+
                         if ($story_id && tableExists($pdo, 'story_tasks')) {
                             $pdo->prepare("INSERT IGNORE INTO story_tasks (story_id, todo_id) VALUES (?, ?)")
                                 ->execute([$story_id, $todo_id]);
                         }
 
-                        $message = $story_id
-                            ? "Task criada, associada à sprint e à user story com sucesso!"
-                            : "Task criada e associada à sprint com sucesso!";
+                        $message = match($story_mode) {
+                            'is_story' => "Task criada como User Story no protótipo e associada à sprint!",
+                            'link'     => "Task criada, associada à sprint e à user story com sucesso!",
+                            default    => "Task criada e associada à sprint com sucesso!",
+                        };
                         $messageType = 'success';
                         
                     } catch (Exception $e) {
@@ -878,7 +897,7 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                     if (tableExists($pdo, 'user_stories')) {
                         $stmt = $pdo->prepare("
                             SELECT us.id as story_id, us.story_text, us.moscow_priority, us.status,
-                                   p.short_name as prototype_name, p.title as prototype_title
+                                   p.id as prototype_id, p.short_name as prototype_name, p.title as prototype_title
                             FROM user_stories us
                             JOIN prototypes p ON us.prototype_id = p.id
                             WHERE us.status = 'open'
@@ -2205,41 +2224,98 @@ function filterInheritTasks() {
                     <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
                     <input type="hidden" name="story_id" id="createTaskStoryId" value="">
 
+                    <?php
+                    // Agrupar stories por protótipo para JS
+                    $storiesByPrototype = [];
+                    foreach ($selectedSprint['prototype_stories'] as $s) {
+                        $key = $s['prototype_name'];
+                        if (!isset($storiesByPrototype[$key])) {
+                            $storiesByPrototype[$key] = ['id' => $s['prototype_id'] ?? null, 'title' => $s['prototype_title'], 'stories' => []];
+                        }
+                        $storiesByPrototype[$key]['stories'][] = $s;
+                    }
+                    // Buscar todos os protótipos (para "nova story")
+                    $allPrototypes = [];
+                    try {
+                        $allPrototypes = $pdo->query("SELECT id, short_name, title FROM prototypes ORDER BY short_name")->fetchAll(PDO::FETCH_ASSOC);
+                    } catch (PDOException $e) {}
+                    ?>
+                    <script>
+                    const protoStories   = <?= json_encode($storiesByPrototype, JSON_UNESCAPED_UNICODE) ?>;
+                    const allPrototypes  = <?= json_encode($allPrototypes, JSON_UNESCAPED_UNICODE) ?>;
+                    </script>
+
+                    <!-- Modo de associação -->
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">
-                            <i class="bi bi-book"></i> User Story do Protótipo
-                            <span class="text-danger">*</span>
-                            <small class="fw-normal text-muted ms-1">(recomendado)</small>
-                        </label>
-                        <?php if (!empty($selectedSprint['prototype_stories'])): ?>
-                        <select id="storySelector" class="form-select" onchange="fillFromStory(this)">
-                            <option value="">— Sem associação a user story —</option>
-                            <?php
-                            $current_prototype = '';
-                            foreach ($selectedSprint['prototype_stories'] as $story):
-                                if ($current_prototype !== $story['prototype_name']):
-                                    if ($current_prototype !== '') echo '</optgroup>';
-                                    $current_prototype = $story['prototype_name'];
-                                    echo '<optgroup label="' . htmlspecialchars($story['prototype_name'] . ' — ' . $story['prototype_title']) . '">';
-                                endif;
-                                $label = '[' . $story['moscow_priority'] . '] ' . substr($story['story_text'], 0, 90) . (strlen($story['story_text']) > 90 ? '…' : '');
-                            ?>
-                                <option value="<?= $story['story_id'] ?>"
-                                        data-text="<?= htmlspecialchars($story['story_text']) ?>"
-                                        data-priority="<?= htmlspecialchars($story['moscow_priority']) ?>">
-                                    <?= htmlspecialchars($label) ?>
-                                </option>
-                            <?php
-                            endforeach;
-                            if ($current_prototype !== '') echo '</optgroup>';
-                            ?>
-                        </select>
-                        <small class="text-muted">A task ficará automaticamente ligada à user story selecionada</small>
-                        <?php else: ?>
-                        <div class="alert alert-warning py-2 mb-0">
-                            <i class="bi bi-exclamation-triangle"></i> Não existem user stories abertas em nenhum protótipo.
+                        <label class="form-label fw-semibold">Relação com User Story</label>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <label class="flex-fill" style="cursor:pointer;">
+                                <input type="radio" name="story_mode" value="none" checked onchange="setStoryMode('none')" style="display:none;">
+                                <div class="story-mode-btn p-2 text-center rounded border" id="mode-none" style="border-color:#3b82f6!important; background:#eff6ff;">
+                                    <i class="bi bi-x-circle" style="font-size:18px; color:#6b7280;"></i>
+                                    <div style="font-size:12px; font-weight:600; margin-top:4px;">Sem associação</div>
+                                </div>
+                            </label>
+                            <label class="flex-fill" style="cursor:pointer;">
+                                <input type="radio" name="story_mode" value="link" onchange="setStoryMode('link')" style="display:none;">
+                                <div class="story-mode-btn p-2 text-center rounded border" id="mode-link">
+                                    <i class="bi bi-link-45deg" style="font-size:18px; color:#3b82f6;"></i>
+                                    <div style="font-size:12px; font-weight:600; margin-top:4px;">Associar a story existente</div>
+                                </div>
+                            </label>
+                            <label class="flex-fill" style="cursor:pointer;">
+                                <input type="radio" name="story_mode" value="is_story" onchange="setStoryMode('is_story')" style="display:none;">
+                                <div class="story-mode-btn p-2 text-center rounded border" id="mode-is_story">
+                                    <i class="bi bi-star" style="font-size:18px; color:#f59e0b;"></i>
+                                    <div style="font-size:12px; font-weight:600; margin-top:4px;">Esta task <em>é</em> uma User Story</div>
+                                </div>
+                            </label>
                         </div>
-                        <?php endif; ?>
+                    </div>
+
+                    <!-- Painel: Associar a story existente -->
+                    <div id="panel-link" style="display:none;" class="mb-3 p-3 rounded" style="background:#f8faff;">
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold mb-1"><i class="bi bi-layers"></i> Protótipo</label>
+                            <select id="protoSelector" class="form-select" onchange="onProtoChange(this.value)">
+                                <option value="">— Selecione o protótipo —</option>
+                                <?php foreach ($storiesByPrototype as $name => $data): ?>
+                                <option value="<?= htmlspecialchars($name) ?>"><?= htmlspecialchars($name) ?> — <?= htmlspecialchars($data['title']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div id="storySelectorRow" style="display:none;">
+                            <label class="form-label fw-semibold mb-1"><i class="bi bi-book"></i> User Story</label>
+                            <select id="storySelector" class="form-select" onchange="fillFromStory(this)">
+                                <option value="">— Selecione a user story —</option>
+                            </select>
+                            <small class="text-muted">O título da task será preenchido automaticamente</small>
+                        </div>
+                    </div>
+
+                    <!-- Painel: Esta task é uma user story -->
+                    <div id="panel-is_story" style="display:none;" class="mb-3 p-3 rounded" style="background:#fffbeb;">
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold mb-1"><i class="bi bi-layers"></i> Protótipo onde criar a User Story</label>
+                            <select id="newStoryProto" class="form-select" name="new_story_prototype_id">
+                                <option value="">— Selecione o protótipo —</option>
+                                <?php foreach ($allPrototypes as $proto): ?>
+                                <option value="<?= $proto['id'] ?>"><?= htmlspecialchars($proto['short_name']) ?> — <?= htmlspecialchars($proto['title']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold mb-1">Prioridade MoSCoW</label>
+                            <select name="new_story_priority" class="form-select">
+                                <option value="Must">Must Have</option>
+                                <option value="Should" selected>Should Have</option>
+                                <option value="Could">Could Have</option>
+                                <option value="Won't">Won't Have</option>
+                            </select>
+                        </div>
+                        <div class="alert alert-warning py-2 mb-0" style="font-size:13px;">
+                            <i class="bi bi-info-circle"></i> O título da task será usado como texto da User Story e ficará automaticamente associada.
+                        </div>
                     </div>
 
                     <div class="mb-3">
@@ -2312,6 +2388,57 @@ function filterInheritTasks() {
 <?php endif; ?>
 
 <script>
+function setStoryMode(mode) {
+    ['none','link','is_story'].forEach(m => {
+        const btn = document.getElementById('mode-' + m);
+        btn.style.borderColor  = m === mode ? '#3b82f6' : '#dee2e6';
+        btn.style.background   = m === mode ? '#eff6ff' : '';
+        btn.style.fontWeight   = m === mode ? '700'     : '';
+    });
+    document.getElementById('panel-link').style.display     = mode === 'link'     ? 'block' : 'none';
+    document.getElementById('panel-is_story').style.display = mode === 'is_story' ? 'block' : 'none';
+
+    // Reset story hidden when switching modes
+    document.getElementById('createTaskStoryId').value = '';
+    if (mode !== 'link') {
+        document.getElementById('protoSelector').value = '';
+        document.getElementById('storySelectorRow').style.display = 'none';
+    }
+}
+
+function onProtoChange(protoName) {
+    const row    = document.getElementById('storySelectorRow');
+    const sel    = document.getElementById('storySelector');
+    const hidden = document.getElementById('createTaskStoryId');
+
+    // Reset story
+    sel.innerHTML = '<option value="">— Selecione uma user story —</option>';
+    hidden.value  = '';
+    document.getElementById('taskTitle').value = '';
+
+    if (!protoName || !protoStories[protoName]) {
+        row.style.display = 'none';
+        return;
+    }
+
+    const priorityOrder = {'Must':1,'Should':2,'Could':3,"Won't":4};
+    const stories = protoStories[protoName].stories.slice().sort((a,b) =>
+        (priorityOrder[a.moscow_priority]||9) - (priorityOrder[b.moscow_priority]||9)
+    );
+
+    stories.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value            = s.story_id;
+        opt.dataset.text     = s.story_text;
+        opt.dataset.priority = s.moscow_priority;
+        const label = '[' + s.moscow_priority + '] ' + (s.story_text.length > 90 ? s.story_text.substring(0,90)+'…' : s.story_text);
+        opt.textContent = label;
+        sel.appendChild(opt);
+    });
+
+    row.style.display = 'block';
+}
+
 function fillFromStory(select) {
     const storyId   = select.value;
     const storyText = select.selectedOptions[0]?.dataset.text || '';
@@ -2323,13 +2450,21 @@ function fillFromStory(select) {
 }
 
 function confirmCreateTask(e) {
-    const storyId = document.getElementById('createTaskStoryId').value;
-    if (!storyId) {
+    const mode = document.querySelector('input[name="story_mode"]:checked')?.value || 'none';
+    if (mode === 'none') {
         return confirm(
             'Não associou esta task a nenhuma User Story de protótipo.\n\n' +
             'Tem a certeza que quer criar a task sem associação?\n' +
             '(Pode associá-la manualmente mais tarde na vista do protótipo)'
         );
+    }
+    if (mode === 'is_story' && !document.getElementById('newStoryProto').value) {
+        alert('Por favor selecione o protótipo onde criar a User Story.');
+        return false;
+    }
+    if (mode === 'link' && !document.getElementById('createTaskStoryId').value) {
+        alert('Por favor selecione a User Story a associar.');
+        return false;
     }
     return true;
 }

@@ -687,17 +687,24 @@ if (!$selectedPrototype) {
         $ovSql = "
             SELECT
                 p.id, p.short_name, p.title, p.parent_id,
+                p.updated_at as proto_updated_at,
                 u.username as responsavel_nome,
-                COUNT(DISTINCT us.id)                          as total_stories,
-                SUM(us.status = 'closed')                     as closed_stories,
-                MAX(us.closed_at)                             as last_closed_at,
-                COUNT(DISTINCT pm.id)                         as member_count
+                COUNT(DISTINCT us.id)                                        as total_stories,
+                SUM(us.status = 'closed')                                    as closed_stories,
+                MAX(us.closed_at)                                            as last_closed_at,
+                GREATEST(
+                    COALESCE(MAX(us.updated_at), '2000-01-01'),
+                    COALESCE(MAX(us.created_at), '2000-01-01'),
+                    COALESCE(p.updated_at,       '2000-01-01'),
+                    COALESCE(p.created_at,       '2000-01-01')
+                )                                                            as last_activity_at,
+                COUNT(DISTINCT pm.id)                                        as member_count
             FROM prototypes p
-            LEFT JOIN user_tokens u  ON p.responsavel_id = u.user_id
+            LEFT JOIN user_tokens u   ON p.responsavel_id = u.user_id
             LEFT JOIN user_stories us ON us.prototype_id = p.id
             LEFT JOIN prototype_members pm ON pm.prototype_id = p.id
             " . ($whereClause ?: '') . "
-            GROUP BY p.id, p.short_name, p.title, p.parent_id, u.username
+            GROUP BY p.id, p.short_name, p.title, p.parent_id, p.updated_at, p.created_at, u.username
             ORDER BY p.parent_id ASC, p.short_name ASC
         ";
         $ovStmt = $pdo->prepare($ovSql);
@@ -721,25 +728,46 @@ if (!$selectedPrototype) {
         // Projetos por protótipo (via tasks → projeto_id)
         $projectCounts = [];
         if ($checkTodos && !empty($projects)) {
-            $pcStmt = $pdo->query("
-                SELECT us.prototype_id, COUNT(DISTINCT t.projeto_id) as proj_count
-                FROM story_tasks st
-                JOIN todos t ON st.todo_id = t.id
-                JOIN user_stories us ON st.story_id = us.id
-                WHERE t.projeto_id IS NOT NULL
-                GROUP BY us.prototype_id
-            ");
-            foreach ($pcStmt->fetchAll(PDO::FETCH_ASSOC) as $pc) {
-                $projectCounts[$pc['prototype_id']] = (int)$pc['proj_count'];
-            }
+            try {
+                $pcStmt = $pdo->query("
+                    SELECT us.prototype_id, COUNT(DISTINCT t.projeto_id) as proj_count
+                    FROM story_tasks st
+                    JOIN todos t ON st.todo_id = t.id
+                    JOIN user_stories us ON st.story_id = us.id
+                    WHERE t.projeto_id IS NOT NULL
+                    GROUP BY us.prototype_id
+                ");
+                foreach ($pcStmt->fetchAll(PDO::FETCH_ASSOC) as $pc) {
+                    $projectCounts[$pc['prototype_id']] = (int)$pc['proj_count'];
+                }
+            } catch (PDOException $e) {}
         }
 
+        // Índice por id + enriquecer
+        $ovById = [];
         foreach ($rows as &$row) {
             $row['sprint_count']  = $sprintCounts[$row['id']]  ?? 0;
             $row['project_count'] = $projectCounts[$row['id']] ?? 0;
+            // Activo = atividade nos últimos 30 dias
+            $row['is_active'] = $row['last_activity_at'] && (time() - strtotime($row['last_activity_at'])) < 2592000;
+            $row['children']  = [];
+            $ovById[$row['id']] = &$row;
         }
         unset($row);
-        $overviewData = $rows;
+
+        // Construir árvore
+        $ovRoots = [];
+        foreach ($rows as &$row) {
+            if ($row['parent_id'] && isset($ovById[$row['parent_id']])) {
+                $ovById[$row['parent_id']]['children'][] = &$row;
+                // pai ativo se filho ativo
+                if ($row['is_active']) $ovById[$row['parent_id']]['is_active'] = true;
+            } else {
+                $ovRoots[] = &$row;
+            }
+        }
+        unset($row);
+        $overviewData = $ovRoots;
     } catch (PDOException $e) {
         $overviewData = [];
     }
@@ -1499,91 +1527,103 @@ if ($selectedPrototype && $checkTodos) {
                 <h3>Nenhum protótipo criado</h3>
                 <p>Clique no <strong>+</strong> para criar o primeiro protótipo</p>
             </div>
-            <?php else: ?>
-            <div style="padding:4px 0;">
-                <h5 style="margin:0 0 16px; color:#1a202c; font-size:16px; font-weight:600;">
-                    Visão Geral — <?= count($overviewData) ?> protótipo<?= count($overviewData) !== 1 ? 's' : '' ?>
-                </h5>
-                <?php
-                function relativeTime($datetime) {
-                    if (!$datetime) return null;
-                    $diff = time() - strtotime($datetime);
-                    if ($diff < 3600)       return ['há menos de 1h', 'success'];
-                    if ($diff < 86400)      return ['há ' . floor($diff/3600) . 'h', 'success'];
-                    if ($diff < 604800)     return ['há ' . floor($diff/86400) . 'd', 'warning'];
-                    if ($diff < 2592000)    return ['há ' . floor($diff/604800) . 'sem', 'warning'];
-                    return ['há ' . floor($diff/2592000) . 'meses', 'danger'];
-                }
-                foreach ($overviewData as $ov):
-                    $total   = (int)$ov['total_stories'];
-                    $closed  = (int)$ov['closed_stories'];
-                    $open    = $total - $closed;
-                    $pct     = $total > 0 ? round($closed / $total * 100) : 0;
-                    [$relText, $relClass] = $ov['last_closed_at']
-                        ? relativeTime($ov['last_closed_at'])
-                        : ['Nenhuma fechada', 'secondary'];
-                    $filterParams = ($filterMine ? '&filter_mine=true' : '') . ($filterParticipate ? '&filter_participate=true' : '');
+            <?php else:
+            $filterParams = ($filterMine ? '&filter_mine=true' : '') . ($filterParticipate ? '&filter_participate=true' : '');
+
+            function relativeTime($datetime) {
+                if (!$datetime) return ['Nenhuma fechada', 'secondary'];
+                $diff = time() - strtotime($datetime);
+                if ($diff < 3600)    return ['há menos de 1h', 'success'];
+                if ($diff < 86400)   return ['há ' . floor($diff/3600) . 'h', 'success'];
+                if ($diff < 604800)  return ['há ' . floor($diff/86400) . 'd', 'warning'];
+                if ($diff < 2592000) return ['há ' . floor($diff/604800) . 'sem', 'warning'];
+                return ['há ' . floor($diff/2592000) . 'meses', 'danger'];
+            }
+
+            function renderOvCard($ov, $filterParams, $depth = 0) {
+                $total  = (int)$ov['total_stories'];
+                $closed = (int)$ov['closed_stories'];
+                $open   = $total - $closed;
+                $pct    = $total > 0 ? round($closed / $total * 100) : 0;
+                [$relText, $relClass] = relativeTime($ov['last_closed_at']);
+                $indent = $depth * 20;
+                $isChild = $depth > 0;
                 ?>
-                <div onclick="window.location='?tab=prototypes/prototypesv2&prototype_id=<?= $ov['id'] . $filterParams ?>'"
-                     style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:14px 16px; margin-bottom:10px; cursor:pointer; transition:border-color .15s, box-shadow .15s;"
-                     onmouseover="this.style.borderColor='#3b82f6';this.style.boxShadow='0 2px 8px rgba(59,130,246,.12)'"
-                     onmouseout="this.style.borderColor='#e5e7eb';this.style.boxShadow='none'">
+                <div style="margin-left:<?= $indent ?>px; margin-bottom:8px;">
+                    <div onclick="window.location='?tab=prototypes/prototypesv2&prototype_id=<?= $ov['id'] . $filterParams ?>'"
+                         style="background:<?= $isChild ? '#fafafa' : '#fff' ?>; border:1px solid <?= $isChild ? '#e9ecef' : '#e5e7eb' ?>; border-left:3px solid <?= $ov['is_active'] ? '#10b981' : '#d1d5db' ?>; border-radius:6px; padding:11px 14px; cursor:pointer; transition:border-color .15s, box-shadow .15s;"
+                         onmouseover="this.style.borderColor='#3b82f6';this.style.boxShadow='0 2px 6px rgba(59,130,246,.1)'"
+                         onmouseout="this.style.borderColor='<?= $isChild ? '#e9ecef' : '#e5e7eb' ?>';this.style.boxShadow='none'">
 
-                    <!-- Linha 1: nome + responsável + badges -->
-                    <div class="d-flex align-items-center justify-content-between mb-2">
-                        <div class="d-flex align-items-center gap-2">
-                            <?php if ($ov['parent_id']): ?>
-                                <span style="font-size:11px; color:#9ca3af;">↳</span>
-                            <?php endif; ?>
-                            <span style="font-weight:700; font-size:14px; color:#1a202c;"><?= htmlspecialchars($ov['short_name']) ?></span>
-                            <span style="font-size:13px; color:#6b7280;"><?= htmlspecialchars($ov['title']) ?></span>
+                        <!-- Linha 1 -->
+                        <div class="d-flex align-items-center justify-content-between mb-1">
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <?php if ($isChild): ?>
+                                    <span style="font-size:11px; color:#9ca3af;">↳</span>
+                                <?php endif; ?>
+                                <span style="font-weight:700; font-size:<?= $isChild ? '13' : '14' ?>px; color:#1a202c;"><?= htmlspecialchars($ov['short_name']) ?></span>
+                                <span style="font-size:12px; color:#6b7280;"><?= htmlspecialchars($ov['title']) ?></span>
+                            </div>
+                            <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                                <?php if ($ov['responsavel_nome']): ?>
+                                <span style="font-size:11px; color:#4b5563; background:#f3f4f6; border-radius:20px; padding:2px 8px; white-space:nowrap;">
+                                    <i class="bi bi-person"></i> <?= htmlspecialchars($ov['responsavel_nome']) ?>
+                                </span>
+                                <?php endif; ?>
+                                <?php if ($ov['member_count'] > 0): ?>
+                                <span style="font-size:11px; color:#6b7280;" title="Membros"><i class="bi bi-people"></i> <?= $ov['member_count'] ?></span>
+                                <?php endif; ?>
+                                <?php if ($ov['sprint_count'] > 0): ?>
+                                <span style="font-size:11px; color:#6b7280;" title="Sprints"><i class="bi bi-lightning"></i> <?= $ov['sprint_count'] ?></span>
+                                <?php endif; ?>
+                                <?php if ($ov['project_count'] > 0): ?>
+                                <span style="font-size:11px; color:#6b7280;" title="Projetos"><i class="bi bi-folder"></i> <?= $ov['project_count'] ?></span>
+                                <?php endif; ?>
+                            </div>
                         </div>
+
+                        <!-- Linha 2: stories -->
+                        <?php if ($total > 0): ?>
                         <div class="d-flex align-items-center gap-2">
-                            <?php if ($ov['responsavel_nome']): ?>
-                            <span style="font-size:12px; color:#4b5563; background:#f3f4f6; border-radius:20px; padding:2px 8px;">
-                                <i class="bi bi-person"></i> <?= htmlspecialchars($ov['responsavel_nome']) ?>
-                            </span>
-                            <?php endif; ?>
-                            <?php if ($ov['member_count'] > 0): ?>
-                            <span style="font-size:12px; color:#6b7280;" title="Membros da equipa">
-                                <i class="bi bi-people"></i> <?= $ov['member_count'] ?>
-                            </span>
-                            <?php endif; ?>
-                            <?php if ($ov['sprint_count'] > 0): ?>
-                            <span style="font-size:12px; color:#6b7280;" title="Sprints associadas">
-                                <i class="bi bi-lightning"></i> <?= $ov['sprint_count'] ?>
-                            </span>
-                            <?php endif; ?>
-                            <?php if ($ov['project_count'] > 0): ?>
-                            <span style="font-size:12px; color:#6b7280;" title="Projetos associados">
-                                <i class="bi bi-folder"></i> <?= $ov['project_count'] ?>
-                            </span>
-                            <?php endif; ?>
+                            <span style="font-size:11px; color:#10b981; font-weight:600; white-space:nowrap;"><i class="bi bi-check-circle"></i> <?= $closed ?> fechadas</span>
+                            <span style="font-size:11px; color:#3b82f6; font-weight:600; white-space:nowrap;"><i class="bi bi-circle"></i> <?= $open ?> abertas</span>
+                            <div style="flex:1; height:5px; background:#e5e7eb; border-radius:3px; overflow:hidden; min-width:40px;">
+                                <div style="width:<?= $pct ?>%; height:100%; background:linear-gradient(90deg,#10b981,#059669); border-radius:3px;"></div>
+                            </div>
+                            <span style="font-size:11px; color:#6b7280; white-space:nowrap;"><?= $pct ?>%</span>
+                            <span style="font-size:11px; white-space:nowrap;" class="text-<?= $relClass ?>"><i class="bi bi-clock"></i> <?= $relText ?></span>
                         </div>
+                        <?php else: ?>
+                        <span style="font-size:11px; color:#9ca3af;"><i class="bi bi-inbox"></i> Sem user stories</span>
+                        <?php endif; ?>
                     </div>
 
-                    <!-- Linha 2: métricas de stories + barra -->
-                    <?php if ($total > 0): ?>
-                    <div class="d-flex align-items-center gap-3">
-                        <span style="font-size:12px; color:#10b981; font-weight:600; min-width:52px;">
-                            <i class="bi bi-check-circle"></i> <?= $closed ?> fechadas
-                        </span>
-                        <span style="font-size:12px; color:#3b82f6; font-weight:600; min-width:48px;">
-                            <i class="bi bi-circle"></i> <?= $open ?> abertas
-                        </span>
-                        <div style="flex:1; height:6px; background:#e5e7eb; border-radius:3px; overflow:hidden;">
-                            <div style="width:<?= $pct ?>%; height:100%; background:linear-gradient(90deg,#10b981,#059669); border-radius:3px;"></div>
-                        </div>
-                        <span style="font-size:12px; color:#6b7280; min-width:28px;"><?= $pct ?>%</span>
-                        <span style="font-size:12px;" class="text-<?= $relClass ?>">
-                            <i class="bi bi-clock"></i> <?= $relText ?>
-                        </span>
-                    </div>
-                    <?php else: ?>
-                    <span style="font-size:12px; color:#9ca3af;"><i class="bi bi-inbox"></i> Sem user stories</span>
-                    <?php endif; ?>
+                    <?php foreach ($ov['children'] as $child): ?>
+                        <?php renderOvCard($child, $filterParams, $depth + 1); ?>
+                    <?php endforeach; ?>
                 </div>
-                <?php endforeach; ?>
+                <?php
+            }
+
+            // Separar ativos e adormecidos (recursivo: pai ativo se tiver filhos ativos)
+            $active   = array_filter($overviewData, fn($o) => $o['is_active']);
+            $dormant  = array_filter($overviewData, fn($o) => !$o['is_active']);
+            $totalFlat = count($overviewData);
+            ?>
+            <div style="padding:4px 0;">
+                <?php if (!empty($active)): ?>
+                <div style="font-size:11px; font-weight:700; color:#10b981; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px;">
+                    <i class="bi bi-activity"></i> Ativos (últimos 30 dias) — <?= count($active) ?>
+                </div>
+                <?php foreach ($active as $ov): renderOvCard($ov, $filterParams); endforeach; ?>
+                <?php endif; ?>
+
+                <?php if (!empty($dormant)): ?>
+                <div style="font-size:11px; font-weight:700; color:#9ca3af; text-transform:uppercase; letter-spacing:.05em; margin:<?= empty($active) ? '0' : '16px' ?> 0 8px;">
+                    <i class="bi bi-moon"></i> Adormecidos — <?= count($dormant) ?>
+                </div>
+                <?php foreach ($dormant as $ov): renderOvCard($ov, $filterParams); endforeach; ?>
+                <?php endif; ?>
             </div>
             <?php endif; ?>
         <?php else: ?>

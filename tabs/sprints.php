@@ -19,33 +19,6 @@ try {
     die("<div class='alert alert-danger'>Erro de conexão à base de dados: " . htmlspecialchars($e->getMessage()) . "</div>");
 }
 
-// AJAX: listar tasks disponíveis para herdar de outra sprint
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'inherit_tasks') {
-    $sourceId = (int)($_GET['source_sprint_id'] ?? 0);
-    $targetId = (int)($_GET['target_sprint_id'] ?? 0);
-    $tasks = [];
-    if ($sourceId && $targetId) {
-        try {
-            $stmt = $pdo->prepare("
-                SELECT t.id, t.titulo, t.estado, t.data_limite,
-                       u.username as responsavel_nome
-                FROM sprint_tasks st
-                JOIN todos t ON st.todo_id = t.id
-                LEFT JOIN user_tokens u ON t.responsavel = u.user_id
-                WHERE st.sprint_id = ?
-                  AND t.estado != 'completada'
-                  AND t.id NOT IN (SELECT todo_id FROM sprint_tasks WHERE sprint_id = ?)
-                ORDER BY t.titulo
-            ");
-            $stmt->execute([$sourceId, $targetId]);
-            $tasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) {}
-    }
-    header('Content-Type: application/json');
-    echo json_encode($tasks);
-    exit;
-}
-
 // Função para verificar se tabela existe
 function tableExists($pdo, $tableName) {
     try {
@@ -2049,7 +2022,7 @@ function loadInheritTasks(sourceSprintId) {
     filter.disabled       = true;
     filter.value          = '';
 
-    fetch('?tab=sprints&ajax=inherit_tasks&source_sprint_id=' + sourceSprintId + '&target_sprint_id=<?= $selectedSprint['id'] ?>')
+    fetch('sprint_inherit_tasks.php?source_sprint_id=' + sourceSprintId + '&target_sprint_id=<?= $selectedSprint['id'] ?>')
         .then(r => r.json())
         .then(tasks => {
             loading.style.display = 'none';

@@ -155,6 +155,22 @@ try {
     // Ignorar erro
 }
 
+// Helper global: parse links suportando formato antigo ["url"] e novo [{"url":...,"label":...}]
+function parseLinksArr($json) {
+    if (empty($json)) return [];
+    $decoded = json_decode($json, true);
+    if (!is_array($decoded)) return [];
+    $result = [];
+    foreach ($decoded as $item) {
+        if (is_string($item) && trim($item) !== '') {
+            $result[] = ['url' => $item, 'label' => ''];
+        } elseif (is_array($item) && !empty($item['url'])) {
+            $result[] = ['url' => $item['url'], 'label' => $item['label'] ?? ''];
+        }
+    }
+    return $result;
+}
+
 // Obter filtros e prototype selecionado (necessário antes de processar POSTs para redirects)
 $filterMine = isset($_GET['filter_mine']) ? $_GET['filter_mine'] === 'true' : false;
 $filterParticipate = isset($_GET['filter_participate']) ? $_GET['filter_participate'] === 'true' : false;
@@ -1654,21 +1670,6 @@ if ($selectedPrototype && $checkTodos) {
             <?php endif; ?>
         <?php else: ?>
             <?php
-            // Helper: parse links suportando formato antigo ["url"] e novo [{"url":...,"label":...}]
-            function parseLinksArr($json) {
-                if (empty($json)) return [];
-                $decoded = json_decode($json, true);
-                if (!is_array($decoded)) return [];
-                $result = [];
-                foreach ($decoded as $item) {
-                    if (is_string($item) && trim($item) !== '') {
-                        $result[] = ['url' => $item, 'label' => ''];
-                    } elseif (is_array($item) && !empty($item['url'])) {
-                        $result[] = ['url' => $item['url'], 'label' => $item['label'] ?? ''];
-                    }
-                }
-                return $result;
-            }
             $repoLinksArr = parseLinksArr($selectedPrototype['repo_links'] ?? '');
             $docLinksArr  = parseLinksArr($selectedPrototype['documentation_links'] ?? '');
             ?>

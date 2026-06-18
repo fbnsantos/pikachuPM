@@ -539,6 +539,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
                 
+            case 'import_stories_tasks':
+                // Importar lista de texto como tasks + user stories num protótipo
+                if ($checkTodos && tableExists($pdo, 'user_stories') && tableExists($pdo, 'story_tasks')) {
+                    $protoId     = (int)($_POST['import_prototype_id'] ?? 0);
+                    $rawList     = trim($_POST['import_list'] ?? '');
+                    $moscow      = $_POST['import_moscow'] ?? 'Should';
+                    $responsible = !empty($_POST['import_responsible']) ? (int)$_POST['import_responsible'] : null;
+                    $sprintId    = (int)($_POST['sprint_id'] ?? $selectedSprint['id']);
+                    $asStories   = !empty($_POST['import_as_stories']); // checkbox: cada linha é também uma user story
+
+                    if (!$protoId || !$rawList) {
+                        $message = "Protótipo e lista são obrigatórios.";
+                        $messageType = 'warning';
+                        break;
+                    }
+
+                    $lines = array_filter(array_map('trim', explode("\n", $rawList)));
+                    $created = 0; $skipped = 0;
+
+                    foreach ($lines as $line) {
+                        // Ignorar linhas de cabeçalho (começam com # ou --)
+                        if (preg_match('/^[#\-]{2,}/', $line)) continue;
+                        // Remover prefixos de lista: "- ", "* ", "1. ", etc.
+                        $title = preg_replace('/^[\-\*\d]+[\.\)]\s*/', '', $line);
+                        $title = trim($title);
+                        if (empty($title)) continue;
+
+                        // Criar task
+                        $stmtT = $pdo->prepare("
+                            INSERT INTO todos (titulo, estado, autor, responsavel, created_at, updated_at)
+                            VALUES (?, 'aberta', ?, ?, NOW(), NOW())
+                        ");
+                        $stmtT->execute([$title, $current_user_id, $responsible]);
+                        $todoId = (int)$pdo->lastInsertId();
+
+                        // Associar à sprint
+                        $pdo->prepare("INSERT IGNORE INTO sprint_tasks (sprint_id, todo_id) VALUES (?,?)")
+                            ->execute([$sprintId, $todoId]);
+
+                        // Se "criar como user story" cria story e liga
+                        if ($asStories) {
+                            $stmtS = $pdo->prepare("
+                                INSERT INTO user_stories (prototype_id, story_text, moscow_priority, status, completion_percentage, created_at, created_by)
+                                VALUES (?, ?, ?, 'open', 0, NOW(), ?)
+                            ");
+                            $stmtS->execute([$protoId, $title, $moscow, $current_user_id]);
+                            $storyId = (int)$pdo->lastInsertId();
+                            $pdo->prepare("INSERT IGNORE INTO story_tasks (story_id, todo_id) VALUES (?,?)")
+                                ->execute([$storyId, $todoId]);
+                        }
+                        $created++;
+                    }
+                    $message = "$created task" . ($created != 1 ? 's' : '') . " criada" . ($created != 1 ? 's' : '') . " e adicionada" . ($created != 1 ? 's' : '') . " à sprint" . ($asStories ? " com user stories associadas" : "") . "!";
+                } else {
+                    $message = "Módulos necessários não instalados.";
+                    $messageType = 'warning';
+                }
+                break;
+
             case 'change_task_status':
                 if ($checkTodos) {
                     $stmt = $pdo->prepare("UPDATE todos SET estado=? WHERE id=?");
@@ -826,6 +885,12 @@ try {
 } catch (PDOException $e) {
     $users = [];
 }
+
+// Todos os protótipos (para modais de criar task e importar lista)
+$allPrototypes = [];
+try {
+    $allPrototypes = $pdo->query("SELECT id, short_name, title FROM prototypes ORDER BY short_name")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {}
 
 // Obter projetos e protótipos se existirem
 $projects = [];
@@ -1754,6 +1819,9 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
                     <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#generateTasksModal">
                         <i class="bi bi-magic"></i> Gerar Tarefas Padrão
                     </button>
+                    <button class="btn btn-sm btn-purple" data-bs-toggle="modal" data-bs-target="#importStoriesModal" style="background:#7c3aed;color:#fff;border-color:#7c3aed;">
+                        <i class="bi bi-list-task"></i> Importar Lista
+                    </button>
                     <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createTaskModal">
                         <i class="bi bi-plus-lg"></i> Nova Task
                     </button>
@@ -2359,6 +2427,76 @@ function filterInheritTasks() {
     </div>
 </div>
 
+<!-- Modal: Importar Lista de Tasks/Stories -->
+<div class="modal fade" id="importStoriesModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header text-white" style="background:#7c3aed;">
+                <h5 class="modal-title"><i class="bi bi-list-task"></i> Importar Lista de Tasks / User Stories</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="import_stories_tasks">
+                    <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Protótipo *</label>
+                        <select name="import_prototype_id" class="form-select" required>
+                            <option value="">— Selecione o protótipo —</option>
+                            <?php foreach ($allPrototypes as $proto): ?>
+                            <option value="<?= $proto['id'] ?>"><?= htmlspecialchars($proto['short_name']) ?> — <?= htmlspecialchars($proto['title']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Lista de Tasks *</label>
+                        <textarea name="import_list" class="form-control font-monospace" rows="10" required
+                            placeholder="Cole ou escreva uma tarefa por linha. Exemplos aceites:&#10;- Implementar login&#10;* Criar dashboard&#10;1. Configurar base de dados&#10;Criar API de utilizadores"></textarea>
+                        <small class="text-muted">Uma tarefa por linha. Prefixos <code>-</code>, <code>*</code>, <code>1.</code> são removidos automaticamente. Linhas começadas por <code>#</code> ou <code>--</code> são ignoradas.</small>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Responsável</label>
+                            <select name="import_responsible" class="form-select">
+                                <option value="">— Sem responsável —</option>
+                                <?php foreach ($users as $u): ?>
+                                <option value="<?= $u['user_id'] ?>"><?= htmlspecialchars($u['username']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Prioridade MoSCoW <small class="fw-normal text-muted">(se criar stories)</small></label>
+                            <select name="import_moscow" class="form-select">
+                                <option value="Must">Must Have</option>
+                                <option value="Should" selected>Should Have</option>
+                                <option value="Could">Could Have</option>
+                                <option value="Won't">Won't Have</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" id="importAsStories" name="import_as_stories" value="1" checked>
+                        <label class="form-check-label fw-semibold" for="importAsStories">
+                            Criar também como User Stories no protótipo
+                        </label>
+                        <div class="text-muted small">Cada linha cria uma task na sprint <strong>e</strong> uma user story no protótipo, automaticamente ligadas entre si.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn text-white" style="background:#7c3aed;" onclick="return confirm('Criar tasks' + (document.getElementById('importAsStories').checked ? ' e user stories' : '') + ' a partir da lista?')">
+                        <i class="bi bi-list-task"></i> Importar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Modal: Criar Nova Task -->
 <div class="modal fade" id="createTaskModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
@@ -2383,11 +2521,6 @@ function filterInheritTasks() {
                         }
                         $storiesByPrototype[$key]['stories'][] = $s;
                     }
-                    // Buscar todos os protótipos (para "nova story")
-                    $allPrototypes = [];
-                    try {
-                        $allPrototypes = $pdo->query("SELECT id, short_name, title FROM prototypes ORDER BY short_name")->fetchAll(PDO::FETCH_ASSOC);
-                    } catch (PDOException $e) {}
                     ?>
                     <script>
                     const protoStories   = <?= json_encode($storiesByPrototype, JSON_UNESCAPED_UNICODE) ?>;

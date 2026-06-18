@@ -1401,6 +1401,26 @@ if ($selectedPrototype && $checkTodos) {
                 <p>Escolha um protótipo da lista para ver os detalhes</p>
             </div>
         <?php else: ?>
+            <?php
+            // Helper: parse links suportando formato antigo ["url"] e novo [{"url":...,"label":...}]
+            function parseLinksArr($json) {
+                if (empty($json)) return [];
+                $decoded = json_decode($json, true);
+                if (!is_array($decoded)) return [];
+                $result = [];
+                foreach ($decoded as $item) {
+                    if (is_string($item) && trim($item) !== '') {
+                        $result[] = ['url' => $item, 'label' => ''];
+                    } elseif (is_array($item) && !empty($item['url'])) {
+                        $result[] = ['url' => $item['url'], 'label' => $item['label'] ?? ''];
+                    }
+                }
+                return $result;
+            }
+            $repoLinksArr = parseLinksArr($selectedPrototype['repo_links'] ?? '');
+            $docLinksArr  = parseLinksArr($selectedPrototype['documentation_links'] ?? '');
+            ?>
+
             <!-- Informações Básicas -->
             <div class="detail-section">
                 <div class="section-header">
@@ -1417,7 +1437,42 @@ if ($selectedPrototype && $checkTodos) {
                         </button>
                     </div>
                 </div>
-                
+
+                <!-- Links: sempre visíveis no topo -->
+                <?php if (!empty($repoLinksArr) || !empty($docLinksArr)): ?>
+                <div class="mb-3 pb-3" style="border-bottom: 1px solid #e5e7eb;">
+                    <?php if (!empty($repoLinksArr)): ?>
+                    <div class="mb-2">
+                        <div class="info-label mb-1"><i class="bi bi-github"></i> Repositórios GIT</div>
+                        <?php foreach ($repoLinksArr as $lnk): ?>
+                            <a href="<?= htmlspecialchars($lnk['url']) ?>" target="_blank"
+                               class="d-inline-flex align-items-center gap-1 me-2 mb-1 text-decoration-none"
+                               style="background:#1a202c; color:#fff; border-radius:6px; padding:5px 12px; font-size:13px; font-weight:500;">
+                                <i class="bi bi-github"></i>
+                                <?= htmlspecialchars($lnk['label'] ?: $lnk['url']) ?>
+                                <i class="bi bi-box-arrow-up-right" style="font-size:11px; opacity:.7;"></i>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
+                    <?php if (!empty($docLinksArr)): ?>
+                    <div>
+                        <div class="info-label mb-1"><i class="bi bi-link-45deg"></i> Outros Links</div>
+                        <?php foreach ($docLinksArr as $lnk): ?>
+                            <a href="<?= htmlspecialchars($lnk['url']) ?>" target="_blank"
+                               class="d-inline-flex align-items-center gap-1 me-2 mb-1 text-decoration-none"
+                               style="background:#4b5563; color:#fff; border-radius:6px; padding:5px 12px; font-size:13px; font-weight:500;">
+                                <i class="bi bi-link-45deg"></i>
+                                <?= htmlspecialchars($lnk['label'] ?: $lnk['url']) ?>
+                                <i class="bi bi-box-arrow-up-right" style="font-size:11px; opacity:.7;"></i>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+
+                <!-- Campos sempre visíveis -->
                 <div class="info-grid">
                     <div class="info-card">
                         <div class="info-label">Nome Curto</div>
@@ -1433,84 +1488,85 @@ if ($selectedPrototype && $checkTodos) {
                             <?= $selectedPrototype['responsavel_nome'] ? '👤 ' . htmlspecialchars($selectedPrototype['responsavel_nome']) : 'Não atribuído' ?>
                         </div>
                     </div>
-                    <div class="info-card">
-                        <div class="info-label">Protótipo Pai</div>
-                        <div class="info-value">
-                            <?php if ($selectedPrototype['parent_id']): ?>
-                                <?php 
-                                // Buscar nome do pai
-                                $parentStmt = $pdo->prepare("SELECT short_name FROM prototypes WHERE id = ?");
-                                $parentStmt->execute([$selectedPrototype['parent_id']]);
-                                $parentName = $parentStmt->fetchColumn();
-                                ?>
-                                <a href="?tab=prototypes/prototypesv2&prototype_id=<?= $selectedPrototype['parent_id'] ?>" 
-                                   class="text-primary">
-                                    🔗 <?= htmlspecialchars($parentName) ?>
-                                </a>
-                            <?php else: ?>
-                                <span class="text-muted">Protótipo raiz</span>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    <div class="info-card">
-                        <div class="info-label">Criado em</div>
-                        <div class="info-value">
-                            <?= $selectedPrototype['created_at'] ? date('d/m/Y H:i', strtotime($selectedPrototype['created_at'])) : '-' ?>
-                        </div>
-                    </div>
                 </div>
-                
-                <?php if ($selectedPrototype['vision']): ?>
-                <div class="mt-3">
-                    <div class="info-label">Visão</div>
-                    <p class="mb-0"><?= nl2br(htmlspecialchars($selectedPrototype['vision'])) ?></p>
-                </div>
-                <?php endif; ?>
-                
-                <?php if ($selectedPrototype['sentence']): ?>
-                <div class="mt-3">
-                    <div class="info-label">Frase de Posicionamento</div>
-                    <p class="mb-0" style="font-style: italic;"><?= nl2br(htmlspecialchars($selectedPrototype['sentence'])) ?></p>
-                </div>
-                <?php endif; ?>
 
-                <?php
-                $repoLinksArr = [];
-                if (!empty($selectedPrototype['repo_links'])) {
-                    $decoded = json_decode($selectedPrototype['repo_links'], true);
-                    if (is_array($decoded)) $repoLinksArr = array_filter($decoded);
-                }
-                $docLinksArr = [];
-                if (!empty($selectedPrototype['documentation_links'])) {
-                    $decoded = json_decode($selectedPrototype['documentation_links'], true);
-                    if (is_array($decoded)) $docLinksArr = array_filter($decoded);
-                }
-                ?>
-                <?php if (!empty($repoLinksArr) || !empty($docLinksArr)): ?>
-                <div class="mt-3">
-                    <hr class="my-3">
-                    <?php if (!empty($repoLinksArr)): ?>
-                    <div class="mb-2">
-                        <div class="info-label"><i class="bi bi-git"></i> Repositórios GIT</div>
-                        <?php foreach ($repoLinksArr as $link): ?>
-                            <a href="<?= htmlspecialchars($link) ?>" target="_blank" class="d-inline-flex align-items-center gap-1 me-2 mb-1 badge bg-dark text-white text-decoration-none" style="font-size:13px; padding: 6px 10px;">
-                                <i class="bi bi-github"></i> <?= htmlspecialchars($link) ?>
-                            </a>
-                        <?php endforeach; ?>
+                <!-- Botão Mais Informação -->
+                <button class="btn btn-sm btn-outline-secondary mt-2" type="button"
+                        onclick="toggleMoreInfo(this)" id="moreInfoBtn">
+                    <i class="bi bi-chevron-down"></i> Mais informação
+                </button>
+
+                <!-- Secção colapsável -->
+                <div id="moreInfoSection" style="display:none;" class="mt-3">
+                    <div class="info-grid">
+                        <div class="info-card">
+                            <div class="info-label">Protótipo Pai</div>
+                            <div class="info-value">
+                                <?php if ($selectedPrototype['parent_id']): ?>
+                                    <?php
+                                    $parentStmt = $pdo->prepare("SELECT short_name FROM prototypes WHERE id = ?");
+                                    $parentStmt->execute([$selectedPrototype['parent_id']]);
+                                    $parentName = $parentStmt->fetchColumn();
+                                    ?>
+                                    <a href="?tab=prototypes/prototypesv2&prototype_id=<?= $selectedPrototype['parent_id'] ?>"
+                                       class="text-primary">
+                                        🔗 <?= htmlspecialchars($parentName) ?>
+                                    </a>
+                                <?php else: ?>
+                                    <span class="text-muted">Protótipo raiz</span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <div class="info-card">
+                            <div class="info-label">Criado em</div>
+                            <div class="info-value">
+                                <?= $selectedPrototype['created_at'] ? date('d/m/Y H:i', strtotime($selectedPrototype['created_at'])) : '-' ?>
+                            </div>
+                        </div>
+                    </div>
+
+                    <?php if ($selectedPrototype['vision']): ?>
+                    <div class="mt-3">
+                        <div class="info-label">Visão</div>
+                        <p class="mb-0"><?= nl2br(htmlspecialchars($selectedPrototype['vision'])) ?></p>
                     </div>
                     <?php endif; ?>
-                    <?php if (!empty($docLinksArr)): ?>
-                    <div>
-                        <div class="info-label"><i class="bi bi-link-45deg"></i> Outros Links</div>
-                        <?php foreach ($docLinksArr as $link): ?>
-                            <a href="<?= htmlspecialchars($link) ?>" target="_blank" class="d-inline-flex align-items-center gap-1 me-2 mb-1 badge bg-secondary text-white text-decoration-none" style="font-size:13px; padding: 6px 10px;">
-                                <i class="bi bi-box-arrow-up-right"></i> <?= htmlspecialchars($link) ?>
-                            </a>
-                        <?php endforeach; ?>
+
+                    <?php if ($selectedPrototype['sentence']): ?>
+                    <div class="mt-3">
+                        <div class="info-label">Frase de Posicionamento</div>
+                        <p class="mb-0" style="font-style:italic;"><?= nl2br(htmlspecialchars($selectedPrototype['sentence'])) ?></p>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if ($selectedPrototype['business_goals']): ?>
+                    <div class="mt-3">
+                        <div class="info-label">Objetivos de Negócio</div>
+                        <p class="mb-0"><?= nl2br(htmlspecialchars($selectedPrototype['business_goals'])) ?></p>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if ($selectedPrototype['product_description']): ?>
+                    <div class="mt-3">
+                        <div class="info-label">Descrição do Produto</div>
+                        <p class="mb-0"><?= nl2br(htmlspecialchars($selectedPrototype['product_description'])) ?></p>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if ($selectedPrototype['needs']): ?>
+                    <div class="mt-3">
+                        <div class="info-label">Necessidades</div>
+                        <p class="mb-0"><?= nl2br(htmlspecialchars($selectedPrototype['needs'])) ?></p>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if ($selectedPrototype['target_group']): ?>
+                    <div class="mt-3">
+                        <div class="info-label">Grupo Alvo</div>
+                        <p class="mb-0"><?= nl2br(htmlspecialchars($selectedPrototype['target_group'])) ?></p>
                     </div>
                     <?php endif; ?>
                 </div>
-                <?php endif; ?>
             </div>
             
             <!-- Membros -->
@@ -1985,7 +2041,7 @@ if ($selectedPrototype && $checkTodos) {
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-success" onclick="serializeLinks('new-repo-links-container','new-repo-links-json'); serializeLinks('new-doc-links-container','new-doc-links-json');">Criar</button>
+                    <button type="submit" class="btn btn-success" onclick="serializeLinks('new-repo-links-container','new-repo-links-json'); serializeLinks('new-doc-links-container','new-doc-links-json'); return true;">Criar</button>
                 </div>
             </form>
         </div>
@@ -2123,15 +2179,10 @@ if ($selectedPrototype && $checkTodos) {
                     <div class="mb-3">
                         <label class="form-label"><i class="bi bi-github"></i> Repositórios GIT</label>
                         <div id="edit-repo-links-container">
-                            <?php
-                            $editRepoLinks = [];
-                            if (!empty($selectedPrototype['repo_links'])) {
-                                $decoded = json_decode($selectedPrototype['repo_links'], true);
-                                if (is_array($decoded)) $editRepoLinks = array_filter($decoded);
-                            }
-                            foreach ($editRepoLinks as $link): ?>
-                            <div class="input-group mb-2 link-row">
-                                <input type="text" class="form-control" placeholder="https://github.com/..." value="<?= htmlspecialchars($link) ?>">
+                            <?php foreach ($repoLinksArr as $lnk): ?>
+                            <div class="d-flex gap-2 mb-2 link-row">
+                                <input type="text" class="form-control link-url" placeholder="https://github.com/..." value="<?= htmlspecialchars($lnk['url']) ?>">
+                                <input type="text" class="form-control link-label" placeholder="Descrição" value="<?= htmlspecialchars($lnk['label']) ?>" style="max-width:180px;">
                                 <button type="button" class="btn btn-outline-danger" onclick="removeLinkRow(this)"><i class="bi bi-x-lg"></i></button>
                             </div>
                             <?php endforeach; ?>
@@ -2145,15 +2196,10 @@ if ($selectedPrototype && $checkTodos) {
                     <div class="mb-3">
                         <label class="form-label"><i class="bi bi-link-45deg"></i> Outros Links</label>
                         <div id="edit-doc-links-container">
-                            <?php
-                            $editDocLinks = [];
-                            if (!empty($selectedPrototype['documentation_links'])) {
-                                $decoded = json_decode($selectedPrototype['documentation_links'], true);
-                                if (is_array($decoded)) $editDocLinks = array_filter($decoded);
-                            }
-                            foreach ($editDocLinks as $link): ?>
-                            <div class="input-group mb-2 link-row">
-                                <input type="text" class="form-control" placeholder="https://..." value="<?= htmlspecialchars($link) ?>">
+                            <?php foreach ($docLinksArr as $lnk): ?>
+                            <div class="d-flex gap-2 mb-2 link-row">
+                                <input type="text" class="form-control link-url" placeholder="https://..." value="<?= htmlspecialchars($lnk['url']) ?>">
+                                <input type="text" class="form-control link-label" placeholder="Descrição" value="<?= htmlspecialchars($lnk['label']) ?>" style="max-width:180px;">
                                 <button type="button" class="btn btn-outline-danger" onclick="removeLinkRow(this)"><i class="bi bi-x-lg"></i></button>
                             </div>
                             <?php endforeach; ?>
@@ -2578,11 +2624,12 @@ function filterSprintOptions(storyId) {
 function addLinkRow(containerId, placeholder) {
     const container = document.getElementById(containerId);
     const row = document.createElement('div');
-    row.className = 'input-group mb-2 link-row';
-    row.innerHTML = `<input type="text" class="form-control" placeholder="${placeholder}">
+    row.className = 'd-flex gap-2 mb-2 link-row';
+    row.innerHTML = `<input type="text" class="form-control link-url" placeholder="${placeholder}">
+                     <input type="text" class="form-control link-label" placeholder="Descrição" style="max-width:180px;">
                      <button type="button" class="btn btn-outline-danger" onclick="removeLinkRow(this)"><i class="bi bi-x-lg"></i></button>`;
     container.appendChild(row);
-    row.querySelector('input').focus();
+    row.querySelector('.link-url').focus();
 }
 
 function removeLinkRow(btn) {
@@ -2591,9 +2638,26 @@ function removeLinkRow(btn) {
 
 function serializeLinks(containerId, hiddenInputId) {
     const container = document.getElementById(containerId);
-    const inputs = container.querySelectorAll('input[type="text"]');
-    const links = Array.from(inputs).map(i => i.value.trim()).filter(v => v.length > 0);
+    const rows = container.querySelectorAll('.link-row');
+    const links = [];
+    rows.forEach(row => {
+        const url = (row.querySelector('.link-url')?.value || '').trim();
+        const label = (row.querySelector('.link-label')?.value || '').trim();
+        if (url) links.push({ url, label });
+    });
     document.getElementById(hiddenInputId).value = JSON.stringify(links);
+}
+
+function toggleMoreInfo(btn) {
+    const section = document.getElementById('moreInfoSection');
+    const icon = btn.querySelector('i');
+    const isHidden = section.style.display === 'none';
+    section.style.display = isHidden ? 'block' : 'none';
+    icon.className = isHidden ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+    btn.innerHTML = btn.innerHTML.replace(
+        isHidden ? 'Mais informação' : 'Menos informação',
+        isHidden ? 'Menos informação' : 'Mais informação'
+    );
 }
 
 function filterTaskOptions(storyId) {

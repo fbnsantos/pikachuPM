@@ -88,6 +88,18 @@ try {
     if (!$checkCompletionColumn) {
         $pdo->exec("ALTER TABLE user_stories ADD COLUMN completion_percentage INT DEFAULT 0 AFTER status");
     }
+
+    // Verificar e adicionar coluna created_by à tabela user_stories
+    $checkCreatedBy = $pdo->query("SHOW COLUMNS FROM user_stories LIKE 'created_by'")->fetch();
+    if (!$checkCreatedBy) {
+        $pdo->exec("ALTER TABLE user_stories ADD COLUMN created_by INT NULL AFTER created_at");
+    }
+
+    // Verificar e adicionar coluna closed_at à tabela user_stories
+    $checkClosedAt = $pdo->query("SHOW COLUMNS FROM user_stories LIKE 'closed_at'")->fetch();
+    if (!$checkClosedAt) {
+        $pdo->exec("ALTER TABLE user_stories ADD COLUMN closed_at DATETIME NULL AFTER created_by");
+    }
     
     // Criar tabela story_tasks para associar tasks a stories (se todos existe)
     if ($checkTodos) {
@@ -277,13 +289,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
             case 'create_story':
                 $stmt = $pdo->prepare("
-                    INSERT INTO user_stories (prototype_id, story_text, moscow_priority, status, completion_percentage, created_at)
-                    VALUES (?, ?, ?, 'open', 0, NOW())
+                    INSERT INTO user_stories (prototype_id, story_text, moscow_priority, status, completion_percentage, created_at, created_by)
+                    VALUES (?, ?, ?, 'open', 0, NOW(), ?)
                 ");
                 $stmt->execute([
                     $_POST['prototype_id'],
                     $_POST['story_text'],
-                    $_POST['moscow_priority'] ?? 'Should'
+                    $_POST['moscow_priority'] ?? 'Should',
+                    $currentUserId
                 ]);
                 $message = "User Story criada com sucesso!";
                 $messageType = 'success';
@@ -344,10 +357,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'toggle_story_status':
                 // Alternar status entre open e closed
                 $stmt = $pdo->prepare("
-                    UPDATE user_stories SET 
-                        status = CASE 
-                            WHEN status = 'open' THEN 'closed' 
-                            ELSE 'open' 
+                    UPDATE user_stories SET
+                        status = CASE
+                            WHEN status = 'open' THEN 'closed'
+                            ELSE 'open'
+                        END,
+                        closed_at = CASE
+                            WHEN status = 'open' THEN NOW()
+                            ELSE NULL
                         END,
                         updated_at = NOW()
                     WHERE id = ?
@@ -602,14 +619,28 @@ if ($selectedPrototypeId) {
         $selectedPrototype['members'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         // Obter user stories (com filtro de status)
-        $statusCondition = $showClosedStories ? "" : "AND status = 'open'";
+        $statusCondition = $showClosedStories ? "" : "AND us.status = 'open'";
         $stmt = $pdo->prepare("
-            SELECT * FROM user_stories 
-            WHERE prototype_id = ? $statusCondition
-            ORDER BY FIELD(moscow_priority, 'Must', 'Should', 'Could', 'Won''t'), id
+            SELECT us.*, u.username as created_by_name
+            FROM user_stories us
+            LEFT JOIN user_tokens u ON us.created_by = u.user_id
+            WHERE us.prototype_id = ? $statusCondition
+            ORDER BY FIELD(us.moscow_priority, 'Must', 'Should', 'Could', 'Won''t'), us.id
         ");
         $stmt->execute([$selectedPrototypeId]);
         $selectedPrototype['stories'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Estatísticas de stories (total, fechadas, última fechada)
+        $statsStmt = $pdo->prepare("
+            SELECT
+                COUNT(*) as total,
+                SUM(status = 'closed') as closed_count,
+                MAX(closed_at) as last_closed_at
+            FROM user_stories
+            WHERE prototype_id = ?
+        ");
+        $statsStmt->execute([$selectedPrototypeId]);
+        $selectedPrototype['story_stats'] = $statsStmt->fetch(PDO::FETCH_ASSOC);
         
         // Para cada story, obter sprints associadas (se módulo sprints existe)
         if ($checkSprints) {
@@ -1609,7 +1640,50 @@ if ($selectedPrototype && $checkTodos) {
                         <i class="bi bi-plus-lg"></i> Nova Story
                     </button>
                 </div>
-                
+
+                <?php
+                $stats = $selectedPrototype['story_stats'] ?? [];
+                $totalStories   = (int)($stats['total'] ?? 0);
+                $closedStories  = (int)($stats['closed_count'] ?? 0);
+                $openStories    = $totalStories - $closedStories;
+                $lastClosedAt   = $stats['last_closed_at'] ?? null;
+
+                if ($totalStories > 0):
+                    // Tempo desde a última story fechada
+                    $lastClosedText = 'Nenhuma fechada ainda';
+                    $lastClosedClass = 'text-danger';
+                    if ($lastClosedAt) {
+                        $diff = time() - strtotime($lastClosedAt);
+                        if ($diff < 3600)        { $lastClosedText = 'há menos de 1 hora'; $lastClosedClass = 'text-success'; }
+                        elseif ($diff < 86400)   { $lastClosedText = 'há ' . floor($diff/3600) . 'h'; $lastClosedClass = 'text-success'; }
+                        elseif ($diff < 604800)  { $lastClosedText = 'há ' . floor($diff/86400) . ' dias'; $lastClosedClass = 'text-warning'; }
+                        elseif ($diff < 2592000) { $lastClosedText = 'há ' . floor($diff/604800) . ' semanas'; $lastClosedClass = 'text-warning'; }
+                        else                     { $lastClosedText = 'há ' . floor($diff/2592000) . ' meses'; $lastClosedClass = 'text-danger'; }
+                    }
+                    $pct = $totalStories > 0 ? round($closedStories / $totalStories * 100) : 0;
+                ?>
+                <div class="d-flex align-items-center gap-3 mb-3 p-3 rounded" style="background:#f1f5f9; border:1px solid #e2e8f0;">
+                    <div class="text-center" style="min-width:60px;">
+                        <div style="font-size:22px; font-weight:700; color:#10b981;"><?= $closedStories ?></div>
+                        <div style="font-size:11px; color:#6b7280; text-transform:uppercase; font-weight:600;">Fechadas</div>
+                    </div>
+                    <div style="width:1px; height:40px; background:#e2e8f0;"></div>
+                    <div class="text-center" style="min-width:60px;">
+                        <div style="font-size:22px; font-weight:700; color:#3b82f6;"><?= $openStories ?></div>
+                        <div style="font-size:11px; color:#6b7280; text-transform:uppercase; font-weight:600;">Abertas</div>
+                    </div>
+                    <div style="width:1px; height:40px; background:#e2e8f0;"></div>
+                    <div class="flex-grow-1">
+                        <div style="font-size:12px; color:#6b7280; margin-bottom:4px;">
+                            <strong><?= $pct ?>%</strong> concluídas · Última fechada: <span class="<?= $lastClosedClass ?>"><?= $lastClosedText ?></span>
+                        </div>
+                        <div style="height:8px; background:#e2e8f0; border-radius:4px; overflow:hidden;">
+                            <div style="width:<?= $pct ?>%; height:100%; background:linear-gradient(90deg,#10b981,#059669); border-radius:4px; transition:width .3s;"></div>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+
                 <div class="story-list">
                     <?php if (!empty($selectedPrototype['stories'])): ?>
                         <?php foreach ($selectedPrototype['stories'] as $story): ?>
@@ -1618,9 +1692,21 @@ if ($selectedPrototype && $checkTodos) {
                                     <span class="story-priority priority-<?= strtolower($story['moscow_priority']) ?>">
                                         <?= htmlspecialchars($story['moscow_priority']) ?> Have
                                     </span>
-                                    <span class="badge <?= $story['status'] === 'closed' ? 'bg-secondary' : 'bg-info' ?>">
-                                        <?= $story['status'] === 'closed' ? 'Fechada' : 'Aberta' ?>
-                                    </span>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <?php if (!empty($story['created_by_name'])): ?>
+                                        <span style="font-size:12px; color:#6b7280;">
+                                            <i class="bi bi-person"></i> <?= htmlspecialchars($story['created_by_name']) ?>
+                                        </span>
+                                        <?php endif; ?>
+                                        <?php if (!empty($story['created_at'])): ?>
+                                        <span style="font-size:12px; color:#9ca3af;" title="<?= htmlspecialchars($story['created_at']) ?>">
+                                            <?= date('d/m/Y', strtotime($story['created_at'])) ?>
+                                        </span>
+                                        <?php endif; ?>
+                                        <span class="badge <?= $story['status'] === 'closed' ? 'bg-secondary' : 'bg-info' ?>">
+                                            <?= $story['status'] === 'closed' ? 'Fechada' : 'Aberta' ?>
+                                        </span>
+                                    </div>
                                 </div>
                                 <div class="story-text">
                                     <?= nl2br(htmlspecialchars($story['story_text'])) ?>

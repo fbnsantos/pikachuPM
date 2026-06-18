@@ -1952,15 +1952,16 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
 // Buscar outras sprints que têm tasks não completadas
 $otherSprintsWithTasks = [];
 try {
-    $stmt = $pdo->query("
+    $stmt = $pdo->prepare("
         SELECT DISTINCT s.id, s.nome, s.estado
         FROM sprints s
         JOIN sprint_tasks st ON st.sprint_id = s.id
         JOIN todos t ON st.todo_id = t.id
-        WHERE s.id != {$selectedSprint['id']}
+        WHERE s.id != ?
           AND t.estado != 'completada'
-        ORDER BY FIELD(s.estado,'aberta','em execução','suspensa','concluída'), s.nome
+        ORDER BY FIELD(s.estado,'aberta','em execução','suspensa','concluída','fechada'), s.nome
     ");
+    $stmt->execute([$selectedSprint['id']]);
     $otherSprintsWithTasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {}
 ?>
@@ -2022,9 +2023,16 @@ function loadInheritTasks(sourceSprintId) {
     filter.disabled       = true;
     filter.value          = '';
 
-    fetch('sprint_inherit_tasks.php?source_sprint_id=' + sourceSprintId + '&target_sprint_id=<?= $selectedSprint['id'] ?>')
-        .then(r => r.json())
-        .then(tasks => {
+    const ajaxUrl = '<?= rtrim(dirname($_SERVER['PHP_SELF']), '/') ?>/sprint_inherit_tasks.php?source_sprint_id=' + sourceSprintId + '&target_sprint_id=<?= $selectedSprint['id'] ?>';
+    fetch(ajaxUrl)
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.text();
+        })
+        .then(text => {
+            let tasks;
+            try { tasks = JSON.parse(text); }
+            catch(e) { throw new Error('JSON inválido: ' + text.substring(0, 200)); }
             loading.style.display = 'none';
             if (!tasks.length) {
                 items.innerHTML = '<div style="padding:16px; color:#9ca3af; text-align:center;">Sem tasks disponíveis para herdar</div>';
@@ -2032,7 +2040,7 @@ function loadInheritTasks(sourceSprintId) {
                 items.innerHTML = tasks.map(t => `
                     <div class="inherit-task-row d-flex align-items-center gap-3 p-2"
                          style="border-bottom:1px solid #f1f5f9; cursor:default;"
-                         data-title="${t.titulo.toLowerCase()}">
+                         data-title="${(t.titulo||'').toLowerCase()}">
                         <div style="flex:1;">
                             <div style="font-weight:500; font-size:13px;">${t.titulo}</div>
                             <div style="font-size:11px; color:#6b7280;">
@@ -2055,9 +2063,9 @@ function loadInheritTasks(sourceSprintId) {
             list.style.display = 'block';
             filter.disabled    = false;
         })
-        .catch(() => {
+        .catch(err => {
             loading.style.display = 'none';
-            items.innerHTML = '<div style="padding:16px; color:#dc3545;">Erro ao carregar tasks.</div>';
+            items.innerHTML = '<div style="padding:16px; color:#dc3545;">Erro: ' + err.message + '</div>';
             list.style.display = 'block';
         });
 }

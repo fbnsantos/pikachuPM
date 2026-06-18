@@ -1473,6 +1473,44 @@ if ($selectedPrototype && $checkTodos) {
                     <p class="mb-0" style="font-style: italic;"><?= nl2br(htmlspecialchars($selectedPrototype['sentence'])) ?></p>
                 </div>
                 <?php endif; ?>
+
+                <?php
+                $repoLinksArr = [];
+                if (!empty($selectedPrototype['repo_links'])) {
+                    $decoded = json_decode($selectedPrototype['repo_links'], true);
+                    if (is_array($decoded)) $repoLinksArr = array_filter($decoded);
+                }
+                $docLinksArr = [];
+                if (!empty($selectedPrototype['documentation_links'])) {
+                    $decoded = json_decode($selectedPrototype['documentation_links'], true);
+                    if (is_array($decoded)) $docLinksArr = array_filter($decoded);
+                }
+                ?>
+                <?php if (!empty($repoLinksArr) || !empty($docLinksArr)): ?>
+                <div class="mt-3">
+                    <hr class="my-3">
+                    <?php if (!empty($repoLinksArr)): ?>
+                    <div class="mb-2">
+                        <div class="info-label"><i class="bi bi-git"></i> Repositórios GIT</div>
+                        <?php foreach ($repoLinksArr as $link): ?>
+                            <a href="<?= htmlspecialchars($link) ?>" target="_blank" class="d-inline-flex align-items-center gap-1 me-2 mb-1 badge bg-dark text-white text-decoration-none" style="font-size:13px; padding: 6px 10px;">
+                                <i class="bi bi-github"></i> <?= htmlspecialchars($link) ?>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
+                    <?php if (!empty($docLinksArr)): ?>
+                    <div>
+                        <div class="info-label"><i class="bi bi-link-45deg"></i> Outros Links</div>
+                        <?php foreach ($docLinksArr as $link): ?>
+                            <a href="<?= htmlspecialchars($link) ?>" target="_blank" class="d-inline-flex align-items-center gap-1 me-2 mb-1 badge bg-secondary text-white text-decoration-none" style="font-size:13px; padding: 6px 10px;">
+                                <i class="bi bi-box-arrow-up-right"></i> <?= htmlspecialchars($link) ?>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
             </div>
             
             <!-- Membros -->
@@ -1852,48 +1890,6 @@ if ($selectedPrototype && $checkTodos) {
                 </div>
             </div>
             
-            <!-- Links e Recursos -->
-            <?php if ($selectedPrototype['repo_links'] || $selectedPrototype['documentation_links']): ?>
-            <div class="detail-section">
-                <h5><i class="bi bi-link-45deg"></i> Links e Recursos</h5>
-                
-                <?php if ($selectedPrototype['repo_links']): ?>
-                <div class="mb-3">
-                    <div class="info-label">Repositórios</div>
-                    <?php 
-                    $repoLinks = json_decode($selectedPrototype['repo_links'], true);
-                    if (is_array($repoLinks)):
-                        foreach ($repoLinks as $link):
-                    ?>
-                        <a href="<?= htmlspecialchars($link) ?>" target="_blank" class="d-block mb-1">
-                            🔗 <?= htmlspecialchars($link) ?>
-                        </a>
-                    <?php 
-                        endforeach;
-                    endif;
-                    ?>
-                </div>
-                <?php endif; ?>
-                
-                <?php if ($selectedPrototype['documentation_links']): ?>
-                <div>
-                    <div class="info-label">Documentação</div>
-                    <?php 
-                    $docLinks = json_decode($selectedPrototype['documentation_links'], true);
-                    if (is_array($docLinks)):
-                        foreach ($docLinks as $link):
-                    ?>
-                        <a href="<?= htmlspecialchars($link) ?>" target="_blank" class="d-block mb-1">
-                            📄 <?= htmlspecialchars($link) ?>
-                        </a>
-                    <?php 
-                        endforeach;
-                    endif;
-                    ?>
-                </div>
-                <?php endif; ?>
-            </div>
-            <?php endif; ?>
             
             <!-- Form oculto para eliminar -->
             <form id="deleteForm" method="POST" style="display: none;">
@@ -1967,10 +1963,29 @@ if ($selectedPrototype && $checkTodos) {
                         <label class="form-label">Frase de Posicionamento</label>
                         <textarea name="sentence" class="form-control" rows="2"></textarea>
                     </div>
+
+                    <hr>
+                    <div class="mb-3">
+                        <label class="form-label"><i class="bi bi-github"></i> Repositórios GIT</label>
+                        <div id="new-repo-links-container"></div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addLinkRow('new-repo-links-container', 'https://github.com/...')">
+                            <i class="bi bi-plus"></i> Adicionar Repositório
+                        </button>
+                        <input type="hidden" name="repo_links" id="new-repo-links-json">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label"><i class="bi bi-link-45deg"></i> Outros Links</label>
+                        <div id="new-doc-links-container"></div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addLinkRow('new-doc-links-container', 'https://...')">
+                            <i class="bi bi-plus"></i> Adicionar Link
+                        </button>
+                        <input type="hidden" name="documentation_links" id="new-doc-links-json">
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-success">Criar</button>
+                    <button type="submit" class="btn btn-success" onclick="serializeLinks('new-repo-links-container','new-repo-links-json'); serializeLinks('new-doc-links-container','new-doc-links-json');">Criar</button>
                 </div>
             </form>
         </div>
@@ -2103,10 +2118,55 @@ if ($selectedPrototype && $checkTodos) {
                         <label class="form-label">Frase de Posicionamento</label>
                         <textarea name="sentence" class="form-control" rows="2"><?= htmlspecialchars($selectedPrototype['sentence']) ?></textarea>
                     </div>
+
+                    <hr>
+                    <div class="mb-3">
+                        <label class="form-label"><i class="bi bi-github"></i> Repositórios GIT</label>
+                        <div id="edit-repo-links-container">
+                            <?php
+                            $editRepoLinks = [];
+                            if (!empty($selectedPrototype['repo_links'])) {
+                                $decoded = json_decode($selectedPrototype['repo_links'], true);
+                                if (is_array($decoded)) $editRepoLinks = array_filter($decoded);
+                            }
+                            foreach ($editRepoLinks as $link): ?>
+                            <div class="input-group mb-2 link-row">
+                                <input type="text" class="form-control" placeholder="https://github.com/..." value="<?= htmlspecialchars($link) ?>">
+                                <button type="button" class="btn btn-outline-danger" onclick="removeLinkRow(this)"><i class="bi bi-x-lg"></i></button>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addLinkRow('edit-repo-links-container', 'https://github.com/...')">
+                            <i class="bi bi-plus"></i> Adicionar Repositório
+                        </button>
+                        <input type="hidden" name="repo_links" id="edit-repo-links-json">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label"><i class="bi bi-link-45deg"></i> Outros Links</label>
+                        <div id="edit-doc-links-container">
+                            <?php
+                            $editDocLinks = [];
+                            if (!empty($selectedPrototype['documentation_links'])) {
+                                $decoded = json_decode($selectedPrototype['documentation_links'], true);
+                                if (is_array($decoded)) $editDocLinks = array_filter($decoded);
+                            }
+                            foreach ($editDocLinks as $link): ?>
+                            <div class="input-group mb-2 link-row">
+                                <input type="text" class="form-control" placeholder="https://..." value="<?= htmlspecialchars($link) ?>">
+                                <button type="button" class="btn btn-outline-danger" onclick="removeLinkRow(this)"><i class="bi bi-x-lg"></i></button>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addLinkRow('edit-doc-links-container', 'https://...')">
+                            <i class="bi bi-plus"></i> Adicionar Link
+                        </button>
+                        <input type="hidden" name="documentation_links" id="edit-doc-links-json">
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Salvar</button>
+                    <button type="submit" class="btn btn-primary" onclick="serializeLinks('edit-repo-links-container','edit-repo-links-json'); serializeLinks('edit-doc-links-container','edit-doc-links-json');">Salvar</button>
                 </div>
             </form>
         </div>
@@ -2513,6 +2573,27 @@ function filterSprintOptions(storyId) {
             options[i].style.display = 'none';
         }
     }
+}
+
+function addLinkRow(containerId, placeholder) {
+    const container = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'input-group mb-2 link-row';
+    row.innerHTML = `<input type="text" class="form-control" placeholder="${placeholder}">
+                     <button type="button" class="btn btn-outline-danger" onclick="removeLinkRow(this)"><i class="bi bi-x-lg"></i></button>`;
+    container.appendChild(row);
+    row.querySelector('input').focus();
+}
+
+function removeLinkRow(btn) {
+    btn.closest('.link-row').remove();
+}
+
+function serializeLinks(containerId, hiddenInputId) {
+    const container = document.getElementById(containerId);
+    const inputs = container.querySelectorAll('input[type="text"]');
+    const links = Array.from(inputs).map(i => i.value.trim()).filter(v => v.length > 0);
+    document.getElementById(hiddenInputId).value = JSON.stringify(links);
 }
 
 function filterTaskOptions(storyId) {

@@ -227,6 +227,30 @@ foreach ($todos as $todo) {
 }
 
 
+// Buscar sprints de todas as tasks visíveis de uma vez (evita N+1)
+$todoIds = array_column($todos, 'id');
+$taskSprintsMap = []; // todo_id => [ ['id'=>, 'nome'=>, 'estado'=>], ... ]
+if (!empty($todoIds)) {
+    try {
+        $ph = implode(',', array_fill(0, count($todoIds), '?'));
+        $types = str_repeat('i', count($todoIds));
+        $stSt = $db->prepare("
+            SELECT st.todo_id, s.id, s.nome, s.estado
+            FROM sprint_tasks st
+            JOIN sprints s ON st.sprint_id = s.id
+            WHERE st.todo_id IN ($ph)
+            ORDER BY FIELD(s.estado,'aberta','em execução','suspensa','concluída','fechada'), s.nome
+        ");
+        $stSt->bind_param($types, ...$todoIds);
+        $stSt->execute();
+        $stRes = $stSt->get_result();
+        while ($row = $stRes->fetch_assoc()) {
+            $taskSprintsMap[$row['todo_id']][] = $row;
+        }
+        $stSt->close();
+    } catch (Exception $e) {}
+}
+
 // Função para obter informações de Sprint e Projeto de uma tarefa
 function getTaskSprintAndProject($pdo, $todo_id) {
     $info = [
@@ -668,6 +692,23 @@ $db->close();
                                         <?php endif; ?>
                                     </div>
                                     
+                                    <!-- Sprints associadas -->
+                                    <?php $taskSprints = $taskSprintsMap[$todo['id']] ?? []; ?>
+                                    <?php if (!empty($taskSprints)): ?>
+                                    <div class="mt-1" style="line-height:1.4;">
+                                        <?php
+                                        $stateColor = ['aberta'=>'#16a34a','em execução'=>'#2563eb','suspensa'=>'#d97706','concluída'=>'#6b7280','fechada'=>'#9ca3af'];
+                                        foreach ($taskSprints as $sp):
+                                            $col = $stateColor[$sp['estado']] ?? '#6b7280';
+                                        ?>
+                                        <span style="font-size:11px; color:<?= $col ?>; white-space:nowrap;">
+                                            <i class="bi bi-lightning-charge-fill" style="font-size:9px;"></i>
+                                            <?= htmlspecialchars($sp['nome']) ?>
+                                        </span>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <?php endif; ?>
+
                                     <!-- Botões de ação -->
                                     <div class="task-actions">
                                         <button class="btn btn-sm btn-primary btn-task-action edit-task-btn" 

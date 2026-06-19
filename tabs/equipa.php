@@ -1449,7 +1449,7 @@ window.addEventListener('DOMContentLoaded', function() {
                                                                     </div>
                                                                 </div>
                                                                 
-                                                                <div class="d-flex flex-wrap gap-1 mb-1">
+                                                                <div class="d-flex flex-wrap gap-1 mb-1" style="font-size:50%; line-height:1.4;">
                                                                     <?= $act['estado_badge'] ?>
                                                                     <?= $act['estagio_badge'] ?>
                                                                     <?= $act['projeto_badge'] ?>
@@ -1466,19 +1466,6 @@ window.addEventListener('DOMContentLoaded', function() {
                                                                     <?php endforeach; ?>
                                                                 </div>
                                                                 <?php endif; ?>
-                                                                
-                                                                <div class="d-flex justify-content-between align-items-center">
-                                                                    <small class="text-muted">
-                                                                        <i class="bi bi-clock-history"></i> 
-                                                                        <?= $act['tempo_decorrido'] ?>
-                                                                    </small>
-                                                                    <?php if ($act['responsavel_nome'] && $act['responsavel_nome'] != getNomeUtilizador($oradorId, getUtilizadoresRedmine())): ?>
-                                                                        <small class="text-muted">
-                                                                            <i class="bi bi-person"></i> 
-                                                                            <?= htmlspecialchars($act['responsavel_nome']) ?>
-                                                                        </small>
-                                                                    <?php endif; ?>
-                                                                </div>
                                                             </li>
                                                         <?php endforeach; ?>
                                                     <?php endif; ?>

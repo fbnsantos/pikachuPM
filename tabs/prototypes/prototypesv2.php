@@ -159,14 +159,26 @@ try {
     // Ignorar erro
 }
 
-// Obter lista de sprints (se existir)
+// Obter lista de sprints (se existir) — todas incluindo fechadas, para filtrar no cliente
 $sprints = [];
 if ($checkSprints) {
     try {
-        $stmt = $pdo->query("SELECT id, nome, estado FROM sprints WHERE estado != 'fechada' ORDER BY nome");
+        $stmt = $pdo->query("
+            SELECT s.id, s.nome, s.estado, s.responsavel_id,
+                   EXISTS (
+                       SELECT 1 FROM sprint_members sm
+                       WHERE sm.sprint_id = s.id AND sm.user_id = $currentUserId
+                   ) as is_member
+            FROM sprints s
+            ORDER BY FIELD(s.estado,'aberta','em execução','suspensa','concluída','fechada'), s.nome
+        ");
         $sprints = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
-        // Ignorar erro
+        // sprint_members pode não existir; fallback simples
+        try {
+            $stmt = $pdo->query("SELECT id, nome, estado, responsavel_id, 0 as is_member FROM sprints ORDER BY nome");
+            $sprints = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e2) {}
     }
 }
 
@@ -2159,7 +2171,9 @@ if ($selectedPrototype && $checkTodos) {
                                     </form>
                                     <?php endif; ?>
                                     <?php if ($checkSprints): ?>
-                                    <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#addStoryToSprintModal<?= $story['id'] ?>">
+                                    <button class="btn btn-sm btn-info"
+                                            onclick="openSprintModal(<?= $story['id'] ?>, <?= htmlspecialchars(json_encode($story['story_text']), ENT_QUOTES) ?>)"
+                                            data-bs-toggle="modal" data-bs-target="#addStoryToSprintModal">
                                         <i class="bi bi-link-45deg"></i> Associar Sprint
                                     </button>
                                     <?php endif; ?>
@@ -2182,50 +2196,7 @@ if ($selectedPrototype && $checkTodos) {
                                 </div>
                             </div>
                             
-                            <!-- Modal para associar à sprint (um por story) -->
-                            <?php if ($checkSprints): ?>
-                            <div class="modal fade" id="addStoryToSprintModal<?= $story['id'] ?>" tabindex="-1">
-                                <div class="modal-dialog">
-                                    <div class="modal-content">
-                                        <div class="modal-header">
-                                            <h5 class="modal-title">Associar Story à Sprint</h5>
-                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                        </div>
-                                        <form method="POST">
-                                            <div class="modal-body">
-                                                <input type="hidden" name="action" value="add_story_to_sprint">
-                                                <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
-                                                <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
-                                                
-                                                <div class="mb-3">
-                                                    <label class="form-label">Filtrar Sprints</label>
-                                                    <input type="text" class="form-control" id="filterSprintInput<?= $story['id'] ?>" 
-                                                           placeholder="Digite para filtrar..." 
-                                                           onkeyup="filterSprintOptions(<?= $story['id'] ?>)">
-                                                </div>
-                                                
-                                                <div class="mb-3">
-                                                    <label class="form-label">Sprint</label>
-                                                    <select name="sprint_id" id="sprintSelect<?= $story['id'] ?>" class="form-select" required size="8">
-                                                        <option value="">Selecione...</option>
-                                                        <?php foreach ($sprints as $sprint): ?>
-                                                            <option value="<?= $sprint['id'] ?>">
-                                                                <?= htmlspecialchars($sprint['nome']) ?> 
-                                                                (<?= htmlspecialchars($sprint['estado']) ?>)
-                                                            </option>
-                                                        <?php endforeach; ?>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            <div class="modal-footer">
-                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                                                <button type="submit" class="btn btn-success">Associar</button>
-                                            </div>
-                                        </form>
-                                    </div>
-                                </div>
-                            </div>
-                            <?php endif; ?>
+                            <?php /* modal por story removido — usar modal partilhado #addStoryToSprintModal */ ?>
                             
                             <!-- Modal para associar task existente (um por story) -->
                             <?php if ($checkTodos): ?>
@@ -2914,6 +2885,110 @@ if ($selectedPrototype && $checkTodos) {
         </div>
     </div>
 </div>
+
+<!-- Modal: Associar Story a Sprint (partilhado) -->
+<?php if ($checkSprints): ?>
+<script>
+const allSprints = <?= json_encode($sprints, JSON_UNESCAPED_UNICODE) ?>;
+const currentUserId = <?= (int)$currentUserId ?>;
+
+function openSprintModal(storyId, storyText) {
+    document.getElementById('sprintModalStoryId').value = storyId;
+    document.getElementById('sprintModalStoryLabel').textContent = storyText.substring(0, 80) + (storyText.length > 80 ? '…' : '');
+    filterSprintModal();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const el = document.getElementById('addStoryToSprintModal');
+    if (el) el.addEventListener('show.bs.modal', filterSprintModal);
+});
+
+function filterSprintModal() {
+    const text    = (document.getElementById('sprintFilterText').value || '').toLowerCase();
+    const closed  = document.getElementById('sprintFilterClosed').checked;
+    const owner   = document.getElementById('sprintFilterOwner').checked;
+    const member  = document.getElementById('sprintFilterMember').checked;
+    const sel     = document.getElementById('sprintModalSelect');
+    sel.innerHTML = '';
+
+    const stateOrder = {'aberta':0,'em execução':1,'suspensa':2,'concluída':3,'fechada':4};
+    const filtered = allSprints.filter(s => {
+        if (!closed && s.estado === 'fechada') return false;
+        if (owner  && s.responsavel_id != currentUserId) return false;
+        if (member && !s.is_member) return false;
+        if (text   && s.nome.toLowerCase().indexOf(text) < 0) return false;
+        return true;
+    });
+
+    if (filtered.length === 0) {
+        sel.innerHTML = '<option disabled>Nenhuma sprint encontrada</option>';
+        return;
+    }
+    filtered.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        const stateEmoji = {'aberta':'🟡','em execução':'🔵','suspensa':'🟠','concluída':'✅','fechada':'🔒'}[s.estado] || '•';
+        opt.textContent = stateEmoji + ' ' + s.nome + ' (' + s.estado + ')';
+        sel.appendChild(opt);
+    });
+}
+</script>
+
+<div class="modal fade" id="addStoryToSprintModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title"><i class="bi bi-lightning-charge"></i> Associar Story à Sprint</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="add_story_to_sprint">
+                    <input type="hidden" name="story_id" id="sprintModalStoryId">
+                    <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?? '' ?>">
+
+                    <div class="alert alert-light border py-2 mb-3" style="font-size:13px;">
+                        <i class="bi bi-book text-info"></i> <span id="sprintModalStoryLabel" class="fst-italic"></span>
+                    </div>
+
+                    <!-- Filtros -->
+                    <div class="mb-2 d-flex flex-wrap gap-3 align-items-center">
+                        <div class="input-group input-group-sm flex-grow-1" style="min-width:150px;">
+                            <span class="input-group-text"><i class="bi bi-search"></i></span>
+                            <input type="text" id="sprintFilterText" class="form-control" placeholder="Filtrar por nome…" oninput="filterSprintModal()">
+                        </div>
+                    </div>
+                    <div class="mb-3 d-flex flex-wrap gap-3" style="font-size:13px;">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="sprintFilterClosed" onchange="filterSprintModal()">
+                            <label class="form-check-label" for="sprintFilterClosed">Mostrar fechadas 🔒</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="sprintFilterOwner" onchange="filterSprintModal()">
+                            <label class="form-check-label" for="sprintFilterOwner">Só onde sou dono</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="sprintFilterMember" onchange="filterSprintModal()">
+                            <label class="form-check-label" for="sprintFilterMember">Só onde sou membro</label>
+                        </div>
+                    </div>
+
+                    <div class="mb-1">
+                        <label class="form-label fw-semibold">Sprint</label>
+                        <select name="sprint_id" id="sprintModalSelect" class="form-select" required size="8">
+                            <option disabled>Carregando…</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success"><i class="bi bi-link-45deg"></i> Associar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- Modal: Editar Percentagem -->
 <div class="modal fade" id="editPercentageModal" tabindex="-1">

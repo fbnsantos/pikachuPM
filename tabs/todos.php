@@ -701,10 +701,12 @@ $db->close();
                                         foreach ($taskSprints as $sp):
                                             $col = $stateColor[$sp['estado']] ?? '#6b7280';
                                         ?>
-                                        <span style="font-size:11px; color:<?= $col ?>; white-space:nowrap;">
+                                        <a href="?tab=sprints&sprint_id=<?= $sp['id'] ?>"
+                                           style="font-size:11px; color:<?= $col ?>; text-decoration:none; white-space:nowrap;"
+                                           title="Ir para sprint">
                                             <i class="bi bi-lightning-charge-fill" style="font-size:9px;"></i>
                                             <?= htmlspecialchars($sp['nome']) ?>
-                                        </span>
+                                        </a>
                                         <?php endforeach; ?>
                                     </div>
                                     <?php endif; ?>

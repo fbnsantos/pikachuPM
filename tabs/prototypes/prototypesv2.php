@@ -119,7 +119,12 @@ try {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
     }
-    // Tabela de versões de protótipo
+} catch (PDOException $e) {
+    // Ignorar erros de migração já aplicada
+}
+
+// Tabelas de versões (bloco separado para garantir criação independente)
+try {
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS prototype_versions (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -132,7 +137,6 @@ try {
             INDEX idx_prototype (prototype_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
-    // Tabela junction versão ↔ user story
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS version_stories (
             version_id INT NOT NULL,
@@ -143,7 +147,7 @@ try {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 } catch (PDOException $e) {
-    // Tabelas já existem
+    // Ignorar se já existem
 }
 
 // Obter lista de utilizadores

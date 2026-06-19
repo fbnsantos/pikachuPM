@@ -1159,7 +1159,7 @@ if (isset($_GET['debug_teams']) && $_GET['debug_teams'] === '1') {
             font-family: monospace;
         }
         .btn-action {
-            min-width: 120px;
+            min-width: 0;
         }
         .debug-area {
             font-size: 0.8rem;
@@ -1303,7 +1303,7 @@ window.addEventListener('DOMContentLoaded', function() {
                                         <!-- INÍCIO DO CRONÔMETRO -->
                                         <div class="card mb-3">
                                             <div class="card-header bg-info text-white">
-                                                <h5 class="mb-0"><i class="bi bi-mic-fill"></i> Orador atual: <?= htmlspecialchars(getNomeUtilizador_append($orador_atual.'/'.count($oradores).' ',$oradorId, $utilizadores)) ?></h5>
+                                                <h5 class="mb-0"><i class="bi bi-mic-fill"></i> <?= htmlspecialchars(getNomeUtilizador_append($orador_atual.'/'.count($oradores).' ',$oradorId, $utilizadores)) ?></h5>
                                             </div>
                                             <div class="card-body text-center">
                                                 <!-- Mostrador do cronômetro -->
@@ -1325,29 +1325,29 @@ window.addEventListener('DOMContentLoaded', function() {
                                             </div>
                                         </div>
                                         
-                                        <div class="d-flex flex-wrap gap-2 mb-3">
-                                            <button id="btn-pausar" class="btn btn-warning btn-action">
+                                        <div class="d-flex flex-wrap align-items-center gap-1 mb-3">
+                                            <button id="btn-pausar" class="btn btn-sm btn-warning" title="Pausar">
                                                 <i class="bi bi-pause-fill"></i> Pausar
                                             </button>
-                                            
-                                            <button id="btn-reiniciar" class="btn btn-secondary btn-action">
-                                                <i class="bi bi-arrow-repeat"></i> Reiniciar
+                                            <button id="btn-reiniciar" class="btn btn-sm btn-outline-secondary" title="Reiniciar cronómetro">
+                                                <i class="bi bi-arrow-repeat"></i>
                                             </button>
-                                            
                                             <form method="post" class="d-inline">
-                                                <button type="submit" name="proximo" class="btn btn-primary btn-action">
+                                                <button type="submit" name="proximo" class="btn btn-sm btn-primary" title="Próximo orador">
                                                     <i class="bi bi-skip-forward-fill"></i> Próximo
                                                 </button>
                                             </form>
-                                            
-                                            <button type="button" class="btn btn-danger btn-action" data-bs-toggle="modal" data-bs-target="#faltaModal">
-                                                <i class="bi bi-x-circle"></i> Marcar Falta
-                                            </button>
-                                            
-                                            <form method="post" class="d-inline mt-2">
+                                            <form method="post" class="d-inline">
+                                                <input type="hidden" name="marcar_falta" value="<?= $oradorId ?>">
+                                                <input type="hidden" name="motivo_falta" value="">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Marcar Falta">
+                                                    <i class="bi bi-x-circle"></i>
+                                                </button>
+                                            </form>
+                                            <form method="post" class="d-inline">
                                                 <input type="hidden" name="mover_final" value="<?= $oradorId ?>">
-                                                <button type="submit" class="btn btn-secondary btn-action">
-                                                    <i class="bi bi-arrow-return-right"></i> Mover para Final
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Mover para Final">
+                                                    <i class="bi bi-arrow-return-right"></i>
                                                 </button>
                                             </form>
                                         </div>

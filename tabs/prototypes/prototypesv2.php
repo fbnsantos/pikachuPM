@@ -150,6 +150,24 @@ try {
     // Ignorar se já existem
 }
 
+try {
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS story_attachments (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            story_id INT NOT NULL,
+            file_name VARCHAR(255) NOT NULL,
+            file_path VARCHAR(500) NOT NULL,
+            file_size INT NOT NULL,
+            uploaded_by INT NULL,
+            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (story_id) REFERENCES user_stories(id) ON DELETE CASCADE,
+            INDEX idx_story (story_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+} catch (PDOException $e) {
+    // Ignorar se já existe
+}
+
 // Obter lista de utilizadores
 $users = [];
 try {
@@ -2178,6 +2196,10 @@ if ($selectedPrototype && $checkTodos) {
                                         <i class="bi bi-link-45deg"></i> Associar Sprint
                                     </button>
                                     <?php endif; ?>
+                                    <button class="btn btn-sm btn-outline-secondary"
+                                            onclick="openAttachmentsModal(<?= $story['id'] ?>, <?= htmlspecialchars(json_encode(mb_strimwidth($story['story_text'],0,50,'…')), ENT_QUOTES) ?>)">
+                                        <i class="bi bi-paperclip"></i> Ficheiros
+                                    </button>
                                     <?php if ($checkTodos): ?>
                                     <button class="btn btn-sm btn-warning" data-bs-toggle="modal" data-bs-target="#addTaskToStoryModal<?= $story['id'] ?>">
                                         <i class="bi bi-link-45deg"></i> Associar Task
@@ -3168,6 +3190,137 @@ document.getElementById('versionDetailModal').addEventListener('show.bs.modal', 
         cb.checked = storyIds.includes(parseInt(cb.value));
     });
 });
+</script>
+
+<!-- Modal: Anexos de Story -->
+<div class="modal fade" id="storyAttachmentsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#475569; color:#fff;">
+                <h5 class="modal-title"><i class="bi bi-paperclip"></i> Ficheiros — <span id="attachModalStoryLabel"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="attachDropZone" style="border:2px dashed #cbd5e1; border-radius:8px; padding:24px; text-align:center; cursor:pointer; margin-bottom:16px; transition:background .2s;">
+                    <i class="bi bi-cloud-upload" style="font-size:2rem; color:#94a3b8;"></i>
+                    <p class="mb-1 mt-2 text-muted">Arraste ficheiros aqui ou clique para selecionar</p>
+                    <p class="small text-muted mb-0">Imagens, PDF, Office, TXT, CSV, ZIP — máx. 50MB</p>
+                    <input type="file" id="attachFileInput" style="display:none;"
+                           accept=".jpg,.jpeg,.png,.gif,.webp,.svg,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" multiple>
+                </div>
+                <div id="attachUploadProgress" style="display:none;" class="mb-3">
+                    <div class="progress">
+                        <div id="attachProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%"></div>
+                    </div>
+                </div>
+                <div id="attachGallery" class="row g-2"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const storyAttachmentsUrl = '<?= rtrim(dirname($_SERVER['PHP_SELF']), '/') ?>/story_attachments.php';
+let currentStoryId = null;
+
+function openAttachmentsModal(storyId, storyText) {
+    currentStoryId = storyId;
+    document.getElementById('attachModalStoryLabel').textContent = storyText;
+    loadAttachments();
+    new bootstrap.Modal(document.getElementById('storyAttachmentsModal')).show();
+}
+
+function loadAttachments() {
+    const gallery = document.getElementById('attachGallery');
+    gallery.innerHTML = '<div class="text-muted small">A carregar…</div>';
+    fetch(storyAttachmentsUrl + '?action=list&story_id=' + currentStoryId)
+        .then(r => r.json())
+        .then(files => {
+            if (!files.length) {
+                gallery.innerHTML = '<div class="text-muted small col-12">Sem ficheiros anexados.</div>';
+                return;
+            }
+            const imageExts = ['jpg','jpeg','png','gif','webp','svg'];
+            gallery.innerHTML = files.map(f => {
+                const ext = f.file_name.split('.').pop().toLowerCase();
+                const isImg = imageExts.includes(ext);
+                const size = formatBytes(f.file_size);
+                const date = f.uploaded_at ? f.uploaded_at.substring(0,10).split('-').reverse().join('/') : '';
+                const basePath = '<?= rtrim(dirname($_SERVER['PHP_SELF']), '/') ?>/../' + f.file_path;
+                const thumb = isImg
+                    ? `<a href="${basePath}" target="_blank"><img src="${basePath}" style="width:100%; height:80px; object-fit:cover; border-radius:4px;"></a>`
+                    : `<div style="font-size:2rem; text-align:center; padding:12px;"><i class="bi bi-file-earmark"></i></div>`;
+                return `<div class="col-6 col-md-3">
+                    <div class="border rounded p-2 h-100 d-flex flex-column">
+                        ${thumb}
+                        <div class="small mt-1 text-truncate" title="${f.file_name}">${f.file_name}</div>
+                        <div class="small text-muted">${size} · ${date}</div>
+                        <button class="btn btn-sm btn-outline-danger mt-auto" onclick="deleteAttachment(${f.id})"><i class="bi bi-trash"></i></button>
+                    </div>
+                </div>`;
+            }).join('');
+        });
+}
+
+function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function uploadAttachment(file) {
+    const bar = document.getElementById('attachProgressBar');
+    const progress = document.getElementById('attachUploadProgress');
+    progress.style.display = '';
+    bar.style.width = '0%';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', storyAttachmentsUrl + '?action=upload&story_id=' + currentStoryId);
+    xhr.upload.onprogress = e => {
+        if (e.lengthComputable) bar.style.width = Math.round(e.loaded / e.total * 100) + '%';
+    };
+    xhr.onload = () => {
+        progress.style.display = 'none';
+        const res = JSON.parse(xhr.responseText);
+        if (res.success) {
+            loadAttachments();
+        } else {
+            alert(res.error || 'Erro no upload');
+        }
+    };
+    xhr.send(fd);
+}
+
+function deleteAttachment(id) {
+    if (!confirm('Eliminar este ficheiro?')) return;
+    const fd = new FormData();
+    fd.append('action', 'delete');
+    fd.append('attachment_id', id);
+    fetch(storyAttachmentsUrl, { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(res => { if (res.success) loadAttachments(); else alert(res.error); });
+}
+
+(function() {
+    const zone = document.getElementById('attachDropZone');
+    const input = document.getElementById('attachFileInput');
+
+    zone.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => {
+        Array.from(input.files).forEach(uploadAttachment);
+        input.value = '';
+    });
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.background = '#f1f5f9'; });
+    zone.addEventListener('dragleave', () => { zone.style.background = ''; });
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.style.background = '';
+        Array.from(e.dataTransfer.files).forEach(uploadAttachment);
+    });
+})();
 </script>
 <?php endif; ?>
 

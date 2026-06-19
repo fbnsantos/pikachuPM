@@ -370,6 +370,53 @@ function getPrototiposUtilizador($user_id) {
     }
 }
 
+function getSprintsUtilizador($user_id) {
+    global $db_host, $db_user, $db_pass, $db_name;
+    try {
+        $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+        $stmt = $pdo->prepare("
+            SELECT s.id, s.nome, s.estado, s.data_fim
+            FROM sprints s
+            WHERE s.responsavel_id = ?
+              AND s.estado NOT IN ('fechada', 'concluída')
+            ORDER BY s.data_fim ASC
+        ");
+        $stmt->execute([$user_id]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $now = new DateTime();
+        foreach ($rows as &$s) {
+            if (!empty($s['data_fim'])) {
+                $fim = new DateTime($s['data_fim']);
+                $diff = $now->diff($fim);
+                $days = (int)$diff->days;
+                if ($now > $fim) {
+                    $s['tempo_label'] = 'Atrasada ' . $days . 'd';
+                    $s['tempo_color'] = '#dc2626';
+                } elseif ($days === 0) {
+                    $s['tempo_label'] = 'Termina hoje';
+                    $s['tempo_color'] = '#d97706';
+                } elseif ($days <= 3) {
+                    $s['tempo_label'] = $days . 'd restantes';
+                    $s['tempo_color'] = '#d97706';
+                } elseif ($days <= 7) {
+                    $s['tempo_label'] = $days . 'd restantes';
+                    $s['tempo_color'] = '#2563eb';
+                } else {
+                    $s['tempo_label'] = $days . 'd restantes';
+                    $s['tempo_color'] = '#6b7280';
+                }
+            } else {
+                $s['tempo_label'] = 'Sem data';
+                $s['tempo_color'] = '#9ca3af';
+            }
+        }
+        unset($s);
+        return $rows;
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
 function getNomeUtilizador($id, $lista) {
     foreach ($lista as $u) {
         if ($u['id'] == $id) return   $u['firstname'] . ' ' . $u['lastname'];
@@ -1305,22 +1352,66 @@ window.addEventListener('DOMContentLoaded', function() {
                                             </form>
                                         </div>
 
-                                        <!-- Protótipos do orador -->
-                                        <?php $prototiposOrador = getPrototiposUtilizador($oradorId); ?>
-                                        <?php if (!empty($prototiposOrador)): ?>
-                                        <div class="mt-2">
-                                            <small class="text-muted fw-semibold d-block mb-1"><i class="bi bi-cpu"></i> Protótipos responsável:</small>
-                                            <div class="d-flex flex-wrap gap-2">
-                                                <?php foreach ($prototiposOrador as $proto): ?>
-                                                <a href="index.php?tab=prototypes/prototypesv2&prototype_id=<?= $proto['id'] ?>"
-                                                   class="text-decoration-none d-inline-flex align-items-center gap-1 px-2 py-1 rounded"
-                                                   style="background:#f1f5f9; border:1px solid #e2e8f0; font-size:12px; color:#1e293b;">
-                                                    <strong><?= htmlspecialchars($proto['short_name']) ?></strong>
-                                                    <span class="badge bg-success" style="font-size:10px;" title="Abertas"><?= (int)$proto['open_count'] ?></span>
-                                                    <span class="badge bg-secondary" style="font-size:10px;" title="Fechadas"><?= (int)$proto['closed_count'] ?></span>
-                                                </a>
+                                        <!-- Protótipos e Sprints do orador -->
+                                        <?php
+                                        $prototiposOrador = getPrototiposUtilizador($oradorId);
+                                        $sprintsOrador    = getSprintsUtilizador($oradorId);
+                                        $temInfo = !empty($prototiposOrador) || !empty($sprintsOrador);
+                                        ?>
+                                        <?php if ($temInfo): ?>
+                                        <div class="mt-3 rounded-3 p-3" style="background:#f8faff; border:1px solid #dbeafe;">
+
+                                            <?php if (!empty($sprintsOrador)): ?>
+                                            <div class="mb-3">
+                                                <div class="d-flex align-items-center gap-2 mb-2">
+                                                    <i class="bi bi-lightning-charge-fill text-primary"></i>
+                                                    <span class="fw-semibold" style="font-size:13px;">Sprints responsável</span>
+                                                </div>
+                                                <div class="d-flex flex-column gap-1">
+                                                <?php foreach ($sprintsOrador as $sp): ?>
+                                                    <a href="index.php?tab=sprints&sprint_id=<?= $sp['id'] ?>"
+                                                       class="text-decoration-none d-flex align-items-center justify-content-between px-3 py-2 rounded"
+                                                       style="background:#fff; border:1px solid #e2e8f0; font-size:13px;">
+                                                        <span class="fw-semibold text-dark"><?= htmlspecialchars($sp['nome']) ?></span>
+                                                        <span style="font-size:11px; font-weight:600; color:<?= $sp['tempo_color'] ?>;">
+                                                            <i class="bi bi-calendar3"></i> <?= $sp['tempo_label'] ?>
+                                                        </span>
+                                                    </a>
                                                 <?php endforeach; ?>
+                                                </div>
                                             </div>
+                                            <?php endif; ?>
+
+                                            <?php if (!empty($prototiposOrador)): ?>
+                                            <?php if (!empty($sprintsOrador)): ?><hr class="my-2"><?php endif; ?>
+                                            <div>
+                                                <div class="d-flex align-items-center gap-2 mb-2">
+                                                    <i class="bi bi-cpu-fill text-secondary"></i>
+                                                    <span class="fw-semibold" style="font-size:13px;">Protótipos responsável</span>
+                                                </div>
+                                                <div class="d-flex flex-column gap-1">
+                                                <?php foreach ($prototiposOrador as $proto): ?>
+                                                    <a href="index.php?tab=prototypes/prototypesv2&prototype_id=<?= $proto['id'] ?>"
+                                                       class="text-decoration-none d-flex align-items-center justify-content-between px-3 py-2 rounded"
+                                                       style="background:#fff; border:1px solid #e2e8f0; font-size:13px;">
+                                                        <div>
+                                                            <span class="fw-semibold text-dark"><?= htmlspecialchars($proto['short_name']) ?></span>
+                                                            <span class="text-muted ms-1" style="font-size:11px;"><?= htmlspecialchars($proto['title']) ?></span>
+                                                        </div>
+                                                        <div class="d-flex gap-1 align-items-center">
+                                                            <span class="badge bg-success" style="font-size:10px;" title="Stories abertas">
+                                                                <?= (int)$proto['open_count'] ?> abertas
+                                                            </span>
+                                                            <span class="badge bg-secondary" style="font-size:10px;" title="Stories fechadas">
+                                                                <?= (int)$proto['closed_count'] ?> fechadas
+                                                            </span>
+                                                        </div>
+                                                    </a>
+                                                <?php endforeach; ?>
+                                                </div>
+                                            </div>
+                                            <?php endif; ?>
+
                                         </div>
                                         <?php endif; ?>
                                         <!-- FIM DO CRONÔMETRO -->

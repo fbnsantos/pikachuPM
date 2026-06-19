@@ -821,6 +821,24 @@ if ($selectedPrototypeId) {
             }
             unset($story); // CRÍTICO: Destruir a referência após o loop!
         }
+
+        // Contar attachments por story (uma query, sem N+1)
+        $storyIds = array_column($selectedPrototype['stories'], 'id');
+        $attachCountMap = [];
+        if (!empty($storyIds)) {
+            try {
+                $ph = implode(',', array_fill(0, count($storyIds), '?'));
+                $acStmt = $pdo->prepare("SELECT story_id, COUNT(*) as cnt FROM story_attachments WHERE story_id IN ($ph) GROUP BY story_id");
+                $acStmt->execute($storyIds);
+                foreach ($acStmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $attachCountMap[$r['story_id']] = (int)$r['cnt'];
+                }
+            } catch (PDOException $e) {}
+        }
+        foreach ($selectedPrototype['stories'] as &$story) {
+            $story['attachment_count'] = $attachCountMap[$story['id']] ?? 0;
+        }
+        unset($story);
     }
 }
 
@@ -2165,6 +2183,17 @@ if ($selectedPrototype && $checkTodos) {
                                 </div>
                                 <?php endif; ?>
                                 
+                                <!-- Indicador de ficheiros -->
+                                <?php if (!empty($story['attachment_count'])): ?>
+                                <div class="mb-2">
+                                    <small class="text-muted" style="cursor:pointer;"
+                                           onclick="openAttachmentsModal(<?= $story['id'] ?>, <?= htmlspecialchars(json_encode(mb_strimwidth($story['story_text'],0,50,'…')), ENT_QUOTES) ?>)">
+                                        <i class="bi bi-paperclip text-secondary"></i>
+                                        Esta story tem <strong><?= $story['attachment_count'] ?></strong> <?= $story['attachment_count'] == 1 ? 'ficheiro associado' : 'ficheiros associados' ?>
+                                    </small>
+                                </div>
+                                <?php endif; ?>
+
                                 <!-- Ações -->
                                 <div class="story-actions">
                                     <button class="btn btn-sm btn-primary" onclick="editStory(<?= $story['id'] ?>, '<?= htmlspecialchars(addslashes($story['story_text'])) ?>', '<?= $story['moscow_priority'] ?>', '<?= $story['status'] ?>')">
@@ -3246,7 +3275,7 @@ function loadAttachments() {
                 const isImg = imageExts.includes(ext);
                 const size = formatBytes(f.file_size);
                 const date = f.uploaded_at ? f.uploaded_at.substring(0,10).split('-').reverse().join('/') : '';
-                const basePath = '<?= rtrim(dirname($_SERVER['PHP_SELF']), '/') ?>/../' + f.file_path;
+                const basePath = '<?= rtrim(dirname(dirname($_SERVER['PHP_SELF'])), '/') ?>/' + f.file_path;
                 const thumb = isImg
                     ? `<a href="${basePath}" target="_blank"><img src="${basePath}" style="width:100%; height:80px; object-fit:cover; border-radius:4px;"></a>`
                     : `<div style="font-size:2rem; text-align:center; padding:12px;"><i class="bi bi-file-earmark"></i></div>`;

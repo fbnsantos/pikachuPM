@@ -5,3 +5,5 @@ eventos.sqlite
 links2.sqlite
 config.php
 tabs/database/content.db
+chrome-extension.crx
+chrome-extension.pem

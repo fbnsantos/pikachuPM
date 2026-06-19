@@ -119,6 +119,29 @@ try {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
     }
+    // Tabela de versões de protótipo
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS prototype_versions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            prototype_id INT NOT NULL,
+            version_name VARCHAR(50) NOT NULL,
+            released_at DATE NULL,
+            notes TEXT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (prototype_id) REFERENCES prototypes(id) ON DELETE CASCADE,
+            INDEX idx_prototype (prototype_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    // Tabela junction versão ↔ user story
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS version_stories (
+            version_id INT NOT NULL,
+            story_id INT NOT NULL,
+            PRIMARY KEY (version_id, story_id),
+            FOREIGN KEY (version_id) REFERENCES prototype_versions(id) ON DELETE CASCADE,
+            FOREIGN KEY (story_id) REFERENCES user_stories(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
 } catch (PDOException $e) {
     // Tabelas já existem
 }
@@ -542,6 +565,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
                 
+            case 'create_version':
+                $protoId   = (int)($_POST['prototype_id'] ?? 0);
+                $vName     = trim($_POST['version_name'] ?? '');
+                $relDate   = !empty($_POST['released_at']) ? $_POST['released_at'] : null;
+                $notes     = trim($_POST['version_notes'] ?? '');
+                $storyIds  = !empty($_POST['version_story_ids']) ? array_map('intval', $_POST['version_story_ids']) : [];
+                if ($protoId && $vName) {
+                    $stmt = $pdo->prepare("INSERT INTO prototype_versions (prototype_id, version_name, released_at, notes) VALUES (?,?,?,?)");
+                    $stmt->execute([$protoId, $vName, $relDate, $notes ?: null]);
+                    $versionId = (int)$pdo->lastInsertId();
+                    foreach ($storyIds as $sid) {
+                        $pdo->prepare("INSERT IGNORE INTO version_stories (version_id, story_id) VALUES (?,?)")->execute([$versionId, $sid]);
+                    }
+                    $message = "Versão \"$vName\" criada com " . count($storyIds) . " user " . (count($storyIds) != 1 ? 'stories' : 'story') . "!";
+                } else {
+                    $message = "Nome da versão e protótipo são obrigatórios.";
+                    $messageType = 'warning';
+                }
+                $prototypeIdForRedirect = $protoId ?: $selectedPrototypeId;
+                $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $prototypeIdForRedirect;
+                if ($filterMine) $redirectUrl .= "&filter_mine=true";
+                if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($showClosedStories) $redirectUrl .= "&show_closed=true";
+                header("Location: " . $redirectUrl . "&message=" . urlencode($message) . "&type=" . ($messageType ?? 'success'));
+                exit;
+
+            case 'delete_version':
+                $vid = (int)($_POST['version_id'] ?? 0);
+                $protoId = (int)($_POST['prototype_id'] ?? $selectedPrototypeId);
+                if ($vid) {
+                    $pdo->prepare("DELETE FROM prototype_versions WHERE id=?")->execute([$vid]);
+                    $message = "Versão eliminada.";
+                }
+                $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=$protoId";
+                header("Location: " . $redirectUrl);
+                exit;
+
+            case 'update_version_stories':
+                $vid      = (int)($_POST['version_id'] ?? 0);
+                $protoId  = (int)($_POST['prototype_id'] ?? $selectedPrototypeId);
+                $storyIds = !empty($_POST['version_story_ids']) ? array_map('intval', $_POST['version_story_ids']) : [];
+                if ($vid) {
+                    $pdo->prepare("DELETE FROM version_stories WHERE version_id=?")->execute([$vid]);
+                    foreach ($storyIds as $sid) {
+                        $pdo->prepare("INSERT IGNORE INTO version_stories (version_id, story_id) VALUES (?,?)")->execute([$vid, $sid]);
+                    }
+                    $message = "Stories da versão atualizadas!";
+                }
+                $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=$protoId";
+                header("Location: " . $redirectUrl);
+                exit;
+
             case 'remove_task_from_story':
                 if ($checkTodos) {
                     $stmt = $pdo->prepare("DELETE FROM story_tasks WHERE id=?");
@@ -677,6 +752,24 @@ if ($selectedPrototypeId) {
         }
         
         // Para cada story, obter tasks associadas (se módulo todos existe)
+        // Versões do protótipo com as suas stories
+        $selectedPrototype['versions'] = [];
+        try {
+            $vStmt = $pdo->prepare("
+                SELECT pv.*, GROUP_CONCAT(vs.story_id) as story_ids_csv
+                FROM prototype_versions pv
+                LEFT JOIN version_stories vs ON vs.version_id = pv.id
+                WHERE pv.prototype_id = ?
+                GROUP BY pv.id
+                ORDER BY pv.released_at DESC, pv.created_at DESC
+            ");
+            $vStmt->execute([$selectedPrototypeId]);
+            foreach ($vStmt->fetchAll(PDO::FETCH_ASSOC) as $vrow) {
+                $vrow['story_ids'] = $vrow['story_ids_csv'] ? array_map('intval', explode(',', $vrow['story_ids_csv'])) : [];
+                $selectedPrototype['versions'][] = $vrow;
+            }
+        } catch (PDOException $e) {}
+
         if ($checkTodos) {
             foreach ($selectedPrototype['stories'] as &$story) {
                 $stmt = $pdo->prepare("
@@ -1673,6 +1766,36 @@ if ($selectedPrototype && $checkTodos) {
             $repoLinksArr = parseLinksArr($selectedPrototype['repo_links'] ?? '');
             $docLinksArr  = parseLinksArr($selectedPrototype['documentation_links'] ?? '');
             ?>
+
+            <!-- Versões -->
+            <div class="mb-3 d-flex align-items-center flex-wrap gap-2">
+                <?php foreach ($selectedPrototype['versions'] as $ver): ?>
+                <?php
+                    $storyCount = count($ver['story_ids']);
+                    $relLabel   = $ver['released_at'] ? date('d/m/Y', strtotime($ver['released_at'])) : 'sem data';
+                ?>
+                <span class="badge d-inline-flex align-items-center gap-1 py-2 px-3"
+                      style="background:#1d4ed8; color:#fff; font-size:13px; border-radius:20px; cursor:pointer;"
+                      title="<?= htmlspecialchars($ver['notes'] ?? '') ?>"
+                      data-bs-toggle="modal" data-bs-target="#versionDetailModal"
+                      data-version-id="<?= $ver['id'] ?>"
+                      data-version-name="<?= htmlspecialchars($ver['version_name']) ?>"
+                      data-version-date="<?= htmlspecialchars($ver['released_at'] ?? '') ?>"
+                      data-version-notes="<?= htmlspecialchars($ver['notes'] ?? '') ?>"
+                      data-story-ids="<?= htmlspecialchars(implode(',', $ver['story_ids'])) ?>">
+                    <i class="bi bi-tag-fill" style="font-size:11px;"></i>
+                    <?= htmlspecialchars($ver['version_name']) ?>
+                    <span style="opacity:.75; font-size:11px;"><?= $relLabel ?></span>
+                    <?php if ($storyCount > 0): ?>
+                    <span class="badge bg-white text-primary" style="font-size:10px;"><?= $storyCount ?></span>
+                    <?php endif; ?>
+                </span>
+                <?php endforeach; ?>
+                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#createVersionModal"
+                        style="border-radius:20px; font-size:13px; padding:4px 14px;">
+                    <i class="bi bi-plus-lg"></i> Nova versão
+                </button>
+            </div>
 
             <!-- Informações Básicas -->
             <div class="detail-section">
@@ -2817,6 +2940,158 @@ if ($selectedPrototype && $checkTodos) {
         </div>
     </div>
 </div>
+<?php if ($selectedPrototype): ?>
+
+<!-- Modal: Criar Nova Versão -->
+<div class="modal fade" id="createVersionModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#1d4ed8; color:#fff;">
+                <h5 class="modal-title"><i class="bi bi-tag-fill"></i> Nova Versão</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="create_version">
+                    <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Nome da Versão *</label>
+                            <input type="text" name="version_name" class="form-control" required placeholder="Ex: v1.0, 2024-Q1, Release 3…">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Data de lançamento</label>
+                            <input type="date" name="released_at" class="form-control" value="<?= date('Y-m-d') ?>">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Notas / Changelog</label>
+                        <textarea name="version_notes" class="form-control" rows="3" placeholder="Resumo do que foi entregue nesta versão…"></textarea>
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold">User Stories incluídas nesta versão</label>
+                        <div class="text-muted small mb-2">Selecione as user stories (fechadas ou abertas) que fazem parte desta versão.</div>
+                        <div style="max-height:280px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:8px; padding:8px;">
+                            <?php
+                            $allStoriesForVersion = array_merge(
+                                array_filter($selectedPrototype['stories'], fn($s) => $s['status'] === 'closed'),
+                                array_filter($selectedPrototype['stories'], fn($s) => $s['status'] !== 'closed')
+                            );
+                            $moscowV = ['Must'=>'danger','Should'=>'warning','Could'=>'info',"Won't"=>'secondary'];
+                            foreach ($allStoriesForVersion as $vs): ?>
+                            <div class="form-check py-1 border-bottom">
+                                <input class="form-check-input" type="checkbox" name="version_story_ids[]"
+                                       value="<?= $vs['id'] ?>" id="vs_<?= $vs['id'] ?>"
+                                       <?= $vs['status'] === 'closed' ? 'checked' : '' ?>>
+                                <label class="form-check-label d-flex align-items-center gap-2 flex-wrap" for="vs_<?= $vs['id'] ?>">
+                                    <span class="badge bg-<?= $moscowV[$vs['moscow_priority']] ?? 'secondary' ?>" style="font-size:10px;"><?= $vs['moscow_priority'] ?></span>
+                                    <span class="<?= $vs['status'] === 'closed' ? 'text-decoration-line-through text-muted' : '' ?>">
+                                        <?= htmlspecialchars(mb_strimwidth($vs['story_text'], 0, 90, '…')) ?>
+                                    </span>
+                                    <?php if ($vs['status'] === 'closed'): ?>
+                                    <span class="badge bg-secondary" style="font-size:10px;">Fechada</span>
+                                    <?php endif; ?>
+                                </label>
+                            </div>
+                            <?php endforeach; ?>
+                            <?php if (empty($allStoriesForVersion)): ?>
+                            <div class="text-muted small p-2">Sem user stories neste protótipo.</div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-tag-fill"></i> Criar Versão</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Detalhe de Versão -->
+<div class="modal fade" id="versionDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#1d4ed8; color:#fff;">
+                <h5 class="modal-title"><i class="bi bi-tag-fill"></i> <span id="vdName"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex gap-3 mb-3 text-muted small">
+                    <span><i class="bi bi-calendar"></i> <span id="vdDate">—</span></span>
+                </div>
+                <div id="vdNotes" class="mb-3 fst-italic text-muted" style="display:none;"></div>
+
+                <form method="POST" id="vdForm">
+                    <input type="hidden" name="action" value="update_version_stories">
+                    <input type="hidden" name="version_id" id="vdId">
+                    <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
+
+                    <label class="form-label fw-semibold">User Stories desta versão</label>
+                    <div style="max-height:300px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:8px; padding:8px;" id="vdStoryList">
+                        <?php foreach ($allStoriesForVersion as $vs): ?>
+                        <div class="form-check py-1 border-bottom">
+                            <input class="form-check-input vd-story-check" type="checkbox"
+                                   name="version_story_ids[]" value="<?= $vs['id'] ?>"
+                                   id="vds_<?= $vs['id'] ?>">
+                            <label class="form-check-label d-flex align-items-center gap-2 flex-wrap" for="vds_<?= $vs['id'] ?>">
+                                <span class="badge bg-<?= $moscowV[$vs['moscow_priority']] ?? 'secondary' ?>" style="font-size:10px;"><?= $vs['moscow_priority'] ?></span>
+                                <span class="<?= $vs['status'] === 'closed' ? 'text-decoration-line-through text-muted' : '' ?>">
+                                    <?= htmlspecialchars(mb_strimwidth($vs['story_text'], 0, 90, '…')) ?>
+                                </span>
+                                <?php if ($vs['status'] === 'closed'): ?>
+                                <span class="badge bg-secondary" style="font-size:10px;">Fechada</span>
+                                <?php endif; ?>
+                            </label>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <form method="POST" onsubmit="return confirm('Eliminar esta versão?')">
+                    <input type="hidden" name="action" value="delete_version">
+                    <input type="hidden" name="version_id" id="vdDeleteId">
+                    <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
+                    <button type="submit" class="btn btn-danger btn-sm"><i class="bi bi-trash"></i> Eliminar versão</button>
+                </form>
+                <div>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                    <button type="submit" form="vdForm" class="btn btn-primary"><i class="bi bi-save"></i> Guardar alterações</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('versionDetailModal').addEventListener('show.bs.modal', function(e) {
+    const btn  = e.relatedTarget;
+    const id   = btn.dataset.versionId;
+    const name = btn.dataset.versionName;
+    const date = btn.dataset.versionDate;
+    const notes = btn.dataset.versionNotes;
+    const storyIds = btn.dataset.storyIds ? btn.dataset.storyIds.split(',').map(Number) : [];
+
+    document.getElementById('vdName').textContent   = name;
+    document.getElementById('vdId').value           = id;
+    document.getElementById('vdDeleteId').value     = id;
+    document.getElementById('vdDate').textContent   = date ? date.split('-').reverse().join('/') : '—';
+
+    const notesEl = document.getElementById('vdNotes');
+    if (notes) { notesEl.textContent = notes; notesEl.style.display = ''; }
+    else { notesEl.style.display = 'none'; }
+
+    // Marcar checkboxes conforme as stories desta versão
+    document.querySelectorAll('.vd-story-check').forEach(cb => {
+        cb.checked = storyIds.includes(parseInt(cb.value));
+    });
+});
+</script>
+
 <?php endif; ?>
 
 <script>

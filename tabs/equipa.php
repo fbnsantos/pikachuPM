@@ -1372,10 +1372,7 @@ window.addEventListener('DOMContentLoaded', function() {
                                                     <a href="index.php?tab=prototypes/prototypesv2&prototype_id=<?= $proto['id'] ?>"
                                                        class="text-decoration-none d-flex align-items-center justify-content-between px-3 py-2 rounded"
                                                        style="background:#fff; border:1px solid #e2e8f0; font-size:13px;">
-                                                        <div>
-                                                            <span class="fw-bold text-dark"><?= htmlspecialchars($proto['short_name']) ?></span>
-                                                            <span class="text-muted ms-1" style="font-size:11px;"><?= htmlspecialchars($proto['title']) ?></span>
-                                                        </div>
+                                                        <span class="fw-bold text-dark"><?= htmlspecialchars($proto['short_name']) ?></span>
                                                         <div class="d-flex gap-1 align-items-center">
                                                             <span class="badge" style="font-size:10px; background:#dc2626;" title="Stories abertas">
                                                                 <?= (int)$proto['open_count'] ?> abertas

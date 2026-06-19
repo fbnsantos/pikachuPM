@@ -2944,7 +2944,6 @@ if ($selectedPrototype && $checkTodos) {
         </div>
     </div>
 </div>
-<?php if ($selectedPrototype): ?>
 <!-- Modal: Criar Nova Versão -->
 <div class="modal fade" id="createVersionModal" tabindex="-1">
     <div class="modal-dialog modal-lg">

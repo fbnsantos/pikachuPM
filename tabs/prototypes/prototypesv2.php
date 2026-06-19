@@ -3275,7 +3275,7 @@ function loadAttachments() {
                 const isImg = imageExts.includes(ext);
                 const size = formatBytes(f.file_size);
                 const date = f.uploaded_at ? f.uploaded_at.substring(0,10).split('-').reverse().join('/') : '';
-                const basePath = '<?= rtrim(dirname(dirname($_SERVER['PHP_SELF'])), '/') ?>/' + f.file_path;
+                const basePath = '<?= rtrim(dirname($_SERVER['PHP_SELF']), '/') ?>/' + f.file_path;
                 const thumb = isImg
                     ? `<a href="${basePath}" target="_blank"><img src="${basePath}" style="width:100%; height:80px; object-fit:cover; border-radius:4px;"></a>`
                     : `<div style="font-size:2rem; text-align:center; padding:12px;"><i class="bi bi-file-earmark"></i></div>`;

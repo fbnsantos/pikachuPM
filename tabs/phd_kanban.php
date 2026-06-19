@@ -124,6 +124,25 @@ $error_message = '';
 $user_id = $_SESSION['user_id'];
 
 // Adicionar nova tarefa
+// Associar task de sprint ao PhD kanban
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'link_sprint_task') {
+    $todo_id = (int)($_POST['todo_id'] ?? 0);
+    $estagio = $_POST['estagio'] ?? 'pensada';
+    $estado  = $stage_to_estado_map[$estagio] ?? 'aberta';
+    if ($todo_id) {
+        $phd_id = PHD_PROJECT_ID;
+        $stmt = $db->prepare('UPDATE todos SET projeto_id = ?, estado = ? WHERE id = ?');
+        $stmt->bind_param('isi', $phd_id, $estado, $todo_id);
+        $stmt->execute();
+        $stmt->close();
+    }
+    $redirect_url = $_SERVER['PHP_SELF'] . '?tab=phd_kanban';
+    if (isset($_GET['user'])) $redirect_url .= '&user=' . intval($_GET['user']);
+    $redirect_url .= '&success=task_added';
+    header('Location: ' . $redirect_url);
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_task') {
     $titulo = trim($_POST['titulo']);
     $descritivo = trim($_POST['descritivo']);
@@ -423,6 +442,52 @@ while ($row = $result->fetch_assoc()) {
 }
 $stmt->close();
 
+// Carregar sprints com tasks disponíveis para associar ao PhD (agrupadas por protótipo)
+$sprintTasksForModal = [];
+try {
+    $phd_id = PHD_PROJECT_ID;
+    $res = $db->query("
+        SELECT
+            s.id as sprint_id, s.nome as sprint_nome, s.estado as sprint_estado,
+            t.id as task_id, t.titulo as task_titulo, t.estado as task_estado,
+            p.id as proto_id, p.short_name as proto_name, p.title as proto_title
+        FROM sprint_tasks st
+        JOIN todos t ON st.todo_id = t.id
+        JOIN sprints s ON st.sprint_id = s.id
+        LEFT JOIN story_tasks stk ON stk.todo_id = t.id
+        LEFT JOIN user_stories us ON stk.story_id = us.id
+        LEFT JOIN prototypes p ON us.prototype_id = p.id
+        WHERE (t.projeto_id != $phd_id OR t.projeto_id IS NULL)
+          AND t.estado != 'concluída'
+        ORDER BY p.short_name, s.nome, t.titulo
+    ");
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $protoKey = $row['proto_id'] ? $row['proto_id'] : 0;
+            if (!isset($sprintTasksForModal[$protoKey])) {
+                $sprintTasksForModal[$protoKey] = [
+                    'name'    => $row['proto_name'] ?? '(sem protótipo)',
+                    'title'   => $row['proto_title'] ?? '',
+                    'sprints' => []
+                ];
+            }
+            $sid = $row['sprint_id'];
+            if (!isset($sprintTasksForModal[$protoKey]['sprints'][$sid])) {
+                $sprintTasksForModal[$protoKey]['sprints'][$sid] = [
+                    'nome'   => $row['sprint_nome'],
+                    'estado' => $row['sprint_estado'],
+                    'tasks'  => []
+                ];
+            }
+            $sprintTasksForModal[$protoKey]['sprints'][$sid]['tasks'][] = [
+                'id'     => $row['task_id'],
+                'titulo' => $row['task_titulo'],
+                'estado' => $row['task_estado'],
+            ];
+        }
+    }
+} catch (Exception $e) {}
+
 // Estatísticas
 $total_tasks = count($tasks_by_stage['pensada']) + count($tasks_by_stage['execucao']) + count($tasks_by_stage['espera']) + count($tasks_by_stage['concluida']);
 $completed_tasks = count($tasks_by_stage['concluida']);
@@ -547,6 +612,9 @@ $total_artigos = count($artigos);
             </select>
             <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTaskModal">
                 <i class="bi bi-plus-circle"></i> Nova Tarefa
+            </button>
+            <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#linkSprintTaskModal">
+                <i class="bi bi-link-45deg"></i> Associar Task de Sprint
             </button>
         </div>
     </div>
@@ -1253,3 +1321,131 @@ $db->close();
 // Incluir editor universal de tasks
 include __DIR__ . '/../edit_task.php';
 ?>
+
+<!-- Modal: Associar Task de Sprint ao PhD Kanban -->
+<div class="modal fade" id="linkSprintTaskModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-secondary text-white">
+                <h5 class="modal-title"><i class="bi bi-link-45deg"></i> Associar Task de Sprint ao PhD Plan</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="link_sprint_task">
+
+                    <div class="row g-3 mb-3">
+                        <!-- Col 1: Protótipo -->
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold"><i class="bi bi-cpu"></i> Protótipo</label>
+                            <select id="lstProto" class="form-select" onchange="lstOnProto()">
+                                <option value="">— todos —</option>
+                                <?php foreach ($sprintTasksForModal as $pid => $proto): ?>
+                                <?php if ($pid > 0): ?>
+                                <option value="<?= $pid ?>"><?= htmlspecialchars($proto['name']) ?> — <?= htmlspecialchars($proto['title']) ?></option>
+                                <?php endif; ?>
+                                <?php endforeach; ?>
+                                <?php if (isset($sprintTasksForModal[0])): ?>
+                                <option value="0">(sem protótipo)</option>
+                                <?php endif; ?>
+                            </select>
+                        </div>
+                        <!-- Col 2: Sprint -->
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold"><i class="bi bi-lightning-charge"></i> Sprint</label>
+                            <select id="lstSprint" class="form-select" onchange="lstOnSprint()" disabled>
+                                <option value="">— selecione protótipo —</option>
+                            </select>
+                        </div>
+                        <!-- Col 3: Task -->
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold"><i class="bi bi-check2-square"></i> Task</label>
+                            <select id="lstTask" name="todo_id" class="form-select" required disabled>
+                                <option value="">— selecione sprint —</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="lstTaskPreview" class="alert alert-light border" style="display:none; font-size:13px;">
+                        <strong>Task selecionada:</strong> <span id="lstTaskName"></span>
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold">Estágio no PhD Kanban</label>
+                        <select name="estagio" class="form-select">
+                            <option value="pensada">Pensada</option>
+                            <option value="execucao" selected>Em Execução</option>
+                            <option value="espera">Em Espera</option>
+                            <option value="concluida">Concluída</option>
+                        </select>
+                    </div>
+
+                    <div class="alert alert-warning py-2 mb-0" style="font-size:12px;">
+                        <i class="bi bi-info-circle"></i> A task continuará na sua sprint original e passará a aparecer também no PhD Kanban.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-link-45deg"></i> Associar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+const lstData = <?= json_encode($sprintTasksForModal, JSON_UNESCAPED_UNICODE) ?>;
+
+function lstOnProto() {
+    const pid    = document.getElementById('lstProto').value;
+    const sSel   = document.getElementById('lstSprint');
+    const tSel   = document.getElementById('lstTask');
+    sSel.innerHTML = '<option value="">— selecione sprint —</option>';
+    tSel.innerHTML = '<option value="">— selecione sprint —</option>';
+    sSel.disabled = true; tSel.disabled = true;
+    document.getElementById('lstTaskPreview').style.display = 'none';
+
+    // Juntar sprints dos protótipos selecionados (ou todos se vazio)
+    const protos = pid === '' ? Object.values(lstData) : (lstData[pid] ? [lstData[pid]] : []);
+    const sprintMap = {};
+    protos.forEach(proto => {
+        Object.entries(proto.sprints || {}).forEach(([sid, sprint]) => {
+            if (!sprintMap[sid]) sprintMap[sid] = {...sprint, id: sid};
+            else sprintMap[sid].tasks = sprintMap[sid].tasks.concat(sprint.tasks);
+        });
+    });
+    const stateEmoji = {'aberta':'🟡','em execução':'🔵','suspensa':'🟠','concluída':'✅','fechada':'🔒'};
+    Object.values(sprintMap).sort((a,b) => a.nome.localeCompare(b.nome)).forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = (stateEmoji[s.estado] || '•') + ' ' + s.nome;
+        opt.dataset.tasks = JSON.stringify(s.tasks);
+        sSel.appendChild(opt);
+    });
+    sSel.disabled = false;
+}
+
+function lstOnSprint() {
+    const sSel = document.getElementById('lstSprint');
+    const tSel = document.getElementById('lstTask');
+    tSel.innerHTML = '<option value="">— selecione task —</option>';
+    tSel.disabled = true;
+    document.getElementById('lstTaskPreview').style.display = 'none';
+    const opt = sSel.options[sSel.selectedIndex];
+    if (!opt || !opt.dataset.tasks) return;
+    const tasks = JSON.parse(opt.dataset.tasks);
+    const stateEmoji = {'aberta':'🟡','em execução':'🔵','suspensa':'🟠','concluída':'✅'};
+    tasks.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t.id;
+        o.textContent = (stateEmoji[t.estado] || '•') + ' ' + t.titulo;
+        tSel.appendChild(o);
+    });
+    tSel.disabled = false;
+    tSel.onchange = function() {
+        const name = tSel.options[tSel.selectedIndex]?.textContent || '';
+        document.getElementById('lstTaskName').textContent = name;
+        document.getElementById('lstTaskPreview').style.display = name ? '' : 'none';
+    };
+}
+</script>

@@ -1361,33 +1361,11 @@ window.addEventListener('DOMContentLoaded', function() {
                                         <?php if ($temInfo): ?>
                                         <div class="mt-3 rounded-3 p-3" style="background:#f8faff; border:1px solid #dbeafe;">
 
-                                            <?php if (!empty($sprintsOrador)): ?>
-                                            <div class="mb-3">
-                                                <div class="d-flex align-items-center gap-2 mb-2">
-                                                    <i class="bi bi-lightning-charge-fill text-primary"></i>
-                                                    <span class="fw-semibold" style="font-size:13px;">Sprints responsável</span>
-                                                </div>
-                                                <div class="d-flex flex-column gap-1">
-                                                <?php foreach ($sprintsOrador as $sp): ?>
-                                                    <a href="index.php?tab=sprints&sprint_id=<?= $sp['id'] ?>"
-                                                       class="text-decoration-none d-flex align-items-center justify-content-between px-3 py-2 rounded"
-                                                       style="background:#fff; border:1px solid #e2e8f0; font-size:13px;">
-                                                        <span class="fw-semibold text-dark"><?= htmlspecialchars($sp['nome']) ?></span>
-                                                        <span style="font-size:11px; font-weight:600; color:<?= $sp['tempo_color'] ?>;">
-                                                            <i class="bi bi-calendar3"></i> <?= $sp['tempo_label'] ?>
-                                                        </span>
-                                                    </a>
-                                                <?php endforeach; ?>
-                                                </div>
-                                            </div>
-                                            <?php endif; ?>
-
                                             <?php if (!empty($prototiposOrador)): ?>
-                                            <?php if (!empty($sprintsOrador)): ?><hr class="my-2"><?php endif; ?>
-                                            <div>
+                                            <div class="<?= !empty($sprintsOrador) ? 'mb-3' : '' ?>">
                                                 <div class="d-flex align-items-center gap-2 mb-2">
-                                                    <i class="bi bi-cpu-fill text-secondary"></i>
-                                                    <span class="fw-semibold" style="font-size:13px;">Protótipos responsável</span>
+                                                    <i class="bi bi-cpu-fill" style="color:#6d28d9;"></i>
+                                                    <span class="fw-bold" style="font-size:13px; color:#6d28d9;">Protótipos responsável</span>
                                                 </div>
                                                 <div class="d-flex flex-column gap-1">
                                                 <?php foreach ($prototiposOrador as $proto): ?>
@@ -1395,17 +1373,39 @@ window.addEventListener('DOMContentLoaded', function() {
                                                        class="text-decoration-none d-flex align-items-center justify-content-between px-3 py-2 rounded"
                                                        style="background:#fff; border:1px solid #e2e8f0; font-size:13px;">
                                                         <div>
-                                                            <span class="fw-semibold text-dark"><?= htmlspecialchars($proto['short_name']) ?></span>
+                                                            <span class="fw-bold text-dark"><?= htmlspecialchars($proto['short_name']) ?></span>
                                                             <span class="text-muted ms-1" style="font-size:11px;"><?= htmlspecialchars($proto['title']) ?></span>
                                                         </div>
                                                         <div class="d-flex gap-1 align-items-center">
-                                                            <span class="badge bg-success" style="font-size:10px;" title="Stories abertas">
+                                                            <span class="badge" style="font-size:10px; background:#dc2626;" title="Stories abertas">
                                                                 <?= (int)$proto['open_count'] ?> abertas
                                                             </span>
-                                                            <span class="badge bg-secondary" style="font-size:10px;" title="Stories fechadas">
+                                                            <span class="badge" style="font-size:10px; background:#16a34a;" title="Stories fechadas">
                                                                 <?= (int)$proto['closed_count'] ?> fechadas
                                                             </span>
                                                         </div>
+                                                    </a>
+                                                <?php endforeach; ?>
+                                                </div>
+                                            </div>
+                                            <?php endif; ?>
+
+                                            <?php if (!empty($sprintsOrador)): ?>
+                                            <?php if (!empty($prototiposOrador)): ?><hr class="my-2"><?php endif; ?>
+                                            <div>
+                                                <div class="d-flex align-items-center gap-2 mb-2">
+                                                    <i class="bi bi-lightning-charge-fill text-primary"></i>
+                                                    <span class="fw-bold" style="font-size:13px; color:#1d4ed8;">Sprints responsável</span>
+                                                </div>
+                                                <div class="d-flex flex-column gap-1">
+                                                <?php foreach ($sprintsOrador as $sp): ?>
+                                                    <a href="index.php?tab=sprints&sprint_id=<?= $sp['id'] ?>"
+                                                       class="text-decoration-none d-flex align-items-center justify-content-between px-3 py-2 rounded"
+                                                       style="background:#fff; border:1px solid #e2e8f0; font-size:13px;">
+                                                        <span class="fw-bold text-dark"><?= htmlspecialchars($sp['nome']) ?></span>
+                                                        <span style="font-size:11px; font-weight:600; color:<?= $sp['tempo_color'] ?>;">
+                                                            <i class="bi bi-calendar3"></i> <?= $sp['tempo_label'] ?>
+                                                        </span>
                                                     </a>
                                                 <?php endforeach; ?>
                                                 </div>
@@ -1437,8 +1437,9 @@ window.addEventListener('DOMContentLoaded', function() {
                                                             <li class="list-group-item hover-highlight">
                                                                 <div class="d-flex justify-content-between align-items-start mb-1">
                                                                     <div class="flex-grow-1">
-                                                                        <a href="<?= htmlspecialchars($act['url']) ?>" 
+                                                                        <a href="<?= htmlspecialchars($act['url']) ?>"
                                                                         class="text-decoration-none fw-bold text-dark"
+                                                                        style="font-size:90%;"
                                                                         <?= strpos($act['url'], 'http') === 0 ? 'target="_blank"' : '' ?>>
                                                                             <?= htmlspecialchars($act['titulo']) ?>
                                                                             <?php if (strpos($act['url'], 'http') === 0): ?>
@@ -1447,13 +1448,6 @@ window.addEventListener('DOMContentLoaded', function() {
                                                                         </a>
                                                                     </div>
                                                                 </div>
-                                                                
-                                                                <?php if (!empty($act['descritivo'])): ?>
-                                                                    <p class="text-muted small mb-2">
-                                                                        <?= htmlspecialchars(substr($act['descritivo'], 0, 80)) ?>
-                                                                        <?= strlen($act['descritivo']) > 80 ? '...' : '' ?>
-                                                                    </p>
-                                                                <?php endif; ?>
                                                                 
                                                                 <div class="d-flex flex-wrap gap-1 mb-1">
                                                                     <?= $act['estado_badge'] ?>

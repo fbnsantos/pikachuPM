@@ -818,15 +818,17 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         $_SESSION['inicio_reuniao'] = time();
         
         // ===== INTEGRAÇÃO TEAMS - REUNIÃO INICIADA =====
-        try {
-            $resultado_teams = notifyMeetingStarted();
-            if ($resultado_teams['success']) {
-                error_log("✅ Teams notification sent: " . $resultado_teams['message']);
-            } else {
-                error_log("❌ Teams notification failed: " . $resultado_teams['message']);
+        if (empty($_POST['skip_teams_notify'])) {
+            try {
+                $resultado_teams = notifyMeetingStarted();
+                if ($resultado_teams['success']) {
+                    error_log("✅ Teams notification sent: " . $resultado_teams['message']);
+                } else {
+                    error_log("❌ Teams notification failed: " . $resultado_teams['message']);
+                }
+            } catch (Exception $e) {
+                error_log("❌ Teams integration error: " . $e->getMessage());
             }
-        } catch (Exception $e) {
-            error_log("❌ Teams integration error: " . $e->getMessage());
         }
         // ===== FIM INTEGRAÇÃO TEAMS =====
     }
@@ -1401,6 +1403,13 @@ window.addEventListener('DOMContentLoaded', function() {
                     <div class="card-body text-center">
                         <p class="lead mb-3">A reunião ainda não foi iniciada.</p>
                         <form method="post">
+                            <div class="form-check d-inline-flex align-items-center gap-2 mb-3 text-muted">
+                                <input class="form-check-input" type="checkbox" name="skip_teams_notify" id="skipTeamsNotify" value="1">
+                                <label class="form-check-label small" for="skipTeamsNotify">
+                                    <i class="bi bi-bell-slash"></i> Não notificar o Teams
+                                </label>
+                            </div>
+                            <br>
                             <button type="submit" name="iniciar" class="btn btn-success btn-lg">
                                 <i class="bi bi-play-fill"></i> Iniciar Reunião
                             </button>

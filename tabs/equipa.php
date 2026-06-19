@@ -185,7 +185,7 @@ function getAtividadesUtilizador($user_id) {
         
         // Buscar tarefas do utilizador ordenadas pela última atualização
         $stmt = $db->prepare('
-            SELECT 
+            SELECT
                 t.id,
                 t.titulo,
                 t.descritivo,
@@ -197,11 +197,16 @@ function getAtividadesUtilizador($user_id) {
                 t.projeto_id,
                 t.task_id,
                 autor.username as autor_nome,
-                resp.username as responsavel_nome
+                resp.username as responsavel_nome,
+                GROUP_CONCAT(DISTINCT s.nome ORDER BY s.nome SEPARATOR "||") as sprint_nomes,
+                GROUP_CONCAT(DISTINCT s.id ORDER BY s.nome SEPARATOR "||") as sprint_ids
             FROM todos t
             LEFT JOIN user_tokens autor ON t.autor = autor.user_id
             LEFT JOIN user_tokens resp ON t.responsavel = resp.user_id
+            LEFT JOIN sprint_tasks st ON st.todo_id = t.id
+            LEFT JOIN sprints s ON st.sprint_id = s.id
             WHERE t.autor = ? OR t.responsavel = ?
+            GROUP BY t.id
             ORDER BY t.updated_at DESC
             LIMIT 10
         ');
@@ -327,7 +332,9 @@ function getAtividadesUtilizador($user_id) {
                 'autor_nome' => $row['autor_nome'],
                 'responsavel_nome' => $row['responsavel_nome'],
                 'projeto_id' => $row['projeto_id'],
-                'task_id' => $row['task_id']
+                'task_id' => $row['task_id'],
+                'sprint_nomes' => !empty($row['sprint_nomes']) ? explode('||', $row['sprint_nomes']) : [],
+                'sprint_ids'   => !empty($row['sprint_ids'])   ? explode('||', $row['sprint_ids'])   : [],
             ];
         }
         
@@ -338,6 +345,27 @@ function getAtividadesUtilizador($user_id) {
         
     } catch (Exception $e) {
         error_log("Erro ao buscar atividades do utilizador: " . $e->getMessage());
+        return [];
+    }
+}
+
+function getPrototiposUtilizador($user_id) {
+    global $db_host, $db_user, $db_pass, $db_name;
+    try {
+        $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+        $stmt = $pdo->prepare("
+            SELECT p.id, p.short_name, p.title,
+                   SUM(us.status = 'open')   as open_count,
+                   SUM(us.status = 'closed') as closed_count
+            FROM prototypes p
+            LEFT JOIN user_stories us ON us.prototype_id = p.id
+            WHERE p.responsavel_id = ?
+            GROUP BY p.id
+            ORDER BY p.short_name
+        ");
+        $stmt->execute([$user_id]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
         return [];
     }
 }
@@ -1276,6 +1304,25 @@ window.addEventListener('DOMContentLoaded', function() {
                                                 </button>
                                             </form>
                                         </div>
+
+                                        <!-- Protótipos do orador -->
+                                        <?php $prototiposOrador = getPrototiposUtilizador($oradorId); ?>
+                                        <?php if (!empty($prototiposOrador)): ?>
+                                        <div class="mt-2">
+                                            <small class="text-muted fw-semibold d-block mb-1"><i class="bi bi-cpu"></i> Protótipos responsável:</small>
+                                            <div class="d-flex flex-wrap gap-2">
+                                                <?php foreach ($prototiposOrador as $proto): ?>
+                                                <a href="index.php?tab=prototypes/prototypesv2&prototype_id=<?= $proto['id'] ?>"
+                                                   class="text-decoration-none d-inline-flex align-items-center gap-1 px-2 py-1 rounded"
+                                                   style="background:#f1f5f9; border:1px solid #e2e8f0; font-size:12px; color:#1e293b;">
+                                                    <strong><?= htmlspecialchars($proto['short_name']) ?></strong>
+                                                    <span class="badge bg-success" style="font-size:10px;" title="Abertas"><?= (int)$proto['open_count'] ?></span>
+                                                    <span class="badge bg-secondary" style="font-size:10px;" title="Fechadas"><?= (int)$proto['closed_count'] ?></span>
+                                                </a>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        </div>
+                                        <?php endif; ?>
                                         <!-- FIM DO CRONÔMETRO -->
                                     </div>
                                     
@@ -1317,12 +1364,23 @@ window.addEventListener('DOMContentLoaded', function() {
                                                                     </p>
                                                                 <?php endif; ?>
                                                                 
-                                                                <div class="d-flex flex-wrap gap-1 mb-2">
+                                                                <div class="d-flex flex-wrap gap-1 mb-1">
                                                                     <?= $act['estado_badge'] ?>
                                                                     <?= $act['estagio_badge'] ?>
                                                                     <?= $act['projeto_badge'] ?>
                                                                     <?= $act['deadline_info'] ?>
                                                                 </div>
+                                                                <?php if (!empty($act['sprint_nomes'])): ?>
+                                                                <div class="mb-1">
+                                                                    <?php foreach ($act['sprint_nomes'] as $i => $sNome): ?>
+                                                                    <a href="index.php?tab=sprints&sprint_id=<?= $act['sprint_ids'][$i] ?>"
+                                                                       class="text-decoration-none" style="font-size:11px; color:#2563eb;">
+                                                                        <i class="bi bi-lightning-charge-fill" style="font-size:9px;"></i>
+                                                                        <?= htmlspecialchars($sNome) ?>
+                                                                    </a><?= $i < count($act['sprint_nomes'])-1 ? ' · ' : '' ?>
+                                                                    <?php endforeach; ?>
+                                                                </div>
+                                                                <?php endif; ?>
                                                                 
                                                                 <div class="d-flex justify-content-between align-items-center">
                                                                     <small class="text-muted">

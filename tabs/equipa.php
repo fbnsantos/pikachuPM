@@ -918,15 +918,17 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         }
         
         // ===== INTEGRAÇÃO TEAMS - REUNIÃO FINALIZADA =====
-        try {
-            $resultado_teams = notifyMeetingEnded($duracao_reuniao);
-            if ($resultado_teams['success']) {
-                error_log("✅ Teams end notification sent: " . $resultado_teams['message']);
-            } else {
-                error_log("❌ Teams end notification failed: " . $resultado_teams['message']);
+        if (empty($_POST['skip_teams_notify_end'])) {
+            try {
+                $resultado_teams = notifyMeetingEnded($duracao_reuniao);
+                if ($resultado_teams['success']) {
+                    error_log("✅ Teams end notification sent: " . $resultado_teams['message']);
+                } else {
+                    error_log("❌ Teams end notification failed: " . $resultado_teams['message']);
+                }
+            } catch (Exception $e) {
+                error_log("❌ Teams end integration error: " . $e->getMessage());
             }
-        } catch (Exception $e) {
-            error_log("❌ Teams end integration error: " . $e->getMessage());
         }
         // ===== FIM INTEGRAÇÃO TEAMS =====
         
@@ -938,6 +940,20 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
         $_SESSION['inicio_reuniao'] = null;
     }
     
+    // Notificação manual Teams - reunião iniciada
+    if (isset($_POST['notify_teams_start'])) {
+        try { notifyMeetingStarted(); } catch (Exception $e) {}
+    }
+
+    // Notificação manual Teams - reunião em curso
+    if (isset($_POST['notify_teams_end'])) {
+        $duracao_reuniao = 'N/A';
+        if (isset($_SESSION['inicio_reuniao'])) {
+            $duracao_reuniao = gmdate('H:i:s', time() - $_SESSION['inicio_reuniao']);
+        }
+        try { notifyMeetingEnded($duracao_reuniao); } catch (Exception $e) {}
+    }
+
     // Próximo orador
     if (isset($_POST['proximo'])) {
         $_SESSION['orador_atual']++;
@@ -1233,6 +1249,7 @@ window.addEventListener('DOMContentLoaded', function() {
                         <div class="d-flex justify-content-between align-items-center">
                             <h4 class="mb-0"><i class="bi bi-calendar-check"></i> Reunião em Progresso</h4>
                             <form method="post" class="d-inline">
+                                <input type="hidden" name="skip_teams_notify_end" value="1">
                                 <button type="submit" name="terminar" class="btn btn-sm btn-danger">
                                     <i class="bi bi-stop-circle"></i> Encerrar Reunião
                                 </button>
@@ -1255,11 +1272,19 @@ window.addEventListener('DOMContentLoaded', function() {
                             <div class="alert alert-success">
                                 <i class="bi bi-check-circle-fill"></i> Reunião concluída! Todos os membros se pronunciaram.
                                 <div class="mt-3">
-                                    <form method="post">
-                                        <button type="submit" name="terminar" class="btn btn-primary">
-                                            Finalizar e voltar ao início
-                                        </button>
-                                    </form>
+                                    <div class="d-flex gap-2 flex-wrap">
+                                        <form method="post" class="d-inline">
+                                            <input type="hidden" name="skip_teams_notify_end" value="1">
+                                            <button type="submit" name="terminar" class="btn btn-primary">
+                                                Finalizar e voltar ao início
+                                            </button>
+                                        </form>
+                                        <form method="post" class="d-inline">
+                                            <button type="submit" name="terminar" class="btn btn-outline-primary">
+                                                <i class="bi bi-send"></i> Finalizar e notificar Teams
+                                            </button>
+                                        </form>
+                                    </div>
                                 </div>
                             </div>
                         <?php else: ?>
@@ -1335,6 +1360,16 @@ window.addEventListener('DOMContentLoaded', function() {
                                             <form method="post" class="d-inline">
                                                 <button type="submit" name="proximo" class="btn btn-sm btn-primary" title="Próximo orador">
                                                     <i class="bi bi-skip-forward-fill"></i> Próximo
+                                                </button>
+                                            </form>
+                                            <form method="post" class="d-inline">
+                                                <button type="submit" name="notify_teams_start" class="btn btn-sm btn-outline-info" title="Enviar notificação de início para o Teams">
+                                                    <i class="bi bi-megaphone"></i>
+                                                </button>
+                                            </form>
+                                            <form method="post" class="d-inline">
+                                                <button type="submit" name="notify_teams_end" class="btn btn-sm btn-outline-info" title="Enviar resumo de fim de reunião para o Teams">
+                                                    <i class="bi bi-send"></i>
                                                 </button>
                                             </form>
                                             <form method="post" class="d-inline">
@@ -1529,18 +1564,19 @@ window.addEventListener('DOMContentLoaded', function() {
                 <div class="card mb-4">
                     <div class="card-body text-center">
                         <p class="lead mb-3">A reunião ainda não foi iniciada.</p>
-                        <form method="post">
-                            <div class="form-check d-inline-flex align-items-center gap-2 mb-3 text-muted">
-                                <input class="form-check-input" type="checkbox" name="skip_teams_notify" id="skipTeamsNotify" value="1">
-                                <label class="form-check-label small" for="skipTeamsNotify">
-                                    <i class="bi bi-bell-slash"></i> Não notificar o Teams
-                                </label>
-                            </div>
-                            <br>
-                            <button type="submit" name="iniciar" class="btn btn-success btn-lg">
-                                <i class="bi bi-play-fill"></i> Iniciar Reunião
-                            </button>
-                        </form>
+                        <div class="d-flex justify-content-center gap-2 flex-wrap">
+                            <form method="post" class="d-inline">
+                                <input type="hidden" name="skip_teams_notify" value="1">
+                                <button type="submit" name="iniciar" class="btn btn-success btn-lg">
+                                    <i class="bi bi-play-fill"></i> Iniciar Reunião
+                                </button>
+                            </form>
+                            <form method="post" class="d-inline">
+                                <button type="submit" name="iniciar" class="btn btn-outline-success btn-lg" title="Iniciar e notificar Teams">
+                                    <i class="bi bi-play-fill"></i> <i class="bi bi-send"></i>
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
             <?php endif; ?>

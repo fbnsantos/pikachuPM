@@ -5,13 +5,21 @@ ini_set('session.gc_maxlifetime', 86400);
 ini_set('session.cookie_lifetime', 86400);
 session_start();
 
-// Configurar timeout de sessão para 24 horas (86400 segundos)
-
+const SESSION_TIMEOUT = 86400;
 
 if (!isset($_SESSION['username'])) {
     header('Location: login.php');
     exit;
 }
+
+// Forçar logout após 24h de inactividade
+if (isset($_SESSION['ultima_atividade']) && (time() - $_SESSION['ultima_atividade']) > SESSION_TIMEOUT) {
+    session_unset();
+    session_destroy();
+    header('Location: login.php?timeout=1');
+    exit;
+}
+$_SESSION['ultima_atividade'] = time();
 
 // Definir timezone
 date_default_timezone_set('Europe/Lisbon');

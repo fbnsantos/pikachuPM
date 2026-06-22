@@ -372,6 +372,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $modo === 'login') {
             <p>Sistema de Gestão de Projetos</p>
         </div>
         
+        <?php if (!empty($_GET['timeout'])): ?>
+            <div class="alert alert-warning alert-dismissible fade show">
+                <i class="bi bi-clock"></i> A sessão expirou após 24h de inactividade. Por favor inicia sessão novamente.
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+
         <?php if ($erro): ?>
             <div class="alert alert-danger alert-dismissible fade show">
                 <i class="bi bi-exclamation-triangle-fill"></i> <?= htmlspecialchars($erro) ?>

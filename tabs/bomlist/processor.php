@@ -330,13 +330,16 @@ function processCRUD($pdo, $entity , $action){
             if(!empty($_POST['remove_type'])){
                 if ($_POST['remove_type'] === 'component' && !empty($_POST['remove_component_id'])) {
                     // Remover associação de componente
+                    $stmt3 = $pdo->prepare("Select Quantity FROM T_Assembly_Component WHERE Assembly_ID = ? AND Component_ID = ?");
+                    $stmt3->execute([$parentAssemblyId, $_POST['remove_component_id']]);
+                    $quantity = (int) $stmt3->fetchColumn();
                     $stmt = $pdo->prepare("DELETE FROM T_Assembly_Component WHERE Assembly_ID = ? AND Component_ID = ?");
                     $stmt->execute([$parentAssemblyId, $_POST['remove_component_id']]);
                     $stmt2 = $pdo->prepare("SELECT Price FROM T_Component WHERE Component_ID = ?");
                     $stmt2->execute([$_POST['remove_component_id']]);
                     $compPrice = (float) $stmt2->fetchColumn();
-                    $assemblyPrice -= $compPrice;
-                    updateAllAssemblyPrices($pdo, $parentAssemblyId , -$compPrice);
+                    $assemblyPrice -= ($compPrice * $quantity);
+                    updateAllAssemblyPrices($pdo, $parentAssemblyId , -($compPrice*$quantity));
                     $message = "Associação de Assembly e Componente removida com sucesso!";
                 } elseif ($_POST['remove_type'] === 'assembly' && !empty($_POST['remove_assembly_id'])) {
                     $toRemoveId = (int) $_POST['remove_assembly_id'];
@@ -345,11 +348,16 @@ function processCRUD($pdo, $entity , $action){
                     $stmt2 = $pdo->prepare("SELECT Price FROM T_Assembly WHERE Assembly_ID = ?");
                     $stmt2->execute([$_POST['remove_assembly_id']]);
                     $assemPrice = (float) $stmt2->fetchColumn();
-                    $assemblyPrice -= $assemPrice;
+
                     // 1) Apagar recursivamente a sub-árvore seleccionada
 
+                    
+                    $stmt3 = $pdo->prepare("SELECT Quantity FROM T_Assembly_Assembly WHERE Parent_Assembly_ID = ? AND Child_Assembly_ID = ?");
+                    $stmt3->execute([$parentAssemblyId, $toRemoveId]);
+                    $quantity = (int) $stmt3->fetchColumn();
+                    $assemblyPrice -= ($assemPrice*$quantity);
+                    error_log("quantidade:" . $quantity);
                     deleteAssemblySubtree($pdo, $toRemoveId);
-
                     // 2) Apagar a associação pai→filho específica
                     $stmt = $pdo->prepare("
                     DELETE FROM T_Assembly_Assembly
@@ -357,13 +365,20 @@ function processCRUD($pdo, $entity , $action){
                         AND Child_Assembly_ID  = ?
                     ");
                     $stmt->execute([$parentAssemblyId, $toRemoveId]);
-                    updateAllAssemblyPrices($pdo, $parentAssemblyId , -$assemPrice);
+                    updateAllAssemblyPrices($pdo, $parentAssemblyId , -($assemPrice * $quantity));
                     $message = "Todas as sub-assemblies e suas associações foram removidas com sucesso!";
                 }
                 else {
                     $url = "?tab=bomlist/bomlist&entity=assembly";
                     $status = "error";
                     $message = "Erro: Tipo de remoção inválido ou ID ausente.";
+                    header(
+                        "Location: ?tab=bomlist/bomlist"
+                        . "&entity=assembly"
+                        . "&msg="   . urlencode($message)
+                        . "&status=". urlencode($status)
+                    );
+                    exit;
                 }
             } elseif (!empty($_POST['component_father_id'])) {
                 // Associação com componente:
@@ -544,6 +559,7 @@ function processCRUD($pdo, $entity , $action){
             $stmt = $pdo->prepare("DELETE FROM T_Assembly WHERE Assembly_ID=?");
             $stmt->execute([$_GET['id']]);
             $message = "Assembly eliminada com sucesso!";
+            $status = "ok";
             header("Location: ?tab=bomlist/bomlist&entity=assembly"
             ."&msg="   . urlencode($message)
             ."&status=". urlencode($status));
@@ -627,6 +643,14 @@ function processCRUD($pdo, $entity , $action){
         // log server-side e devolve mensagem genérica
         error_log("processor error: " . $e->getMessage());
         $message = "Erro no processamento: " . $e->getMessage();
+        $status = "error";
+        header(
+                "Location: ?tab=bomlist/bomlist"
+                . "&entity=assembly"
+                . "&msg="   . urlencode($message)
+                . "&status=". urlencode($status)
+            );
+            exit;
     }
     return $message;
 

@@ -795,6 +795,10 @@ document.addEventListener('DOMContentLoaded', function() {
             </p>
             <p style="margin: 2px 0 0 0; font-size: 0.75em; opacity: 0.8;">
                 <span id="logout-countdown" title="Tempo até logout automático">Logout em: 24h</span>
+                &nbsp;·&nbsp;
+                <span title="Timeout máximo configurado no servidor" style="opacity:0.7;">
+                    <i class="bi bi-server" style="font-size:0.9em;"></i> <?= round(ini_get('session.gc_maxlifetime') / 60) ?>min
+                </span>
             </p>
             <p class="mt-2">
                 <a href="logout.php" class="logout-btn">

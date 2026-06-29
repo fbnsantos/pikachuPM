@@ -208,14 +208,18 @@ try {
     // Ignorar se já existem
 }
 
-// Migrações incrementais nas tabelas de surveys
-foreach ([
-    "ALTER TABLE prototype_surveys ADD COLUMN IF NOT EXISTS intro_text TEXT NULL",
-    "ALTER TABLE prototype_surveys ADD COLUMN IF NOT EXISTS video_links TEXT NULL",
-    "ALTER TABLE prototype_surveys ADD COLUMN IF NOT EXISTS questions TEXT NULL",
-    "ALTER TABLE survey_responses ADD COLUMN IF NOT EXISTS answers TEXT NULL",
-] as $migSql) {
-    try { $pdo->exec($migSql); } catch (PDOException $e) {}
+// Migrações incrementais nas tabelas de surveys (compatível com MySQL < 8)
+$surveyMigrations = [
+    ['prototype_surveys', 'intro_text',  "ALTER TABLE prototype_surveys ADD COLUMN intro_text TEXT NULL"],
+    ['prototype_surveys', 'video_links', "ALTER TABLE prototype_surveys ADD COLUMN video_links TEXT NULL"],
+    ['prototype_surveys', 'questions',   "ALTER TABLE prototype_surveys ADD COLUMN questions TEXT NULL"],
+    ['survey_responses',  'answers',     "ALTER TABLE survey_responses ADD COLUMN answers TEXT NULL"],
+];
+foreach ($surveyMigrations as [$table, $col, $sql]) {
+    try {
+        $exists = $pdo->query("SHOW COLUMNS FROM `$table` LIKE '$col'")->rowCount() > 0;
+        if (!$exists) $pdo->exec($sql);
+    } catch (PDOException $e) {}
 }
 
 // Obter lista de utilizadores

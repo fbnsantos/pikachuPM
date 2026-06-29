@@ -51,6 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $answers = [];
     $ytLinks = [];
     foreach ($questions as $q) {
+        if ($q['type'] === 'separator') continue;
         $qKey = 'q_' . $q['id'];
         if ($q['type'] === 'choice' && !empty($q['multiple'])) {
             $vals = array_filter(array_map('trim', (array)($_POST[$qKey] ?? [])));
@@ -230,6 +231,16 @@ function ytEmbedId(string $url): string {
 
                 <!-- Questões dinâmicas -->
                 <?php foreach ($questions as $q):
+                    if ($q['type'] === 'separator'): ?>
+                <div class="my-4">
+                    <hr style="border-color:#d1d5db;">
+                    <?php if (!empty(trim($q['label'] ?? ''))): ?>
+                    <p class="text-center text-muted mb-0" style="font-size:.9rem; margin-top:-0.9rem; background:#fff; display:inline-block; padding:0 12px; position:relative; left:50%; transform:translateX(-50%);">
+                        <?= htmlspecialchars($q['label']) ?>
+                    </p>
+                    <?php endif; ?>
+                </div>
+                <?php continue; endif;
                     $qId  = 'q_' . $q['id'];
                     $prev = $_POST[$qId] ?? '';
                     $req  = !empty($q['required']);

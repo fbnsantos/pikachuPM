@@ -3009,6 +3009,9 @@ function openSurveyEditor() {
                         <button type="button" class="btn btn-sm btn-outline-info" onclick="addQuestion('choice')">
                             <i class="bi bi-ui-checks"></i> Escolha Múltipla
                         </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addQuestion('separator')">
+                            <i class="bi bi-dash-lg"></i> Separador
+                        </button>
                     </div>
                 </div>
                 <div id="questionsBuilder" class="d-flex flex-column gap-2"></div>
@@ -3048,12 +3051,27 @@ function buildQuestionCard(q, i) {
     div.style.cssText = 'border-radius:8px;';
 
     const typeLabels = {
-        yesno:  '<i class="bi bi-toggle-on text-success"></i> Sim/Não',
-        long:   '<i class="bi bi-text-paragraph text-primary"></i> Resposta Longa',
-        rating: '<i class="bi bi-star-half text-warning"></i> Avaliação',
-        choice: '<i class="bi bi-ui-checks text-info"></i> Escolha Múltipla',
+        yesno:     '<i class="bi bi-toggle-on text-success"></i> Sim/Não',
+        long:      '<i class="bi bi-text-paragraph text-primary"></i> Resposta Longa',
+        rating:    '<i class="bi bi-star-half text-warning"></i> Avaliação',
+        choice:    '<i class="bi bi-ui-checks text-info"></i> Escolha Múltipla',
+        separator: '<i class="bi bi-dash-lg text-secondary"></i> Separador',
     };
     const badge = typeLabels[q.type] || q.type;
+
+    // Separador — card minimalista, sem campo de questão
+    if (q.type === 'separator') {
+        div.innerHTML = `
+            <div class="card-body py-2 px-3 d-flex align-items-center gap-2">
+                <span style="font-size:13px;">${badge}</span>
+                <input type="text" class="form-control form-control-sm flex-grow-1" placeholder="Texto do separador (opcional)…"
+                       value="${escHtml(q.label)}" oninput="surveyQuestions[${i}].label=this.value">
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="moveQuestion(${i},-1)"${i===0?' disabled':''}>↑</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="moveQuestion(${i},1)"${i===surveyQuestions.length-1?' disabled':''}>↓</button>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeQuestion(${i})"><i class="bi bi-trash"></i></button>
+            </div>`;
+        return div;
+    }
 
     let extraHtml = '';
 
@@ -3123,7 +3141,8 @@ function addQuestion(type) {
         yesno:  { type:'yesno',  label:'', required:false },
         long:   { type:'long',   label:'', required:false },
         rating: { type:'rating', label:'', max:5, required:false },
-        choice: { type:'choice', label:'', options:['',''], multiple:false, required:false },
+        choice:    { type:'choice',    label:'', options:['',''], multiple:false, required:false },
+        separator: { type:'separator', label:'' },
     };
     surveyQuestions.push({...defaults[type], id:'q_'+Date.now()});
     renderQuestions();

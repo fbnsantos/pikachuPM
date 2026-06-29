@@ -177,6 +177,9 @@ try {
             token VARCHAR(64) NOT NULL UNIQUE,
             title VARCHAR(255) DEFAULT 'Inquérito de Parceiros',
             description TEXT NULL,
+            intro_text TEXT NULL,
+            video_links TEXT NULL,
+            questions TEXT NULL,
             is_active TINYINT(1) DEFAULT 1,
             created_by INT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -193,6 +196,7 @@ try {
             respondent_email VARCHAR(255) DEFAULT '',
             description TEXT NULL,
             youtube_links TEXT NULL,
+            answers TEXT NULL,
             converted_to_story TINYINT(1) DEFAULT 0,
             story_id INT NULL,
             submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -202,6 +206,16 @@ try {
     ");
 } catch (PDOException $e) {
     // Ignorar se já existem
+}
+
+// Migrações incrementais nas tabelas de surveys
+foreach ([
+    "ALTER TABLE prototype_surveys ADD COLUMN IF NOT EXISTS intro_text TEXT NULL",
+    "ALTER TABLE prototype_surveys ADD COLUMN IF NOT EXISTS video_links TEXT NULL",
+    "ALTER TABLE prototype_surveys ADD COLUMN IF NOT EXISTS questions TEXT NULL",
+    "ALTER TABLE survey_responses ADD COLUMN IF NOT EXISTS answers TEXT NULL",
+] as $migSql) {
+    try { $pdo->exec($migSql); } catch (PDOException $e) {}
 }
 
 // Obter lista de utilizadores
@@ -706,6 +720,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
 
+            case 'save_survey_content':
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                if ($protoId) {
+                    $existingCheck = $pdo->prepare("SELECT id FROM prototype_surveys WHERE prototype_id=? LIMIT 1");
+                    $existingCheck->execute([$protoId]);
+                    $existingSurveyRow = $existingCheck->fetch(PDO::FETCH_ASSOC);
+                    $surveyTitle    = trim($_POST['survey_title'] ?? 'Inquérito de Parceiros');
+                    $surveyIntro    = trim($_POST['survey_intro'] ?? '');
+                    $surveyVideos   = trim($_POST['survey_videos'] ?? '');
+                    $surveyQJson    = $_POST['survey_questions_json'] ?? '[]';
+                    // Validar JSON de questões
+                    $decodedQ = json_decode($surveyQJson, true);
+                    if (!is_array($decodedQ)) $decodedQ = [];
+                    $surveyQJson = json_encode($decodedQ);
+                    // Processar video_links (um por linha)
+                    $vLinks = [];
+                    foreach (explode("\n", $surveyVideos) as $line) {
+                        $line = trim($line);
+                        if ($line !== '') $vLinks[] = $line;
+                    }
+                    $videoLinksJson = json_encode($vLinks);
+                    if ($existingSurveyRow) {
+                        $pdo->prepare("UPDATE prototype_surveys SET title=?, intro_text=?, video_links=?, questions=? WHERE id=?")
+                            ->execute([$surveyTitle, $surveyIntro, $videoLinksJson, $surveyQJson, $existingSurveyRow['id']]);
+                    } else {
+                        $token = bin2hex(random_bytes(32));
+                        $pdo->prepare("INSERT INTO prototype_surveys (prototype_id, token, title, intro_text, video_links, questions, is_active, created_by) VALUES (?,?,?,?,?,?,1,?)")
+                            ->execute([$protoId, $token, $surveyTitle, $surveyIntro, $videoLinksJson, $surveyQJson, $currentUserId]);
+                    }
+                    $message = "Conteúdo do inquérito guardado.";
+                    $messageType = 'success';
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId&show_survey=1");
+                exit;
+
             case 'toggle_survey':
                 $protoId = (int)($_POST['prototype_id'] ?? 0);
                 if ($protoId) {
@@ -740,13 +789,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $response = $resp->fetch(PDO::FETCH_ASSOC);
                     if ($response && !$response['converted_to_story']) {
                         $storyText = trim($response['description'] ?? '');
+                        // Incluir respostas estruturadas às questões
+                        if (!empty($response['answers'])) {
+                            $answers = json_decode($response['answers'], true);
+                            if (is_array($answers) && !empty($answers)) {
+                                $storyText .= "\n\n**Respostas ao inquérito:**";
+                                foreach ($answers as $ans) {
+                                    $storyText .= "\n- **" . ($ans['label'] ?? '') . ":** " . ($ans['value'] ?? '');
+                                }
+                            }
+                        }
                         if (!empty($response['youtube_links'])) {
                             $links = json_decode($response['youtube_links'], true);
                             if ($links) {
                                 $storyText .= "\n\nVídeos de referência: " . implode(', ', $links);
                             }
                         }
-                        $storyText .= "\n\n— Submetido por: " . $response['respondent_name'] . " <" . $response['respondent_email'] . ">";
+                        $author = trim(($response['respondent_name'] ?? '') . ' <' . ($response['respondent_email'] ?? '') . '>');
+                        $storyText .= "\n\n— Submetido por: " . $author;
                         $insStory = $pdo->prepare("INSERT INTO user_stories (prototype_id, story_text, moscow_priority, status, completion_percentage, created_at, created_by) VALUES (?,?,?,'open',0,NOW(),?)");
                         $insStory->execute([$protoId, $storyText, $moscowPriority, $currentUserId]);
                         $newStoryId = $pdo->lastInsertId();
@@ -2701,12 +2761,17 @@ if ($selectedPrototype && $checkTodos) {
 
 <!-- Modal: Inquérito de Parceiros -->
 <?php if ($selectedPrototype && $selectedPrototype['survey']): ?>
-<?php $survey = $selectedPrototype['survey']; $responses = $selectedPrototype['survey_responses']; ?>
+<?php $survey = $selectedPrototype['survey']; $responses = $selectedPrototype['survey_responses']; $questions = json_decode($survey['questions'] ?? '[]', true) ?: []; ?>
 <div class="modal fade" id="surveyModal" tabindex="-1">
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header" style="background:#0f766e; color:#fff;">
                 <h5 class="modal-title"><i class="bi bi-person-lines-fill"></i> Inquérito de Parceiros — <?= htmlspecialchars($selectedPrototype['short_name']) ?></h5>
+                <div class="d-flex gap-2 align-items-center me-2">
+                    <button class="btn btn-sm btn-light" onclick="openSurveyEditor()" title="Editar conteúdo do inquérito">
+                        <i class="bi bi-pencil-square"></i> Editar
+                    </button>
+                </div>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -2751,8 +2816,45 @@ if ($selectedPrototype && $checkTodos) {
                             <span class="text-muted" style="font-size:12px;"><?= date('d/m/Y H:i', strtotime($resp['submitted_at'])) ?></span>
                         </div>
                         <div class="card-body py-2">
+                            <?php
+                            // Respostas estruturadas às questões
+                            $structAnswers = json_decode($resp['answers'] ?? '[]', true) ?: [];
+                            if (!empty($structAnswers)):
+                            ?>
+                            <div class="mb-2">
+                                <?php foreach ($structAnswers as $ans): ?>
+                                <div class="mb-1" style="font-size:13px;">
+                                    <span class="text-muted"><?= htmlspecialchars($ans['label'] ?? '') ?>:</span>
+                                    <?php if (($ans['type'] ?? '') === 'rating'): ?>
+                                    <?php
+                                    // Determinar max da questão correspondente
+                                    $qMax = 5;
+                                    foreach ($questions as $qDef) {
+                                        if (isset($qDef['id']) && 'q_' . $qDef['id'] === 'q_' . ($ans['id'] ?? '') || $qDef['label'] === ($ans['label'] ?? '')) {
+                                            $qMax = (int)($qDef['max'] ?? 5);
+                                            break;
+                                        }
+                                    }
+                                    $ratingVal = (int)$ans['value'];
+                                    ?>
+                                    <span class="ms-1">
+                                        <?php for ($s = 1; $s <= $qMax; $s++): ?>
+                                        <i class="bi bi-star<?= $s <= $ratingVal ? '-fill text-warning' : ' text-secondary' ?>" style="font-size:14px;"></i>
+                                        <?php endfor; ?>
+                                        <strong class="ms-1"><?= $ratingVal ?>/<?= $qMax ?></strong>
+                                    </span>
+                                    <?php elseif (($ans['type'] ?? '') === 'yesno'): ?>
+                                    <span class="badge ms-1 <?= $ans['value']==='Sim' ? 'bg-success' : 'bg-danger' ?>"><?= htmlspecialchars($ans['value']) ?></span>
+                                    <?php else: ?>
+                                    <span class="ms-1"><em><?= htmlspecialchars($ans['value'] ?? '') ?></em></span>
+                                    <?php endif; ?>
+                                </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <hr class="my-2">
+                            <?php endif; ?>
                             <?php if (!empty($resp['description'])): ?>
-                            <p style="white-space:pre-wrap; margin-bottom:8px;"><?= htmlspecialchars($resp['description']) ?></p>
+                            <p style="white-space:pre-wrap; margin-bottom:8px; font-size:13px;"><?= htmlspecialchars($resp['description']) ?></p>
                             <?php endif; ?>
                             <?php if (!empty($ytLinks)): ?>
                             <div class="d-flex flex-wrap gap-2 mb-2">
@@ -2831,6 +2933,191 @@ document.addEventListener('DOMContentLoaded', function() {
         if (el) new bootstrap.Modal(el).show();
     }
 });
+function openSurveyEditor() {
+    const surveyModal = bootstrap.Modal.getInstance(document.getElementById('surveyModal'));
+    if (surveyModal) surveyModal.hide();
+    setTimeout(() => {
+        new bootstrap.Modal(document.getElementById('surveyEditorModal')).show();
+    }, 300);
+}
+</script>
+
+<!-- Modal: Editor de Inquérito -->
+<div class="modal fade" id="surveyEditorModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#1d4ed8; color:#fff;">
+                <h5 class="modal-title"><i class="bi bi-pencil-square"></i> Editar Conteúdo do Inquérito</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="?tab=prototypes/prototypesv2&prototype_id=<?= $selectedPrototypeId ?>">
+            <input type="hidden" name="action" value="save_survey_content">
+            <input type="hidden" name="prototype_id" value="<?= $selectedPrototypeId ?>">
+            <input type="hidden" name="survey_questions_json" id="surveyQuestionsJson" value="<?= htmlspecialchars($survey['questions'] ?? '[]') ?>">
+            <div class="modal-body">
+
+                <!-- Título -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Título do Inquérito</label>
+                    <input type="text" name="survey_title" class="form-control"
+                           value="<?= htmlspecialchars($survey['title'] ?? 'Inquérito de Parceiros') ?>">
+                </div>
+
+                <!-- Texto introdutório (Markdown) -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold"><i class="bi bi-markdown"></i> Texto Introdutório <small class="text-muted fw-normal">(suporta Markdown)</small></label>
+                    <textarea name="survey_intro" id="surveyIntroText" class="form-control font-monospace" rows="6"
+                              placeholder="## Bem-vindo!&#10;&#10;Ajude-nos a melhorar o protótipo respondendo a este breve inquérito..."><?= htmlspecialchars($survey['intro_text'] ?? '') ?></textarea>
+                    <div class="mt-2 p-3 border rounded bg-light" id="surveyIntroPreview" style="display:none; min-height:60px;"></div>
+                    <div class="mt-1">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleMdPreview()">
+                            <i class="bi bi-eye"></i> Pré-visualizar
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Links de Vídeo YouTube -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold"><i class="bi bi-youtube text-danger"></i> Vídeos YouTube <small class="text-muted fw-normal">(um link por linha)</small></label>
+                    <textarea name="survey_videos" class="form-control font-monospace" rows="3"
+                              placeholder="https://www.youtube.com/watch?v=..."><?= htmlspecialchars(implode("\n", json_decode($survey['video_links'] ?? '[]', true) ?: [])) ?></textarea>
+                </div>
+
+                <!-- Builder de Questões -->
+                <div class="mb-2 d-flex align-items-center justify-content-between">
+                    <label class="form-label fw-bold mb-0"><i class="bi bi-list-check"></i> Questões</label>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-success" onclick="addQuestion('yesno')">
+                            <i class="bi bi-toggle-on"></i> Sim/Não
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addQuestion('long')">
+                            <i class="bi bi-text-paragraph"></i> Resposta Longa
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-warning" onclick="addQuestion('rating')">
+                            <i class="bi bi-star-half"></i> Avaliação
+                        </button>
+                    </div>
+                </div>
+                <div id="questionsBuilder" class="d-flex flex-column gap-2"></div>
+                <p class="text-muted mt-2" style="font-size:12px;" id="noQuestionsHint">Nenhuma questão adicionada. Use os botões acima para adicionar.</p>
+
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary" onclick="serializeQuestions()">
+                    <i class="bi bi-floppy"></i> Guardar
+                </button>
+            </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── Survey Editor ──────────────────────────────────────────────
+let surveyQuestions = <?= $survey['questions'] ?? '[]' ?>;
+if (!Array.isArray(surveyQuestions)) surveyQuestions = [];
+
+document.addEventListener('DOMContentLoaded', renderQuestions);
+
+function renderQuestions() {
+    const container = document.getElementById('questionsBuilder');
+    const hint = document.getElementById('noQuestionsHint');
+    if (!container) return;
+    container.innerHTML = '';
+    hint.style.display = surveyQuestions.length ? 'none' : '';
+    surveyQuestions.forEach((q, i) => container.appendChild(buildQuestionCard(q, i)));
+}
+
+function buildQuestionCard(q, i) {
+    const div = document.createElement('div');
+    div.className = 'card border';
+    div.style.cssText = 'border-radius:8px;';
+
+    const typeLabels = { yesno: '<i class="bi bi-toggle-on text-success"></i> Sim/Não', long: '<i class="bi bi-text-paragraph text-primary"></i> Resposta Longa', rating: '<i class="bi bi-star-half text-warning"></i> Avaliação' };
+    const badge = typeLabels[q.type] || q.type;
+
+    const ratingMax = q.type === 'rating' ? `
+        <div class="mt-2 d-flex align-items-center gap-2">
+            <label style="font-size:13px; color:#6b7280; white-space:nowrap;">Escala máxima:</label>
+            <select class="form-select form-select-sm" style="width:80px;" onchange="surveyQuestions[${i}].max=parseInt(this.value)">
+                ${[3,5,7,10].map(v => `<option value="${v}" ${q.max==v?'selected':''}>${v}</option>`).join('')}
+            </select>
+            <label style="font-size:13px; color:#6b7280;">Obrigatória:</label>
+            <input type="checkbox" class="form-check-input" ${q.required?'checked':''} onchange="surveyQuestions[${i}].required=this.checked">
+        </div>` : `
+        <div class="mt-2 d-flex align-items-center gap-2">
+            <label style="font-size:13px; color:#6b7280;">Obrigatória:</label>
+            <input type="checkbox" class="form-check-input" ${q.required?'checked':''} onchange="surveyQuestions[${i}].required=this.checked">
+        </div>`;
+
+    div.innerHTML = `
+        <div class="card-body py-2 px-3">
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <span style="font-size:13px;">${badge}</span>
+                <input type="text" class="form-control form-control-sm flex-grow-1" placeholder="Texto da questão…"
+                       value="${escHtml(q.label)}" oninput="surveyQuestions[${i}].label=this.value">
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="moveQuestion(${i},-1)" ${i===0?'disabled':''}>↑</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="moveQuestion(${i},1)" ${i===surveyQuestions.length-1?'disabled':''}>↓</button>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeQuestion(${i})"><i class="bi bi-trash"></i></button>
+            </div>
+            ${ratingMax}
+        </div>`;
+    return div;
+}
+
+function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function addQuestion(type) {
+    const defaults = { yesno: { type:'yesno', label:'', required:false }, long: { type:'long', label:'', required:false }, rating: { type:'rating', label:'', max:5, required:false } };
+    surveyQuestions.push({...defaults[type], id: 'q_' + Date.now()});
+    renderQuestions();
+}
+
+function removeQuestion(i) { surveyQuestions.splice(i,1); renderQuestions(); }
+
+function moveQuestion(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= surveyQuestions.length) return;
+    [surveyQuestions[i], surveyQuestions[j]] = [surveyQuestions[j], surveyQuestions[i]];
+    renderQuestions();
+}
+
+function serializeQuestions() {
+    document.getElementById('surveyQuestionsJson').value = JSON.stringify(surveyQuestions);
+}
+
+// Markdown preview simples
+function toggleMdPreview() {
+    const ta = document.getElementById('surveyIntroText');
+    const preview = document.getElementById('surveyIntroPreview');
+    if (preview.style.display === 'none') {
+        preview.innerHTML = simpleMarkdown(ta.value);
+        preview.style.display = 'block';
+        ta.style.display = 'none';
+    } else {
+        preview.style.display = 'none';
+        ta.style.display = 'block';
+    }
+}
+
+function simpleMarkdown(md) {
+    return md
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/^### (.+)$/gm,'<h6>$1</h6>')
+        .replace(/^## (.+)$/gm,'<h5>$1</h5>')
+        .replace(/^# (.+)$/gm,'<h4>$1</h4>')
+        .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g,'<em>$1</em>')
+        .replace(/`(.+?)`/g,'<code>$1</code>')
+        .replace(/^- (.+)$/gm,'<li>$1</li>')
+        .replace(/(<li>.*<\/li>)/gs,'<ul>$1</ul>')
+        .replace(/\n\n/g,'</p><p>')
+        .replace(/\n/g,'<br>')
+        .replace(/^(.+)$/,'<p>$1</p>');
+}
 </script>
 <?php endif; ?>
 

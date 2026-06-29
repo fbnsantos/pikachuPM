@@ -43,8 +43,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name        = trim($_POST['respondent_name']  ?? '');
     $email       = trim($_POST['respondent_email'] ?? '');
     $description = trim($_POST['description']      ?? '');
-    $rawYt       = $_POST['youtube_links'] ?? '';
-
     if (!empty($email) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $errors[] = 'Email inválido.';
     }
@@ -57,14 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // Processar links YouTube submetidos pelo respondente (um por linha)
     $ytLinks = [];
-    foreach (explode("\n", $rawYt) as $line) {
-        $line = trim($line);
-        if ($line !== '' && preg_match('/youtu(\.be|be\.com)\//i', $line)) {
-            $ytLinks[] = $line;
-        }
-    }
 
     // Recolher respostas às questões
     $answers = [];
@@ -283,14 +274,6 @@ function ytEmbedId(string $url): string {
                     <label class="form-label">Comentários / Descrição adicional</label>
                     <textarea name="description" class="form-control" rows="5"
                               placeholder="Descreva as suas necessidades, sugestões ou cenários de uso…"><?= htmlspecialchars($_POST['description'] ?? '') ?></textarea>
-                </div>
-
-                <!-- Links YouTube do respondente -->
-                <div class="mb-4">
-                    <label class="form-label"><i class="bi bi-youtube text-danger"></i> Vídeos de referência <span class="text-muted fw-normal">(opcional, um link por linha)</span></label>
-                    <textarea name="youtube_links" class="form-control" rows="2"
-                              placeholder="https://www.youtube.com/watch?v=..."><?= htmlspecialchars($_POST['youtube_links'] ?? '') ?></textarea>
-                    <div class="hint">Pode partilhar exemplos de produtos similares ou demonstrações que ilustrem o que pretende.</div>
                 </div>
 
                 <div class="d-grid">

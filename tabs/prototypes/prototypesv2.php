@@ -2954,11 +2954,11 @@ function openSurveyEditor() {
                 <h5 class="modal-title"><i class="bi bi-pencil-square"></i> Editar Conteúdo do Inquérito</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" action="?tab=prototypes/prototypesv2&prototype_id=<?= $selectedPrototypeId ?>">
+            <div class="modal-body">
+            <form id="surveyEditorForm" method="POST" action="?tab=prototypes/prototypesv2&prototype_id=<?= $selectedPrototypeId ?>">
             <input type="hidden" name="action" value="save_survey_content">
             <input type="hidden" name="prototype_id" value="<?= $selectedPrototypeId ?>">
             <input type="hidden" name="survey_questions_json" id="surveyQuestionsJson" value="<?= htmlspecialchars($survey['questions'] ?? '[]') ?>">
-            <div class="modal-body">
 
                 <!-- Título -->
                 <div class="mb-3">
@@ -3005,14 +3005,14 @@ function openSurveyEditor() {
                 <div id="questionsBuilder" class="d-flex flex-column gap-2"></div>
                 <p class="text-muted mt-2" style="font-size:12px;" id="noQuestionsHint">Nenhuma questão adicionada. Use os botões acima para adicionar.</p>
 
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="submit" class="btn btn-primary" onclick="serializeQuestions()">
-                    <i class="bi bi-floppy"></i> Guardar
-                </button>
-            </div>
+                <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" onclick="serializeQuestions()">
+                        <i class="bi bi-floppy"></i> Guardar
+                    </button>
+                </div>
             </form>
+            </div>
         </div>
     </div>
 </div>

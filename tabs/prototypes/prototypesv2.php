@@ -2849,6 +2849,12 @@ if ($selectedPrototype && $checkTodos) {
                                     </span>
                                     <?php elseif (($ans['type'] ?? '') === 'yesno'): ?>
                                     <span class="badge ms-1 <?= $ans['value']==='Sim' ? 'bg-success' : 'bg-danger' ?>"><?= htmlspecialchars($ans['value']) ?></span>
+                                    <?php elseif (($ans['type'] ?? '') === 'choice'): ?>
+                                    <span class="ms-1">
+                                        <?php foreach (explode(', ', $ans['value'] ?? '') as $choiceVal): ?>
+                                        <span class="badge bg-info text-dark me-1"><?= htmlspecialchars($choiceVal) ?></span>
+                                        <?php endforeach; ?>
+                                    </span>
                                     <?php else: ?>
                                     <span class="ms-1"><em><?= htmlspecialchars($ans['value'] ?? '') ?></em></span>
                                     <?php endif; ?>
@@ -2990,7 +2996,7 @@ function openSurveyEditor() {
                 <!-- Builder de Questões -->
                 <div class="mb-2 d-flex align-items-center justify-content-between">
                     <label class="form-label fw-bold mb-0"><i class="bi bi-list-check"></i> Questões</label>
-                    <div class="d-flex gap-2">
+                    <div class="d-flex gap-2 flex-wrap">
                         <button type="button" class="btn btn-sm btn-outline-success" onclick="addQuestion('yesno')">
                             <i class="bi bi-toggle-on"></i> Sim/Não
                         </button>
@@ -2999,6 +3005,9 @@ function openSurveyEditor() {
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-warning" onclick="addQuestion('rating')">
                             <i class="bi bi-star-half"></i> Avaliação
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-info" onclick="addQuestion('choice')">
+                            <i class="bi bi-ui-checks"></i> Escolha Múltipla
                         </button>
                     </div>
                 </div>
@@ -3038,34 +3047,69 @@ function buildQuestionCard(q, i) {
     div.className = 'card border';
     div.style.cssText = 'border-radius:8px;';
 
-    const typeLabels = { yesno: '<i class="bi bi-toggle-on text-success"></i> Sim/Não', long: '<i class="bi bi-text-paragraph text-primary"></i> Resposta Longa', rating: '<i class="bi bi-star-half text-warning"></i> Avaliação' };
+    const typeLabels = {
+        yesno:  '<i class="bi bi-toggle-on text-success"></i> Sim/Não',
+        long:   '<i class="bi bi-text-paragraph text-primary"></i> Resposta Longa',
+        rating: '<i class="bi bi-star-half text-warning"></i> Avaliação',
+        choice: '<i class="bi bi-ui-checks text-info"></i> Escolha Múltipla',
+    };
     const badge = typeLabels[q.type] || q.type;
 
-    const ratingMax = q.type === 'rating' ? `
-        <div class="mt-2 d-flex align-items-center gap-2">
-            <label style="font-size:13px; color:#6b7280; white-space:nowrap;">Escala máxima:</label>
+    let extraHtml = '';
+
+    if (q.type === 'rating') {
+        extraHtml = `
+        <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
+            <label style="font-size:13px;color:#6b7280;white-space:nowrap;">Escala máxima:</label>
             <select class="form-select form-select-sm" style="width:80px;" onchange="surveyQuestions[${i}].max=parseInt(this.value)">
-                ${[3,5,7,10].map(v => `<option value="${v}" ${q.max==v?'selected':''}>${v}</option>`).join('')}
+                ${[3,5,7,10].map(v=>`<option value="${v}"${q.max==v?' selected':''}>${v}</option>`).join('')}
             </select>
-            <label style="font-size:13px; color:#6b7280;">Obrigatória:</label>
-            <input type="checkbox" class="form-check-input" ${q.required?'checked':''} onchange="surveyQuestions[${i}].required=this.checked">
-        </div>` : `
-        <div class="mt-2 d-flex align-items-center gap-2">
-            <label style="font-size:13px; color:#6b7280;">Obrigatória:</label>
-            <input type="checkbox" class="form-check-input" ${q.required?'checked':''} onchange="surveyQuestions[${i}].required=this.checked">
+            <label style="font-size:13px;color:#6b7280;">Obrigatória:</label>
+            <input type="checkbox" class="form-check-input"${q.required?' checked':''} onchange="surveyQuestions[${i}].required=this.checked">
         </div>`;
+    } else if (q.type === 'choice') {
+        const opts = (q.options || []).map((o, oi) => `
+            <div class="d-flex align-items-center gap-1 mb-1" id="choiceOpt_${i}_${oi}">
+                <i class="bi bi-grip-vertical text-muted"></i>
+                <input type="text" class="form-control form-control-sm" placeholder="Opção ${oi+1}"
+                       value="${escHtml(o)}" oninput="surveyQuestions[${i}].options[${oi}]=this.value">
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeChoiceOption(${i},${oi})">
+                    <i class="bi bi-x"></i>
+                </button>
+            </div>`).join('');
+
+        extraHtml = `
+        <div class="mt-2">
+            <div id="choiceOpts_${i}" class="mb-1">${opts}</div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addChoiceOption(${i})">
+                <i class="bi bi-plus"></i> Adicionar opção
+            </button>
+            <div class="mt-2 d-flex align-items-center gap-2">
+                <label style="font-size:13px;color:#6b7280;">Selecção múltipla (checkboxes):</label>
+                <input type="checkbox" class="form-check-input"${q.multiple?' checked':''} onchange="surveyQuestions[${i}].multiple=this.checked">
+                <label style="font-size:13px;color:#6b7280;margin-left:8px;">Obrigatória:</label>
+                <input type="checkbox" class="form-check-input"${q.required?' checked':''} onchange="surveyQuestions[${i}].required=this.checked">
+            </div>
+        </div>`;
+    } else {
+        extraHtml = `
+        <div class="mt-2 d-flex align-items-center gap-2">
+            <label style="font-size:13px;color:#6b7280;">Obrigatória:</label>
+            <input type="checkbox" class="form-check-input"${q.required?' checked':''} onchange="surveyQuestions[${i}].required=this.checked">
+        </div>`;
+    }
 
     div.innerHTML = `
         <div class="card-body py-2 px-3">
-            <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center gap-2 mb-1">
                 <span style="font-size:13px;">${badge}</span>
                 <input type="text" class="form-control form-control-sm flex-grow-1" placeholder="Texto da questão…"
                        value="${escHtml(q.label)}" oninput="surveyQuestions[${i}].label=this.value">
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="moveQuestion(${i},-1)" ${i===0?'disabled':''}>↑</button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="moveQuestion(${i},1)" ${i===surveyQuestions.length-1?'disabled':''}>↓</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="moveQuestion(${i},-1)"${i===0?' disabled':''}>↑</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="moveQuestion(${i},1)"${i===surveyQuestions.length-1?' disabled':''}>↓</button>
                 <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeQuestion(${i})"><i class="bi bi-trash"></i></button>
             </div>
-            ${ratingMax}
+            ${extraHtml}
         </div>`;
     return div;
 }
@@ -3075,8 +3119,24 @@ function escHtml(s) {
 }
 
 function addQuestion(type) {
-    const defaults = { yesno: { type:'yesno', label:'', required:false }, long: { type:'long', label:'', required:false }, rating: { type:'rating', label:'', max:5, required:false } };
-    surveyQuestions.push({...defaults[type], id: 'q_' + Date.now()});
+    const defaults = {
+        yesno:  { type:'yesno',  label:'', required:false },
+        long:   { type:'long',   label:'', required:false },
+        rating: { type:'rating', label:'', max:5, required:false },
+        choice: { type:'choice', label:'', options:['',''], multiple:false, required:false },
+    };
+    surveyQuestions.push({...defaults[type], id:'q_'+Date.now()});
+    renderQuestions();
+}
+
+function addChoiceOption(i) {
+    if (!Array.isArray(surveyQuestions[i].options)) surveyQuestions[i].options = [];
+    surveyQuestions[i].options.push('');
+    renderQuestions();
+}
+
+function removeChoiceOption(i, oi) {
+    surveyQuestions[i].options.splice(oi, 1);
     renderQuestions();
 }
 

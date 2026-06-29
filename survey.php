@@ -47,20 +47,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Email inválido.';
     }
 
-    // Validar questões obrigatórias
-    foreach ($questions as $q) {
-        if (!empty($q['required'])) {
-            $val = trim($_POST['q_' . $q['id']] ?? '');
-            if ($val === '') $errors[] = 'A questão "' . htmlspecialchars($q['label']) . '" é obrigatória.';
-        }
-    }
-
-    $ytLinks = [];
-
-    // Recolher respostas às questões
+    // Recolher respostas e validar obrigatórias
     $answers = [];
+    $ytLinks = [];
     foreach ($questions as $q) {
-        $val = trim($_POST['q_' . $q['id']] ?? '');
+        $qKey = 'q_' . $q['id'];
+        if ($q['type'] === 'choice' && !empty($q['multiple'])) {
+            $vals = array_filter(array_map('trim', (array)($_POST[$qKey] ?? [])));
+            $val  = implode(', ', $vals);
+        } else {
+            $val = trim($_POST[$qKey] ?? '');
+        }
+        if (!empty($q['required']) && $val === '') {
+            $errors[] = 'A questão "' . htmlspecialchars($q['label']) . '" é obrigatória.';
+        }
         if ($val !== '') {
             $answers[] = ['id' => $q['id'], 'label' => $q['label'], 'type' => $q['type'], 'value' => $val];
         }
@@ -265,6 +265,34 @@ function ytEmbedId(string $url): string {
                         <?php endfor; ?>
                     </div>
                     <div class="hint mt-1">1 = mínimo · <?= $max ?> = máximo</div>
+
+                    <?php elseif ($q['type'] === 'choice'): ?>
+                    <?php
+                    $opts     = $q['options'] ?? [];
+                    $multiple = !empty($q['multiple']);
+                    $prevVals = $multiple
+                        ? (array)($_POST[$qId] ?? [])
+                        : [$prev];
+                    ?>
+                    <?php foreach ($opts as $oi => $opt): if (trim($opt) === '') continue; ?>
+                    <div class="form-check">
+                        <?php if ($multiple): ?>
+                        <input class="form-check-input" type="checkbox"
+                               name="<?= $qId ?>[]" id="<?= $qId ?>_o<?= $oi ?>"
+                               value="<?= htmlspecialchars($opt) ?>"
+                               <?= in_array($opt, $prevVals) ? 'checked' : '' ?>>
+                        <?php else: ?>
+                        <input class="form-check-input" type="radio"
+                               name="<?= $qId ?>" id="<?= $qId ?>_o<?= $oi ?>"
+                               value="<?= htmlspecialchars($opt) ?>"
+                               <?= $prev === $opt ? 'checked' : '' ?>
+                               <?= ($req && $oi === 0) ? 'required' : '' ?>>
+                        <?php endif; ?>
+                        <label class="form-check-label fw-normal" for="<?= $qId ?>_o<?= $oi ?>">
+                            <?= htmlspecialchars($opt) ?>
+                        </label>
+                    </div>
+                    <?php endforeach; ?>
                     <?php endif; ?>
                 </div>
                 <?php endforeach; ?>

@@ -168,6 +168,42 @@ try {
     // Ignorar se já existe
 }
 
+// Tabelas para inquéritos de parceiros externos
+try {
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS prototype_surveys (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            prototype_id INT NOT NULL,
+            token VARCHAR(64) NOT NULL UNIQUE,
+            title VARCHAR(255) DEFAULT 'Inquérito de Parceiros',
+            description TEXT NULL,
+            is_active TINYINT(1) DEFAULT 1,
+            created_by INT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (prototype_id) REFERENCES prototypes(id) ON DELETE CASCADE,
+            INDEX idx_prototype (prototype_id),
+            INDEX idx_token (token)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS survey_responses (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            survey_id INT NOT NULL,
+            respondent_name VARCHAR(255) DEFAULT '',
+            respondent_email VARCHAR(255) DEFAULT '',
+            description TEXT NULL,
+            youtube_links TEXT NULL,
+            converted_to_story TINYINT(1) DEFAULT 0,
+            story_id INT NULL,
+            submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (survey_id) REFERENCES prototype_surveys(id) ON DELETE CASCADE,
+            INDEX idx_survey (survey_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+} catch (PDOException $e) {
+    // Ignorar se já existem
+}
+
 // Obter lista de utilizadores
 $users = [];
 try {
@@ -656,10 +692,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($checkTodos) {
                     $stmt = $pdo->prepare("DELETE FROM story_tasks WHERE id=?");
                     $stmt->execute([$_POST['association_id']]);
-                    
+
                     // Obter prototype_id do POST
                     $prototypeIdForRedirect = $_POST['prototype_id'] ?? $selectedPrototypeId;
-                    
+
                     // Redirecionar
                     $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $prototypeIdForRedirect;
                     if ($filterMine) $redirectUrl .= "&filter_mine=true";
@@ -669,6 +705,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     exit;
                 }
                 break;
+
+            case 'toggle_survey':
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                if ($protoId) {
+                    // Verificar se já existe survey
+                    $existingSurvey = $pdo->prepare("SELECT id, is_active FROM prototype_surveys WHERE prototype_id=? LIMIT 1");
+                    $existingSurvey->execute([$protoId]);
+                    $survey = $existingSurvey->fetch(PDO::FETCH_ASSOC);
+                    if ($survey) {
+                        // Alternar estado ativo
+                        $newActive = $survey['is_active'] ? 0 : 1;
+                        $pdo->prepare("UPDATE prototype_surveys SET is_active=? WHERE id=?")->execute([$newActive, $survey['id']]);
+                        $message = $newActive ? "Inquérito ativado." : "Inquérito desativado.";
+                    } else {
+                        // Criar novo survey com token único
+                        $token = bin2hex(random_bytes(32));
+                        $pdo->prepare("INSERT INTO prototype_surveys (prototype_id, token, is_active, created_by) VALUES (?,?,1,?)")
+                            ->execute([$protoId, $token, $currentUserId]);
+                        $message = "Inquérito criado e ativado.";
+                    }
+                    $messageType = 'success';
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId");
+                exit;
+
+            case 'convert_response_to_story':
+                $responseId = (int)($_POST['response_id'] ?? 0);
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                $moscowPriority = $_POST['moscow_priority'] ?? 'Should';
+                if ($responseId && $protoId) {
+                    $resp = $pdo->prepare("SELECT * FROM survey_responses WHERE id=?");
+                    $resp->execute([$responseId]);
+                    $response = $resp->fetch(PDO::FETCH_ASSOC);
+                    if ($response && !$response['converted_to_story']) {
+                        $storyText = trim($response['description'] ?? '');
+                        if (!empty($response['youtube_links'])) {
+                            $links = json_decode($response['youtube_links'], true);
+                            if ($links) {
+                                $storyText .= "\n\nVídeos de referência: " . implode(', ', $links);
+                            }
+                        }
+                        $storyText .= "\n\n— Submetido por: " . $response['respondent_name'] . " <" . $response['respondent_email'] . ">";
+                        $insStory = $pdo->prepare("INSERT INTO user_stories (prototype_id, story_text, moscow_priority, status, completion_percentage, created_at, created_by) VALUES (?,?,?,'open',0,NOW(),?)");
+                        $insStory->execute([$protoId, $storyText, $moscowPriority, $currentUserId]);
+                        $newStoryId = $pdo->lastInsertId();
+                        $pdo->prepare("UPDATE survey_responses SET converted_to_story=1, story_id=? WHERE id=?")->execute([$newStoryId, $responseId]);
+                        $message = "Resposta convertida em User Story!";
+                        $messageType = 'success';
+                    }
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId&show_survey=1");
+                exit;
+
+            case 'delete_survey_response':
+                $responseId = (int)($_POST['response_id'] ?? 0);
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                if ($responseId) {
+                    $pdo->prepare("DELETE FROM survey_responses WHERE id=?")->execute([$responseId]);
+                    $message = "Resposta eliminada.";
+                    $messageType = 'success';
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId&show_survey=1");
+                exit;
         }
     } catch (PDOException $e) {
         $message = "Erro: " . $e->getMessage();
@@ -839,6 +938,20 @@ if ($selectedPrototypeId) {
             $story['attachment_count'] = $attachCountMap[$story['id']] ?? 0;
         }
         unset($story);
+
+        // Carregar survey e respostas do protótipo
+        $selectedPrototype['survey'] = null;
+        $selectedPrototype['survey_responses'] = [];
+        try {
+            $surveyStmt = $pdo->prepare("SELECT * FROM prototype_surveys WHERE prototype_id=? LIMIT 1");
+            $surveyStmt->execute([$selectedPrototypeId]);
+            $selectedPrototype['survey'] = $surveyStmt->fetch(PDO::FETCH_ASSOC);
+            if ($selectedPrototype['survey']) {
+                $respStmt = $pdo->prepare("SELECT * FROM survey_responses WHERE survey_id=? ORDER BY submitted_at DESC");
+                $respStmt->execute([$selectedPrototype['survey']['id']]);
+                $selectedPrototype['survey_responses'] = $respStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+        } catch (PDOException $e) {}
     }
 }
 
@@ -1864,6 +1977,28 @@ if ($selectedPrototype && $checkTodos) {
                         <button class="btn btn-sm btn-danger" onclick="if(confirm('Tem certeza?')) { document.getElementById('deleteForm').submit(); }">
                             <i class="bi bi-trash"></i> Eliminar
                         </button>
+                        <?php
+                        $survey = $selectedPrototype['survey'] ?? null;
+                        $surveyActive = $survey && $survey['is_active'];
+                        $surveyResponseCount = count($selectedPrototype['survey_responses'] ?? []);
+                        ?>
+                        <form method="POST" style="display:inline;" action="?tab=prototypes/prototypesv2&prototype_id=<?= $selectedPrototypeId ?>">
+                            <input type="hidden" name="action" value="toggle_survey">
+                            <input type="hidden" name="prototype_id" value="<?= $selectedPrototypeId ?>">
+                            <button type="submit" class="btn btn-sm <?= $surveyActive ? 'btn-warning' : 'btn-outline-secondary' ?>"
+                                    title="<?= $surveyActive ? 'Desativar inquérito de parceiros' : 'Ativar inquérito de parceiros' ?>">
+                                <i class="bi bi-person-lines-fill"></i>
+                                <?= $surveyActive ? 'Inquérito Ativo' : 'Ativar Inquérito' ?>
+                                <?php if ($surveyResponseCount > 0): ?>
+                                <span class="badge bg-danger"><?= $surveyResponseCount ?></span>
+                                <?php endif; ?>
+                            </button>
+                        </form>
+                        <?php if ($survey): ?>
+                        <button class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#surveyModal">
+                            <i class="bi bi-clipboard-data"></i> Ver Respostas
+                        </button>
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -2563,6 +2698,141 @@ if ($selectedPrototype && $checkTodos) {
         </div>
     </div>
 </div>
+
+<!-- Modal: Inquérito de Parceiros -->
+<?php if ($selectedPrototype && $selectedPrototype['survey']): ?>
+<?php $survey = $selectedPrototype['survey']; $responses = $selectedPrototype['survey_responses']; ?>
+<div class="modal fade" id="surveyModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#0f766e; color:#fff;">
+                <h5 class="modal-title"><i class="bi bi-person-lines-fill"></i> Inquérito de Parceiros — <?= htmlspecialchars($selectedPrototype['short_name']) ?></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Link do inquérito -->
+                <?php
+                $baseUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'];
+                $surveyUrl = $baseUrl . dirname($_SERVER['SCRIPT_NAME']) . '/survey.php?token=' . $survey['token'];
+                ?>
+                <div class="alert alert-<?= $survey['is_active'] ? 'success' : 'warning' ?> d-flex align-items-center gap-2 mb-3">
+                    <i class="bi bi-<?= $survey['is_active'] ? 'check-circle' : 'pause-circle' ?>"></i>
+                    <div>
+                        <strong>Estado: <?= $survey['is_active'] ? 'Ativo' : 'Inativo' ?></strong><br>
+                        <?php if ($survey['is_active']): ?>
+                        Link para partilhar com parceiros:<br>
+                        <code id="surveyLinkText"><?= htmlspecialchars($surveyUrl) ?></code>
+                        <button class="btn btn-sm btn-outline-secondary ms-2" onclick="copySurveyLink()">
+                            <i class="bi bi-clipboard"></i> Copiar
+                        </button>
+                        <?php else: ?>
+                        O inquérito está desativado. Ative-o para gerar um link partilhável.
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <!-- Respostas -->
+                <h6 class="mb-3"><i class="bi bi-inbox"></i> Respostas (<?= count($responses) ?>)</h6>
+                <?php if (empty($responses)): ?>
+                <p class="text-muted">Ainda não há respostas submetidas.</p>
+                <?php else: ?>
+                <div class="table-responsive">
+                    <?php foreach ($responses as $resp): ?>
+                    <?php $ytLinks = json_decode($resp['youtube_links'] ?? '[]', true) ?: []; ?>
+                    <div class="card mb-3 border <?= $resp['converted_to_story'] ? 'border-success' : 'border-secondary' ?>">
+                        <div class="card-header d-flex justify-content-between align-items-center py-2" style="background:#f8fafc;">
+                            <div>
+                                <strong><?= htmlspecialchars($resp['respondent_name']) ?></strong>
+                                <span class="text-muted ms-2" style="font-size:13px;"><?= htmlspecialchars($resp['respondent_email']) ?></span>
+                                <span class="badge ms-2 <?= $resp['converted_to_story'] ? 'bg-success' : 'bg-secondary' ?>">
+                                    <?= $resp['converted_to_story'] ? 'Convertida' : 'Pendente' ?>
+                                </span>
+                            </div>
+                            <span class="text-muted" style="font-size:12px;"><?= date('d/m/Y H:i', strtotime($resp['submitted_at'])) ?></span>
+                        </div>
+                        <div class="card-body py-2">
+                            <?php if (!empty($resp['description'])): ?>
+                            <p style="white-space:pre-wrap; margin-bottom:8px;"><?= htmlspecialchars($resp['description']) ?></p>
+                            <?php endif; ?>
+                            <?php if (!empty($ytLinks)): ?>
+                            <div class="d-flex flex-wrap gap-2 mb-2">
+                                <?php foreach ($ytLinks as $ytUrl): ?>
+                                <?php
+                                $ytId = '';
+                                if (preg_match('/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([A-Za-z0-9_-]{11})/', $ytUrl, $m)) {
+                                    $ytId = $m[1];
+                                }
+                                ?>
+                                <?php if ($ytId): ?>
+                                <div>
+                                    <iframe width="280" height="158" src="https://www.youtube.com/embed/<?= htmlspecialchars($ytId) ?>"
+                                            frameborder="0" allowfullscreen style="border-radius:6px;"></iframe>
+                                </div>
+                                <?php else: ?>
+                                <a href="<?= htmlspecialchars($ytUrl) ?>" target="_blank" class="btn btn-sm btn-outline-danger">
+                                    <i class="bi bi-youtube"></i> <?= htmlspecialchars($ytUrl) ?>
+                                </a>
+                                <?php endif; ?>
+                                <?php endforeach; ?>
+                            </div>
+                            <?php endif; ?>
+                            <?php if (!$resp['converted_to_story']): ?>
+                            <div class="d-flex gap-2 mt-2">
+                                <form method="POST" action="?tab=prototypes/prototypesv2&prototype_id=<?= $selectedPrototypeId ?>" class="d-flex gap-2 align-items-center">
+                                    <input type="hidden" name="action" value="convert_response_to_story">
+                                    <input type="hidden" name="response_id" value="<?= $resp['id'] ?>">
+                                    <input type="hidden" name="prototype_id" value="<?= $selectedPrototypeId ?>">
+                                    <select name="moscow_priority" class="form-select form-select-sm" style="width:auto;">
+                                        <option value="Must">Must</option>
+                                        <option value="Should" selected>Should</option>
+                                        <option value="Could">Could</option>
+                                        <option value="Won't">Won't</option>
+                                    </select>
+                                    <button type="submit" class="btn btn-sm btn-success">
+                                        <i class="bi bi-plus-circle"></i> Converter em User Story
+                                    </button>
+                                </form>
+                                <form method="POST" action="?tab=prototypes/prototypesv2&prototype_id=<?= $selectedPrototypeId ?>" onsubmit="return confirm('Eliminar esta resposta?')">
+                                    <input type="hidden" name="action" value="delete_survey_response">
+                                    <input type="hidden" name="response_id" value="<?= $resp['id'] ?>">
+                                    <input type="hidden" name="prototype_id" value="<?= $selectedPrototypeId ?>">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                                </form>
+                            </div>
+                            <?php elseif ($resp['story_id']): ?>
+                            <small class="text-success"><i class="bi bi-check-circle"></i> Convertida em User Story #<?= $resp['story_id'] ?></small>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+function copySurveyLink() {
+    const text = document.getElementById('surveyLinkText').textContent;
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = event.currentTarget;
+        btn.innerHTML = '<i class="bi bi-check"></i> Copiado!';
+        setTimeout(() => btn.innerHTML = '<i class="bi bi-clipboard"></i> Copiar', 2000);
+    });
+}
+// Reabrir modal após converter/eliminar resposta
+document.addEventListener('DOMContentLoaded', function() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('show_survey') === '1') {
+        const el = document.getElementById('surveyModal');
+        if (el) new bootstrap.Modal(el).show();
+    }
+});
+</script>
+<?php endif; ?>
 
 <!-- Modal: Editar Protótipo -->
 <?php if ($selectedPrototype): ?>

@@ -60,6 +60,20 @@ try {
     die("<div class='alert alert-danger'>Erro ao criar tabela sprints: " . htmlspecialchars($e->getMessage()) . "</div>");
 }
 
+// Migração: garantir que o ENUM estado tem os valores com acentos correctos
+// (necessário se a tabela foi criada com uma versão anterior sem acentos)
+try {
+    // 1. Expandir ENUM para incluir formas antigas E novas em simultâneo
+    $pdo->exec("ALTER TABLE sprints MODIFY COLUMN estado ENUM('aberta','em execucao','em execução','suspensa','concluida','concluída','fechada') DEFAULT 'aberta'");
+    // 2. Normalizar dados existentes para a forma com acento
+    $pdo->exec("UPDATE sprints SET estado='em execução' WHERE estado='em execucao'");
+    $pdo->exec("UPDATE sprints SET estado='concluída' WHERE estado='concluida'");
+    // 3. Remover formas antigas do ENUM
+    $pdo->exec("ALTER TABLE sprints MODIFY COLUMN estado ENUM('aberta','em execução','suspensa','concluída','fechada') DEFAULT 'aberta'");
+} catch (PDOException $e) {
+    // Migração não crítica – ignorar se falhar
+}
+
 // Criar tabela sprint_members
 try {
     $pdo->exec("

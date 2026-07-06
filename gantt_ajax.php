@@ -141,7 +141,7 @@ try {
         case 'update_sprint_estado':
             $sprint_id = intval($_POST['sprint_id'] ?? 0);
             $estado    = $_POST['estado'] ?? '';
-            $allowed   = ['aberta', 'em execução', 'suspensa', 'concluída'];
+            $allowed   = ['aberta', 'em execução', 'suspensa', 'concluída', 'fechada'];
             if (!$sprint_id || !in_array($estado, $allowed)) {
                 echo json_encode(['success' => false, 'message' => 'Parâmetros inválidos']); exit;
             }

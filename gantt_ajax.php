@@ -39,12 +39,16 @@ try {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 } catch (PDOException $e) { /* já existe */ }
 
-// Migração: garantir ENUM estado com acentos correctos (corre 1x por sessão)
+// Migração: normalizar ENUM estado para os valores canónicos (corre 1x por sessão)
 if (empty($_SESSION['sprints_estado_migrated'])) {
     try {
-        $pdo->exec("ALTER TABLE sprints MODIFY COLUMN estado ENUM('aberta','em execucao','em execução','suspensa','concluida','concluída','fechada') DEFAULT 'aberta'");
+        // 1. Expandir ENUM para incluir TODOS os valores possíveis (antigos + novos)
+        $pdo->exec("ALTER TABLE sprints MODIFY COLUMN estado ENUM('aberta','pausa','em execucao','em execução','suspensa','concluida','concluída','fechada') DEFAULT 'aberta'");
+        // 2. Normalizar valores antigos para os canónicos
+        $pdo->exec("UPDATE sprints SET estado='suspensa' WHERE estado='pausa'");
         $pdo->exec("UPDATE sprints SET estado='em execução' WHERE estado='em execucao'");
         $pdo->exec("UPDATE sprints SET estado='concluída' WHERE estado='concluida'");
+        // 3. ENUM final com apenas os valores canónicos
         $pdo->exec("ALTER TABLE sprints MODIFY COLUMN estado ENUM('aberta','em execução','suspensa','concluída','fechada') DEFAULT 'aberta'");
         $_SESSION['sprints_estado_migrated'] = true;
     } catch (PDOException $e) { /* tabela pode não existir ainda */ }

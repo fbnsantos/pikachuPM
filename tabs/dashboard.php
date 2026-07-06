@@ -32,6 +32,21 @@ try {
          WHERE t.data_limite < CURDATE() AND t.estado NOT IN ('concluída','fechada','completada','concluida')
          GROUP BY u.user_id, u.username ORDER BY n DESC LIMIT 6"
     )->fetchAll(PDO::FETCH_ASSOC);
+
+    // Protótipos com sprints activas vencidas
+    $health['proto_sprints_vencidas'] = (int)$pdo_h->query(
+        "SELECT COUNT(DISTINCT sp.prototype_id)
+         FROM sprint_prototypes sp
+         JOIN sprints s ON sp.sprint_id = s.id
+         WHERE s.data_fim < CURDATE() AND s.estado NOT IN ('fechada','concluída')"
+    )->fetchColumn();
+
+    // User stories "Must" ainda abertas
+    $health['must_abertas'] = (int)$pdo_h->query(
+        "SELECT COUNT(*) FROM user_stories
+         WHERE moscow_priority = 'Must' AND status = 'open'"
+    )->fetchColumn();
+
 } catch (Exception $e) { $health = null; }
 
 // Configurar conexão com a base de dados SQLite
@@ -820,9 +835,13 @@ function renderContentFrame($content, $height = 450) {
             $sv = $health['sprints_vencidas']; $su = $health['sprints_urgentes'];
             $ev = $health['entregas_vencidas']; $eu = $health['entregas_urgentes'];
             $tv = $health['todos_vencidos'];
+            $pv = $health['proto_sprints_vencidas'];
+            $mv = $health['must_abertas'];
             $sc = $sv > 0 ? 'danger' : ($su > 0 ? 'warn' : 'ok');
             $ec = $ev > 0 ? 'danger' : ($eu > 0 ? 'warn' : 'ok');
             $tc = $tv > 5  ? 'danger' : ($tv > 0  ? 'warn' : 'ok');
+            $pc = $pv > 0  ? 'danger' : 'ok';
+            $mc = $mv > 10 ? 'danger' : ($mv > 3  ? 'warn' : 'ok');
         ?>
         <div class="health-panel mb-3">
             <div class="health-title">
@@ -845,6 +864,14 @@ function renderContentFrame($content, $height = 450) {
                 <div class="health-metric <?= $tc ?>">
                     <div class="health-metric-value"><?= $tv ?></div>
                     <div class="health-metric-label">✅ Tasks vencidas</div>
+                </div>
+                <div class="health-metric <?= $pc ?>">
+                    <div class="health-metric-value"><?= $pv ?></div>
+                    <div class="health-metric-label">🧪 Protótipos c/ sprint atrasada</div>
+                </div>
+                <div class="health-metric <?= $mc ?>">
+                    <div class="health-metric-value"><?= $mv ?></div>
+                    <div class="health-metric-label">⭐ User stories Must abertas</div>
                 </div>
                 <?php if (!empty($health['por_pessoa'])): ?>
                 <div class="health-metric health-persons <?= $tc ?>">

@@ -39,6 +39,17 @@ try {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 } catch (PDOException $e) { /* já existe */ }
 
+// Migração: garantir ENUM estado com acentos correctos (corre 1x por sessão)
+if (empty($_SESSION['sprints_estado_migrated'])) {
+    try {
+        $pdo->exec("ALTER TABLE sprints MODIFY COLUMN estado ENUM('aberta','em execucao','em execução','suspensa','concluida','concluída','fechada') DEFAULT 'aberta'");
+        $pdo->exec("UPDATE sprints SET estado='em execução' WHERE estado='em execucao'");
+        $pdo->exec("UPDATE sprints SET estado='concluída' WHERE estado='concluida'");
+        $pdo->exec("ALTER TABLE sprints MODIFY COLUMN estado ENUM('aberta','em execução','suspensa','concluída','fechada') DEFAULT 'aberta'");
+        $_SESSION['sprints_estado_migrated'] = true;
+    } catch (PDOException $e) { /* tabela pode não existir ainda */ }
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Content-Type: application/json');
     http_response_code(405);

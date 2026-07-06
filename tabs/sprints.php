@@ -161,6 +161,21 @@ if ($checkTodos) {
     }
 }
 
+// Sincronização com calendário: apaga eventos anteriores desta sprint e insere novos
+function sprintSyncCalendar(PDO $pdo, int $id, string $nome, ?string $dataInicio, ?string $dataFim, string $criador): void {
+    try {
+        $pdo->prepare("DELETE FROM calendar_eventos WHERE tipo='sprint' AND descricao LIKE ?")->execute(['%[sprint:' . $id . ']%']);
+        if ($dataInicio) {
+            $pdo->prepare("INSERT INTO calendar_eventos (data, tipo, descricao, hora, criador, cor) VALUES (?,?,?,NULL,?,?)")
+                ->execute([$dataInicio, 'sprint', 'Sprint início: ' . $nome . ' [sprint:' . $id . ']', $criador, 'teal']);
+        }
+        if ($dataFim) {
+            $pdo->prepare("INSERT INTO calendar_eventos (data, tipo, descricao, hora, criador, cor) VALUES (?,?,?,NULL,?,?)")
+                ->execute([$dataFim, 'sprint', 'Sprint fim: ' . $nome . ' [sprint:' . $id . ']', $criador, 'teal']);
+        }
+    } catch (PDOException $e) { /* calendário não crítico */ }
+}
+
 // Processar ações
 $message = '';
 $messageType = 'success';
@@ -184,8 +199,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_POST['responsavel_id'] ?: null
                 ]);
                 $message = "Sprint criada com sucesso!";
+                // Sincronizar com calendário
+                sprintSyncCalendar($pdo, (int)$pdo->lastInsertId(), $_POST['nome'], $_POST['data_inicio'] ?: null, $_POST['data_fim'] ?: null, $_SESSION['username'] ?? 'sistema');
                 break;
-                
+
             case 'update_sprint':
                 $stmt = $pdo->prepare("UPDATE sprints SET nome=?, descricao=?, data_inicio=?, data_fim=?, estado=?, responsavel_id=? WHERE id=?");
                 $stmt->execute([
@@ -198,11 +215,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_POST['sprint_id']
                 ]);
                 $message = "Sprint atualizada com sucesso!";
+                // Re-sincronizar calendário (apaga eventos antigos e recria)
+                sprintSyncCalendar($pdo, (int)$_POST['sprint_id'], $_POST['nome'], $_POST['data_inicio'] ?: null, $_POST['data_fim'] ?: null, $_SESSION['username'] ?? 'sistema');
                 break;
-                
+
             case 'delete_sprint':
                 $stmt = $pdo->prepare("DELETE FROM sprints WHERE id=?");
                 $stmt->execute([$_POST['sprint_id']]);
+                // Remover eventos de calendário associados
+                try { $pdo->prepare("DELETE FROM calendar_eventos WHERE tipo='sprint' AND descricao LIKE ?")->execute(['%[sprint:' . (int)$_POST['sprint_id'] . ']%']); } catch (PDOException $e) {}
                 $message = "Sprint removida com sucesso!";
                 // Redirecionar para lista após deletar
                 header("Location: ?tab=sprints&message=" . urlencode($message) . "&type=success");

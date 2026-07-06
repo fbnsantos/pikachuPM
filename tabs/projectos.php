@@ -487,8 +487,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 $message = "Entregável adicionado com sucesso!";
                 $messageType = 'success';
+                // Sincronizar com calendário
+                entregaSyncCalendar($pdo, (int)$pdo->lastInsertId(), $_POST['deliverable_title'], $_POST['due_date'] ?: null, $_SESSION['username'] ?? 'sistema');
                 break;
-                
+
             case 'update_deliverable':
                 $stmt = $pdo->prepare("UPDATE project_deliverables SET title=?, description=?, due_date=? WHERE id=?");
                 $stmt->execute([
@@ -501,6 +503,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 updateDeliverableStatus($pdo, $_POST['deliverable_id']);
                 $message = "Entregável atualizado!";
                 $messageType = 'success';
+                // Re-sincronizar calendário
+                entregaSyncCalendar($pdo, (int)$_POST['deliverable_id'], $_POST['deliverable_title'], $_POST['due_date'] ?: null, $_SESSION['username'] ?? 'sistema');
                 break;
                 
             case 'add_task_to_deliverable':
@@ -674,6 +678,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $message = "Erro: " . $e->getMessage();
         $messageType = 'danger';
     }
+}
+
+// Sincronização com calendário: apaga evento anterior deste entregável e insere novo
+function entregaSyncCalendar(PDO $pdo, int $id, string $titulo, ?string $dueDate, string $criador): void {
+    try {
+        $pdo->prepare("DELETE FROM calendar_eventos WHERE tipo='entrega' AND descricao LIKE ?")->execute(['%[entrega:' . $id . ']%']);
+        if ($dueDate) {
+            $pdo->prepare("INSERT INTO calendar_eventos (data, tipo, descricao, hora, criador, cor) VALUES (?,?,?,NULL,?,?)")
+                ->execute([$dueDate, 'entrega', 'Entregável: ' . $titulo . ' [entrega:' . $id . ']', $criador, 'indigo']);
+        }
+    } catch (PDOException $e) { /* calendário não crítico */ }
 }
 
 // Função para calcular e atualizar o estado do entregável baseado nas tasks

@@ -68,6 +68,8 @@ $tipos_eventos = [
     'demo' => ['nome' => 'Demonstração', 'cor' => 'blue'],
     'campo' => ['nome' => 'Saída de campo', 'cor' => 'orange'],
     'tribe' => ['nome' => 'TRIBE MEETING', 'cor' => 'purple'],
+    'sprint' => ['nome' => 'Sprint', 'cor' => 'teal'],
+    'entrega' => ['nome' => 'Entregável', 'cor' => 'indigo'],
     'outro' => ['nome' => 'Outro', 'cor' => 'red']
 ];
 

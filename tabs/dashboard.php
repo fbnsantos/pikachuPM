@@ -1,4 +1,39 @@
 <?php
+// Painel de saúde: queries MySQL
+$health = null;
+try {
+    include_once __DIR__ . '/../config.php';
+    $pdo_h = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+    $pdo_h->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+    $health['sprints_vencidas'] = (int)$pdo_h->query(
+        "SELECT COUNT(*) FROM sprints WHERE data_fim < CURDATE() AND estado NOT IN ('fechada','concluída')"
+    )->fetchColumn();
+
+    $health['sprints_urgentes'] = (int)$pdo_h->query(
+        "SELECT COUNT(*) FROM sprints WHERE data_fim BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) AND estado NOT IN ('fechada','concluída')"
+    )->fetchColumn();
+
+    $health['entregas_vencidas'] = (int)$pdo_h->query(
+        "SELECT COUNT(*) FROM project_deliverables WHERE due_date < CURDATE() AND status NOT IN ('completed')"
+    )->fetchColumn();
+
+    $health['entregas_urgentes'] = (int)$pdo_h->query(
+        "SELECT COUNT(*) FROM project_deliverables WHERE due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) AND status NOT IN ('completed')"
+    )->fetchColumn();
+
+    $health['todos_vencidos'] = (int)$pdo_h->query(
+        "SELECT COUNT(*) FROM todos WHERE data_limite < CURDATE() AND estado NOT IN ('concluída','fechada','completada','concluida')"
+    )->fetchColumn();
+
+    $health['por_pessoa'] = $pdo_h->query(
+        "SELECT u.username, COUNT(t.id) as n
+         FROM todos t JOIN user_tokens u ON t.responsavel = u.user_id
+         WHERE t.data_limite < CURDATE() AND t.estado NOT IN ('concluída','fechada','completada','concluida')
+         GROUP BY u.user_id, u.username ORDER BY n DESC LIMIT 6"
+    )->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) { $health = null; }
+
 // Configurar conexão com a base de dados SQLite
 $dbFile = __DIR__ . '/database/content.db';
 $isNewDB = !file_exists($dbFile);
@@ -713,6 +748,61 @@ function renderContentFrame($content, $height = 450) {
             100% { top: -100%; }
         }
 
+        /* Painel de Saúde */
+        .health-panel {
+            background: #fff;
+            border-radius: 10px;
+            padding: 14px 18px;
+            box-shadow: 0 1px 4px rgba(0,0,0,.08);
+            border: 1px solid #e9ecef;
+        }
+        .health-title {
+            font-size: .85rem;
+            font-weight: 600;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        .health-title .health-time {
+            margin-left: auto;
+            font-weight: 400;
+            font-size: .78rem;
+        }
+        .health-metrics {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .health-metric {
+            flex: 1;
+            min-width: 120px;
+            border-radius: 8px;
+            padding: 10px 14px;
+            position: relative;
+            border-left: 4px solid transparent;
+        }
+        .health-metric.ok    { background: #f0fdf4; border-color: #22c55e; }
+        .health-metric.warn  { background: #fffbeb; border-color: #f59e0b; }
+        .health-metric.danger{ background: #fef2f2; border-color: #ef4444; }
+        .health-metric-value { font-size: 1.8rem; font-weight: 700; line-height: 1; }
+        .health-metric.ok     .health-metric-value { color: #16a34a; }
+        .health-metric.warn   .health-metric-value { color: #d97706; }
+        .health-metric.danger .health-metric-value { color: #dc2626; }
+        .health-metric-label { font-size: .78rem; color: #6c757d; margin-top: 2px; }
+        .health-metric-sub   { font-size: .72rem; margin-top: 3px; opacity: .8; }
+        .health-persons { flex: 1.5; min-width: 180px; }
+        .health-persons-list { display: flex; flex-direction: column; gap: 3px; margin-bottom: 4px; }
+        .health-person { display: flex; justify-content: space-between; align-items: center; font-size: .8rem; }
+        .health-person-name { color: #374151; }
+        .health-person-badge { font-weight: 700; padding: 1px 7px; border-radius: 10px; font-size: .75rem; color: #fff; }
+        .health-person-badge.ok     { background: #22c55e; }
+        .health-person-badge.warn   { background: #f59e0b; }
+        .health-person-badge.danger { background: #ef4444; }
+
     </style>
 </head>
 <body>
@@ -726,6 +816,54 @@ function renderContentFrame($content, $height = 450) {
             </div>
         </div>
         
+        <?php if ($health !== null):
+            $sv = $health['sprints_vencidas']; $su = $health['sprints_urgentes'];
+            $ev = $health['entregas_vencidas']; $eu = $health['entregas_urgentes'];
+            $tv = $health['todos_vencidos'];
+            $sc = $sv > 0 ? 'danger' : ($su > 0 ? 'warn' : 'ok');
+            $ec = $ev > 0 ? 'danger' : ($eu > 0 ? 'warn' : 'ok');
+            $tc = $tv > 5  ? 'danger' : ($tv > 0  ? 'warn' : 'ok');
+        ?>
+        <div class="health-panel mb-3">
+            <div class="health-title">
+                <i class="bi bi-activity"></i> Saúde da Plataforma
+                <span class="health-time"><?= date('d/m H:i') ?></span>
+            </div>
+            <div class="health-metrics">
+                <div class="health-metric <?= $sc ?>">
+                    <div class="health-metric-value"><?= $sv + $su ?></div>
+                    <div class="health-metric-label">🏃 Sprints em risco</div>
+                    <?php if ($sv): ?><div class="health-metric-sub"><?= $sv ?> vencidas</div><?php endif; ?>
+                    <?php if ($su): ?><div class="health-metric-sub"><?= $su ?> vencem em 7d</div><?php endif; ?>
+                </div>
+                <div class="health-metric <?= $ec ?>">
+                    <div class="health-metric-value"><?= $ev + $eu ?></div>
+                    <div class="health-metric-label">📦 Entregáveis em risco</div>
+                    <?php if ($ev): ?><div class="health-metric-sub"><?= $ev ?> vencidos</div><?php endif; ?>
+                    <?php if ($eu): ?><div class="health-metric-sub"><?= $eu ?> vencem em 7d</div><?php endif; ?>
+                </div>
+                <div class="health-metric <?= $tc ?>">
+                    <div class="health-metric-value"><?= $tv ?></div>
+                    <div class="health-metric-label">✅ Tasks vencidas</div>
+                </div>
+                <?php if (!empty($health['por_pessoa'])): ?>
+                <div class="health-metric health-persons <?= $tc ?>">
+                    <div class="health-persons-list">
+                        <?php foreach ($health['por_pessoa'] as $p):
+                            $pc = $p['n'] >= 5 ? 'danger' : ($p['n'] >= 2 ? 'warn' : 'ok'); ?>
+                        <div class="health-person">
+                            <span class="health-person-name"><?= htmlspecialchars($p['username']) ?></span>
+                            <span class="health-person-badge <?= $pc ?>"><?= $p['n'] ?></span>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="health-metric-label">👥 Tasks vencidas / pessoa</div>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <div id="display-options" class="display-options">
             <h5 class="mb-3">Modo de Exibição:</h5>
             <form id="displayForm" method="get" action="">

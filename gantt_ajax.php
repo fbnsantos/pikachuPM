@@ -54,6 +54,23 @@ if (empty($_SESSION['sprints_estado_migrated'])) {
     } catch (PDOException $e) { /* tabela pode não existir ainda */ }
 }
 
+// Debug temporário: GET ?action=debug_estado mostra o ENUM actual e o resultado da migração
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'debug_estado') {
+    header('Content-Type: application/json');
+    $info = [];
+    try {
+        $row = $pdo->query("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='sprints' AND COLUMN_NAME='estado'")->fetch(PDO::FETCH_ASSOC);
+        $info['enum_actual'] = $row ? $row['COLUMN_TYPE'] : 'coluna não encontrada';
+    } catch (Exception $e) { $info['enum_error'] = $e->getMessage(); }
+    try {
+        $rows = $pdo->query("SELECT DISTINCT estado, COUNT(*) as n FROM sprints GROUP BY estado")->fetchAll(PDO::FETCH_ASSOC);
+        $info['valores_em_uso'] = $rows;
+    } catch (Exception $e) { $info['valores_error'] = $e->getMessage(); }
+    $info['session_migrated'] = $_SESSION['sprints_estado_migrated'] ?? false;
+    echo json_encode($info, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Content-Type: application/json');
     http_response_code(405);

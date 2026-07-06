@@ -146,6 +146,48 @@ try {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    // SINCRONIZAR CALENDÁRIO COM SPRINTS E ENTREGÁVEIS EXISTENTES
+    if (isset($_POST['sync_calendar_all'])) {
+        $sync_sprints = 0;
+        $sync_entregas = 0;
+        $sync_erros = 0;
+        try {
+            $criador = $_SESSION['username'] ?? 'admin';
+
+            // Sprints com datas definidas
+            $sprints = $pdo->query("SELECT id, nome, data_inicio, data_fim FROM sprints WHERE data_inicio IS NOT NULL OR data_fim IS NOT NULL")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($sprints as $s) {
+                try {
+                    $pdo->prepare("DELETE FROM calendar_eventos WHERE tipo='sprint' AND descricao LIKE ?")->execute(['%[sprint:' . $s['id'] . ']%']);
+                    if ($s['data_inicio']) {
+                        $pdo->prepare("INSERT INTO calendar_eventos (data,tipo,descricao,hora,criador,cor) VALUES (?,?,?,NULL,?,?)")
+                            ->execute([$s['data_inicio'], 'sprint', 'Sprint início: ' . $s['nome'] . ' [sprint:' . $s['id'] . ']', $criador, 'teal']);
+                    }
+                    if ($s['data_fim']) {
+                        $pdo->prepare("INSERT INTO calendar_eventos (data,tipo,descricao,hora,criador,cor) VALUES (?,?,?,NULL,?,?)")
+                            ->execute([$s['data_fim'], 'sprint', 'Sprint fim: ' . $s['nome'] . ' [sprint:' . $s['id'] . ']', $criador, 'teal']);
+                    }
+                    $sync_sprints++;
+                } catch (PDOException $e) { $sync_erros++; }
+            }
+
+            // Entregáveis com due_date definida
+            $entregas = $pdo->query("SELECT id, title, due_date FROM project_deliverables WHERE due_date IS NOT NULL")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($entregas as $e) {
+                try {
+                    $pdo->prepare("DELETE FROM calendar_eventos WHERE tipo='entrega' AND descricao LIKE ?")->execute(['%[entrega:' . $e['id'] . ']%']);
+                    $pdo->prepare("INSERT INTO calendar_eventos (data,tipo,descricao,hora,criador,cor) VALUES (?,?,?,NULL,?,?)")
+                        ->execute([$e['due_date'], 'entrega', 'Entregável: ' . $e['title'] . ' [entrega:' . $e['id'] . ']', $criador, 'indigo']);
+                    $sync_entregas++;
+                } catch (PDOException $e) { $sync_erros++; }
+            }
+        } catch (PDOException $e) {
+            $sync_erros++;
+        }
+        $mensagem_sync = "✅ Sincronizado: {$sync_sprints} sprints, {$sync_entregas} entregáveis." . ($sync_erros ? " ⚠ {$sync_erros} erros." : '');
+    }
+
     // ADICIONAR NOVO ADMINISTRADOR
     if (isset($_POST['add_admin'])) {
         $new_admin_id = (int)$_POST['new_admin_user_id'];
@@ -1387,6 +1429,27 @@ function formatBytes($size, $precision = 2) {
                     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                 </div>
             <?php endif; ?>
+
+            <!-- Sincronização do Calendário -->
+            <div class="card mb-4">
+                <div class="card-header text-white" style="background: linear-gradient(135deg, #0d9488 0%, #6366f1 100%);">
+                    <h5 class="card-title mb-0"><i class="bi bi-calendar-check"></i> Sincronização do Calendário</h5>
+                </div>
+                <div class="card-body">
+                    <?php if (!empty($mensagem_sync)): ?>
+                        <div class="alert alert-success py-2"><?= htmlspecialchars($mensagem_sync) ?></div>
+                    <?php endif; ?>
+                    <p class="text-muted mb-3">
+                        Gera eventos no calendário para todas as sprints e entregáveis existentes que tenham datas definidas.
+                        Eventos já existentes são substituídos.
+                    </p>
+                    <form method="post" onsubmit="return confirm('Vai re-sincronizar todos os eventos de sprint e entregável no calendário. Continuar?')">
+                        <button type="submit" name="sync_calendar_all" class="btn btn-outline-primary">
+                            <i class="bi bi-arrow-repeat"></i> Sincronizar Sprints &amp; Entregáveis com o Calendário
+                        </button>
+                    </form>
+                </div>
+            </div>
 
             <!-- Ações da Base de Dados -->
             <div class="card mb-4">

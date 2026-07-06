@@ -60,19 +60,6 @@ try {
     die("<div class='alert alert-danger'>Erro ao criar tabela sprints: " . htmlspecialchars($e->getMessage()) . "</div>");
 }
 
-// Migração: normalizar ENUM estado para os valores canónicos
-try {
-    // 1. Expandir ENUM para incluir TODOS os valores possíveis (antigos + novos)
-    $pdo->exec("ALTER TABLE sprints MODIFY COLUMN estado ENUM('aberta','pausa','em execucao','em execução','suspensa','concluida','concluída','fechada') DEFAULT 'aberta'");
-    // 2. Normalizar valores antigos para os canónicos
-    $pdo->exec("UPDATE sprints SET estado='suspensa' WHERE estado='pausa'");
-    $pdo->exec("UPDATE sprints SET estado='em execução' WHERE estado='em execucao'");
-    $pdo->exec("UPDATE sprints SET estado='concluída' WHERE estado='concluida'");
-    // 3. ENUM final com apenas os valores canónicos
-    $pdo->exec("ALTER TABLE sprints MODIFY COLUMN estado ENUM('aberta','em execução','suspensa','concluída','fechada') DEFAULT 'aberta'");
-} catch (PDOException $e) {
-    // Migração não crítica – ignorar se falhar
-}
 
 // Criar tabela sprint_members
 try {

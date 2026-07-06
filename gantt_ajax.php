@@ -39,22 +39,7 @@ try {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 } catch (PDOException $e) { /* já existe */ }
 
-// Migração: normalizar ENUM estado para os valores canónicos (corre 1x por sessão)
-if (empty($_SESSION['sprints_estado_migrated'])) {
-    try {
-        // 1. Expandir ENUM para incluir TODOS os valores possíveis (antigos + novos)
-        $pdo->exec("ALTER TABLE sprints MODIFY COLUMN estado ENUM('aberta','pausa','em execucao','em execução','suspensa','concluida','concluída','fechada') DEFAULT 'aberta'");
-        // 2. Normalizar valores antigos para os canónicos
-        $pdo->exec("UPDATE sprints SET estado='suspensa' WHERE estado='pausa'");
-        $pdo->exec("UPDATE sprints SET estado='em execução' WHERE estado='em execucao'");
-        $pdo->exec("UPDATE sprints SET estado='concluída' WHERE estado='concluida'");
-        // 3. ENUM final com apenas os valores canónicos
-        $pdo->exec("ALTER TABLE sprints MODIFY COLUMN estado ENUM('aberta','em execução','suspensa','concluída','fechada') DEFAULT 'aberta'");
-        $_SESSION['sprints_estado_migrated'] = true;
-    } catch (PDOException $e) { /* tabela pode não existir ainda */ }
-}
-
-// Debug temporário: GET ?action=debug_estado mostra o ENUM actual e o resultado da migração
+// Debug temporário: GET ?action=debug_estado mostra o ENUM actual
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'debug_estado') {
     header('Content-Type: application/json');
     $info = [];
@@ -173,7 +158,7 @@ try {
         case 'update_sprint_estado':
             $sprint_id = intval($_POST['sprint_id'] ?? 0);
             $estado    = $_POST['estado'] ?? '';
-            $allowed   = ['aberta', 'em execução', 'suspensa', 'concluída', 'fechada'];
+            $allowed   = ['aberta', 'pausa', 'fechada'];
             if (!$sprint_id || !in_array($estado, $allowed)) {
                 echo json_encode(['success' => false, 'message' => 'Parâmetros inválidos']); exit;
             }

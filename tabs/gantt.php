@@ -2208,10 +2208,9 @@ $total_days = $max_date->diff($min_date)->days + 1;
                                         <select class="urgentes-select"
                                                 onchange="ganttUpdateSprintEstado(<?= $us['id'] ?>, this.value, '<?= $sid ?>')"
                                                 title="Alterar estado">
-                                            <option value="aberta"      <?= $us['estado'] === 'aberta'      ? 'selected' : '' ?>>Aberta</option>
-                                            <option value="em execução" <?= $us['estado'] === 'em execução' ? 'selected' : '' ?>>Em execução</option>
-                                            <option value="suspensa"    <?= $us['estado'] === 'suspensa'    ? 'selected' : '' ?>>Suspensa</option>
-                                            <option value="concluída"   <?= $us['estado'] === 'concluída'   ? 'selected' : '' ?>>Concluída</option>
+                                            <option value="aberta"   <?= $us['estado'] === 'aberta'   ? 'selected' : '' ?>>Aberta</option>
+                                            <option value="pausa"    <?= $us['estado'] === 'pausa'    ? 'selected' : '' ?>>Pausa</option>
+                                            <option value="fechada"  <?= $us['estado'] === 'fechada'  ? 'selected' : '' ?>>Fechada</option>
                                         </select>
                                         <input type="date" class="urgentes-date-input"
                                                value="<?= htmlspecialchars($us['data_fim']) ?>"

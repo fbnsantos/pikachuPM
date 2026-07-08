@@ -2395,7 +2395,11 @@ if ($selectedPrototype && $checkTodos) {
 
                                 <!-- Ações -->
                                 <div class="story-actions">
-                                    <button class="btn btn-sm btn-primary" onclick="editStory(<?= $story['id'] ?>, '<?= htmlspecialchars(addslashes($story['story_text'])) ?>', '<?= $story['moscow_priority'] ?>', '<?= $story['status'] ?>')">
+                                    <button class="btn btn-sm btn-primary edit-story-btn"
+                                            data-id="<?= $story['id'] ?>"
+                                            data-text="<?= htmlspecialchars($story['story_text'], ENT_QUOTES) ?>"
+                                            data-priority="<?= htmlspecialchars($story['moscow_priority']) ?>"
+                                            data-status="<?= htmlspecialchars($story['status']) ?>">
                                         <i class="bi bi-pencil"></i> Editar
                                     </button>
                                     <?php if ($story['status'] === 'open'): ?>
@@ -4075,10 +4079,16 @@ function editStory(id, text, priority, status) {
     document.getElementById('edit_story_text').value = text;
     document.getElementById('edit_story_priority').value = priority;
     document.getElementById('edit_story_status').value = status;
-    
     const modal = new bootstrap.Modal(document.getElementById('editStoryModal'));
     modal.show();
 }
+
+// Delegated click handler for edit-story-btn (safe for any story text content)
+document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.edit-story-btn');
+    if (!btn) return;
+    editStory(btn.dataset.id, btn.dataset.text, btn.dataset.priority, btn.dataset.status);
+});
 
 function editPercentage(storyId, currentPercentage) {
     document.getElementById('edit_percentage_story_id').value = storyId;

@@ -2295,10 +2295,10 @@ if ($selectedPrototype && $checkTodos) {
                 </div>
                 <?php endif; ?>
 
-                <!-- Painel GitLab -->
+                <!-- Painel GitLab / GitHub -->
                 <div class="gitlab-panel mb-3" id="gitlab-panel-<?= $selectedPrototypeId ?>">
                     <div class="gitlab-panel-header" onclick="toggleGitlabSection(<?= $selectedPrototypeId ?>)">
-                        <span><i class="bi bi-git"></i> GitLab</span>
+                        <span><i class="bi bi-git"></i> GitLab / GitHub</span>
                         <span class="gitlab-panel-badge <?= $gitlabTokenRow ? 'configured' : 'not-configured' ?>">
                             <?= $gitlabTokenRow ? '🔒 Configurado' : 'Sem token' ?>
                         </span>
@@ -2359,12 +2359,12 @@ if ($selectedPrototype && $checkTodos) {
                                 <input type="hidden" name="action" value="save_gitlab_token">
                                 <input type="hidden" name="prototype_id" value="<?= $selectedPrototypeId ?>">
                                 <div class="mb-2">
-                                    <label class="form-label form-label-sm">GitLab Base URL</label>
+                                    <label class="form-label form-label-sm">Base URL do repositório</label>
                                     <input type="url" name="gitlab_base_url" class="form-control form-control-sm"
                                            placeholder="https://gitlab.com"
                                            value="<?= htmlspecialchars($gitlabTokenRow['gitlab_base_url'] ?? 'https://gitlab.com') ?>"
                                            required>
-                                    <div class="form-text">Ex: https://gitlab.com ou https://gitlab.inesctec.pt</div>
+                                    <div class="form-text">GitLab: https://gitlab.com ou https://gitlab.inesctec.pt &nbsp;·&nbsp; GitHub: https://github.com</div>
                                 </div>
                                 <div class="mb-2">
                                     <label class="form-label form-label-sm">Personal Access Token</label>
@@ -4560,7 +4560,8 @@ function renderGitlabSummary(d, protoId) {
     }
 
     // Merge Requests abertos
-    html += '<div class="gl-section-title mt-2"><i class="bi bi-git"></i> Merge Requests abertos</div>';
+    const mrLabel = d.provider === 'github' ? 'Pull Requests abertos' : 'Merge Requests abertos';
+    html += '<div class="gl-section-title mt-2"><i class="bi bi-git"></i> ' + mrLabel + '</div>';
     if (d.mrs && d.mrs.length) {
         d.mrs.forEach(mr => {
             html += '<div class="gl-mr-item">'

@@ -284,6 +284,36 @@ function parseLinksArr($json) {
     return $result;
 }
 
+// Criar tabelas GitLab (silencioso)
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS prototype_gitlab_tokens (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        prototype_id INT NOT NULL,
+        encrypted_token TEXT NOT NULL,
+        gitlab_base_url VARCHAR(255) NOT NULL DEFAULT 'https://gitlab.com',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_user_proto (user_id, prototype_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS gitlab_cache (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        prototype_id INT NOT NULL,
+        cache_key VARCHAR(50) NOT NULL,
+        data LONGTEXT NOT NULL,
+        expires_at DATETIME NOT NULL,
+        UNIQUE KEY uk_cache (user_id, prototype_id, cache_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+} catch (PDOException $e) { /* não crítico */ }
+
+// Helpers de encriptação do token GitLab
+function glEncrypt(string $token, string $key): string {
+    $iv = random_bytes(16);
+    $enc = openssl_encrypt($token, 'AES-256-CBC', hash('sha256', $key, true), OPENSSL_RAW_DATA, $iv);
+    return base64_encode($iv . $enc);
+}
+
 // Obter filtros e prototype selecionado (necessário antes de processar POSTs para redirects)
 $filterMine = isset($_GET['filter_mine']) ? $_GET['filter_mine'] === 'true' : false;
 $filterParticipate = isset($_GET['filter_participate']) ? $_GET['filter_participate'] === 'true' : false;
@@ -299,6 +329,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     try {
         switch($action) {
+            case 'save_gitlab_token':
+                $protoId  = (int)($_POST['prototype_id'] ?? 0);
+                $rawToken = trim($_POST['gitlab_token'] ?? '');
+                $baseUrl  = rtrim(trim($_POST['gitlab_base_url'] ?? 'https://gitlab.com'), '/');
+                if ($protoId && $rawToken && $currentUserId) {
+                    $enc = glEncrypt($rawToken, $API_KEY);
+                    $pdo->prepare("INSERT INTO prototype_gitlab_tokens (user_id, prototype_id, encrypted_token, gitlab_base_url)
+                                   VALUES (?,?,?,?)
+                                   ON DUPLICATE KEY UPDATE encrypted_token=VALUES(encrypted_token), gitlab_base_url=VALUES(gitlab_base_url), updated_at=NOW()")
+                        ->execute([$currentUserId, $protoId, $enc, $baseUrl]);
+                    // Invalidar cache deste utilizador
+                    $pdo->prepare("DELETE FROM gitlab_cache WHERE user_id=? AND prototype_id=?")->execute([$currentUserId, $protoId]);
+                    $message = '🔒 Token GitLab guardado com sucesso.';
+                    $messageType = 'success';
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId&msg=" . urlencode($message));
+                exit;
+
+            case 'delete_gitlab_token':
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                if ($protoId && $currentUserId) {
+                    $pdo->prepare("DELETE FROM prototype_gitlab_tokens WHERE user_id=? AND prototype_id=?")->execute([$currentUserId, $protoId]);
+                    $pdo->prepare("DELETE FROM gitlab_cache WHERE user_id=? AND prototype_id=?")->execute([$currentUserId, $protoId]);
+                    $message = 'Token GitLab removido.';
+                    $messageType = 'info';
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId&msg=" . urlencode($message));
+                exit;
+
             case 'create_prototype':
                 $stmt = $pdo->prepare("
                     INSERT INTO prototypes (parent_id, short_name, title, vision, target_group, needs, 
@@ -1015,6 +1074,14 @@ if ($selectedPrototypeId) {
                 $respStmt->execute([$selectedPrototype['survey']['id']]);
                 $selectedPrototype['survey_responses'] = $respStmt->fetchAll(PDO::FETCH_ASSOC);
             }
+        } catch (PDOException $e) {}
+
+        // GitLab token status para este utilizador (apenas metadados, token nunca sai do servidor)
+        $gitlabTokenRow = null;
+        try {
+            $gStmt = $pdo->prepare("SELECT gitlab_base_url, created_at, updated_at FROM prototype_gitlab_tokens WHERE user_id=? AND prototype_id=?");
+            $gStmt->execute([$currentUserId, $selectedPrototypeId]);
+            $gitlabTokenRow = $gStmt->fetch(PDO::FETCH_ASSOC);
         } catch (PDOException $e) {}
     }
 }
@@ -1754,6 +1821,102 @@ if ($selectedPrototype && $checkTodos) {
         grid-template-columns: 1fr;
     }
 }
+
+/* GitLab panel */
+.gitlab-panel {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.gitlab-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: #1a1a2e;
+    color: #fff;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    user-select: none;
+}
+.gitlab-panel-header:hover { background: #16213e; }
+.gitlab-panel-badge {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 20px;
+}
+.gitlab-panel-badge.configured  { background: #065f46; color: #d1fae5; }
+.gitlab-panel-badge.not-configured { background: #374151; color: #9ca3af; }
+.gitlab-chevron { transition: transform .2s; }
+.gitlab-chevron.open { transform: rotate(180deg); }
+.gitlab-panel-body {
+    padding: 14px;
+    background: #f9fafb;
+}
+.gitlab-token-info { font-size: 13px; }
+.gl-commit-list { list-style: none; padding: 0; margin: 0; }
+.gl-commit-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 13px;
+}
+.gl-commit-item:last-child { border-bottom: none; }
+.gl-commit-sha {
+    font-family: monospace;
+    font-size: 11px;
+    background: #1a1a2e;
+    color: #93c5fd;
+    border-radius: 4px;
+    padding: 1px 5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.gl-pipeline-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+}
+.gl-pipeline-success  { background: #d1fae5; color: #065f46; }
+.gl-pipeline-failed   { background: #fee2e2; color: #991b1b; }
+.gl-pipeline-running  { background: #fef3c7; color: #92400e; }
+.gl-pipeline-pending  { background: #f3f4f6; color: #374151; }
+.gl-pipeline-canceled { background: #f3f4f6; color: #374151; }
+.gl-mr-item {
+    font-size: 13px;
+    padding: 5px 0;
+    border-bottom: 1px solid #e5e7eb;
+}
+.gl-mr-item:last-child { border-bottom: none; }
+.gl-section-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: #6b7280;
+    margin: 12px 0 6px;
+}
+.gl-contributor-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+.gl-contributor-fill {
+    height: 8px;
+    border-radius: 4px;
+    background: #6366f1;
+    min-width: 4px;
+}
 </style>
 
 <?php if ($message): ?>
@@ -2099,6 +2262,73 @@ if ($selectedPrototype && $checkTodos) {
                     <?php endif; ?>
                 </div>
                 <?php endif; ?>
+
+                <!-- Painel GitLab -->
+                <div class="gitlab-panel mb-3" id="gitlab-panel-<?= $selectedPrototypeId ?>">
+                    <div class="gitlab-panel-header" onclick="toggleGitlabSection(<?= $selectedPrototypeId ?>)">
+                        <span><i class="bi bi-git"></i> GitLab</span>
+                        <span class="gitlab-panel-badge <?= $gitlabTokenRow ? 'configured' : 'not-configured' ?>">
+                            <?= $gitlabTokenRow ? '🔒 Configurado' : 'Sem token' ?>
+                        </span>
+                        <i class="bi bi-chevron-down ms-auto gitlab-chevron" id="gitlab-chevron-<?= $selectedPrototypeId ?>"></i>
+                    </div>
+                    <div class="gitlab-panel-body" id="gitlab-body-<?= $selectedPrototypeId ?>" style="display:none;">
+                        <?php if ($gitlabTokenRow): ?>
+                        <div class="gitlab-token-info">
+                            <small class="text-muted">
+                                Token configurado em <?= date('d/m/Y', strtotime($gitlabTokenRow['updated_at'])) ?>
+                                · Base URL: <code><?= htmlspecialchars($gitlabTokenRow['gitlab_base_url']) ?></code>
+                            </small>
+                            <div class="d-flex gap-2 mt-2 flex-wrap">
+                                <button class="btn btn-sm btn-outline-primary" onclick="loadGitlabActivity(<?= $selectedPrototypeId ?>)">
+                                    <i class="bi bi-arrow-clockwise"></i> Carregar actividade
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="showGitlabTokenForm(<?= $selectedPrototypeId ?>)">
+                                    <i class="bi bi-pencil"></i> Substituir token
+                                </button>
+                                <form method="post" style="display:inline;" onsubmit="return confirm('Remover token GitLab?')">
+                                    <input type="hidden" name="action" value="delete_gitlab_token">
+                                    <input type="hidden" name="prototype_id" value="<?= $selectedPrototypeId ?>">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                        <i class="bi bi-trash"></i> Remover token
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                        <div id="gitlab-activity-<?= $selectedPrototypeId ?>" class="mt-3"></div>
+                        <?php endif; ?>
+
+                        <div id="gitlab-token-form-<?= $selectedPrototypeId ?>" <?= $gitlabTokenRow ? 'style="display:none;"' : '' ?>>
+                            <p class="text-muted" style="font-size:13px;">
+                                O token é encriptado e guardado apenas no servidor. Nunca é devolvido ao browser.
+                            </p>
+                            <form method="post">
+                                <input type="hidden" name="action" value="save_gitlab_token">
+                                <input type="hidden" name="prototype_id" value="<?= $selectedPrototypeId ?>">
+                                <div class="mb-2">
+                                    <label class="form-label form-label-sm">GitLab Base URL</label>
+                                    <input type="url" name="gitlab_base_url" class="form-control form-control-sm"
+                                           placeholder="https://gitlab.com"
+                                           value="<?= htmlspecialchars($gitlabTokenRow['gitlab_base_url'] ?? 'https://gitlab.com') ?>"
+                                           required>
+                                    <div class="form-text">Ex: https://gitlab.com ou https://gitlab.inesctec.pt</div>
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label form-label-sm">Personal Access Token</label>
+                                    <input type="password" name="gitlab_token" class="form-control form-control-sm"
+                                           placeholder="glpat-xxxxxxxxxxxxxxxxxxxx" autocomplete="new-password" required>
+                                    <div class="form-text">Scope: read_api. Nunca é mostrado após guardar.</div>
+                                </div>
+                                <button type="submit" class="btn btn-sm btn-primary">
+                                    <i class="bi bi-lock"></i> Guardar token
+                                </button>
+                                <?php if ($gitlabTokenRow): ?>
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="hideGitlabTokenForm(<?= $selectedPrototypeId ?>)">Cancelar</button>
+                                <?php endif; ?>
+                            </form>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Campos sempre visíveis -->
                 <div class="info-grid">
@@ -4167,6 +4397,145 @@ function filterTaskOptions(storyId) {
             options[i].style.display = 'none';
         }
     }
+}
+
+// GitLab panel
+function toggleGitlabSection(protoId) {
+    const body    = document.getElementById('gitlab-body-' + protoId);
+    const chevron = document.getElementById('gitlab-chevron-' + protoId);
+    const open    = body.style.display === 'none';
+    body.style.display = open ? '' : 'none';
+    chevron.classList.toggle('open', open);
+}
+
+function showGitlabTokenForm(protoId) {
+    document.getElementById('gitlab-token-form-' + protoId).style.display = '';
+}
+function hideGitlabTokenForm(protoId) {
+    document.getElementById('gitlab-token-form-' + protoId).style.display = 'none';
+}
+
+function loadGitlabActivity(protoId, nocache) {
+    const container = document.getElementById('gitlab-activity-' + protoId);
+    if (!container) return;
+    container.innerHTML = '<div class="text-muted" style="font-size:13px;"><span class="spinner-border spinner-border-sm me-2"></span>A carregar actividade GitLab...</div>';
+
+    const url = 'api/gitlab_proxy.php?prototype_id=' + protoId + '&action=summary' + (nocache ? '&nocache=1' : '');
+    fetch(url)
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) {
+                container.innerHTML = '<div class="alert alert-warning py-2 px-3" style="font-size:13px;"><i class="bi bi-exclamation-triangle"></i> ' + escHtml(d.error) + '</div>';
+                return;
+            }
+            container.innerHTML = renderGitlabSummary(d, protoId);
+        })
+        .catch(() => {
+            container.innerHTML = '<div class="alert alert-danger py-2 px-3" style="font-size:13px;">Erro ao contactar o servidor.</div>';
+        });
+}
+
+function loadGitlabContributors(protoId) {
+    const container = document.getElementById('gitlab-contributors-' + protoId);
+    if (!container) return;
+    container.innerHTML = '<div class="text-muted" style="font-size:13px;"><span class="spinner-border spinner-border-sm me-2"></span>A carregar...</div>';
+    fetch('api/gitlab_proxy.php?prototype_id=' + protoId + '&action=contributors')
+        .then(r => r.json())
+        .then(d => {
+            if (!Array.isArray(d) || d.error) {
+                container.innerHTML = '<small class="text-danger">' + escHtml(d.error || 'Erro') + '</small>'; return;
+            }
+            const maxC = d[0] ? d[0].commits : 1;
+            let html = '';
+            d.slice(0,10).forEach(c => {
+                const pct = Math.max(10, Math.round(c.commits / maxC * 100));
+                html += '<div class="gl-contributor-bar">'
+                    + '<span style="min-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escHtml(c.name) + '">' + escHtml(c.name) + '</span>'
+                    + '<div class="gl-contributor-fill" style="width:' + pct + 'px;"></div>'
+                    + '<small class="text-muted">' + c.commits + '</small>'
+                    + '</div>';
+            });
+            container.innerHTML = html || '<small class="text-muted">Sem dados</small>';
+        });
+}
+
+function renderGitlabSummary(d, protoId) {
+    let html = '';
+
+    // Projecto
+    if (d.project && !d.project.error) {
+        const p = d.project;
+        const lastAct = p.last_activity_at ? new Date(p.last_activity_at).toLocaleDateString('pt-PT') : '—';
+        html += '<div style="font-size:13px; margin-bottom:10px;">'
+            + '<a href="' + escHtml(p.web_url) + '" target="_blank" class="fw-bold text-decoration-none">'
+            + '<i class="bi bi-box-arrow-up-right me-1"></i>' + escHtml(p.path_with_ns) + '</a>'
+            + ' <span class="text-muted ms-2">branch: <code>' + escHtml(p.default_branch) + '</code></span>'
+            + ' <span class="text-muted ms-2">actividade: ' + lastAct + '</span>'
+            + '</div>';
+    }
+
+    // Pipeline
+    html += '<div class="gl-section-title"><i class="bi bi-activity"></i> Pipeline</div>';
+    if (d.pipeline) {
+        const pl = d.pipeline;
+        const cls = 'gl-pipeline-' + (pl.status || 'pending');
+        const icon = pl.status === 'success' ? 'check-circle' : pl.status === 'failed' ? 'x-circle' : pl.status === 'running' ? 'arrow-repeat' : 'dash-circle';
+        html += '<span class="gl-pipeline-badge ' + cls + '">'
+            + '<i class="bi bi-' + icon + '"></i> ' + escHtml(pl.status || 'desconhecido')
+            + '</span>'
+            + '<small class="text-muted ms-2">#' + (pl.id||'') + ' · ' + (pl.ref ? escHtml(pl.ref) : '') + '</small>';
+    } else {
+        html += '<small class="text-muted">Sem pipelines</small>';
+    }
+
+    // Commits recentes
+    html += '<div class="gl-section-title mt-3"><i class="bi bi-clock-history"></i> Commits recentes</div>';
+    if (d.commits && d.commits.length) {
+        html += '<ul class="gl-commit-list">';
+        d.commits.forEach(c => {
+            const date = c.committed_date ? new Date(c.committed_date).toLocaleDateString('pt-PT') : '';
+            const msg  = (c.message || '').split('\n')[0];
+            html += '<li class="gl-commit-item">'
+                + '<span class="gl-commit-sha">' + escHtml((c.short_id || c.id || '').substring(0,8)) + '</span>'
+                + '<span class="flex-grow-1" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escHtml(msg) + '">' + escHtml(msg) + '</span>'
+                + '<span class="text-muted" style="white-space:nowrap;font-size:12px;">' + escHtml(c.author_name || '') + ' · ' + date + '</span>'
+                + '</li>';
+        });
+        html += '</ul>';
+    } else {
+        html += '<small class="text-muted">Sem commits</small>';
+    }
+
+    // Merge Requests abertos
+    html += '<div class="gl-section-title mt-2"><i class="bi bi-git"></i> Merge Requests abertos</div>';
+    if (d.mrs && d.mrs.length) {
+        d.mrs.forEach(mr => {
+            html += '<div class="gl-mr-item">'
+                + '<a href="' + escHtml(mr.web_url||'#') + '" target="_blank" class="text-decoration-none fw-semibold">'
+                + '!' + (mr.iid||'') + ' ' + escHtml(mr.title||'') + '</a>'
+                + '<small class="text-muted ms-2">← ' + escHtml(mr.source_branch||'') + '</small>'
+                + '</div>';
+        });
+    } else {
+        html += '<small class="text-muted">Sem MRs abertos</small>';
+    }
+
+    // Contribuidores (carregam à parte)
+    html += '<div class="gl-section-title mt-2"><i class="bi bi-people"></i> Contribuidores</div>';
+    html += '<div id="gitlab-contributors-' + protoId + '">'
+        + '<button class="btn btn-sm btn-outline-secondary" onclick="loadGitlabContributors(' + protoId + ')">Carregar contribuidores</button>'
+        + '</div>';
+
+    // Botão refresh
+    html += '<div class="mt-3"><button class="btn btn-sm btn-outline-secondary" onclick="loadGitlabActivity(' + protoId + ', true)">'
+        + '<i class="bi bi-arrow-clockwise"></i> Actualizar (ignorar cache)</button></div>';
+
+    return html;
+}
+
+function escHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
 

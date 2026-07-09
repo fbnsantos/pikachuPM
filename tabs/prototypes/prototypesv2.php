@@ -305,6 +305,13 @@ try {
         expires_at DATETIME NOT NULL,
         UNIQUE KEY uk_cache (user_id, prototype_id, cache_key)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS gitlab_project_paths (
+        user_id INT NOT NULL,
+        prototype_id INT NOT NULL,
+        project_path VARCHAR(500) NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, prototype_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 } catch (PDOException $e) { /* não crítico */ }
 
 // Helpers de encriptação do token GitLab
@@ -352,8 +359,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($protoId && $currentUserId) {
                     $pdo->prepare("DELETE FROM prototype_gitlab_tokens WHERE user_id=? AND prototype_id=?")->execute([$currentUserId, $protoId]);
                     $pdo->prepare("DELETE FROM gitlab_cache WHERE user_id=? AND prototype_id=?")->execute([$currentUserId, $protoId]);
+                    $pdo->prepare("DELETE FROM gitlab_project_paths WHERE user_id=? AND prototype_id=?")->execute([$currentUserId, $protoId]);
                     $message = 'Token GitLab removido.';
                     $messageType = 'info';
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId&msg=" . urlencode($message));
+                exit;
+
+            case 'save_gitlab_project_path':
+                $protoId  = (int)($_POST['prototype_id'] ?? 0);
+                $projPath = trim(trim($_POST['project_path'] ?? ''), '/');
+                if ($protoId && $currentUserId) {
+                    if ($projPath) {
+                        $pdo->prepare("INSERT INTO gitlab_project_paths (user_id, prototype_id, project_path)
+                                       VALUES (?,?,?)
+                                       ON DUPLICATE KEY UPDATE project_path=VALUES(project_path), updated_at=NOW()")
+                            ->execute([$currentUserId, $protoId, $projPath]);
+                    } else {
+                        $pdo->prepare("DELETE FROM gitlab_project_paths WHERE user_id=? AND prototype_id=?")->execute([$currentUserId, $protoId]);
+                    }
+                    $pdo->prepare("DELETE FROM gitlab_cache WHERE user_id=? AND prototype_id=?")->execute([$currentUserId, $protoId]);
+                    $message = 'Caminho do projecto GitLab guardado.';
+                    $messageType = 'success';
                 }
                 header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId&msg=" . urlencode($message));
                 exit;
@@ -1077,11 +1104,16 @@ if ($selectedPrototypeId) {
         } catch (PDOException $e) {}
 
         // GitLab token status para este utilizador (apenas metadados, token nunca sai do servidor)
-        $gitlabTokenRow = null;
+        $gitlabTokenRow    = null;
+        $gitlabProjectPath = null;
         try {
             $gStmt = $pdo->prepare("SELECT gitlab_base_url, created_at, updated_at FROM prototype_gitlab_tokens WHERE user_id=? AND prototype_id=?");
             $gStmt->execute([$currentUserId, $selectedPrototypeId]);
             $gitlabTokenRow = $gStmt->fetch(PDO::FETCH_ASSOC);
+            $gpStmt = $pdo->prepare("SELECT project_path FROM gitlab_project_paths WHERE user_id=? AND prototype_id=?");
+            $gpStmt->execute([$currentUserId, $selectedPrototypeId]);
+            $gpRow = $gpStmt->fetch(PDO::FETCH_ASSOC);
+            $gitlabProjectPath = $gpRow['project_path'] ?? null;
         } catch (PDOException $e) {}
     }
 }
@@ -2296,6 +2328,27 @@ if ($selectedPrototype && $checkTodos) {
                             </div>
                         </div>
                         <div id="gitlab-activity-<?= $selectedPrototypeId ?>" class="mt-3"></div>
+
+                        <!-- Override manual do caminho do projecto -->
+                        <hr class="my-3">
+                        <div>
+                            <div class="gl-section-title" style="margin-top:0;"><i class="bi bi-folder"></i> Caminho do projecto (override)</div>
+                            <p class="text-muted" style="font-size:12px; margin-bottom:6px;">
+                                Se a detecção automática falhar (o link do repo não está configurado ou usa SSH), define aqui o namespace/projecto GitLab.
+                            </p>
+                            <form method="post" class="d-flex gap-2 align-items-center flex-wrap">
+                                <input type="hidden" name="action" value="save_gitlab_project_path">
+                                <input type="hidden" name="prototype_id" value="<?= $selectedPrototypeId ?>">
+                                <input type="text" name="project_path" class="form-control form-control-sm"
+                                       style="max-width:320px;"
+                                       placeholder="grupo/subgrupo/projecto"
+                                       value="<?= htmlspecialchars($gitlabProjectPath ?? '') ?>">
+                                <button type="submit" class="btn btn-sm btn-outline-primary">Guardar</button>
+                                <?php if ($gitlabProjectPath): ?>
+                                <small class="text-success"><i class="bi bi-check-circle"></i> Override activo</small>
+                                <?php endif; ?>
+                            </form>
+                        </div>
                         <?php endif; ?>
 
                         <div id="gitlab-token-form-<?= $selectedPrototypeId ?>" <?= $gitlabTokenRow ? 'style="display:none;"' : '' ?>>

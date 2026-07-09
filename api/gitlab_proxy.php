@@ -71,6 +71,14 @@ try {
         UNIQUE KEY uk_cache (user_id, prototype_id, cache_key)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+    $pdo->exec("CREATE TABLE IF NOT EXISTS gitlab_project_paths (
+        user_id INT NOT NULL,
+        prototype_id INT NOT NULL,
+        project_path VARCHAR(500) NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, prototype_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
     // Verificar cache (ignora cache se ?nocache=1)
     if (empty($_GET['nocache'])) {
         $cStmt = $pdo->prepare("SELECT data FROM gitlab_cache WHERE user_id=? AND prototype_id=? AND cache_key=? AND expires_at > NOW()");
@@ -89,25 +97,47 @@ try {
     $token   = glDecryptToken($tokenRow['encrypted_token'], $API_KEY);
     $baseUrl = rtrim($tokenRow['gitlab_base_url'], '/');
 
-    // Extrair caminho do projecto a partir dos repo_links do protótipo
-    $pStmt = $pdo->prepare("SELECT repo_links FROM prototypes WHERE id=?");
-    $pStmt->execute([$prototype_id]);
-    $protoRow = $pStmt->fetch(PDO::FETCH_ASSOC);
+    // 1. Verificar override manual do caminho do projecto
+    $ppStmt = $pdo->prepare("SELECT project_path FROM gitlab_project_paths WHERE user_id=? AND prototype_id=?");
+    $ppStmt->execute([$user_id, $prototype_id]);
+    $ppRow = $ppStmt->fetch(PDO::FETCH_ASSOC);
+    $projectPath = $ppRow['project_path'] ?? null;
 
-    $projectPath = null;
-    if ($protoRow && !empty($protoRow['repo_links'])) {
-        $links = json_decode($protoRow['repo_links'], true) ?? [];
-        foreach ($links as $link) {
-            $url = is_array($link) ? ($link['url'] ?? '') : (string)$link;
-            if (strpos($url, $baseUrl) !== false) {
-                $path = trim(str_replace($baseUrl, '', $url), '/');
+    // 2. Auto-detecção a partir dos repo_links se não houver override
+    if (!$projectPath) {
+        $pStmt = $pdo->prepare("SELECT repo_links FROM prototypes WHERE id=?");
+        $pStmt->execute([$prototype_id]);
+        $protoRow = $pStmt->fetch(PDO::FETCH_ASSOC);
+
+        $host    = parse_url($baseUrl, PHP_URL_HOST) ?? '';
+        $sshBase = 'git@' . $host . ':';
+
+        if ($protoRow && !empty($protoRow['repo_links'])) {
+            $links = json_decode($protoRow['repo_links'], true) ?? [];
+            foreach ($links as $link) {
+                $url = is_array($link) ? ($link['url'] ?? '') : (string)$link;
+                if (strpos($url, $baseUrl) !== false) {
+                    // HTTPS URL: https://gitlab.host/group/project[.git]
+                    $path = trim(str_replace($baseUrl, '', $url), '/');
+                } elseif ($host && strpos($url, $sshBase) !== false) {
+                    // SSH URL: git@gitlab.host:group/project[.git]
+                    $path = trim(str_replace($sshBase, '', $url), '/');
+                } else {
+                    continue;
+                }
                 $path = preg_replace('/\.git$/', '', $path);
                 if ($path) { $projectPath = $path; break; }
             }
         }
     }
+
     if (!$projectPath) {
-        echo json_encode(['error' => 'Nenhum repositório GitLab encontrado nos links do protótipo. Verifica se o URL base (' . htmlspecialchars($baseUrl) . ') corresponde ao link guardado.']);
+        $repoLinksRaw = isset($protoRow['repo_links']) ? $protoRow['repo_links'] : '(sem repo_links)';
+        echo json_encode([
+            'error'     => 'Nenhum repositório GitLab encontrado. Define o caminho manualmente no painel GitLab do protótipo (ex: grupo/projecto).',
+            'debug_links' => $repoLinksRaw,
+            'base_url'    => $baseUrl,
+        ]);
         exit;
     }
 

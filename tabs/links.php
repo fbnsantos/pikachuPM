@@ -280,7 +280,18 @@ if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
                 $search_results['files'] = $s->fetchAll(PDO::FETCH_ASSOC);
             }
 
-            // 7. Leads
+            // 7. Projectos
+            if ($pdo_s->query("SHOW TABLES LIKE 'projects'")->rowCount()) {
+                [$w, $p] = gsWhere(['p.short_name','p.title','p.description'], $gsTerms, $gsExcludes);
+                $s = $pdo_s->prepare("SELECT p.id, p.short_name, p.title, p.description, p.estado,
+                                             p.data_inicio, p.data_fim, COALESCE(u.username,'') as owner_name
+                                      FROM projects p LEFT JOIN user_tokens u ON p.owner_id = u.user_id
+                                      WHERE $w ORDER BY p.created_at DESC LIMIT 10");
+                $s->execute($p);
+                $search_results['projects'] = $s->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            // 8. Leads
             if ($pdo_s->query("SHOW TABLES LIKE 'leads'")->rowCount()) {
                 [$w, $p] = gsWhere(['l.titulo','l.descricao'], $gsTerms, $gsExcludes);
                 $s = $pdo_s->prepare("SELECT l.id, l.titulo, l.descricao, l.estado, l.relevancia,

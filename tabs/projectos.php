@@ -202,7 +202,7 @@ CREATE TABLE IF NOT EXISTS projects (
 ");
 
 // migração silenciosa para projectos existentes
-foreach (['data_inicio DATE', 'data_fim DATE'] as $col) {
+foreach (['data_inicio DATE', 'data_fim DATE', "estado ENUM('aberto','fechado') NOT NULL DEFAULT 'aberto'"] as $col) {
     [$colName] = explode(' ', $col);
     if (!$pdo->query("SHOW COLUMNS FROM projects LIKE '$colName'")->fetch())
         $pdo->exec("ALTER TABLE projects ADD COLUMN $col");
@@ -428,7 +428,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         switch ($action) {
             case 'create_project':
-                $stmt = $pdo->prepare("INSERT INTO projects (short_name, title, description, owner_id, data_inicio, data_fim) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt = $pdo->prepare("INSERT INTO projects (short_name, title, description, owner_id, data_inicio, data_fim, estado) VALUES (?, ?, ?, ?, ?, ?, ?)");
                 $stmt->execute([
                     $_POST['short_name'],
                     $_POST['title'],
@@ -436,13 +436,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_POST['owner_id'] ?: null,
                     $_POST['data_inicio'] ?: null,
                     $_POST['data_fim'] ?: null,
+                    'aberto',
                 ]);
                 $message = "Projeto criado com sucesso!";
                 $messageType = 'success';
                 break;
                 
             case 'update_project':
-                $stmt = $pdo->prepare("UPDATE projects SET short_name=?, title=?, description=?, owner_id=?, data_inicio=?, data_fim=? WHERE id=?");
+                $stmt = $pdo->prepare("UPDATE projects SET short_name=?, title=?, description=?, owner_id=?, data_inicio=?, data_fim=?, estado=? WHERE id=?");
                 $stmt->execute([
                     $_POST['short_name'],
                     $_POST['title'],
@@ -450,6 +451,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_POST['owner_id'] ?: null,
                     $_POST['data_inicio'] ?: null,
                     $_POST['data_fim'] ?: null,
+                    in_array($_POST['estado'] ?? '', ['aberto','fechado']) ? $_POST['estado'] : 'aberto',
                     $_POST['project_id']
                 ]);
                 $message = "Projeto atualizado com sucesso!";
@@ -745,7 +747,13 @@ function updateDeliverableStatus($pdo, $deliverableId) {
 }
 
 // Obter dados para exibição
-$projects = $pdo->query("SELECT p.*, u.username as owner_name FROM projects p LEFT JOIN user_tokens u ON p.owner_id = u.user_id ORDER BY p.created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+$mostrarFechados = isset($_GET['fechados']);
+$estadoFiltro = $mostrarFechados ? 'fechado' : 'aberto';
+$stmtProj = $pdo->prepare("SELECT p.*, u.username as owner_name FROM projects p LEFT JOIN user_tokens u ON p.owner_id = u.user_id WHERE p.estado = ? ORDER BY p.created_at DESC");
+$stmtProj->execute([$estadoFiltro]);
+$projects = $stmtProj->fetchAll(PDO::FETCH_ASSOC);
+$totalFechados = (int)$pdo->query("SELECT COUNT(*) FROM projects WHERE estado='fechado'")->fetchColumn();
+$totalAbertos  = (int)$pdo->query("SELECT COUNT(*) FROM projects WHERE estado='aberto'")->fetchColumn();
 
 // Obter usuários disponíveis
 $users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
@@ -1199,21 +1207,33 @@ if (isset($_GET['project_id'])) {
     <div class="projects-container">
         <!-- Sidebar com lista de projetos -->
         <div class="projects-sidebar">
-            <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
                 <h5 class="mb-0">Projetos</h5>
                 <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newProjectModal">
                     <i class="bi bi-plus-lg"></i>
                 </button>
             </div>
-            
+
+            <!-- toggle abertos / fechados -->
+            <div class="d-flex gap-1 mb-3">
+                <a href="?tab=projectos<?= isset($_GET['project_id']) ? '&project_id='.$_GET['project_id'] : '' ?>"
+                   class="btn btn-xs <?= !$mostrarFechados ? 'btn-success' : 'btn-outline-secondary' ?>" style="font-size:11px;padding:2px 8px;">
+                   ✅ Abertos <span class="badge bg-light text-dark ms-1"><?= $totalAbertos ?></span>
+                </a>
+                <a href="?tab=projectos&fechados=1<?= isset($_GET['project_id']) ? '&project_id='.$_GET['project_id'] : '' ?>"
+                   class="btn btn-xs <?= $mostrarFechados ? 'btn-secondary' : 'btn-outline-secondary' ?>" style="font-size:11px;padding:2px 8px;">
+                   🔒 Fechados <span class="badge bg-light text-dark ms-1"><?= $totalFechados ?></span>
+                </a>
+            </div>
+
             <?php if (empty($projects)): ?>
                 <div class="text-center text-muted py-4">
                     <i class="bi bi-folder-x" style="font-size: 32px;"></i>
-                    <p class="mt-2 mb-0">Nenhum projeto</p>
+                    <p class="mt-2 mb-0"><?= $mostrarFechados ? 'Nenhum projeto fechado' : 'Nenhum projeto aberto' ?></p>
                 </div>
             <?php else: ?>
                 <?php foreach ($projects as $proj): ?>
-                    <a href="?tab=projectos&project_id=<?= $proj['id'] ?>" class="text-decoration-none">
+                    <a href="?tab=projectos&project_id=<?= $proj['id'] ?><?= $mostrarFechados ? '&fechados=1' : '' ?>" class="text-decoration-none">
                         <div class="project-list-item <?= isset($_GET['project_id']) && $_GET['project_id'] == $proj['id'] ? 'active' : '' ?>">
                             <div class="project-short-name"><?= htmlspecialchars($proj['short_name']) ?></div>
                             <div class="project-title"><?= htmlspecialchars($proj['title']) ?></div>
@@ -1235,11 +1255,45 @@ if (isset($_GET['project_id'])) {
                 <!-- Informações Básicas -->
                 <div class="detail-section">
                     <div class="section-title">
-                        <span><i class="bi bi-info-circle"></i> Informações Básicas</span>
+                        <span>
+                            <i class="bi bi-info-circle"></i> Informações Básicas
+                            <?php if (($selectedProject['estado'] ?? 'aberto') === 'fechado'): ?>
+                                <span class="badge bg-secondary ms-2" style="font-size:11px;">🔒 Fechado</span>
+                            <?php endif; ?>
+                        </span>
+                        <div class="d-flex gap-1">
+                        <?php if (($selectedProject['estado'] ?? 'aberto') === 'aberto'): ?>
+                        <form method="post" class="d-inline" onsubmit="return confirm('Fechar este projeto?');">
+                            <input type="hidden" name="action" value="update_project">
+                            <input type="hidden" name="project_id" value="<?= $selectedProject['id'] ?>">
+                            <input type="hidden" name="short_name" value="<?= htmlspecialchars($selectedProject['short_name']) ?>">
+                            <input type="hidden" name="title" value="<?= htmlspecialchars($selectedProject['title']) ?>">
+                            <input type="hidden" name="description" value="<?= htmlspecialchars($selectedProject['description'] ?? '') ?>">
+                            <input type="hidden" name="owner_id" value="<?= $selectedProject['owner_id'] ?? '' ?>">
+                            <input type="hidden" name="data_inicio" value="<?= $selectedProject['data_inicio'] ?? '' ?>">
+                            <input type="hidden" name="data_fim" value="<?= $selectedProject['data_fim'] ?? '' ?>">
+                            <input type="hidden" name="estado" value="fechado">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary">🔒 Fechar</button>
+                        </form>
+                        <?php else: ?>
+                        <form method="post" class="d-inline">
+                            <input type="hidden" name="action" value="update_project">
+                            <input type="hidden" name="project_id" value="<?= $selectedProject['id'] ?>">
+                            <input type="hidden" name="short_name" value="<?= htmlspecialchars($selectedProject['short_name']) ?>">
+                            <input type="hidden" name="title" value="<?= htmlspecialchars($selectedProject['title']) ?>">
+                            <input type="hidden" name="description" value="<?= htmlspecialchars($selectedProject['description'] ?? '') ?>">
+                            <input type="hidden" name="owner_id" value="<?= $selectedProject['owner_id'] ?? '' ?>">
+                            <input type="hidden" name="data_inicio" value="<?= $selectedProject['data_inicio'] ?? '' ?>">
+                            <input type="hidden" name="data_fim" value="<?= $selectedProject['data_fim'] ?? '' ?>">
+                            <input type="hidden" name="estado" value="aberto">
+                            <button type="submit" class="btn btn-sm btn-outline-success">✅ Reabrir</button>
+                        </form>
+                        <?php endif; ?>
                         <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editProjectModal">
                             <i class="bi bi-pencil"></i> Editar
                         </button>
-                    </div>
+                        </div><!-- /d-flex gap-1 -->
+                    </div><!-- /section-title -->
                     
                     <div class="info-grid">
                         <div class="info-item">
@@ -1701,6 +1755,13 @@ if (isset($_GET['project_id'])) {
                             <input type="date" name="data_fim" class="form-control"
                                    value="<?= htmlspecialchars($selectedProject['data_fim'] ?? '') ?>">
                         </div>
+                    </div>
+                    <div class="mb-3 mt-2">
+                        <label class="form-label">Estado</label>
+                        <select name="estado" class="form-select">
+                            <option value="aberto"  <?= ($selectedProject['estado'] ?? 'aberto') === 'aberto'  ? 'selected' : '' ?>>✅ Aberto</option>
+                            <option value="fechado" <?= ($selectedProject['estado'] ?? 'aberto') === 'fechado' ? 'selected' : '' ?>>🔒 Fechado</option>
+                        </select>
                     </div>
                 </div>
                 <div class="modal-footer">

@@ -839,3 +839,5 @@ document.addEventListener('DOMContentLoaded', function() {
     z-index: 10;
 }
 </style>
+
+<?php include __DIR__ . '/../edit_task.php'; ?>

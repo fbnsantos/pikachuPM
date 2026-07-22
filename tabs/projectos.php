@@ -312,7 +312,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     @ini_set('post_max_size', '305M');
     @ini_set('max_execution_time', '600');
     @ini_set('memory_limit', '512M');
-    
+
+    while (ob_get_level()) ob_end_clean();
     header('Content-Type: application/json');
     
     $project_id = (int)$_POST['project_id'];
@@ -384,6 +385,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // PROCESSAR ELIMINAÇÃO DE FICHEIROS
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_project_file') {
+    while (ob_get_level()) ob_end_clean();
     header('Content-Type: application/json');
     
     $file_id = (int)$_POST['file_id'];

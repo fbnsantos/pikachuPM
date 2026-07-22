@@ -823,6 +823,7 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
                 $resposta['mensagem'] = 'Acção desconhecida';
         }
         
+        while (ob_get_level()) ob_end_clean();
         header('Content-Type: application/json');
         echo json_encode($resposta);
         exit;

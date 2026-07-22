@@ -649,6 +649,7 @@ if (file_exists($config_path)) {
         
         // Processar adição de notas aos ficheiros (AJAX)
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_file_note') {
+            while (ob_get_level()) ob_end_clean();
             header('Content-Type: application/json');
             $file_id = (int)$_POST['file_id'];
             $note = trim($_POST['note']);

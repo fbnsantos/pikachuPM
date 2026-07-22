@@ -1882,6 +1882,21 @@ if ($selectedPrototype && $checkTodos) {
 .stype-bug     { background: #fee2e2; color: #991b1b; }
 .stype-feature { background: #d1fae5; color: #065f46; }
 
+/* Botão de percentagem inline */
+.story-pct-btn {
+    background: none;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 2px 7px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+    white-space: nowrap;
+}
+.story-pct-btn:hover { background: #f3f4f6; border-color: #6b7280; }
+
 /* Story actions toggle button */
 .story-actions-toggle {
     background: none;
@@ -2649,6 +2664,10 @@ if ($selectedPrototype && $checkTodos) {
                                         <span class="badge <?= $story['status'] === 'closed' ? 'bg-secondary' : 'bg-info' ?>">
                                             <?= $story['status'] === 'closed' ? 'Fechada' : 'Aberta' ?>
                                         </span>
+                                        <button class="story-pct-btn" title="Editar percentagem"
+                                                onclick="editPercentage(<?= $story['id'] ?>, <?= $story['completion_percentage'] ?? 0 ?>)">
+                                            <?= $story['completion_percentage'] ?? 0 ?>%
+                                        </button>
                                         <button class="story-actions-toggle" title="Ações" aria-label="Mostrar ações">
                                             <i class="bi bi-three-dots-vertical"></i>
                                         </button>
@@ -2656,20 +2675,6 @@ if ($selectedPrototype && $checkTodos) {
                                 </div>
                                 <div class="story-text">
                                     <?= nl2br(htmlspecialchars($story['story_text'])) ?>
-                                </div>
-                                
-                                <!-- Barra de Progresso -->
-                                <div class="story-progress">
-                                    <div class="progress-container">
-                                        <div class="progress-bar-container">
-                                            <div class="progress-bar-fill" style="width: <?= $story['completion_percentage'] ?? 0 ?>%"></div>
-                                        </div>
-                                        <span class="progress-percentage"><?= $story['completion_percentage'] ?? 0 ?>%</span>
-                                        <button class="btn btn-sm btn-outline-secondary progress-edit-btn" 
-                                                onclick="editPercentage(<?= $story['id'] ?>, <?= $story['completion_percentage'] ?? 0 ?>)">
-                                            <i class="bi bi-pencil"></i>
-                                        </button>
-                                    </div>
                                 </div>
                                 
                                 <!-- Sprints Associadas -->

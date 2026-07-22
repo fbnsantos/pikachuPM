@@ -264,21 +264,34 @@ if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
             $s->execute($p);
             $search_results['sprints'] = $s->fetchAll(PDO::FETCH_ASSOC);
 
-            // 6. Ficheiros
-            $tbl = $pdo_s->query("SHOW TABLES LIKE 'task_files'")->rowCount();
-            if ($tbl) {
+            // 6. Ficheiros (task_files + project_files)
+            $rows = [];
+            if ($pdo_s->query("SHOW TABLES LIKE 'task_files'")->rowCount()) {
                 $hasNotes = $pdo_s->query("SHOW COLUMNS FROM task_files LIKE 'notes'")->rowCount() > 0;
                 $notesSel = $hasNotes ? "tf.notes" : "'' as notes";
                 $fileCols = $hasNotes ? ['tf.file_name','tf.notes','t.titulo'] : ['tf.file_name','t.titulo'];
                 [$w, $p] = gsWhere($fileCols, $gsTerms, $gsExcludes);
                 $s = $pdo_s->prepare("SELECT tf.id as file_id, tf.file_name, tf.file_path,
                                              tf.uploaded_at, $notesSel,
-                                             COALESCE(t.titulo,'') as task_title, tf.todo_id
+                                             COALESCE(t.titulo,'') as task_title, tf.todo_id,
+                                             NULL as project_id, NULL as project_name
                                       FROM task_files tf LEFT JOIN todos t ON tf.todo_id = t.id
                                       WHERE $w ORDER BY tf.uploaded_at DESC LIMIT 15");
                 $s->execute($p);
-                $search_results['files'] = $s->fetchAll(PDO::FETCH_ASSOC);
+                $rows = $s->fetchAll(PDO::FETCH_ASSOC);
             }
+            if ($pdo_s->query("SHOW TABLES LIKE 'project_files'")->rowCount()) {
+                [$w, $p] = gsWhere(['pf.file_name'], $gsTerms, $gsExcludes);
+                $s = $pdo_s->prepare("SELECT pf.id as file_id, pf.file_name, pf.file_path,
+                                             pf.uploaded_at, '' as notes,
+                                             '' as task_title, NULL as todo_id,
+                                             pf.project_id, COALESCE(p.short_name,'') as project_name
+                                      FROM project_files pf LEFT JOIN projects p ON pf.project_id = p.id
+                                      WHERE $w ORDER BY pf.uploaded_at DESC LIMIT 15");
+                $s->execute($p);
+                $rows = array_merge($rows, $s->fetchAll(PDO::FETCH_ASSOC));
+            }
+            if ($rows) $search_results['files'] = $rows;
 
             // 7. Projectos
             if ($pdo_s->query("SHOW TABLES LIKE 'projects'")->rowCount()) {
@@ -491,6 +504,8 @@ $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
             <div class="gs-meta">
                 <?php if ($r['task_title'] && $r['todo_id']): ?>
                     📌 <a href="#" onclick="event.preventDefault();openTaskEditor(<?= (int)$r['todo_id'] ?>)" style="color:#6b7280;"><?= hl($r['task_title'], $q) ?></a> ·
+                <?php elseif ($r['project_id'] && $r['project_name']): ?>
+                    📁 <a href="?tab=projectos&project_id=<?= (int)$r['project_id'] ?>" style="color:#6b7280;"><?= hl($r['project_name'], $q) ?></a> ·
                 <?php endif; ?>
                 <?= date('d/m/Y', strtotime($r['uploaded_at'])) ?>
             </div>

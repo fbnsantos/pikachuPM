@@ -102,28 +102,35 @@ function verificarDisponibilidadeUtilizador($username, $data = null) {
         $db_mysql->set_charset("utf8mb4");
         
         // Verificar se está de férias
+        // descricao pode ser "username" exacto ou "username (nota)" / "username [x]" etc.
         $stmt_ferias = $db_mysql->prepare(
-            "SELECT COUNT(*) as total FROM calendar_eventos 
-             WHERE data = ? AND tipo = 'ferias' AND descricao = ?"
+            "SELECT COUNT(*) as total FROM calendar_eventos
+             WHERE data = ? AND tipo = 'ferias'
+               AND (descricao = ? OR descricao LIKE CONCAT(?, ' %')
+                                  OR descricao LIKE CONCAT(?, '(%')
+                                  OR descricao LIKE CONCAT(?, '[%'))"
         );
-        $stmt_ferias->bind_param('ss', $data, $username);
+        $stmt_ferias->bind_param('sssss', $data, $username, $username, $username, $username);
         $stmt_ferias->execute();
         $result_ferias = $stmt_ferias->get_result()->fetch_assoc();
-        
+
         if ($result_ferias['total'] > 0) {
             $stmt_ferias->close();
             $db_mysql->close();
             return false; // Está de férias
         }
         $stmt_ferias->close();
-        
+
         // Verificar se tem aulas entre 9h30 e 12h
         $stmt_aulas = $db_mysql->prepare(
-            "SELECT COUNT(*) as total FROM calendar_eventos 
-             WHERE data = ? AND tipo = 'aulas' AND descricao = ? 
-             AND hora >= '09:30:00' AND hora <= '12:00:00'"
+            "SELECT COUNT(*) as total FROM calendar_eventos
+             WHERE data = ? AND tipo = 'aulas'
+               AND (descricao = ? OR descricao LIKE CONCAT(?, ' %')
+                                  OR descricao LIKE CONCAT(?, '(%')
+                                  OR descricao LIKE CONCAT(?, '[%'))
+               AND hora >= '09:30:00' AND hora <= '12:00:00'"
         );
-        $stmt_aulas->bind_param('ss', $data, $username);
+        $stmt_aulas->bind_param('sssss', $data, $username, $username, $username, $username);
         $stmt_aulas->execute();
         $result_aulas = $stmt_aulas->get_result()->fetch_assoc();
         

@@ -193,11 +193,20 @@ CREATE TABLE IF NOT EXISTS projects (
     title VARCHAR(255) NOT NULL,
     description TEXT,
     owner_id INT,
+    data_inicio DATE,
+    data_fim DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_owner (owner_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 ");
+
+// migração silenciosa para projectos existentes
+foreach (['data_inicio DATE', 'data_fim DATE'] as $col) {
+    [$colName] = explode(' ', $col);
+    if (!$pdo->query("SHOW COLUMNS FROM projects LIKE '$colName'")->fetch())
+        $pdo->exec("ALTER TABLE projects ADD COLUMN $col");
+}
 
 $pdo->exec("
 CREATE TABLE IF NOT EXISTS project_links (
@@ -419,24 +428,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         switch ($action) {
             case 'create_project':
-                $stmt = $pdo->prepare("INSERT INTO projects (short_name, title, description, owner_id) VALUES (?, ?, ?, ?)");
+                $stmt = $pdo->prepare("INSERT INTO projects (short_name, title, description, owner_id, data_inicio, data_fim) VALUES (?, ?, ?, ?, ?, ?)");
                 $stmt->execute([
                     $_POST['short_name'],
                     $_POST['title'],
                     $_POST['description'] ?? '',
-                    $_POST['owner_id'] ?: null
+                    $_POST['owner_id'] ?: null,
+                    $_POST['data_inicio'] ?: null,
+                    $_POST['data_fim'] ?: null,
                 ]);
                 $message = "Projeto criado com sucesso!";
                 $messageType = 'success';
                 break;
                 
             case 'update_project':
-                $stmt = $pdo->prepare("UPDATE projects SET short_name=?, title=?, description=?, owner_id=? WHERE id=?");
+                $stmt = $pdo->prepare("UPDATE projects SET short_name=?, title=?, description=?, owner_id=?, data_inicio=?, data_fim=? WHERE id=?");
                 $stmt->execute([
                     $_POST['short_name'],
                     $_POST['title'],
                     $_POST['description'] ?? '',
                     $_POST['owner_id'] ?: null,
+                    $_POST['data_inicio'] ?: null,
+                    $_POST['data_fim'] ?: null,
                     $_POST['project_id']
                 ]);
                 $message = "Projeto atualizado com sucesso!";
@@ -1241,6 +1254,16 @@ if (isset($_GET['project_id'])) {
                             <div class="info-label">Responsável</div>
                             <div class="info-value"><?= $selectedProject['owner_name'] ? htmlspecialchars($selectedProject['owner_name']) : '<em>Não definido</em>' ?></div>
                         </div>
+                        <?php if (!empty($selectedProject['data_inicio']) || !empty($selectedProject['data_fim'])): ?>
+                        <div class="info-item">
+                            <div class="info-label">Início</div>
+                            <div class="info-value"><?= $selectedProject['data_inicio'] ? date('d/m/Y', strtotime($selectedProject['data_inicio'])) : '<em>—</em>' ?></div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Fim</div>
+                            <div class="info-value"><?= $selectedProject['data_fim'] ? date('d/m/Y', strtotime($selectedProject['data_fim'])) : '<em>—</em>' ?></div>
+                        </div>
+                        <?php endif; ?>
                         <?php if ($selectedProject['description']): ?>
                         <div class="info-item" style="grid-column: 1 / -1;">
                             <div class="info-label">Descrição</div>
@@ -1605,6 +1628,16 @@ if (isset($_GET['project_id'])) {
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label">Data de Início</label>
+                            <input type="date" name="data_inicio" class="form-control">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Data de Fim</label>
+                            <input type="date" name="data_fim" class="form-control">
+                        </div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -1656,6 +1689,18 @@ if (isset($_GET['project_id'])) {
                                 </option>
                             <?php endforeach; ?>
                         </select>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label">Data de Início</label>
+                            <input type="date" name="data_inicio" class="form-control"
+                                   value="<?= htmlspecialchars($selectedProject['data_inicio'] ?? '') ?>">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Data de Fim</label>
+                            <input type="date" name="data_fim" class="form-control"
+                                   value="<?= htmlspecialchars($selectedProject['data_fim'] ?? '') ?>">
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">

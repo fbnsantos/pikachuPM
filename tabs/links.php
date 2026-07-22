@@ -379,6 +379,7 @@ $sections = [
     'prototypes' => ['🔬', 'Protótipos'],
     'sprints'    => ['🏃', 'Sprints'],
     'files'      => ['📎', 'Ficheiros'],
+    'projects'   => ['📁', 'Projetos'],
     'leads'      => ['🎯', 'Leads'],
     'research'   => ['💡', 'Research Ideas'],
     'links'      => ['🔗', 'Links'],
@@ -446,6 +447,18 @@ $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
                 Estado: <strong><?= htmlspecialchars($r['estado']) ?></strong>
                 <?php if ($r['data_inicio']): ?> · <?= date('d/m/Y', strtotime($r['data_inicio'])) ?> → <?= $r['data_fim'] ? date('d/m/Y', strtotime($r['data_fim'])) : '?' ?><?php endif; ?>
             </div>
+
+        <?php elseif ($key === 'projects'): ?>
+            <?php $estColor = ($r['estado'] ?? 'aberto') === 'aberto' ? '#d1fae5;color:#065f46' : '#e5e7eb;color:#374151'; ?>
+            <div class="gs-title">
+                <a href="?tab=projectos&project_id=<?= $r['id'] ?>"><?= hl($r['short_name'], $q) ?> — <?= hl($r['title'], $q) ?></a>
+                <span class="gs-badge ms-1" style="background:<?= $estColor ?>;"><?= $r['estado'] ?? 'aberto' ?></span>
+            </div>
+            <div class="gs-meta">
+                <?php if ($r['owner_name']): ?>👤 <?= htmlspecialchars($r['owner_name']) ?><?php endif; ?>
+                <?php if ($r['data_inicio']): ?> · <?= date('d/m/Y', strtotime($r['data_inicio'])) ?> → <?= $r['data_fim'] ? date('d/m/Y', strtotime($r['data_fim'])) : '?' ?><?php endif; ?>
+            </div>
+            <?php if ($r['description']): ?><div class="gs-snippet"><?= hl(snippet($r['description'], $q), $q) ?></div><?php endif; ?>
 
         <?php elseif ($key === 'leads'): ?>
             <?php $estColor = $r['estado'] === 'aberta' ? '#d1fae5;color:#065f46' : '#e5e7eb;color:#374151'; ?>

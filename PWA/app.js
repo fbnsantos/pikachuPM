@@ -1245,8 +1245,23 @@ function attachEvents() {
   document.getElementById('setup-api-url').addEventListener('keydown', e => { if (e.key === 'Enter') saveSetup(); });
   document.getElementById('setup-token').addEventListener('keydown', e => { if (e.key === 'Enter') saveSetup(); });
 
-  // FAB
-  document.getElementById('btn-add-todo').addEventListener('click', () => openModal());
+  // FAB → picker
+  document.getElementById('btn-add-todo').addEventListener('click', openPicker);
+
+  // Picker
+  document.getElementById('pick-task').addEventListener('click', () => { closePicker(); openModal(); });
+  document.getElementById('pick-bug').addEventListener('click', () => { closePicker(); openStoryForm('Bug'); });
+  document.getElementById('pick-feature').addEventListener('click', () => { closePicker(); openStoryForm('Feature'); });
+  document.getElementById('btn-picker-cancel').addEventListener('click', closePicker);
+  document.getElementById('picker-overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('picker-overlay')) closePicker();
+  });
+
+  // Story form
+  document.getElementById('btn-story-back').addEventListener('click', () => { closeStoryForm(); openPicker(); });
+  document.getElementById('btn-story-close').addEventListener('click', closeStoryForm);
+  document.getElementById('btn-story-cancel').addEventListener('click', closeStoryForm);
+  document.getElementById('btn-story-save').addEventListener('click', saveStoryForm);
 
   // Retry
   document.getElementById('btn-retry').addEventListener('click', loadTodos);
@@ -1522,3 +1537,70 @@ function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// ══════════════════════════════════════════════════════
+// PICKER — escolher tipo de item a adicionar
+// ══════════════════════════════════════════════════════
+function openPicker() {
+  document.getElementById('picker-overlay').style.display = '';
+}
+function closePicker() {
+  document.getElementById('picker-overlay').style.display = 'none';
+}
+
+// ══════════════════════════════════════════════════════
+// STORY FORM — criar Bug / Feature num protótipo
+// ══════════════════════════════════════════════════════
+let storyType = 'Bug';
+
+async function openStoryForm(type) {
+  storyType = type;
+  const icons = { Bug: '🐛', Feature: '✨' };
+  document.getElementById('story-modal-title').textContent = `${icons[type] || ''} Novo ${type}`;
+  document.getElementById('btn-story-save').textContent = `Criar ${type}`;
+  document.getElementById('story-text').value = '';
+  document.getElementById('story-priority').value = type === 'Bug' ? 'Must' : 'Should';
+
+  const sel = document.getElementById('story-prototype');
+  sel.innerHTML = '<option value="">A carregar…</option>';
+  document.getElementById('story-overlay').style.display = '';
+  setTimeout(() => document.getElementById('story-text').focus(), 150);
+
+  try {
+    const data = await apiFetch('stories.php');
+    const protos = data.prototypes || [];
+    sel.innerHTML = protos.length
+      ? protos.map(p => `<option value="${p.id}">${p.short_name} — ${p.title}</option>`).join('')
+      : '<option value="">Sem protótipos disponíveis</option>';
+  } catch(e) {
+    sel.innerHTML = '<option value="">Erro ao carregar protótipos</option>';
+  }
+}
+
+function closeStoryForm() {
+  document.getElementById('story-overlay').style.display = 'none';
+}
+
+async function saveStoryForm() {
+  const prototype_id = parseInt(document.getElementById('story-prototype').value);
+  const story_text   = document.getElementById('story-text').value.trim();
+  const moscow_priority = document.getElementById('story-priority').value;
+
+  if (!prototype_id) { showToast('Selecciona um protótipo', 'error'); return; }
+  if (!story_text)   { showToast('A descrição é obrigatória', 'error'); return; }
+
+  const btn = document.getElementById('btn-story-save');
+  btn.disabled = true;
+  try {
+    await apiFetch('stories.php', {
+      method: 'POST',
+      body: JSON.stringify({ prototype_id, story_text, story_type: storyType, moscow_priority }),
+    });
+    closeStoryForm();
+    showToast(`${storyType} criado com sucesso!`, 'success');
+  } catch(e) {
+    showToast('Erro ao criar: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}

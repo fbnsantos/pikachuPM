@@ -293,6 +293,75 @@
     </div>
   </div>
 
+  <!-- ── Picker: o que queres adicionar? ── -->
+  <div class="picker-overlay" id="picker-overlay" style="display:none">
+    <div class="picker-sheet">
+      <div class="picker-handle"></div>
+      <p class="picker-heading">O que queres adicionar?</p>
+      <button class="picker-choice" id="pick-task">
+        <span class="picker-icon">📋</span>
+        <div>
+          <div class="picker-label">Nova Task</div>
+          <div class="picker-sub">Adicionar à tua lista de tarefas</div>
+        </div>
+        <span class="picker-arrow">›</span>
+      </button>
+      <button class="picker-choice" id="pick-bug">
+        <span class="picker-icon">🐛</span>
+        <div>
+          <div class="picker-label">Reportar Bug</div>
+          <div class="picker-sub">Associar bug a um protótipo</div>
+        </div>
+        <span class="picker-arrow">›</span>
+      </button>
+      <button class="picker-choice" id="pick-feature">
+        <span class="picker-icon">✨</span>
+        <div>
+          <div class="picker-label">Nova Feature</div>
+          <div class="picker-sub">Sugerir funcionalidade a um protótipo</div>
+        </div>
+        <span class="picker-arrow">›</span>
+      </button>
+      <button class="btn btn-secondary" id="btn-picker-cancel" style="margin-top:4px;">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- ── Modal: Criar Bug / Feature em Protótipo ── -->
+  <div class="modal-overlay" id="story-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <button class="icon-btn" id="btn-story-back" title="Voltar">←</button>
+        <h3 id="story-modal-title">Novo Bug</h3>
+        <button class="icon-btn modal-close" id="btn-story-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Protótipo <span class="required">*</span></label>
+          <select id="story-prototype">
+            <option value="">A carregar…</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Descrição <span class="required">*</span></label>
+          <textarea id="story-text" rows="4" placeholder="Descreve o problema ou funcionalidade…"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Prioridade</label>
+          <select id="story-priority">
+            <option value="Must">Must Have</option>
+            <option value="Should" selected>Should Have</option>
+            <option value="Could">Could Have</option>
+            <option value="Won't">Won't Have</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-story-cancel">Cancelar</button>
+        <button class="btn btn-primary" id="btn-story-save">Criar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Toast ── -->
   <div class="toast" id="toast"></div>
 

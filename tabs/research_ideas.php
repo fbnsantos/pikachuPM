@@ -261,7 +261,7 @@ if (isset($_GET['idea_id'])) {
 // Buscar lista de usuários para dropdown de interessados
 $users = [];
 try {
-    $stmt = $conn->query("SELECT login, CONCAT(firstname, ' ', lastname) as name FROM users ORDER BY firstname, lastname");
+    $stmt = $conn->query("SELECT username as login, username as name FROM user_tokens ORDER BY username");
     $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     error_log("Erro ao buscar usuários: " . $e->getMessage());

@@ -280,6 +280,16 @@ if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
                 $search_results['files'] = $s->fetchAll(PDO::FETCH_ASSOC);
             }
 
+            // 7. Research Ideas
+            if ($pdo_s->query("SHOW TABLES LIKE 'research_ideas'")->rowCount()) {
+                [$w, $p] = gsWhere(['ri.title','ri.description'], $gsTerms, $gsExcludes);
+                $s = $pdo_s->prepare("SELECT ri.id, ri.title, ri.description, ri.status, ri.priority, ri.author
+                                      FROM research_ideas ri
+                                      WHERE $w ORDER BY ri.created_at DESC LIMIT 10");
+                $s->execute($p);
+                $search_results['research'] = $s->fetchAll(PDO::FETCH_ASSOC);
+            }
+
         } catch (PDOException $e) { /* ignorar */ }
     }
 }
@@ -347,6 +357,7 @@ $sections = [
     'prototypes' => ['🔬', 'Protótipos'],
     'sprints'    => ['🏃', 'Sprints'],
     'files'      => ['📎', 'Ficheiros'],
+    'research'   => ['💡', 'Research Ideas'],
     'links'      => ['🔗', 'Links'],
 ];
 $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
@@ -412,6 +423,20 @@ $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
                 Estado: <strong><?= htmlspecialchars($r['estado']) ?></strong>
                 <?php if ($r['data_inicio']): ?> · <?= date('d/m/Y', strtotime($r['data_inicio'])) ?> → <?= $r['data_fim'] ? date('d/m/Y', strtotime($r['data_fim'])) : '?' ?><?php endif; ?>
             </div>
+
+        <?php elseif ($key === 'research'): ?>
+            <?php
+            $priColors = ['urgente'=>'#fee2e2;color:#991b1b','alta'=>'#fef3c7;color:#92400e','normal'=>'#e0e7ff;color:#3730a3','baixa'=>'#e5e7eb;color:#374151'];
+            $stColors  = ['nova'=>'#dbeafe;color:#1d4ed8','em análise'=>'#fef3c7;color:#92400e','aprovada'=>'#d1fae5;color:#065f46','arquivada'=>'#e5e7eb;color:#374151'];
+            $pri = $r['priority'] ?? 'normal'; $st = $r['status'] ?? 'nova';
+            ?>
+            <div class="gs-title">
+                <a href="?tab=research_ideas"><?= hl($r['title'], $q) ?></a>
+                <span class="gs-badge ms-1" style="background:<?= $priColors[$pri] ?? '#e5e7eb;color:#374151' ?>;"><?= $pri ?></span>
+                <span class="gs-badge ms-1" style="background:<?= $stColors[$st]  ?? '#e5e7eb;color:#374151' ?>;"><?= $st ?></span>
+            </div>
+            <div class="gs-meta">👤 <?= htmlspecialchars($r['author']) ?></div>
+            <?php if ($r['description']): ?><div class="gs-snippet"><?= hl(snippet($r['description'], $q), $q) ?></div><?php endif; ?>
 
         <?php elseif ($key === 'files'): ?>
             <?php $ext = strtolower(pathinfo($r['file_name'], PATHINFO_EXTENSION));

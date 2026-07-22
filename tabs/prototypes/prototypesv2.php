@@ -1010,7 +1010,9 @@ if ($selectedPrototypeId) {
             FROM user_stories us
             LEFT JOIN user_tokens u ON us.created_by = u.user_id
             WHERE us.prototype_id = ? $statusCondition
-            ORDER BY FIELD(us.moscow_priority, 'Must', 'Should', 'Could', 'Won''t'), us.id
+            ORDER BY FIELD(us.story_type, 'Bug', 'Feature', 'Story'),
+                     FIELD(us.moscow_priority, 'Must', 'Should', 'Could', 'Won''t'),
+                     us.id
         ");
         $stmt->execute([$selectedPrototypeId]);
         $selectedPrototype['stories'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -1862,21 +1864,38 @@ if ($selectedPrototype && $checkTodos) {
     }
 }
 
-/* Story type badges */
-.story-type-badge {
-    display: inline-flex;
+/* Story group headers */
+.story-group-header {
+    display: flex;
     align-items: center;
-    gap: 4px;
-    font-size: 11px;
+    gap: 7px;
+    font-size: 12px;
     font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 20px;
     text-transform: uppercase;
-    letter-spacing: .3px;
+    letter-spacing: .6px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    margin: 14px 0 4px;
 }
-.stype-story   { background: #e5e7eb; color: #374151; }
+.story-group-header:first-child { margin-top: 0; }
+.stype-story   { background: #f3f4f6; color: #374151; }
 .stype-bug     { background: #fee2e2; color: #991b1b; }
 .stype-feature { background: #d1fae5; color: #065f46; }
+
+/* Story actions toggle button */
+.story-actions-toggle {
+    background: none;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 2px 6px;
+    color: #6b7280;
+    cursor: pointer;
+    line-height: 1;
+    font-size: 14px;
+    transition: background .15s, color .15s;
+}
+.story-actions-toggle:hover,
+.story-actions-toggle.active { background: #f3f4f6; color: #111; border-color: #9ca3af; }
 
 /* GitLab panel */
 .gitlab-panel {
@@ -2591,20 +2610,32 @@ if ($selectedPrototype && $checkTodos) {
 
                 <div class="story-list">
                     <?php if (!empty($selectedPrototype['stories'])): ?>
+                        <?php
+                        $lastStoryType = null;
+                        $stypeGroupMeta = [
+                            'Bug'     => ['icon' => 'bi-bug',          'label' => 'Bugs',        'css' => 'stype-bug'],
+                            'Feature' => ['icon' => 'bi-star-fill',    'label' => 'Features',    'css' => 'stype-feature'],
+                            'Story'   => ['icon' => 'bi-journal-text', 'label' => 'User Stories','css' => 'stype-story'],
+                        ];
+                        ?>
                         <?php foreach ($selectedPrototype['stories'] as $story): ?>
+                            <?php
+                                $stype     = $story['story_type'] ?? 'Story';
+                                $stypeMeta = $stypeGroupMeta[$stype] ?? $stypeGroupMeta['Story'];
+                                if ($stype !== $lastStoryType):
+                                    $lastStoryType = $stype;
+                            ?>
+                            <div class="story-group-header <?= $stypeMeta['css'] ?>">
+                                <i class="bi <?= $stypeMeta['icon'] ?>"></i>
+                                <?= $stypeMeta['label'] ?>
+                            </div>
+                            <?php endif; ?>
                             <div class="story-item <?= strtolower($story['moscow_priority']) ?> <?= $story['status'] === 'closed' ? 'closed' : '' ?>">
                                 <div class="story-header">
-                                    <?php
-                                        $stype = $story['story_type'] ?? 'Story';
-                                        $stypeIcon = match($stype) { 'Bug' => 'bi-bug', 'Feature' => 'bi-star', default => 'bi-journal-text' };
-                                    ?>
-                                    <span class="story-type-badge stype-<?= strtolower($stype) ?>">
-                                        <i class="bi <?= $stypeIcon ?>"></i> <?= htmlspecialchars($stype) ?>
-                                    </span>
                                     <span class="story-priority priority-<?= strtolower($story['moscow_priority']) ?>">
                                         <?= htmlspecialchars($story['moscow_priority']) ?> Have
                                     </span>
-                                    <div class="d-flex align-items-center gap-2">
+                                    <div class="d-flex align-items-center gap-2 ms-auto">
                                         <?php if (!empty($story['created_by_name'])): ?>
                                         <span style="font-size:12px; color:#6b7280;">
                                             <i class="bi bi-person"></i> <?= htmlspecialchars($story['created_by_name']) ?>
@@ -2618,6 +2649,9 @@ if ($selectedPrototype && $checkTodos) {
                                         <span class="badge <?= $story['status'] === 'closed' ? 'bg-secondary' : 'bg-info' ?>">
                                             <?= $story['status'] === 'closed' ? 'Fechada' : 'Aberta' ?>
                                         </span>
+                                        <button class="story-actions-toggle" title="Ações" aria-label="Mostrar ações">
+                                            <i class="bi bi-three-dots-vertical"></i>
+                                        </button>
                                     </div>
                                 </div>
                                 <div class="story-text">
@@ -2707,8 +2741,8 @@ if ($selectedPrototype && $checkTodos) {
                                 </div>
                                 <?php endif; ?>
 
-                                <!-- Ações -->
-                                <div class="story-actions">
+                                <!-- Ações (expandido pelo botão ···) -->
+                                <div class="story-actions story-actions-panel" style="display:none;">
                                     <button class="btn btn-sm btn-primary edit-story-btn"
                                             data-id="<?= $story['id'] ?>"
                                             data-text="<?= htmlspecialchars($story['story_text'], ENT_QUOTES) ?>"
@@ -4430,6 +4464,17 @@ document.addEventListener('click', function(e) {
     const btn = e.target.closest('.edit-story-btn');
     if (!btn) return;
     editStory(btn.dataset.id, btn.dataset.text, btn.dataset.priority, btn.dataset.status, btn.dataset.type);
+});
+
+// Toggle story action panel with ··· button
+document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.story-actions-toggle');
+    if (!btn) return;
+    const panel = btn.closest('.story-item').querySelector('.story-actions-panel');
+    if (!panel) return;
+    const open = panel.style.display !== 'none';
+    panel.style.display = open ? 'none' : '';
+    btn.classList.toggle('active', !open);
 });
 
 function editPercentage(storyId, currentPercentage) {

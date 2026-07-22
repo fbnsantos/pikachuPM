@@ -108,31 +108,81 @@ $links = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $q = trim($_GET['q'] ?? '');
 $search_results = [];
 
-function hl(string $text, string $q): string {
-    if ($q === '') return htmlspecialchars($text);
-    return preg_replace('/(' . preg_quote(htmlspecialchars($q), '/') . ')/iu',
-        '<mark>$1</mark>', htmlspecialchars($text));
-}
-function snippet(string $text, string $q, int $radius = 80): string {
-    $pos = mb_stripos($text, $q);
-    if ($pos === false) return mb_substr($text, 0, $radius * 2);
-    $start = max(0, $pos - $radius);
-    $excerpt = ($start > 0 ? '…' : '') . mb_substr($text, $start, $radius * 2 + mb_strlen($q)) . '…';
-    return $excerpt;
+// Parse: palavras normais = AND; -palavra = excluir
+$gsTerms = $gsExcludes = [];
+foreach (preg_split('/\s+/', $q) as $w) {
+    if ($w === '') continue;
+    if ($w[0] === '-' && strlen($w) > 1) $gsExcludes[] = substr($w, 1);
+    else                                   $gsTerms[]    = $w;
 }
 
-if ($q !== '') {
-    $like = "%$q%";
+/**
+ * Constrói cláusulas WHERE para múltiplos termos (AND) com exclusões.
+ * $cols: array de colunas (ex: ['titulo','descritivo'])
+ * Devolve ['sql_fragment', 'params_array']
+ * — cada termo precisa aparecer em ALGUMA das colunas (OR dentro do termo, AND entre termos)
+ * — cada exclusão não pode aparecer em NENHUMA coluna
+ */
+function gsWhere(array $cols, array $terms, array $excludes): array {
+    $clauses = [];
+    $params  = [];
+    foreach ($terms as $t) {
+        $parts = array_map(fn($c) => "$c LIKE ?", $cols);
+        $clauses[] = '(' . implode(' OR ', $parts) . ')';
+        foreach ($cols as $_) $params[] = "%$t%";
+    }
+    foreach ($excludes as $t) {
+        $parts = array_map(fn($c) => "$c NOT LIKE ?", $cols);
+        $clauses[] = '(' . implode(' AND ', $parts) . ')';
+        foreach ($cols as $_) $params[] = "%$t%";
+    }
+    return [implode(' AND ', $clauses) ?: '1', $params];
+}
+
+// Mesmo mas para SQLite (usa named params de forma manual)
+function gsWhereSQLite(array $cols, array $terms, array $excludes): array {
+    $clauses = [];
+    $params  = [];
+    $i = 0;
+    foreach ($terms as $t) {
+        $parts = [];
+        foreach ($cols as $c) { $k = ":gs$i"; $parts[] = "$c LIKE $k"; $params[$k] = "%$t%"; $i++; }
+        $clauses[] = '(' . implode(' OR ', $parts) . ')';
+    }
+    foreach ($excludes as $t) {
+        $parts = [];
+        foreach ($cols as $c) { $k = ":gs$i"; $parts[] = "$c NOT LIKE $k"; $params[$k] = "%$t%"; $i++; }
+        $clauses[] = '(' . implode(' AND ', $parts) . ')';
+    }
+    return [implode(' AND ', $clauses) ?: '1', $params];
+}
+
+function hl(string $text, string $terms): string {
+    $escaped = htmlspecialchars($text);
+    if ($terms === '') return $escaped;
+    $words = array_filter(preg_split('/\s+/', $terms), fn($w) => $w !== '' && $w[0] !== '-');
+    foreach ($words as $w) {
+        $escaped = preg_replace('/(' . preg_quote(htmlspecialchars($w), '/') . ')/iu', '<mark>$1</mark>', $escaped);
+    }
+    return $escaped;
+}
+function snippet(string $text, string $terms, int $radius = 80): string {
+    $words = array_filter(preg_split('/\s+/', $terms), fn($w) => $w !== '' && $w[0] !== '-');
+    $pos = false;
+    foreach ($words as $w) { $pos = mb_stripos($text, $w); if ($pos !== false) break; }
+    if ($pos === false) return mb_substr($text, 0, $radius * 2);
+    $start = max(0, $pos - $radius);
+    return ($start > 0 ? '…' : '') . mb_substr($text, $start, $radius * 2 + 20) . '…';
+}
+
+if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
 
     // 1. Links (SQLite)
     try {
-        $s = $db->prepare("SELECT id, url, titulo, categoria FROM links
-                           WHERE titulo LIKE :q OR url LIKE :q OR categoria LIKE :q
-                           ORDER BY titulo LIMIT 15");
-        $s->execute([':q' => $like]);
-        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $search_results['links'][] = $r;
-        }
+        [$w, $p] = gsWhereSQLite(['titulo','url','categoria'], $gsTerms, $gsExcludes);
+        $s = $db->prepare("SELECT id, url, titulo, categoria FROM links WHERE $w ORDER BY titulo LIMIT 15");
+        $s->execute($p);
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $search_results['links'][] = $r;
     } catch (Exception $e) {}
 
     // MySQL sources
@@ -147,41 +197,36 @@ if ($q !== '') {
                 $pdo_s = $pdo_files;
             }
 
-            // 2. Tasks (todos)
+            // 2. Tasks
+            [$w, $p] = gsWhere(['t.titulo','t.descritivo'], $gsTerms, $gsExcludes);
             $s = $pdo_s->prepare("SELECT t.id, t.titulo, t.descritivo, t.estado,
                                          COALESCE(u.username,'') as autor_nome
-                                  FROM todos t
-                                  LEFT JOIN user_tokens u ON t.autor = u.user_id
-                                  WHERE t.titulo LIKE ? OR t.descritivo LIKE ?
-                                  ORDER BY t.created_at DESC LIMIT 15");
-            $s->execute([$like, $like]);
+                                  FROM todos t LEFT JOIN user_tokens u ON t.autor = u.user_id
+                                  WHERE $w ORDER BY t.created_at DESC LIMIT 15");
+            $s->execute($p);
             $search_results['tasks'] = $s->fetchAll(PDO::FETCH_ASSOC);
 
             // 3. User Stories
+            [$w, $p] = gsWhere(['us.story_text'], $gsTerms, $gsExcludes);
             $s = $pdo_s->prepare("SELECT us.id, us.story_text, us.moscow_priority, us.story_type,
                                          us.status, p.id as proto_id, p.short_name, p.title as proto_title
-                                  FROM user_stories us
-                                  JOIN prototypes p ON us.prototype_id = p.id
-                                  WHERE us.story_text LIKE ?
-                                  ORDER BY us.created_at DESC LIMIT 15");
-            $s->execute([$like]);
+                                  FROM user_stories us JOIN prototypes p ON us.prototype_id = p.id
+                                  WHERE $w ORDER BY us.created_at DESC LIMIT 15");
+            $s->execute($p);
             $search_results['stories'] = $s->fetchAll(PDO::FETCH_ASSOC);
 
             // 4. Protótipos
+            [$w, $p] = gsWhere(['short_name','title','vision','product_description'], $gsTerms, $gsExcludes);
             $s = $pdo_s->prepare("SELECT id, short_name, title, vision, product_description
-                                  FROM prototypes
-                                  WHERE short_name LIKE ? OR title LIKE ? OR vision LIKE ?
-                                     OR product_description LIKE ?
-                                  ORDER BY short_name LIMIT 10");
-            $s->execute([$like, $like, $like, $like]);
+                                  FROM prototypes WHERE $w ORDER BY short_name LIMIT 10");
+            $s->execute($p);
             $search_results['prototypes'] = $s->fetchAll(PDO::FETCH_ASSOC);
 
             // 5. Sprints
+            [$w, $p] = gsWhere(['nome'], $gsTerms, $gsExcludes);
             $s = $pdo_s->prepare("SELECT id, nome, estado, data_inicio, data_fim
-                                  FROM sprints
-                                  WHERE nome LIKE ?
-                                  ORDER BY data_inicio DESC LIMIT 10");
-            $s->execute([$like]);
+                                  FROM sprints WHERE $w ORDER BY data_inicio DESC LIMIT 10");
+            $s->execute($p);
             $search_results['sprints'] = $s->fetchAll(PDO::FETCH_ASSOC);
 
             // 6. Ficheiros
@@ -189,15 +234,14 @@ if ($q !== '') {
             if ($tbl) {
                 $hasNotes = $pdo_s->query("SHOW COLUMNS FROM task_files LIKE 'notes'")->rowCount() > 0;
                 $notesSel = $hasNotes ? "tf.notes" : "'' as notes";
-                $notesWhere = $hasNotes ? " OR tf.notes LIKE :q " : '';
+                $fileCols = $hasNotes ? ['tf.file_name','tf.notes','t.titulo'] : ['tf.file_name','t.titulo'];
+                [$w, $p] = gsWhere($fileCols, $gsTerms, $gsExcludes);
                 $s = $pdo_s->prepare("SELECT tf.id as file_id, tf.file_name, tf.file_path,
                                              tf.uploaded_at, $notesSel,
                                              COALESCE(t.titulo,'') as task_title, tf.todo_id
-                                      FROM task_files tf
-                                      LEFT JOIN todos t ON tf.todo_id = t.id
-                                      WHERE tf.file_name LIKE :q $notesWhere OR t.titulo LIKE :q
-                                      ORDER BY tf.uploaded_at DESC LIMIT 15");
-                $s->execute([':q' => $like]);
+                                      FROM task_files tf LEFT JOIN todos t ON tf.todo_id = t.id
+                                      WHERE $w ORDER BY tf.uploaded_at DESC LIMIT 15");
+                $s->execute($p);
                 $search_results['files'] = $s->fetchAll(PDO::FETCH_ASSOC);
             }
 
@@ -237,6 +281,8 @@ if ($q !== '') {
 .gs-filter-chip.active { border-color: #f59e0b; background: #fef3c7; color: #92400e; }
 .gs-filter-count { background: #e5e7eb; color: #6b7280; border-radius: 10px; padding: 0 6px; font-size: 10px; font-weight: 700; }
 .gs-filter-chip.active .gs-filter-count { background: #fde68a; color: #92400e; }
+.gs-hint { color: #94a3b8; font-size: 11px; align-self: center; white-space: nowrap; }
+.gs-hint code { background: #1e293b; color: #f59e0b; border-radius: 3px; padding: 1px 4px; font-size: 11px; }
 </style>
 
 <div class="container mt-4">
@@ -247,8 +293,9 @@ if ($q !== '') {
     <form method="get" class="gs-input-wrap" autocomplete="off">
         <input type="hidden" name="tab" value="links">
         <input type="text" name="q" value="<?= htmlspecialchars($q) ?>"
-               class="gs-input" placeholder="Pesquisar tasks, stories, protótipos, ficheiros, links…"
+               class="gs-input" placeholder="rp2040 navibox · -excluir · vários termos = AND"
                autofocus>
+        <small class="gs-hint">espaço = AND &nbsp;·&nbsp; <code>-palavra</code> = excluir</small>
         <button type="submit" class="gs-btn">Pesquisar</button>
         <?php if ($q !== ''): ?>
         <a href="?tab=links" class="gs-clear">✕</a>

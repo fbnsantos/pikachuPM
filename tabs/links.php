@@ -18,12 +18,20 @@ try {
             titulo TEXT,
             categoria TEXT,
             criado_em TEXT DEFAULT CURRENT_TIMESTAMP,
-            ordem INTEGER
+            ordem INTEGER,
+            tipo TEXT NOT NULL DEFAULT 'link'
         )");
+    } else {
+        // migração silenciosa
+        $cols = array_column($db->query("PRAGMA table_info(links)")->fetchAll(PDO::FETCH_ASSOC), 'name');
+        if (!in_array('tipo', $cols)) $db->exec("ALTER TABLE links ADD COLUMN tipo TEXT NOT NULL DEFAULT 'link'");
     }
 } catch (Exception $e) {
     die("Erro ao abrir/criar base de dados: " . $e->getMessage());
 }
+
+define('LINKS_UPLOAD_DIR', __DIR__ . '/../files/links/');
+if (!is_dir(LINKS_UPLOAD_DIR)) mkdir(LINKS_UPLOAD_DIR, 0755, true);
 
 // Reordenar via JS
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'application/json') {
@@ -91,8 +99,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['url'])) {
     exit;
 }
 
+// Upload de ficheiro como "link"
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['link_file'])) {
+    $f = $_FILES['link_file'];
+    if ($f['error'] === UPLOAD_ERR_OK) {
+        $ext  = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+        $safe = preg_replace('/[^a-z0-9._-]/i', '_', pathinfo($f['name'], PATHINFO_FILENAME));
+        $name = date('Ymd_His') . '_' . $safe . ($ext ? ".$ext" : '');
+        $dest = LINKS_UPLOAD_DIR . $name;
+        if (move_uploaded_file($f['tmp_name'], $dest)) {
+            $titulo    = trim($_POST['titulo'] ?? '') ?: $f['name'];
+            $categoria = trim($_POST['categoria'] ?? '');
+            $ordem     = $db->query("SELECT COUNT(*) FROM links")->fetchColumn();
+            $stmt = $db->prepare("INSERT INTO links (url, titulo, categoria, ordem, tipo) VALUES (?,?,?,?,?)");
+            $stmt->execute(['files/links/' . $name, $titulo, $categoria, $ordem, 'ficheiro']);
+        }
+    }
+    header('Location: index.php?tab=links');
+    exit;
+}
+
 // Remoção
 if (isset($_POST['apagar'])) {
+    $row = $db->prepare("SELECT url, tipo FROM links WHERE id=?");
+    $row->execute([(int)$_POST['apagar']]);
+    $r = $row->fetch(PDO::FETCH_ASSOC);
+    if ($r && $r['tipo'] === 'ficheiro') {
+        $fp = __DIR__ . '/../' . $r['url'];
+        if (file_exists($fp)) unlink($fp);
+    }
     $stmt = $db->prepare("DELETE FROM links WHERE id = :id");
     $stmt->execute([':id' => (int)$_POST['apagar']]);
     header('Location: index.php?tab=links');
@@ -451,46 +486,102 @@ $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
         </div>
     </form>
 
-    <button class="btn btn-outline-secondary mb-3" type="button" onclick="document.getElementById('formAdicionar').classList.toggle('d-none')">➕ Adicionar link</button>
-<form method="post" id="formAdicionar" class="row g-3 mb-4 d-none">
-        <div class="col-md-5">
-            <input type="url" name="url" class="form-control" placeholder="URL" required>
-        </div>
-        <div class="col-md-3">
-            <input type="text" name="titulo" class="form-control" placeholder="Título opcional">
-        </div>
-        <div class="col-md-2">
-            <input type="text" name="categoria" class="form-control" placeholder="Categoria">
-        </div>
-        <div class="col-md-2">
-            <button type="submit" class="btn btn-primary w-100">Guardar</button>
-        </div>
-    </form>
+    <button class="btn btn-outline-secondary mb-3" type="button" id="btnToggleAdd"
+            onclick="document.getElementById('formAdicionar').classList.toggle('d-none');this.textContent=this.textContent==='➕ Adicionar'?'✕ Fechar':'➕ Adicionar'">➕ Adicionar</button>
+
+<div id="formAdicionar" class="card mb-4 d-none" style="border:1px solid #dee2e6;">
+    <div class="card-header p-0">
+        <ul class="nav nav-tabs card-header-tabs" id="addTabs">
+            <li class="nav-item">
+                <button class="nav-link active" id="tabLinkBtn" onclick="switchAddTab('link')">🔗 Link URL</button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" id="tabFileBtn" onclick="switchAddTab('file')">📎 Ficheiro</button>
+            </li>
+        </ul>
+    </div>
+    <div class="card-body">
+        <!-- tab link -->
+        <form method="post" id="panelLink" class="row g-2">
+            <div class="col-md-5">
+                <input type="url" name="url" class="form-control" placeholder="https://…" required>
+            </div>
+            <div class="col-md-3">
+                <input type="text" name="titulo" class="form-control" placeholder="Título (opcional)">
+            </div>
+            <div class="col-md-2">
+                <input type="text" name="categoria" class="form-control" placeholder="Categoria">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary w-100">Guardar</button>
+            </div>
+        </form>
+        <!-- tab ficheiro -->
+        <form method="post" enctype="multipart/form-data" id="panelFile" class="row g-2 d-none">
+            <div class="col-md-5">
+                <input type="file" name="link_file" class="form-control" required>
+            </div>
+            <div class="col-md-3">
+                <input type="text" name="titulo" class="form-control" placeholder="Título (opcional)">
+            </div>
+            <div class="col-md-2">
+                <input type="text" name="categoria" class="form-control" placeholder="Categoria">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-success w-100">Upload</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function switchAddTab(tab) {
+    document.getElementById('panelLink').classList.toggle('d-none', tab !== 'link');
+    document.getElementById('panelFile').classList.toggle('d-none', tab !== 'file');
+    document.getElementById('tabLinkBtn').classList.toggle('active', tab === 'link');
+    document.getElementById('tabFileBtn').classList.toggle('active', tab === 'file');
+}
+</script>
 
     <ul class="list-group" id="sortable">
-        <?php foreach ($links as $link): ?>
+        <?php foreach ($links as $link):
+            $isFicheiro = ($link['tipo'] ?? 'link') === 'ficheiro';
+            $ext = $isFicheiro ? strtolower(pathinfo($link['url'], PATHINFO_EXTENSION)) : '';
+            $ficon = $isFicheiro ? (in_array($ext,['jpg','jpeg','png','gif','webp']) ? '🖼️' : (in_array($ext,['pdf']) ? '📕' : (in_array($ext,['doc','docx']) ? '📘' : (in_array($ext,['xls','xlsx','csv']) ? '📗' : '📎')))) : (str_starts_with($link['url'],'https') ? '🔒' : '🔗');
+        ?>
             <li class="list-group-item d-flex justify-content-between align-items-start" data-id="<?= $link['id'] ?>" style="cursor: grab;">
-                <div class="me-auto" onclick="window.open('<?= htmlspecialchars($link['url']) ?>', '_blank')">
-                    <div class="fw-bold fs-5" id="titulo-<?= $link['id'] ?>" contenteditable="true">
-                        <?= htmlspecialchars($link['titulo'] ?: $link['url']) ?>
+                <div class="me-auto">
+                    <div class="fw-bold fs-5" id="titulo-<?= $link['id'] ?>" contenteditable="true"
+                         onclick="event.stopPropagation()">
+                        <?= htmlspecialchars($link['titulo'] ?: ($isFicheiro ? basename($link['url']) : $link['url'])) ?>
                     </div>
                     <div class="text-muted small">
-                        🔗 <a href="<?= htmlspecialchars($link['url']) ?>" target="_blank" title="<?= htmlspecialchars($link['url']) ?>">
-                            <?php 
-                            $isSecure = strpos($link['url'], 'https://') === 0;
-                            echo $isSecure ? '🔒 ' : '';
-                            ?>Press here
-                        </a>
+                        <?= $ficon ?>
+                        <?php if ($isFicheiro): ?>
+                            <a href="<?= htmlspecialchars($link['url']) ?>" target="_blank">
+                                <?= htmlspecialchars(basename($link['url'])) ?>
+                            </a>
+                            <span class="badge bg-secondary ms-1" style="font-size:10px;">ficheiro</span>
+                        <?php else: ?>
+                            <a href="<?= htmlspecialchars($link['url']) ?>" target="_blank"
+                               title="<?= htmlspecialchars($link['url']) ?>">
+                                <?= htmlspecialchars(parse_url($link['url'], PHP_URL_HOST) ?: $link['url']) ?>
+                            </a>
+                        <?php endif; ?>
                     </div>
                     <small class="text-muted">
-                        Categoria: <span id="categoria-<?= $link['id'] ?>" contenteditable="true">
+                        Categoria: <span id="categoria-<?= $link['id'] ?>" contenteditable="true"
+                                         onclick="event.stopPropagation()">
                             <?= htmlspecialchars($link['categoria']) ?>
                         </span> | <?= $link['criado_em'] ?>
                     </small>
                 </div>
-                <div>
-                    <button class="btn btn-sm btn-outline-primary edit-btn ms-2" data-id="<?= $link['id'] ?>">✏️ Editar</button>
-                    <form method="post" class="d-inline" onsubmit="return confirm('Apagar este link?');">
+                <div class="d-flex gap-1 align-items-center">
+                    <?php if ($isFicheiro): ?>
+                    <a href="<?= htmlspecialchars($link['url']) ?>" download
+                       class="btn btn-sm btn-outline-success" title="Download">⬇️</a>
+                    <?php endif; ?>
+                    <button class="btn btn-sm btn-outline-primary edit-btn" data-id="<?= $link['id'] ?>">✏️</button>
+                    <form method="post" class="d-inline" onsubmit="return confirm('Apagar?');">
                         <input type="hidden" name="apagar" value="<?= $link['id'] ?>">
                         <button type="submit" class="btn btn-sm btn-outline-danger">🗑️</button>
                     </form>

@@ -95,6 +95,12 @@ try {
         $pdo->exec("ALTER TABLE user_stories ADD COLUMN created_by INT NULL AFTER created_at");
     }
 
+    // Adicionar coluna story_type (Story / Bug / Feature)
+    $checkTypeCol = $pdo->query("SHOW COLUMNS FROM user_stories LIKE 'story_type'")->fetch();
+    if (!$checkTypeCol) {
+        $pdo->exec("ALTER TABLE user_stories ADD COLUMN story_type VARCHAR(20) NOT NULL DEFAULT 'Story' AFTER moscow_priority");
+    }
+
     // Verificar e adicionar coluna closed_at à tabela user_stories
     $checkClosedAt = $pdo->query("SHOW COLUMNS FROM user_stories LIKE 'closed_at'")->fetch();
     if (!$checkClosedAt) {
@@ -505,13 +511,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
             case 'create_story':
                 $stmt = $pdo->prepare("
-                    INSERT INTO user_stories (prototype_id, story_text, moscow_priority, status, completion_percentage, created_at, created_by)
-                    VALUES (?, ?, ?, 'open', 0, NOW(), ?)
+                    INSERT INTO user_stories (prototype_id, story_text, moscow_priority, story_type, status, completion_percentage, created_at, created_by)
+                    VALUES (?, ?, ?, ?, 'open', 0, NOW(), ?)
                 ");
                 $stmt->execute([
                     $_POST['prototype_id'],
                     $_POST['story_text'],
                     $_POST['moscow_priority'] ?? 'Should',
+                    in_array($_POST['story_type'] ?? '', ['Story','Bug','Feature']) ? $_POST['story_type'] : 'Story',
                     $currentUserId
                 ]);
                 $message = "User Story criada com sucesso!";
@@ -528,13 +535,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
             case 'update_story':
                 $stmt = $pdo->prepare("
-                    UPDATE user_stories SET 
-                        story_text=?, moscow_priority=?, status=?, updated_at=NOW()
+                    UPDATE user_stories SET
+                        story_text=?, moscow_priority=?, story_type=?, status=?, updated_at=NOW()
                     WHERE id=?
                 ");
                 $stmt->execute([
                     $_POST['story_text'],
                     $_POST['moscow_priority'],
+                    in_array($_POST['story_type'] ?? '', ['Story','Bug','Feature']) ? $_POST['story_type'] : 'Story',
                     $_POST['status'],
                     $_POST['story_id']
                 ]);
@@ -1854,6 +1862,22 @@ if ($selectedPrototype && $checkTodos) {
     }
 }
 
+/* Story type badges */
+.story-type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+}
+.stype-story   { background: #e5e7eb; color: #374151; }
+.stype-bug     { background: #fee2e2; color: #991b1b; }
+.stype-feature { background: #d1fae5; color: #065f46; }
+
 /* GitLab panel */
 .gitlab-panel {
     border: 1px solid #e5e7eb;
@@ -2570,6 +2594,13 @@ if ($selectedPrototype && $checkTodos) {
                         <?php foreach ($selectedPrototype['stories'] as $story): ?>
                             <div class="story-item <?= strtolower($story['moscow_priority']) ?> <?= $story['status'] === 'closed' ? 'closed' : '' ?>">
                                 <div class="story-header">
+                                    <?php
+                                        $stype = $story['story_type'] ?? 'Story';
+                                        $stypeIcon = match($stype) { 'Bug' => 'bi-bug', 'Feature' => 'bi-star', default => 'bi-journal-text' };
+                                    ?>
+                                    <span class="story-type-badge stype-<?= strtolower($stype) ?>">
+                                        <i class="bi <?= $stypeIcon ?>"></i> <?= htmlspecialchars($stype) ?>
+                                    </span>
                                     <span class="story-priority priority-<?= strtolower($story['moscow_priority']) ?>">
                                         <?= htmlspecialchars($story['moscow_priority']) ?> Have
                                     </span>
@@ -2682,7 +2713,8 @@ if ($selectedPrototype && $checkTodos) {
                                             data-id="<?= $story['id'] ?>"
                                             data-text="<?= htmlspecialchars($story['story_text'], ENT_QUOTES) ?>"
                                             data-priority="<?= htmlspecialchars($story['moscow_priority']) ?>"
-                                            data-status="<?= htmlspecialchars($story['status']) ?>">
+                                            data-status="<?= htmlspecialchars($story['status']) ?>"
+                                            data-type="<?= htmlspecialchars($story['story_type'] ?? 'Story') ?>">
                                         <i class="bi bi-pencil"></i> Editar
                                     </button>
                                     <?php if ($story['status'] === 'open'): ?>
@@ -3800,14 +3832,24 @@ function simpleMarkdown(md) {
                         <small class="text-muted">Formato: Como [usuário], eu quero [ação], para [benefício]</small>
                     </div>
                     
-                    <div class="mb-3">
-                        <label class="form-label">MoSCoW Priority</label>
-                        <select name="moscow_priority" class="form-select">
-                            <option value="Must">Must Have</option>
-                            <option value="Should" selected>Should Have</option>
-                            <option value="Could">Could Have</option>
-                            <option value="Won't">Won't Have</option>
-                        </select>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label">Tipo</label>
+                            <select name="story_type" class="form-select">
+                                <option value="Story" selected>📋 User Story</option>
+                                <option value="Bug">🐛 Bug</option>
+                                <option value="Feature">✨ Feature</option>
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">MoSCoW Priority</label>
+                            <select name="moscow_priority" class="form-select">
+                                <option value="Must">Must Have</option>
+                                <option value="Should" selected>Should Have</option>
+                                <option value="Could">Could Have</option>
+                                <option value="Won't">Won't Have</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -3838,16 +3880,26 @@ function simpleMarkdown(md) {
                         <textarea name="story_text" id="edit_story_text" class="form-control" rows="4" required></textarea>
                     </div>
                     
-                    <div class="mb-3">
-                        <label class="form-label">MoSCoW Priority</label>
-                        <select name="moscow_priority" id="edit_story_priority" class="form-select">
-                            <option value="Must">Must Have</option>
-                            <option value="Should">Should Have</option>
-                            <option value="Could">Could Have</option>
-                            <option value="Won't">Won't Have</option>
-                        </select>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label">Tipo</label>
+                            <select name="story_type" id="edit_story_type" class="form-select">
+                                <option value="Story">📋 User Story</option>
+                                <option value="Bug">🐛 Bug</option>
+                                <option value="Feature">✨ Feature</option>
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">MoSCoW Priority</label>
+                            <select name="moscow_priority" id="edit_story_priority" class="form-select">
+                                <option value="Must">Must Have</option>
+                                <option value="Should">Should Have</option>
+                                <option value="Could">Could Have</option>
+                                <option value="Won't">Won't Have</option>
+                            </select>
+                        </div>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label class="form-label">Status</label>
                         <select name="status" id="edit_story_status" class="form-select">
@@ -4036,12 +4088,15 @@ function filterSprintModal() {
                                 array_filter($selectedPrototype['stories'], fn($s) => $s['status'] !== 'closed')
                             );
                             $moscowV = ['Must'=>'danger','Should'=>'warning','Could'=>'info',"Won't"=>'secondary'];
+                            $typeV   = ['Bug'=>'danger','Feature'=>'success','Story'=>'secondary'];
                             foreach ($allStoriesForVersion as $vs): ?>
                             <div class="form-check py-1 border-bottom">
                                 <input class="form-check-input" type="checkbox" name="version_story_ids[]"
                                        value="<?= $vs['id'] ?>" id="vs_<?= $vs['id'] ?>"
                                        <?= $vs['status'] === 'closed' ? 'checked' : '' ?>>
                                 <label class="form-check-label d-flex align-items-center gap-2 flex-wrap" for="vs_<?= $vs['id'] ?>">
+                                    <?php $vst = $vs['story_type'] ?? 'Story'; ?>
+                                    <span class="badge bg-<?= $typeV[$vst] ?? 'secondary' ?>" style="font-size:10px;"><?= htmlspecialchars($vst) ?></span>
                                     <span class="badge bg-<?= $moscowV[$vs['moscow_priority']] ?? 'secondary' ?>" style="font-size:10px;"><?= $vs['moscow_priority'] ?></span>
                                     <span class="<?= $vs['status'] === 'closed' ? 'text-decoration-line-through text-muted' : '' ?>">
                                         <?= htmlspecialchars(mb_strimwidth($vs['story_text'], 0, 90, '…')) ?>
@@ -4094,6 +4149,8 @@ function filterSprintModal() {
                                    name="version_story_ids[]" value="<?= $vs['id'] ?>"
                                    id="vds_<?= $vs['id'] ?>">
                             <label class="form-check-label d-flex align-items-center gap-2 flex-wrap" for="vds_<?= $vs['id'] ?>">
+                                <?php $vst2 = $vs['story_type'] ?? 'Story'; ?>
+                                <span class="badge bg-<?= $typeV[$vst2] ?? 'secondary' ?>" style="font-size:10px;"><?= htmlspecialchars($vst2) ?></span>
                                 <span class="badge bg-<?= $moscowV[$vs['moscow_priority']] ?? 'secondary' ?>" style="font-size:10px;"><?= $vs['moscow_priority'] ?></span>
                                 <span class="<?= $vs['status'] === 'closed' ? 'text-decoration-line-through text-muted' : '' ?>">
                                     <?= htmlspecialchars(mb_strimwidth($vs['story_text'], 0, 90, '…')) ?>
@@ -4357,11 +4414,13 @@ function filterPrototypes() {
     });
 }
 
-function editStory(id, text, priority, status) {
+function editStory(id, text, priority, status, type) {
     document.getElementById('edit_story_id').value = id;
     document.getElementById('edit_story_text').value = text;
     document.getElementById('edit_story_priority').value = priority;
     document.getElementById('edit_story_status').value = status;
+    const typeEl = document.getElementById('edit_story_type');
+    if (typeEl) typeEl.value = type || 'Story';
     const modal = new bootstrap.Modal(document.getElementById('editStoryModal'));
     modal.show();
 }
@@ -4370,7 +4429,7 @@ function editStory(id, text, priority, status) {
 document.addEventListener('click', function(e) {
     const btn = e.target.closest('.edit-story-btn');
     if (!btn) return;
-    editStory(btn.dataset.id, btn.dataset.text, btn.dataset.priority, btn.dataset.status);
+    editStory(btn.dataset.id, btn.dataset.text, btn.dataset.priority, btn.dataset.status, btn.dataset.type);
 });
 
 function editPercentage(storyId, currentPercentage) {

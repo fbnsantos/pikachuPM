@@ -231,6 +231,12 @@ if ($q !== '') {
 .gs-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px; }
 .gs-empty { color: #9ca3af; font-size: 13px; font-style: italic; }
 .gs-total { font-size: 13px; color: #6b7280; margin-top: 10px; }
+.gs-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.gs-filter-chip { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; border-radius: 20px; border: 1.5px solid #d1d5db; background: #f9fafb; color: #374151; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; }
+.gs-filter-chip:hover { border-color: #6366f1; color: #4338ca; }
+.gs-filter-chip.active { border-color: #f59e0b; background: #fef3c7; color: #92400e; }
+.gs-filter-count { background: #e5e7eb; color: #6b7280; border-radius: 10px; padding: 0 6px; font-size: 10px; font-weight: 700; }
+.gs-filter-chip.active .gs-filter-count { background: #fde68a; color: #92400e; }
 </style>
 
 <div class="container mt-4">
@@ -261,15 +267,29 @@ $sections = [
     'files'      => ['icon' => '📎', 'label' => 'Ficheiros'],
     'links'      => ['icon' => '🔗', 'label' => 'Links'],
 ];
+$activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
 ?>
-<div class="gs-total mb-3">
-    <?= $total ?> resultado(s) para "<strong><?= htmlspecialchars($q) ?></strong>"
+
+<!-- filtros rápidos -->
+<?php if ($total > 0 && count($activeTypes) > 1): ?>
+<div class="gs-filters" id="gs-filters">
+    <button class="gs-filter-chip active" data-type="all">Tudo <span class="gs-filter-count" id="gs-count-all"><?= $total ?></span></button>
+    <?php foreach ($sections as $key => [$icon, $label]): ?>
+    <?php if (!empty($search_results[$key])): ?>
+    <button class="gs-filter-chip" data-type="<?= $key ?>"><?= $icon ?> <?= $label ?> <span class="gs-filter-count"><?= count($search_results[$key]) ?></span></button>
+    <?php endif; ?>
+    <?php endforeach; ?>
+</div>
+<?php endif; ?>
+
+<div class="gs-total mb-3" id="gs-total-line">
+    <span id="gs-visible-count"><?= $total ?></span> resultado(s) para "<strong><?= htmlspecialchars($q) ?></strong>"
     <?php if ($total === 0): ?><span class="gs-empty">— tente outros termos</span><?php endif; ?>
 </div>
 
 <?php foreach ($sections as $key => [$icon, $label]): ?>
 <?php if (!empty($search_results[$key])): ?>
-<div class="gs-section">
+<div class="gs-section" data-gs-type="<?= $key ?>">
     <div class="gs-section-title"><?= $icon ?> <?= $label ?> <span class="gs-badge" style="background:#e0e7ff;color:#3730a3;"><?= count($search_results[$key]) ?></span></div>
 
     <?php foreach ($search_results[$key] as $r): ?>
@@ -282,9 +302,8 @@ $sections = [
             <div class="gs-meta"><?= hl($r['categoria'], $q) ?> · <a href="<?= htmlspecialchars($r['url']) ?>" target="_blank" style="color:#6b7280;"><?= hl(parse_url($r['url'], PHP_URL_HOST) ?: $r['url'], $q) ?></a></div>
 
         <?php elseif ($key === 'tasks'): ?>
-            <?php $stateColors = ['aberta'=>'primary','em execução'=>'warning','suspensa'=>'secondary','completada'=>'success']; ?>
             <div class="gs-title">
-                <a href="?tab=todos"><?= hl($r['titulo'], $q) ?></a>
+                <a href="#" onclick="event.preventDefault();openTaskEditor(<?= (int)$r['id'] ?>)"><?= hl($r['titulo'], $q) ?></a>
                 <span class="gs-badge ms-1" style="background:#dbeafe;color:#1d4ed8;"><?= htmlspecialchars($r['estado']) ?></span>
             </div>
             <?php if ($r['autor_nome']): ?><div class="gs-meta">👤 <?= htmlspecialchars($r['autor_nome']) ?></div><?php endif; ?>
@@ -317,7 +336,9 @@ $sections = [
                   $ficon = in_array($ext,['jpg','jpeg','png','gif','webp']) ? '🖼️' : (in_array($ext,['pdf']) ? '📕' : (in_array($ext,['doc','docx']) ? '📘' : (in_array($ext,['xls','xlsx','csv']) ? '📗' : '📄'))); ?>
             <div class="gs-title"><?= $ficon ?> <a href="<?= htmlspecialchars($r['file_path']) ?>" target="_blank"><?= hl($r['file_name'], $q) ?></a></div>
             <div class="gs-meta">
-                <?php if ($r['task_title']): ?>📌 <a href="?tab=todos" style="color:#6b7280;"><?= hl($r['task_title'], $q) ?></a> · <?php endif; ?>
+                <?php if ($r['task_title'] && $r['todo_id']): ?>
+                    📌 <a href="#" onclick="event.preventDefault();openTaskEditor(<?= (int)$r['todo_id'] ?>)" style="color:#6b7280;"><?= hl($r['task_title'], $q) ?></a> ·
+                <?php endif; ?>
                 <?= date('d/m/Y', strtotime($r['uploaded_at'])) ?>
             </div>
             <?php if ($r['notes']): ?><div class="gs-snippet"><?= hl(snippet($r['notes'], $q), $q) ?></div><?php endif; ?>
@@ -329,6 +350,33 @@ $sections = [
 </div>
 <?php endif; ?>
 <?php endforeach; ?>
+
+<script>
+(function() {
+    const filters = document.querySelectorAll('#gs-filters .gs-filter-chip');
+    if (!filters.length) return;
+    const sections = document.querySelectorAll('.gs-section[data-gs-type]');
+    const countEl  = document.getElementById('gs-visible-count');
+    const totalAll = <?= $total ?>;
+    const countsByType = <?= json_encode(array_map('count', array_filter($search_results))) ?>;
+
+    filters.forEach(btn => {
+        btn.addEventListener('click', () => {
+            filters.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const type = btn.dataset.type;
+            let visible = 0;
+            sections.forEach(sec => {
+                const show = type === 'all' || sec.dataset.gsType === type;
+                sec.style.display = show ? '' : 'none';
+                if (show) visible += countsByType[sec.dataset.gsType] || 0;
+            });
+            if (countEl) countEl.textContent = type === 'all' ? totalAll : visible;
+        });
+    });
+})();
+</script>
+
 <hr class="my-4">
 <?php endif; ?>
 

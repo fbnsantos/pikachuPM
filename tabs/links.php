@@ -293,7 +293,19 @@ if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
             }
             if ($rows) $search_results['files'] = $rows;
 
-            // 7. Projectos
+            // 7. Entregáveis / PPS / KPIs
+            if ($pdo_s->query("SHOW TABLES LIKE 'project_deliverables'")->rowCount()) {
+                [$w, $p] = gsWhere(['pd.title','pd.description'], $gsTerms, $gsExcludes);
+                $s = $pdo_s->prepare("SELECT pd.id, pd.title, pd.description, pd.status, pd.due_date,
+                                             pd.project_id, COALESCE(p.short_name,'') as project_name
+                                      FROM project_deliverables pd
+                                      LEFT JOIN projects p ON pd.project_id = p.id
+                                      WHERE $w ORDER BY pd.due_date, pd.created_at DESC LIMIT 15");
+                $s->execute($p);
+                $search_results['deliverables'] = $s->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            // 8. Projectos
             if ($pdo_s->query("SHOW TABLES LIKE 'projects'")->rowCount()) {
                 [$w, $p] = gsWhere(['p.short_name','p.title','p.description'], $gsTerms, $gsExcludes);
                 $s = $pdo_s->prepare("SELECT p.id, p.short_name, p.title, p.description, p.estado,
@@ -392,6 +404,7 @@ $sections = [
     'prototypes' => ['🔬', 'Protótipos'],
     'sprints'    => ['🏃', 'Sprints'],
     'files'      => ['📎', 'Ficheiros'],
+    'deliverables' => ['✔️', 'Entregáveis / PPS / KPIs'],
     'projects'   => ['📁', 'Projetos'],
     'leads'      => ['🎯', 'Leads'],
     'research'   => ['💡', 'Research Ideas'],
@@ -460,6 +473,20 @@ $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
                 Estado: <strong><?= htmlspecialchars($r['estado']) ?></strong>
                 <?php if ($r['data_inicio']): ?> · <?= date('d/m/Y', strtotime($r['data_inicio'])) ?> → <?= $r['data_fim'] ? date('d/m/Y', strtotime($r['data_fim'])) : '?' ?><?php endif; ?>
             </div>
+
+        <?php elseif ($key === 'deliverables'): ?>
+            <?php
+            $stMap = ['pending'=>['#fef3c7','#92400e','pendente'],'in_progress'=>['#dbeafe','#1d4ed8','em curso'],'completed'=>['#d1fae5','#065f46','concluído'],'cancelled'=>['#e5e7eb','#374151','cancelado']];
+            $st = $r['status'] ?? 'pending';
+            [$bg, $fg, $lbl] = $stMap[$st] ?? ['#e5e7eb','#374151',$st];
+            ?>
+            <div class="gs-title">
+                <a href="?tab=projectos&project_id=<?= (int)$r['project_id'] ?>"><?= hl($r['title'], $q) ?></a>
+                <span class="gs-badge ms-1" style="background:<?= $bg ?>;color:<?= $fg ?>;"><?= $lbl ?></span>
+                <?php if ($r['project_name']): ?><span class="gs-badge ms-1" style="background:#e0e7ff;color:#3730a3;">📁 <?= htmlspecialchars($r['project_name']) ?></span><?php endif; ?>
+            </div>
+            <?php if ($r['due_date']): ?><div class="gs-meta">📅 <?= date('d/m/Y', strtotime($r['due_date'])) ?></div><?php endif; ?>
+            <?php if ($r['description']): ?><div class="gs-snippet"><?= hl(snippet($r['description'], $q), $q) ?></div><?php endif; ?>
 
         <?php elseif ($key === 'projects'): ?>
             <?php $estColor = ($r['estado'] ?? 'aberto') === 'aberto' ? '#d1fae5;color:#065f46' : '#e5e7eb;color:#374151'; ?>

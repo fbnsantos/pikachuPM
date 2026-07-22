@@ -280,7 +280,18 @@ if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
                 $search_results['files'] = $s->fetchAll(PDO::FETCH_ASSOC);
             }
 
-            // 7. Research Ideas
+            // 7. Leads
+            if ($pdo_s->query("SHOW TABLES LIKE 'leads'")->rowCount()) {
+                [$w, $p] = gsWhere(['l.titulo','l.descricao'], $gsTerms, $gsExcludes);
+                $s = $pdo_s->prepare("SELECT l.id, l.titulo, l.descricao, l.estado, l.relevancia,
+                                             COALESCE(u.username,'') as responsavel
+                                      FROM leads l LEFT JOIN user_tokens u ON l.responsavel_id = u.user_id
+                                      WHERE $w ORDER BY l.criado_em DESC LIMIT 10");
+                $s->execute($p);
+                $search_results['leads'] = $s->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            // 8. Research Ideas
             if ($pdo_s->query("SHOW TABLES LIKE 'research_ideas'")->rowCount()) {
                 [$w, $p] = gsWhere(['ri.title','ri.description'], $gsTerms, $gsExcludes);
                 $s = $pdo_s->prepare("SELECT ri.id, ri.title, ri.description, ri.status, ri.priority, ri.author
@@ -357,6 +368,7 @@ $sections = [
     'prototypes' => ['🔬', 'Protótipos'],
     'sprints'    => ['🏃', 'Sprints'],
     'files'      => ['📎', 'Ficheiros'],
+    'leads'      => ['🎯', 'Leads'],
     'research'   => ['💡', 'Research Ideas'],
     'links'      => ['🔗', 'Links'],
 ];
@@ -423,6 +435,16 @@ $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
                 Estado: <strong><?= htmlspecialchars($r['estado']) ?></strong>
                 <?php if ($r['data_inicio']): ?> · <?= date('d/m/Y', strtotime($r['data_inicio'])) ?> → <?= $r['data_fim'] ? date('d/m/Y', strtotime($r['data_fim'])) : '?' ?><?php endif; ?>
             </div>
+
+        <?php elseif ($key === 'leads'): ?>
+            <?php $estColor = $r['estado'] === 'aberta' ? '#d1fae5;color:#065f46' : '#e5e7eb;color:#374151'; ?>
+            <div class="gs-title">
+                <a href="?tab=leads"><?= hl($r['titulo'], $q) ?></a>
+                <span class="gs-badge ms-1" style="background:<?= $estColor ?>;"><?= $r['estado'] ?></span>
+                <span class="gs-badge ms-1" style="background:#fef3c7;color:#92400e;">⭐ <?= $r['relevancia'] ?>/10</span>
+            </div>
+            <?php if ($r['responsavel']): ?><div class="gs-meta">👤 <?= htmlspecialchars($r['responsavel']) ?></div><?php endif; ?>
+            <?php if ($r['descricao']): ?><div class="gs-snippet"><?= hl(snippet($r['descricao'], $q), $q) ?></div><?php endif; ?>
 
         <?php elseif ($key === 'research'): ?>
             <?php

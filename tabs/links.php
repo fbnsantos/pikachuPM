@@ -260,12 +260,12 @@ if ($q !== '') {
 <?php
 $total = array_sum(array_map('count', $search_results));
 $sections = [
-    'tasks'      => ['icon' => '✅', 'label' => 'Tasks'],
-    'stories'    => ['icon' => '📋', 'label' => 'User Stories / Bugs / Features'],
-    'prototypes' => ['icon' => '🔬', 'label' => 'Protótipos'],
-    'sprints'    => ['icon' => '🏃', 'label' => 'Sprints'],
-    'files'      => ['icon' => '📎', 'label' => 'Ficheiros'],
-    'links'      => ['icon' => '🔗', 'label' => 'Links'],
+    'tasks'      => ['✅', 'Tasks'],
+    'stories'    => ['📋', 'User Stories / Bugs / Features'],
+    'prototypes' => ['🔬', 'Protótipos'],
+    'sprints'    => ['🏃', 'Sprints'],
+    'files'      => ['📎', 'Ficheiros'],
+    'links'      => ['🔗', 'Links'],
 ];
 $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
 ?>

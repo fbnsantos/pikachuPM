@@ -103,10 +103,235 @@ $filtro = $_GET['filtro'] ?? '';
 $stmt = $db->prepare("SELECT * FROM links WHERE categoria LIKE :filtro ORDER BY ordem ASC, criado_em DESC");
 $stmt->execute([':filtro' => "%$filtro%"]);
 $links = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// ── PESQUISA GLOBAL ──────────────────────────────────────────────
+$q = trim($_GET['q'] ?? '');
+$search_results = [];
+
+function hl(string $text, string $q): string {
+    if ($q === '') return htmlspecialchars($text);
+    return preg_replace('/(' . preg_quote(htmlspecialchars($q), '/') . ')/iu',
+        '<mark>$1</mark>', htmlspecialchars($text));
+}
+function snippet(string $text, string $q, int $radius = 80): string {
+    $pos = mb_stripos($text, $q);
+    if ($pos === false) return mb_substr($text, 0, $radius * 2);
+    $start = max(0, $pos - $radius);
+    $excerpt = ($start > 0 ? '…' : '') . mb_substr($text, $start, $radius * 2 + mb_strlen($q)) . '…';
+    return $excerpt;
+}
+
+if ($q !== '') {
+    $like = "%$q%";
+
+    // 1. Links (SQLite)
+    try {
+        $s = $db->prepare("SELECT id, url, titulo, categoria FROM links
+                           WHERE titulo LIKE :q OR url LIKE :q OR categoria LIKE :q
+                           ORDER BY titulo LIMIT 15");
+        $s->execute([':q' => $like]);
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $search_results['links'][] = $r;
+        }
+    } catch (Exception $e) {}
+
+    // MySQL sources
+    $cfg2 = __DIR__ . '/../config.php';
+    if (file_exists($cfg2)) {
+        try {
+            if (!isset($pdo_files)) {
+                require_once $cfg2;
+                $pdo_s = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass,
+                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+            } else {
+                $pdo_s = $pdo_files;
+            }
+
+            // 2. Tasks (todos)
+            $s = $pdo_s->prepare("SELECT t.id, t.titulo, t.descritivo, t.estado,
+                                         COALESCE(u.username,'') as autor_nome
+                                  FROM todos t
+                                  LEFT JOIN user_tokens u ON t.autor = u.user_id
+                                  WHERE t.titulo LIKE ? OR t.descritivo LIKE ?
+                                  ORDER BY t.created_at DESC LIMIT 15");
+            $s->execute([$like, $like]);
+            $search_results['tasks'] = $s->fetchAll(PDO::FETCH_ASSOC);
+
+            // 3. User Stories
+            $s = $pdo_s->prepare("SELECT us.id, us.story_text, us.moscow_priority, us.story_type,
+                                         us.status, p.id as proto_id, p.short_name, p.title as proto_title
+                                  FROM user_stories us
+                                  JOIN prototypes p ON us.prototype_id = p.id
+                                  WHERE us.story_text LIKE ?
+                                  ORDER BY us.created_at DESC LIMIT 15");
+            $s->execute([$like]);
+            $search_results['stories'] = $s->fetchAll(PDO::FETCH_ASSOC);
+
+            // 4. Protótipos
+            $s = $pdo_s->prepare("SELECT id, short_name, title, vision, product_description
+                                  FROM prototypes
+                                  WHERE short_name LIKE ? OR title LIKE ? OR vision LIKE ?
+                                     OR product_description LIKE ?
+                                  ORDER BY short_name LIMIT 10");
+            $s->execute([$like, $like, $like, $like]);
+            $search_results['prototypes'] = $s->fetchAll(PDO::FETCH_ASSOC);
+
+            // 5. Sprints
+            $s = $pdo_s->prepare("SELECT id, nome, estado, data_inicio, data_fim
+                                  FROM sprints
+                                  WHERE nome LIKE ?
+                                  ORDER BY data_inicio DESC LIMIT 10");
+            $s->execute([$like]);
+            $search_results['sprints'] = $s->fetchAll(PDO::FETCH_ASSOC);
+
+            // 6. Ficheiros
+            $tbl = $pdo_s->query("SHOW TABLES LIKE 'task_files'")->rowCount();
+            if ($tbl) {
+                $hasNotes = $pdo_s->query("SHOW COLUMNS FROM task_files LIKE 'notes'")->rowCount() > 0;
+                $notesSel = $hasNotes ? "tf.notes" : "'' as notes";
+                $notesWhere = $hasNotes ? " OR tf.notes LIKE :q " : '';
+                $s = $pdo_s->prepare("SELECT tf.id as file_id, tf.file_name, tf.file_path,
+                                             tf.uploaded_at, $notesSel,
+                                             COALESCE(t.titulo,'') as task_title, tf.todo_id
+                                      FROM task_files tf
+                                      LEFT JOIN todos t ON tf.todo_id = t.id
+                                      WHERE tf.file_name LIKE :q $notesWhere OR t.titulo LIKE :q
+                                      ORDER BY tf.uploaded_at DESC LIMIT 15");
+                $s->execute([':q' => $like]);
+                $search_results['files'] = $s->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+        } catch (PDOException $e) { /* ignorar */ }
+    }
+}
 ?>
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+.gs-bar { background: linear-gradient(135deg,#1e293b,#0f172a); border-radius: 12px; padding: 28px 24px 24px; margin-bottom: 28px; }
+.gs-bar h2 { color: #f8fafc; font-size: 18px; font-weight: 700; margin: 0 0 14px; letter-spacing: -.3px; }
+.gs-input-wrap { display: flex; gap: 8px; }
+.gs-input { flex: 1; font-size: 16px; padding: 10px 16px; border-radius: 8px; border: 2px solid #334155; background: #0f172a; color: #f1f5f9; outline: none; transition: border-color .2s; }
+.gs-input:focus { border-color: #f59e0b; }
+.gs-btn { padding: 10px 20px; border-radius: 8px; background: #f59e0b; border: none; color: #111; font-weight: 700; cursor: pointer; font-size: 15px; white-space: nowrap; }
+.gs-btn:hover { background: #d97706; }
+.gs-clear { padding: 10px 14px; border-radius: 8px; background: #334155; border: none; color: #94a3b8; cursor: pointer; font-size: 14px; }
+.gs-section { margin-bottom: 20px; }
+.gs-section-title { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .8px; color: #6b7280; border-bottom: 2px solid #e5e7eb; padding-bottom: 6px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.gs-item { display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid #e5e7eb; margin-bottom: 6px; background: #fff; transition: border-color .15s, box-shadow .15s; }
+.gs-item:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(59,130,246,.1); }
+.gs-icon { font-size: 20px; flex-shrink: 0; margin-top: 2px; }
+.gs-body { flex: 1; min-width: 0; }
+.gs-title { font-weight: 600; font-size: 14px; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gs-title a { color: inherit; text-decoration: none; }
+.gs-title a:hover { color: #2563eb; text-decoration: underline; }
+.gs-meta { font-size: 12px; color: #6b7280; margin-top: 2px; }
+.gs-snippet { font-size: 13px; color: #374151; margin-top: 4px; line-height: 1.5; }
+.gs-snippet mark { background: #fef08a; color: #111; border-radius: 2px; padding: 0 2px; }
+.gs-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px; }
+.gs-empty { color: #9ca3af; font-size: 13px; font-style: italic; }
+.gs-total { font-size: 13px; color: #6b7280; margin-top: 10px; }
+</style>
+
 <div class="container mt-4">
+
+<!-- ── PESQUISA GLOBAL ── -->
+<div class="gs-bar">
+    <h2>🔍 Pesquisa Global</h2>
+    <form method="get" class="gs-input-wrap" autocomplete="off">
+        <input type="hidden" name="tab" value="links">
+        <input type="text" name="q" value="<?= htmlspecialchars($q) ?>"
+               class="gs-input" placeholder="Pesquisar tasks, stories, protótipos, ficheiros, links…"
+               autofocus>
+        <button type="submit" class="gs-btn">Pesquisar</button>
+        <?php if ($q !== ''): ?>
+        <a href="?tab=links" class="gs-clear">✕</a>
+        <?php endif; ?>
+    </form>
+</div>
+
+<?php if ($q !== ''): ?>
+<?php
+$total = array_sum(array_map('count', $search_results));
+$sections = [
+    'tasks'      => ['icon' => '✅', 'label' => 'Tasks'],
+    'stories'    => ['icon' => '📋', 'label' => 'User Stories / Bugs / Features'],
+    'prototypes' => ['icon' => '🔬', 'label' => 'Protótipos'],
+    'sprints'    => ['icon' => '🏃', 'label' => 'Sprints'],
+    'files'      => ['icon' => '📎', 'label' => 'Ficheiros'],
+    'links'      => ['icon' => '🔗', 'label' => 'Links'],
+];
+?>
+<div class="gs-total mb-3">
+    <?= $total ?> resultado(s) para "<strong><?= htmlspecialchars($q) ?></strong>"
+    <?php if ($total === 0): ?><span class="gs-empty">— tente outros termos</span><?php endif; ?>
+</div>
+
+<?php foreach ($sections as $key => [$icon, $label]): ?>
+<?php if (!empty($search_results[$key])): ?>
+<div class="gs-section">
+    <div class="gs-section-title"><?= $icon ?> <?= $label ?> <span class="gs-badge" style="background:#e0e7ff;color:#3730a3;"><?= count($search_results[$key]) ?></span></div>
+
+    <?php foreach ($search_results[$key] as $r): ?>
+    <div class="gs-item">
+        <span class="gs-icon"><?= $icon ?></span>
+        <div class="gs-body">
+
+        <?php if ($key === 'links'): ?>
+            <div class="gs-title"><a href="<?= htmlspecialchars($r['url']) ?>" target="_blank"><?= hl($r['titulo'] ?: $r['url'], $q) ?></a></div>
+            <div class="gs-meta"><?= hl($r['categoria'], $q) ?> · <a href="<?= htmlspecialchars($r['url']) ?>" target="_blank" style="color:#6b7280;"><?= hl(parse_url($r['url'], PHP_URL_HOST) ?: $r['url'], $q) ?></a></div>
+
+        <?php elseif ($key === 'tasks'): ?>
+            <?php $stateColors = ['aberta'=>'primary','em execução'=>'warning','suspensa'=>'secondary','completada'=>'success']; ?>
+            <div class="gs-title">
+                <a href="?tab=todos"><?= hl($r['titulo'], $q) ?></a>
+                <span class="gs-badge ms-1" style="background:#dbeafe;color:#1d4ed8;"><?= htmlspecialchars($r['estado']) ?></span>
+            </div>
+            <?php if ($r['autor_nome']): ?><div class="gs-meta">👤 <?= htmlspecialchars($r['autor_nome']) ?></div><?php endif; ?>
+            <?php if ($r['descritivo']): ?><div class="gs-snippet"><?= hl(snippet($r['descritivo'], $q), $q) ?></div><?php endif; ?>
+
+        <?php elseif ($key === 'stories'): ?>
+            <?php $stColors = ['Bug'=>'#fee2e2;color:#991b1b','Feature'=>'#d1fae5;color:#065f46','Story'=>'#e5e7eb;color:#374151']; $st=$r['story_type']??'Story'; ?>
+            <div class="gs-title">
+                <a href="?tab=prototypes/prototypesv2&prototype_id=<?= $r['proto_id'] ?>"><?= htmlspecialchars($r['short_name']) ?></a>
+                <span class="gs-badge ms-1" style="background:<?= $stColors[$st] ?? '#e5e7eb;color:#374151' ?>;"><?= $st ?></span>
+                <span class="gs-badge ms-1" style="background:#e0e7ff;color:#3730a3;"><?= $r['moscow_priority'] ?></span>
+            </div>
+            <div class="gs-snippet"><?= hl(snippet($r['story_text'], $q), $q) ?></div>
+
+        <?php elseif ($key === 'prototypes'): ?>
+            <div class="gs-title"><a href="?tab=prototypes/prototypesv2&prototype_id=<?= $r['id'] ?>"><?= hl($r['short_name'], $q) ?> — <?= hl($r['title'], $q) ?></a></div>
+            <?php $v = $r['vision'] ?: $r['product_description']; if ($v): ?>
+            <div class="gs-snippet"><?= hl(snippet($v, $q), $q) ?></div>
+            <?php endif; ?>
+
+        <?php elseif ($key === 'sprints'): ?>
+            <div class="gs-title"><a href="?tab=sprints"><?= hl($r['nome'], $q) ?></a></div>
+            <div class="gs-meta">
+                Estado: <strong><?= htmlspecialchars($r['estado']) ?></strong>
+                <?php if ($r['data_inicio']): ?> · <?= date('d/m/Y', strtotime($r['data_inicio'])) ?> → <?= $r['data_fim'] ? date('d/m/Y', strtotime($r['data_fim'])) : '?' ?><?php endif; ?>
+            </div>
+
+        <?php elseif ($key === 'files'): ?>
+            <?php $ext = strtolower(pathinfo($r['file_name'], PATHINFO_EXTENSION));
+                  $ficon = in_array($ext,['jpg','jpeg','png','gif','webp']) ? '🖼️' : (in_array($ext,['pdf']) ? '📕' : (in_array($ext,['doc','docx']) ? '📘' : (in_array($ext,['xls','xlsx','csv']) ? '📗' : '📄'))); ?>
+            <div class="gs-title"><?= $ficon ?> <a href="<?= htmlspecialchars($r['file_path']) ?>" target="_blank"><?= hl($r['file_name'], $q) ?></a></div>
+            <div class="gs-meta">
+                <?php if ($r['task_title']): ?>📌 <a href="?tab=todos" style="color:#6b7280;"><?= hl($r['task_title'], $q) ?></a> · <?php endif; ?>
+                <?= date('d/m/Y', strtotime($r['uploaded_at'])) ?>
+            </div>
+            <?php if ($r['notes']): ?><div class="gs-snippet"><?= hl(snippet($r['notes'], $q), $q) ?></div><?php endif; ?>
+        <?php endif; ?>
+
+        </div>
+    </div>
+    <?php endforeach; ?>
+</div>
+<?php endif; ?>
+<?php endforeach; ?>
+<hr class="my-4">
+<?php endif; ?>
+
     <h2>📚 Gestão de Links Web</h2>
     <p class="text-muted">Arraste para reordenar, edite títulos/categorias ou clique para abrir o link.</p>
 

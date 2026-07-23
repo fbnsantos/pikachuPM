@@ -132,14 +132,9 @@ switch ($method) {
                 $params = [$user_id];
 
                 // Adicionar filtro de estado se fornecido
-                $valid_estados_list = '"aberta","em execução","suspensa","completada"';
-                if ($estado === 'aberta') {
-                    // Inclui também registos com estado NULL ou valor inválido
-                    $query .= ' AND (t.estado = ? OR t.estado IS NULL OR t.estado NOT IN (' . $valid_estados_list . '))';
-                    $types .= 's';
-                    $params[] = $estado;
-                } elseif ($estado) {
-                    $query .= ' AND t.estado = ?';
+                // CASE WHEN normaliza estados inválidos/NULL para 'aberta' antes de filtrar
+                if ($estado) {
+                    $query .= " AND CASE WHEN t.estado IN ('aberta', 'em execução', 'suspensa', 'completada') THEN t.estado ELSE 'aberta' END = ?";
                     $types .= 's';
                     $params[] = $estado;
                 }

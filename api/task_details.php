@@ -72,7 +72,20 @@ if ($method === 'GET') {
         ];
     }, $rows);
 
-    echo json_encode(['success' => true, 'task' => $task, 'checklist' => $checklist]);
+    $files = [];
+    $ct = $db->query("SHOW TABLES LIKE 'task_files'");
+    if ($ct && $ct->fetch_row()) {
+        $st2 = $db->prepare('SELECT id, file_name, file_path, file_size, uploaded_at FROM task_files WHERE todo_id = ? ORDER BY uploaded_at ASC');
+        if ($st2) {
+            $st2->bind_param('i', $task_id);
+            $st2->execute();
+            $res2 = $st2->get_result();
+            while ($r = $res2->fetch_assoc()) $files[] = $r;
+            $st2->close();
+        }
+    }
+
+    echo json_encode(['success' => true, 'task' => $task, 'checklist' => $checklist, 'files' => $files]);
 
 } elseif ($method === 'PUT') {
     $input        = json_decode(file_get_contents('php://input'), true) ?? [];

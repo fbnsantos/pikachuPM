@@ -313,6 +313,60 @@ html, body {
 }
 .todo-action-btn:hover { border-color: var(--primary); color: var(--primary); }
 .todo-action-btn.done-btn:hover { border-color: var(--success); color: var(--success); }
+.todo-action-btn.view-btn:hover { border-color: var(--text-muted); color: var(--text); }
+
+/* ── Detail Modal ── */
+.detail-modal .modal-body { max-height: 65vh; overflow-y: auto; }
+
+.detail-meta-row {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;
+}
+.detail-date { font-size: 12px; color: var(--text-muted); }
+
+.detail-info {
+  display: flex; gap: 14px; flex-wrap: wrap;
+  font-size: 12px; color: var(--text-muted); margin-bottom: 12px;
+}
+
+.detail-desc {
+  font-size: 13px; color: var(--text); line-height: 1.6;
+  margin-bottom: 12px; white-space: pre-wrap; word-break: break-word;
+}
+
+.detail-section-title {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--text-muted); margin: 14px 0 6px;
+}
+
+.detail-checklist { display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; }
+.detail-check-item {
+  display: flex; gap: 8px; align-items: flex-start;
+  font-size: 13px; color: var(--text); line-height: 1.4;
+}
+.detail-check-item.checked { color: var(--text-muted); text-decoration: line-through; }
+.detail-check-icon { color: var(--primary); flex-shrink: 0; font-size: 14px; }
+
+.detail-files {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px; margin-bottom: 8px;
+}
+.detail-img-wrap {
+  display: block; border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--border); aspect-ratio: 1;
+}
+.detail-img-wrap img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.detail-file-link {
+  display: block; font-size: 12px; color: var(--primary);
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+  text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  grid-column: 1 / -1;
+}
+.detail-loading, .detail-empty {
+  text-align: center; color: var(--text-muted); padding: 24px 0; font-size: 13px;
+}
+.detail-error { color: var(--danger); font-size: 13px; padding: 12px 0; }
 
 /* ── FAB ── */
 .fab {

@@ -210,6 +210,7 @@ function buildTodoCard(todo) {
       ${resp    ? `<span>${resp}</span>` : ''}
     </div>
     <div class="todo-actions">
+      <button class="todo-action-btn view-btn" data-id="${todo.id}">👁 Ver</button>
       <button class="todo-action-btn edit-btn" data-id="${todo.id}">✏️ Editar</button>
       <button class="todo-action-btn done-btn" data-id="${todo.id}" data-done="${done}">
         ${done ? '↩ Reabrir' : '✔ Concluir'}
@@ -428,6 +429,104 @@ function openModal(todo = null) {
 function closeModal() {
   document.getElementById('modal-overlay').style.display = 'none';
   editingTodoId = null;
+}
+
+// ══════════════════════════════════════════════════════
+// DETAIL MODAL — visualização completa com ficheiros
+// ══════════════════════════════════════════════════════
+let _detailEditId = null;
+
+async function openDetailModal(todoId) {
+  _detailEditId = todoId;
+  const overlay = document.getElementById('detail-overlay');
+  const body    = document.getElementById('detail-body');
+  const title   = document.getElementById('detail-title');
+
+  title.textContent = '…';
+  body.innerHTML = '<div class="detail-loading">A carregar…</div>';
+  overlay.style.display = '';
+
+  let data;
+  try {
+    data = await apiFetch(`task_details.php?id=${todoId}`);
+  } catch(e) {
+    body.innerHTML = `<p class="detail-error">Erro ao carregar: ${escHtml(e.message)}</p>`;
+    return;
+  }
+
+  const task      = data.task      || {};
+  const checklist = data.checklist || [];
+  const files     = data.files     || [];
+  const base      = cfg.apiUrl.endsWith('/') ? cfg.apiUrl : cfg.apiUrl + '/';
+
+  title.textContent = task.titulo || 'Tarefa';
+
+  const estadoLabel = ESTADO_LABEL[task.estado] || task.estado || '';
+  const estadoCls   = ESTADO_CLASS[task.estado]  || '';
+  const date        = task.data_limite ? fmtDate(task.data_limite) : '';
+
+  let html = '';
+
+  // Badge + data
+  html += `<div class="detail-meta-row">`;
+  if (estadoLabel) html += `<span class="badge ${estadoCls}">${escHtml(estadoLabel)}</span>`;
+  if (date)        html += `<span class="detail-date">📅 ${escHtml(date)}</span>`;
+  html += `</div>`;
+
+  // Autor / responsável
+  const autor = task.autor_nome;
+  const resp  = task.responsavel_nome;
+  if (autor || resp) {
+    html += `<div class="detail-info">`;
+    if (autor) html += `<span>✏️ ${escHtml(autor)}</span>`;
+    if (resp)  html += `<span>👤 ${escHtml(resp)}</span>`;
+    html += `</div>`;
+  }
+
+  // Descrição
+  if (task.descritivo) {
+    html += `<div class="detail-desc">${escHtml(task.descritivo).replace(/\n/g, '<br>')}</div>`;
+  }
+
+  // Checklist
+  if (checklist.length) {
+    const done = checklist.filter(i => i.checked).length;
+    html += `<div class="detail-section-title">Checklist ${done}/${checklist.length}</div>`;
+    html += `<div class="detail-checklist">`;
+    checklist.forEach(item => {
+      html += `<div class="detail-check-item${item.checked ? ' checked' : ''}">
+        <span class="detail-check-icon">${item.checked ? '☑' : '☐'}</span>
+        <span>${escHtml(item.text)}</span>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // Ficheiros / imagens
+  if (files.length) {
+    const IMG_EXTS = ['jpg','jpeg','png','gif','webp','heic','heif','bmp'];
+    html += `<div class="detail-section-title">Ficheiros (${files.length})</div>`;
+    html += `<div class="detail-files">`;
+    files.forEach(f => {
+      const url = base + f.file_path;
+      const ext = (f.file_name || '').split('.').pop().toLowerCase();
+      if (IMG_EXTS.includes(ext)) {
+        html += `<a class="detail-img-wrap" href="${escHtml(url)}" target="_blank" rel="noopener">
+          <img src="${escHtml(url)}" alt="${escHtml(f.file_name)}" loading="lazy">
+        </a>`;
+      } else {
+        html += `<a class="detail-file-link" href="${escHtml(url)}" target="_blank" rel="noopener">📎 ${escHtml(f.file_name)}</a>`;
+      }
+    });
+    html += `</div>`;
+  }
+
+  body.innerHTML = html || '<p class="detail-empty">Sem conteúdo adicional.</p>';
+}
+
+function closeDetailModal() {
+  document.getElementById('detail-overlay').style.display = 'none';
+  _detailEditId = null;
 }
 
 async function saveModal() {
@@ -1272,9 +1371,14 @@ function attachEvents() {
 
   // Todos list: event delegation
   document.getElementById('todos-list').addEventListener('click', e => {
+    const viewBtn = e.target.closest('.view-btn');
     const editBtn = e.target.closest('.edit-btn');
     const doneBtn = e.target.closest('.done-btn');
-    const card    = e.target.closest('.todo-card');
+
+    if (viewBtn) {
+      openDetailModal(viewBtn.dataset.id);
+      return;
+    }
 
     if (editBtn) {
       const todo = allTodos.find(t => String(t.id) === editBtn.dataset.id);
@@ -1297,6 +1401,19 @@ function attachEvents() {
   document.getElementById('btn-modal-close').addEventListener('click', closeModal);
   document.getElementById('btn-modal-cancel').addEventListener('click', closeModal);
   document.getElementById('btn-modal-save').addEventListener('click', saveModal);
+
+  // Detail modal
+  document.getElementById('btn-detail-close').addEventListener('click', closeDetailModal);
+  document.getElementById('btn-detail-close2').addEventListener('click', closeDetailModal);
+  document.getElementById('btn-detail-edit').addEventListener('click', () => {
+    const id = _detailEditId;
+    closeDetailModal();
+    const todo = allTodos.find(t => String(t.id) === String(id));
+    if (todo) openModal(todo);
+  });
+  document.getElementById('detail-overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('detail-overlay')) closeDetailModal();
+  });
   document.getElementById('modal-overlay').addEventListener('click', e => {
     if (e.target === document.getElementById('modal-overlay')) closeModal();
   });

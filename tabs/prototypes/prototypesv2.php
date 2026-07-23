@@ -129,6 +129,28 @@ try {
     // Ignorar erros de migração já aplicada
 }
 
+// Estado (ativo/fechado) nos protótipos
+try {
+    if (!$pdo->query("SHOW COLUMNS FROM prototypes LIKE 'estado'")->fetch())
+        $pdo->exec("ALTER TABLE prototypes ADD COLUMN estado ENUM('ativo','fechado') NOT NULL DEFAULT 'ativo'");
+} catch (PDOException $e) {}
+
+// Tabela de media dos protótipos (links / ficheiros / imagens)
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS prototype_media (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        prototype_id INT NOT NULL,
+        tipo ENUM('link','ficheiro','imagem') NOT NULL DEFAULT 'link',
+        url VARCHAR(500) NOT NULL,
+        label VARCHAR(255) DEFAULT '',
+        file_size BIGINT DEFAULT 0,
+        uploaded_by INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (prototype_id) REFERENCES prototypes(id) ON DELETE CASCADE,
+        INDEX idx_prototype (prototype_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+} catch (PDOException $e) {}
+
 // Tabelas de versões (bloco separado para garantir criação independente)
 try {
     $pdo->exec("
@@ -926,6 +948,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId&show_survey=1");
                 exit;
+
+            case 'toggle_prototype_estado':
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                if ($protoId) {
+                    $pdo->prepare("UPDATE prototypes SET estado = IF(estado='ativo','fechado','ativo'), updated_at=NOW() WHERE id=?")
+                        ->execute([$protoId]);
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId");
+                exit;
         }
     } catch (PDOException $e) {
         $message = "Erro: " . $e->getMessage();
@@ -1125,6 +1156,14 @@ if ($selectedPrototypeId) {
             $gpRow = $gpStmt->fetch(PDO::FETCH_ASSOC);
             $gitlabProjectPath = $gpRow['project_path'] ?? null;
         } catch (PDOException $e) {}
+
+        // Media do protótipo (links / ficheiros / imagens)
+        $selectedPrototype['media'] = [];
+        try {
+            $mStmt = $pdo->prepare("SELECT * FROM prototype_media WHERE prototype_id=? ORDER BY tipo, created_at DESC");
+            $mStmt->execute([$selectedPrototypeId]);
+            $selectedPrototype['media'] = $mStmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {}
     }
 }
 
@@ -1134,7 +1173,7 @@ if (!$selectedPrototype) {
     try {
         $ovSql = "
             SELECT
-                p.id, p.short_name, p.title, p.parent_id,
+                p.id, p.short_name, p.title, p.parent_id, p.estado,
                 p.updated_at as proto_updated_at,
                 p.repo_links, p.documentation_links,
                 u.username as responsavel_nome,
@@ -2156,6 +2195,9 @@ if ($selectedPrototype && $checkTodos) {
                                 <?php endif; ?>
                                 <span style="font-weight:700; font-size:<?= $isChild ? '13' : '14' ?>px; color:#1a202c;"><?= htmlspecialchars($ov['short_name']) ?></span>
                                 <span style="font-size:12px; color:#6b7280;"><?= htmlspecialchars($ov['title']) ?></span>
+                                <?php if (($ov['estado'] ?? 'ativo') === 'fechado'): ?>
+                                <span style="font-size:10px; font-weight:600; background:#f3f4f6; color:#6b7280; border-radius:20px; padding:1px 8px; border:1px solid #d1d5db;">🔒 Fechado</span>
+                                <?php endif; ?>
                             </div>
                             <div class="d-flex align-items-center gap-2 flex-shrink-0">
                                 <?php if ($ov['responsavel_nome']): ?>
@@ -2283,8 +2325,21 @@ if ($selectedPrototype && $checkTodos) {
             <!-- Informações Básicas -->
             <div class="detail-section">
                 <div class="section-header">
-                    <h5><i class="bi bi-info-circle"></i> Informações Básicas</h5>
+                    <h5>
+                        <i class="bi bi-info-circle"></i> Informações Básicas
+                        <?php $protoEstado = $selectedPrototype['estado'] ?? 'ativo'; ?>
+                        <span class="badge <?= $protoEstado === 'fechado' ? 'bg-secondary' : 'bg-success' ?>" style="font-size:11px; font-weight:600; vertical-align:middle;">
+                            <?= $protoEstado === 'fechado' ? '🔒 Fechado' : '✅ Ativo' ?>
+                        </span>
+                    </h5>
                     <div>
+                        <form method="POST" style="display:inline;" action="?tab=prototypes/prototypesv2&prototype_id=<?= $selectedPrototypeId ?>">
+                            <input type="hidden" name="action" value="toggle_prototype_estado">
+                            <input type="hidden" name="prototype_id" value="<?= $selectedPrototypeId ?>">
+                            <button type="submit" class="btn btn-sm <?= $protoEstado === 'fechado' ? 'btn-outline-success' : 'btn-outline-secondary' ?>">
+                                <?= $protoEstado === 'fechado' ? '✅ Reabrir' : '🔒 Fechar' ?>
+                            </button>
+                        </form>
                         <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editPrototypeModal">
                             <i class="bi bi-pencil"></i> Editar
                         </button>
@@ -2963,6 +3018,37 @@ if ($selectedPrototype && $checkTodos) {
             </div>
             
             
+            <!-- Links, Ficheiros e Imagens -->
+            <div class="detail-section" id="protoMediaSection">
+                <div class="section-header mb-3">
+                    <h5><i class="bi bi-folder2-open"></i> Links, Ficheiros e Imagens</h5>
+                </div>
+
+                <!-- Adicionar link -->
+                <form id="addProtoLinkForm" class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+                    <input type="url" id="protoLinkUrl" class="form-control form-control-sm" placeholder="https://…" style="max-width:280px" required>
+                    <input type="text" id="protoLinkLabel" class="form-control form-control-sm" placeholder="Descrição (opcional)" style="max-width:200px">
+                    <button type="submit" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg"></i> Adicionar link</button>
+                    <label class="btn btn-sm btn-outline-secondary mb-0" style="cursor:pointer;">
+                        <i class="bi bi-upload"></i> Carregar ficheiro / imagem
+                        <input type="file" id="protoFileInput" style="display:none" multiple>
+                    </label>
+                </form>
+
+                <!-- Progress bar -->
+                <div id="protoUploadProgress" class="mb-2" style="display:none;">
+                    <div class="progress" style="height:4px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" id="protoUploadBar" style="width:0%"></div>
+                    </div>
+                    <small class="text-muted" id="protoUploadStatus"></small>
+                </div>
+
+                <!-- Items -->
+                <div id="protoMediaLinks" class="mb-3"></div>
+                <div id="protoMediaFiles" class="mb-3"></div>
+                <div id="protoMediaImages" class="row g-2"></div>
+            </div>
+
             <!-- Form oculto para eliminar -->
             <form id="deleteForm" method="POST" style="display: none;">
                 <input type="hidden" name="action" value="delete_prototype">
@@ -4373,6 +4459,158 @@ function deleteAttachment(id) {
         Array.from(e.dataTransfer.files).forEach(uploadAttachment);
     });
 })();
+
+// ═══════════════════════════════════════════════════════
+// Prototype Media (Links / Ficheiros / Imagens)
+// ═══════════════════════════════════════════════════════
+const protoMediaUrl  = '<?= rtrim(dirname($_SERVER['PHP_SELF']), '/') ?>/prototype_media.php';
+const protoMediaId   = <?= (int)($selectedPrototype['id'] ?? 0) ?>;
+const protoBaseUrl   = '<?= rtrim(dirname($_SERVER['PHP_SELF']), '/') ?>/';
+const imageExtsMedia = ['jpg','jpeg','png','gif','webp','svg','heic','heif','bmp','avif'];
+
+function escH(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+function renderProtoMedia(items) {
+    const links  = items.filter(i => i.tipo === 'link');
+    const files  = items.filter(i => i.tipo === 'ficheiro');
+    const images = items.filter(i => i.tipo === 'imagem');
+
+    // Links
+    const linksEl = document.getElementById('protoMediaLinks');
+    if (links.length) {
+        linksEl.innerHTML = '<div class="info-label mb-2"><i class="bi bi-link-45deg"></i> Links</div>' +
+            links.map(l => `<div class="d-flex align-items-center gap-2 mb-1">
+                <a href="${escH(l.url)}" target="_blank" class="d-inline-flex align-items-center gap-1 text-decoration-none"
+                   style="background:#4b5563;color:#fff;border-radius:6px;padding:4px 12px;font-size:13px;">
+                    <i class="bi bi-link-45deg"></i> ${escH(l.label || l.url)}
+                    <i class="bi bi-box-arrow-up-right" style="font-size:10px;opacity:.7;"></i>
+                </a>
+                <button class="btn btn-sm btn-outline-danger btn-sm py-0 px-1" onclick="deleteProtoMedia(${l.id})" title="Remover"><i class="bi bi-trash" style="font-size:11px;"></i></button>
+            </div>`).join('');
+    } else {
+        linksEl.innerHTML = '';
+    }
+
+    // Ficheiros
+    const filesEl = document.getElementById('protoMediaFiles');
+    if (files.length) {
+        filesEl.innerHTML = '<div class="info-label mb-2"><i class="bi bi-paperclip"></i> Ficheiros</div>' +
+            files.map(f => {
+                const size = formatBytes(parseInt(f.file_size || 0));
+                const name = f.label || f.url.split('/').pop();
+                return `<div class="d-flex align-items-center gap-2 mb-1 p-2 border rounded" style="font-size:13px;">
+                    <i class="bi bi-file-earmark" style="font-size:18px; color:#6b7280;"></i>
+                    <a href="${protoBaseUrl}${escH(f.url)}" target="_blank" class="text-truncate" style="max-width:300px;">${escH(name)}</a>
+                    <span class="text-muted small ms-auto">${size}</span>
+                    <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deleteProtoMedia(${f.id})" title="Remover"><i class="bi bi-trash" style="font-size:11px;"></i></button>
+                </div>`;
+            }).join('');
+    } else {
+        filesEl.innerHTML = '';
+    }
+
+    // Imagens
+    const imagesEl = document.getElementById('protoMediaImages');
+    if (images.length) {
+        imagesEl.innerHTML = '<div class="col-12"><div class="info-label mb-2"><i class="bi bi-images"></i> Imagens</div></div>' +
+            images.map(img => {
+                const name = img.label || img.url.split('/').pop();
+                return `<div class="col-6 col-md-3 col-lg-2">
+                    <div class="border rounded overflow-hidden" style="position:relative;">
+                        <a href="${protoBaseUrl}${escH(img.url)}" target="_blank">
+                            <img src="${protoBaseUrl}${escH(img.url)}" alt="${escH(name)}"
+                                 style="width:100%;height:90px;object-fit:cover;display:block;">
+                        </a>
+                        <div class="d-flex align-items-center justify-content-between p-1" style="background:#f8f9fa;">
+                            <span class="small text-truncate" style="max-width:80px;" title="${escH(name)}">${escH(name)}</span>
+                            <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deleteProtoMedia(${img.id})" title="Remover"><i class="bi bi-trash" style="font-size:10px;"></i></button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+    } else {
+        imagesEl.innerHTML = '';
+    }
+
+    // Se tudo vazio
+    if (!links.length && !files.length && !images.length) {
+        linksEl.innerHTML = '<p class="text-muted small">Sem links, ficheiros ou imagens adicionados.</p>';
+    }
+}
+
+function loadProtoMedia() {
+    fetch(protoMediaUrl + '?action=list&prototype_id=' + protoMediaId)
+        .then(r => r.json())
+        .then(items => renderProtoMedia(items))
+        .catch(() => {});
+}
+
+function deleteProtoMedia(id) {
+    if (!confirm('Remover este item?')) return;
+    const fd = new FormData();
+    fd.append('action', 'delete');
+    fd.append('id', id);
+    fetch(protoMediaUrl, { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(res => { if (res.success) loadProtoMedia(); else alert(res.error); });
+}
+
+// Adicionar link
+document.getElementById('addProtoLinkForm')?.addEventListener('submit', function(e) {
+    e.preventDefault();
+    const url   = document.getElementById('protoLinkUrl').value.trim();
+    const label = document.getElementById('protoLinkLabel').value.trim();
+    if (!url) return;
+    fetch(protoMediaUrl + '?action=add_link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prototype_id: protoMediaId, url, label }),
+    }).then(r => r.json()).then(res => {
+        if (res.success) {
+            document.getElementById('protoLinkUrl').value = '';
+            document.getElementById('protoLinkLabel').value = '';
+            loadProtoMedia();
+        } else { alert(res.error); }
+    });
+});
+
+// Upload ficheiro/imagem
+function uploadProtoFile(file) {
+    const bar      = document.getElementById('protoUploadBar');
+    const progress = document.getElementById('protoUploadProgress');
+    const status   = document.getElementById('protoUploadStatus');
+    progress.style.display = '';
+    bar.style.width = '0%';
+    if (status) status.textContent = 'A enviar: ' + file.name;
+
+    const fd = new FormData();
+    fd.append('action', 'upload');
+    fd.append('prototype_id', protoMediaId);
+    fd.append('file', file);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', protoMediaUrl);
+    xhr.upload.onprogress = e => {
+        if (e.lengthComputable) bar.style.width = Math.round(e.loaded / e.total * 100) + '%';
+    };
+    xhr.onload = () => {
+        progress.style.display = 'none';
+        try {
+            const res = JSON.parse(xhr.responseText);
+            if (res.success) loadProtoMedia();
+            else alert(res.error || 'Erro no upload');
+        } catch(err) { alert('Erro ao processar resposta'); }
+    };
+    xhr.send(fd);
+}
+
+document.getElementById('protoFileInput')?.addEventListener('change', function() {
+    Array.from(this.files).forEach(uploadProtoFile);
+    this.value = '';
+});
+
+// Carregar ao iniciar
+loadProtoMedia();
 </script>
 <?php endif; ?>
 

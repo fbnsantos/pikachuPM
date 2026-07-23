@@ -8,10 +8,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { exit; }
 
 function jerr($code, $msg) { http_response_code($code); echo json_encode(['error' => $msg]); exit; }
 
-// Auth
-$auth = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
-if (!preg_match('/^Bearer\s+(.+)$/i', $auth, $m)) jerr(401, 'Token em falta');
-$token = trim($m[1]);
+// Auth — mesma lógica do todos.php (getallheaders é mais fiável em Apache/FPM)
+function get_bearer_token() {
+    $headers = getallheaders();
+    if (isset($headers['Authorization']) && preg_match('/Bearer\s(\S+)/', $headers['Authorization'], $m)) return $m[1];
+    if (isset($headers['authorization']) && preg_match('/Bearer\s(\S+)/', $headers['authorization'], $m)) return $m[1];
+    if (!empty($_SERVER['HTTP_AUTHORIZATION']) && preg_match('/Bearer\s(\S+)/', $_SERVER['HTTP_AUTHORIZATION'], $m)) return $m[1];
+    return null;
+}
+$token = get_bearer_token();
+if (!$token) jerr(401, 'Token em falta');
 
 require_once __DIR__ . '/../config.php';
 try {

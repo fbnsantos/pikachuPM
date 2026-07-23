@@ -131,43 +131,57 @@ switch ($method) {
                 $types  = 'i';
                 $params = [$user_id];
 
-                // Adicionar filtro de estado se fornecido
-                // CASE WHEN normaliza estados inválidos/NULL para 'aberta' antes de filtrar
+                // Estados activos (os restantes são todos tratados como concluída)
+                // A DB tem vários valores para "fechado": concluída, completada, fechada, …
+                // A lógica: só 'aberta','em execução','suspensa' são activos; tudo o resto → concluída
+                // NULL/desconhecido → aberta (bug bind_param, registos sem estado)
+                $closed_sql = "'concluída','completada','fechada'";
+
                 if ($estado) {
-                    $query .= " AND CASE WHEN t.estado IN ('aberta', 'em execução', 'suspensa', 'concluída') THEN t.estado ELSE 'aberta' END = ?";
-                    $types .= 's';
-                    $params[] = $estado;
+                    if ($estado === 'concluída') {
+                        // Mostrar qualquer estado fechado (todos os sinónimos)
+                        $query .= " AND t.estado IN ($closed_sql)";
+                    } elseif ($estado === 'aberta') {
+                        // Aberta explícita OU estado desconhecido/inválido (NULL, '0', etc.)
+                        $query .= " AND (t.estado = ? OR t.estado IS NULL OR t.estado = '' OR (t.estado NOT IN ('aberta','em execução','suspensa',$closed_sql)))";
+                        $types .= 's';
+                        $params[] = $estado;
+                    } else {
+                        // 'em execução' ou 'suspensa' — correspondência exacta
+                        $query .= ' AND t.estado = ?';
+                        $types .= 's';
+                        $params[] = $estado;
+                    }
                 }
-                
-                // Adicionar ordenação
-                $query .= ' ORDER BY 
-                    CASE 
-                        WHEN t.estado = "em execução" THEN 1
-                        WHEN t.estado = "aberta" THEN 2
-                        WHEN t.estado = "suspensa" THEN 3
-                        WHEN t.estado = "concluída" THEN 4
-                        ELSE 5
+
+                // Ordenação: estados activos primeiro, fechados no fim
+                $query .= " ORDER BY
+                    CASE
+                        WHEN t.estado = 'em execução' THEN 1
+                        WHEN t.estado = 'aberta' OR t.estado IS NULL OR t.estado = '' THEN 2
+                        WHEN t.estado = 'suspensa' THEN 3
+                        WHEN t.estado IN ($closed_sql) THEN 4
+                        ELSE 2
                     END,
-                    CASE 
-                        WHEN t.data_limite IS NULL THEN 1
-                        ELSE 0
-                    END,
+                    CASE WHEN t.data_limite IS NULL THEN 1 ELSE 0 END,
                     t.data_limite ASC,
                     t.created_at DESC
-                ';
-                
+                ";
+
                 $stmt = $db->prepare($query);
-                
-                // Vincular parâmetros
                 $stmt->bind_param($types, ...$params);
                 $stmt->execute();
                 $result = $stmt->get_result();
-                
-                $valid_for_norm = ['aberta', 'em execução', 'suspensa', 'concluída'];
+
+                // Normalizar estado na resposta para a PWA
+                $closed_php = ['concluída', 'completada', 'fechada'];
+                $active_php = ['aberta', 'em execução', 'suspensa'];
                 $todos = [];
                 while ($row = $result->fetch_assoc()) {
-                    if (!in_array($row['estado'], $valid_for_norm)) {
-                        $row['estado'] = 'aberta';
+                    if (in_array($row['estado'], $closed_php)) {
+                        $row['estado'] = 'concluída';
+                    } elseif (!in_array($row['estado'], $active_php)) {
+                        $row['estado'] = 'aberta'; // NULL / inválido / desconhecido
                     }
                     $todos[] = $row;
                 }

@@ -58,6 +58,17 @@ $origName = basename($file['name']);
 
 try {
     if ($type === 'todo') {
+        if (!$pdo->query("SHOW TABLES LIKE 'task_files'")->fetch()) {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS task_files (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                todo_id INT NOT NULL,
+                file_name VARCHAR(255) NOT NULL,
+                file_path VARCHAR(500) NOT NULL,
+                file_size BIGINT NOT NULL,
+                uploaded_by INT,
+                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
         $s = $pdo->prepare('INSERT INTO task_files (todo_id, file_name, file_path, file_size, uploaded_by) VALUES (?,?,?,?,?)');
         $s->execute([$refId, $origName, $relPath, $file['size'], $userId]);
     } else {

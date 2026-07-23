@@ -37,9 +37,10 @@ let allTodos      = [];
 let filterState   = 'all';
 let searchQuery   = '';
 let editingTodoId = null;
-let mqttClient    = null;
-let mqttMessages  = [];
-const MAX_MQTT_MSGS = 50;
+let mqttClient       = null;
+let mqttMessages     = [];
+let barAlertLastSent = 0;
+const MAX_MQTT_MSGS  = 50;
 
 let pendingTodoAttachments  = [];
 let pendingStoryAttachments = [];
@@ -1545,6 +1546,13 @@ document.addEventListener('DOMContentLoaded', init);
 // BAR ALERT — publica "bar" no tópico configurado no admin
 // ══════════════════════════════════════════════════════
 async function publishBarAlert() {
+  const elapsed = Date.now() - barAlertLastSent;
+  if (elapsed < 60000) {
+    const restam = Math.ceil((60000 - elapsed) / 1000);
+    showToast(`Aguarda ${restam}s antes de enviar outro alerta`, 'error');
+    return;
+  }
+
   const btn = document.getElementById('btn-bar');
   if (btn) btn.disabled = true;
 
@@ -1567,6 +1575,7 @@ async function publishBarAlert() {
   mqttClient.publish(TOPIC, 'bar', { qos: 0 }, err => {
     if (btn) btn.disabled = false;
     if (!err) {
+      barAlertLastSent = Date.now();
       showToast('🔕 Alerta de barulho enviado!', 'success');
       mqttAddMsg(TOPIC, 'bar', 'outgoing');
       if (btn) { btn.classList.add('sent'); setTimeout(() => btn.classList.remove('sent'), 1500); }

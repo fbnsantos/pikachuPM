@@ -192,7 +192,8 @@ switch ($method) {
             // Preparar os dados
             $titulo = trim($input['titulo']);
             $descritivo = trim($input['descritivo'] ?? '');
-            $data_limite = trim($input['data_limite'] ?? '');
+            $data_limite_raw = trim($input['data_limite'] ?? '');
+            $data_limite = ($data_limite_raw !== '') ? $data_limite_raw : null;
             $responsavel = isset($input['responsavel']) ? (int)$input['responsavel'] : $user_id;
             $task_id = isset($input['task_id']) ? (int)$input['task_id'] : null;
             $todo_issue = trim($input['todo_issue'] ?? '');
@@ -233,16 +234,16 @@ switch ($method) {
                 ?, ?, ?, ?, ?
             )');
             
-            $stmt->bind_param('sssiiisiis', 
-                $titulo, 
-                $descritivo, 
-                $data_limite, 
-                $user_id, 
+            $stmt->bind_param('sssiiisiis',
+                $titulo,
+                $descritivo,
+                $data_limite,
+                $user_id,
                 $responsavel,
-                $task_id_param, 
-                $todo_issue, 
-                $milestone_id_param, 
-                $projeto_id_param, 
+                $task_id_param,
+                $todo_issue,
+                $milestone_id_param,
+                $projeto_id_param,
                 $estado
             );
 
@@ -379,15 +380,15 @@ switch ($method) {
                     WHERE id = ?
                 ');
                 
-                $stmt->bind_param('sssiiisiis', 
-                    $titulo, 
-                    $descritivo, 
-                    $data_limite, 
-                    $responsavel, 
-                    $task_id_param, 
-                    $todo_issue, 
-                    $milestone_id_param, 
-                    $projeto_id_param, 
+                $stmt->bind_param('sssiisiisi',
+                    $titulo,
+                    $descritivo,
+                    $data_limite,
+                    $responsavel,
+                    $task_id_param,
+                    $todo_issue,
+                    $milestone_id_param,
+                    $projeto_id_param,
                     $estado,
                     $todo_id
                 );

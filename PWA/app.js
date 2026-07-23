@@ -1584,29 +1584,11 @@ async function publishBarAlert() {
 
   const MSG = 'bar';
 
-  function doPublish(client) {
-    client.publish(TOPIC, MSG, { qos: 0 }, err => {
-      if (!err) {
-        showToast('🔕 Alerta de barulho enviado!', 'success');
-        mqttAddMsg(TOPIC, MSG, 'outgoing');
-        if (btn) { btn.classList.add('sent'); setTimeout(() => btn.classList.remove('sent'), 1500); }
-      } else {
-        showToast('Erro ao enviar alerta', 'error');
-      }
-      if (btn) btn.disabled = false;
-    });
-  }
-
-  if (mqttClient && mqttClient.connected) {
-    doPublish(mqttClient);
-    return;
-  }
-
   const opts = {
     clientId:        'pk_bar_' + Math.random().toString(16).slice(2),
     keepalive:       30,
     reconnectPeriod: 0,
-    connectTimeout:  5000,
+    connectTimeout:  8000,
     username:        BAR_USER,
     password:        BAR_PASS,
   };
@@ -1616,10 +1598,28 @@ async function publishBarAlert() {
     const t   = setTimeout(() => {
       tmp.end(true);
       if (btn) btn.disabled = false;
-      showToast('Tempo esgotado ao ligar ao broker', 'error');
-    }, 6000);
-    tmp.on('connect', () => { clearTimeout(t); doPublish(tmp); setTimeout(() => tmp.end(true), 1000); });
-    tmp.on('error',   () => { clearTimeout(t); tmp.end(true); if (btn) btn.disabled = false; showToast('Erro a ligar ao broker MQTT', 'error'); });
+      showToast('Tempo esgotado ao ligar ao broker (' + BROKER + ')', 'error');
+    }, 10000);
+    tmp.on('connect', () => {
+      clearTimeout(t);
+      tmp.publish(TOPIC, MSG, { qos: 0 }, err => {
+        tmp.end(true);
+        if (btn) btn.disabled = false;
+        if (!err) {
+          showToast('🔕 Alerta de barulho enviado!', 'success');
+          mqttAddMsg(TOPIC, MSG, 'outgoing');
+          if (btn) { btn.classList.add('sent'); setTimeout(() => btn.classList.remove('sent'), 1500); }
+        } else {
+          showToast('Erro ao publicar alerta: ' + err.message, 'error');
+        }
+      });
+    });
+    tmp.on('error', e => {
+      clearTimeout(t);
+      tmp.end(true);
+      if (btn) btn.disabled = false;
+      showToast('Erro MQTT: ' + (e && e.message ? e.message : BROKER), 'error');
+    });
   } catch(e) {
     if (btn) btn.disabled = false;
     showToast('Erro: ' + e.message, 'error');

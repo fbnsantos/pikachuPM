@@ -1,4 +1,4 @@
-const CACHE = 'pikachu-pwa-v12';
+const CACHE = 'pikachu-pwa-v13';
 const SHELL = [
   './index.html',
   './app.css',

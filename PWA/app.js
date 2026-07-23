@@ -725,7 +725,7 @@ async function mqttConnect() {
     broker = s.mqtt_broker;
     user   = s.mqtt_bar_user;
     pass   = s.mqtt_bar_pass;
-    topics = s.mqtt_topics ? s.mqtt_topics.split('\n').map(t => t.trim()).filter(Boolean) : ['#'];
+    topics = s.mqtt_topics ? s.mqtt_topics.split('\n').map(t => t.trim()).filter(t => t && t !== '#') : [];
   } catch(e) {
     mqttSetState('disconnected');
     return;

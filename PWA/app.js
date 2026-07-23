@@ -1326,6 +1326,8 @@ function attachEvents() {
   });
 
   setupAttachEvents();
+
+  document.getElementById('btn-bar')?.addEventListener('click', publishBarAlert);
 }
 
 // ══════════════════════════════════════════════════════
@@ -1553,6 +1555,60 @@ function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// ══════════════════════════════════════════════════════
+// BAR ALERT — publica "bar" em /PK/alertabarulho
+// ══════════════════════════════════════════════════════
+function publishBarAlert() {
+  const TOPIC  = '/PK/alertabarulho';
+  const MSG    = 'bar';
+  const BROKER = 'wss://vcriis01.inesctec.pt:9002';
+  const btn    = document.getElementById('btn-bar');
+
+  function doPublish(client) {
+    client.publish(TOPIC, MSG, { qos: 0 }, err => {
+      if (!err) {
+        showToast('🔕 Alerta de barulho enviado!', 'success');
+        mqttAddMsg(TOPIC, MSG, 'outgoing');
+        if (btn) { btn.classList.add('sent'); setTimeout(() => btn.classList.remove('sent'), 1500); }
+      } else {
+        showToast('Erro ao enviar alerta', 'error');
+      }
+      if (btn) btn.disabled = false;
+    });
+  }
+
+  if (btn) btn.disabled = true;
+
+  if (mqttClient && mqttClient.connected) {
+    doPublish(mqttClient);
+    return;
+  }
+
+  // Ligação temporária directa ao vcriis01
+  const opts = {
+    clientId:        'pk_bar_' + Math.random().toString(16).slice(2),
+    keepalive:       30,
+    reconnectPeriod: 0,
+    connectTimeout:  5000,
+  };
+  if (cfg.mqttUser) opts.username = cfg.mqttUser;
+  if (cfg.mqttPass) opts.password = cfg.mqttPass;
+
+  try {
+    const tmp = mqtt.connect(BROKER, opts);
+    const t   = setTimeout(() => {
+      tmp.end(true);
+      if (btn) btn.disabled = false;
+      showToast('Tempo esgotado ao ligar ao broker', 'error');
+    }, 6000);
+    tmp.on('connect', () => { clearTimeout(t); doPublish(tmp); setTimeout(() => tmp.end(true), 1000); });
+    tmp.on('error',   () => { clearTimeout(t); tmp.end(true); if (btn) btn.disabled = false; showToast('Erro a ligar ao broker MQTT', 'error'); });
+  } catch(e) {
+    if (btn) btn.disabled = false;
+    showToast('Erro: ' + e.message, 'error');
+  }
+}
 
 // ══════════════════════════════════════════════════════
 // ATTACHMENTS — foto/imagem na criação de task ou story

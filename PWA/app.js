@@ -1595,13 +1595,7 @@ async function publishBarAlert() {
     }
   }
 
-  // Se o cliente principal já está ligado usa-o directamente
-  if (mqttClient && mqttClient.connected) {
-    mqttClient.publish(TOPIC, MSG, { qos: 0 }, onSent);
-    return;
-  }
-
-  // Ligação temporária dedicada ao broker do bar alert
+  // Ligação temporária dedicada ao broker do bar alert (nunca usa mqttClient principal — pode ser outro broker)
   const opts = {
     clientId:        'pk_bar_' + Math.random().toString(16).slice(2),
     keepalive:       30,

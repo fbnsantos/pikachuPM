@@ -469,7 +469,6 @@ function openSettings() {
   document.getElementById('cfg-pom-focus').value      = cfg.pomFocus || 25;
   document.getElementById('cfg-pom-short').value      = cfg.pomShort || 5;
   document.getElementById('cfg-pom-long').value       = cfg.pomLong  || 15;
-  updateMqttFields();
   document.getElementById('settings-screen').style.display = '';
 }
 
@@ -1549,69 +1548,32 @@ async function publishBarAlert() {
   const btn = document.getElementById('btn-bar');
   if (btn) btn.disabled = true;
 
-  let BROKER, BAR_USER, BAR_PASS, TOPIC;
+  let TOPIC;
   try {
-    const s  = await apiFetch('settings.php');
-    BROKER   = s.mqtt_broker;
-    BAR_USER = s.mqtt_bar_user;
-    BAR_PASS = s.mqtt_bar_pass;
-    TOPIC    = s.mqtt_bar_topic || '/PK/alertabarulho';
+    const s = await apiFetch('settings.php');
+    TOPIC   = s.mqtt_bar_topic || '/PK/alertabarulho';
   } catch (e) {
     if (btn) btn.disabled = false;
     showToast('Erro ao obter configuração MQTT', 'error');
     return;
   }
 
-  if (!BROKER || !BAR_USER) {
+  if (!mqttClient || !mqttClient.connected) {
     if (btn) btn.disabled = false;
-    showToast('MQTT não configurado. Configure em Admin > MQTT.', 'error');
+    showToast('MQTT não ligado. Verifica configuração em Admin.', 'error');
     return;
   }
 
-  const MSG = 'bar';
-
-  function onSent(err) {
+  mqttClient.publish(TOPIC, 'bar', { qos: 0 }, err => {
     if (btn) btn.disabled = false;
     if (!err) {
       showToast('🔕 Alerta de barulho enviado!', 'success');
-      mqttAddMsg(TOPIC, MSG, 'outgoing');
+      mqttAddMsg(TOPIC, 'bar', 'outgoing');
       if (btn) { btn.classList.add('sent'); setTimeout(() => btn.classList.remove('sent'), 1500); }
     } else {
       showToast('Erro ao publicar alerta: ' + err.message, 'error');
     }
-  }
-
-  // Ligação temporária dedicada ao broker do bar alert (nunca usa mqttClient principal — pode ser outro broker)
-  const opts = {
-    clientId:        'pk_bar_' + Math.random().toString(16).slice(2),
-    keepalive:       30,
-    reconnectPeriod: 0,
-    connectTimeout:  8000,
-    username:        BAR_USER,
-    password:        BAR_PASS,
-  };
-
-  try {
-    const tmp = mqtt.connect(BROKER, opts);
-    const t   = setTimeout(() => {
-      tmp.end(true);
-      if (btn) btn.disabled = false;
-      showToast('Tempo esgotado (' + BROKER + ')', 'error');
-    }, 10000);
-    tmp.on('connect', () => {
-      clearTimeout(t);
-      tmp.publish(TOPIC, MSG, { qos: 0 }, err => { tmp.end(true); onSent(err); });
-    });
-    tmp.on('error', e => {
-      clearTimeout(t);
-      tmp.end(true);
-      if (btn) btn.disabled = false;
-      showToast('Erro MQTT: ' + (e && e.message ? e.message : BROKER), 'error');
-    });
-  } catch(e) {
-    if (btn) btn.disabled = false;
-    showToast('Erro: ' + e.message, 'error');
-  }
+  });
 }
 
 // ══════════════════════════════════════════════════════

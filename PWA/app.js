@@ -1557,15 +1557,32 @@ function init() {
 document.addEventListener('DOMContentLoaded', init);
 
 // ══════════════════════════════════════════════════════
-// BAR ALERT — publica "bar" em /PK/alertabarulho
+// BAR ALERT — publica "bar" no tópico configurado no admin
 // ══════════════════════════════════════════════════════
-function publishBarAlert() {
-  const TOPIC  = '/PK/alertabarulho';
-  const MSG    = 'bar';
-  const BROKER      = 'wss://mqtt.vifield.com:9002';
-  const BAR_USER    = 'vifield';
-  const BAR_PASS    = '$vifield2025#';
-  const btn         = document.getElementById('btn-bar');
+async function publishBarAlert() {
+  const btn = document.getElementById('btn-bar');
+  if (btn) btn.disabled = true;
+
+  let BROKER, BAR_USER, BAR_PASS, TOPIC;
+  try {
+    const s  = await apiFetch('settings.php');
+    BROKER   = s.mqtt_broker;
+    BAR_USER = s.mqtt_bar_user;
+    BAR_PASS = s.mqtt_bar_pass;
+    TOPIC    = s.mqtt_bar_topic || '/PK/alertabarulho';
+  } catch (e) {
+    if (btn) btn.disabled = false;
+    showToast('Erro ao obter configuração MQTT', 'error');
+    return;
+  }
+
+  if (!BROKER || !BAR_USER) {
+    if (btn) btn.disabled = false;
+    showToast('MQTT não configurado. Configure em Admin > MQTT.', 'error');
+    return;
+  }
+
+  const MSG = 'bar';
 
   function doPublish(client) {
     client.publish(TOPIC, MSG, { qos: 0 }, err => {
@@ -1580,14 +1597,11 @@ function publishBarAlert() {
     });
   }
 
-  if (btn) btn.disabled = true;
-
   if (mqttClient && mqttClient.connected) {
     doPublish(mqttClient);
     return;
   }
 
-  // Ligação temporária ao mqtt.vifield.com com credenciais fixas
   const opts = {
     clientId:        'pk_bar_' + Math.random().toString(16).slice(2),
     keepalive:       30,

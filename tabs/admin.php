@@ -80,6 +80,17 @@ if ($total_admins == 0) {
     return; // Parar aqui até que o primeiro admin seja configurado
 }
 
+// Criar tabela app_settings se não existir
+try {
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS app_settings (
+            setting_key VARCHAR(100) PRIMARY KEY,
+            setting_value TEXT NOT NULL DEFAULT '',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+} catch (Exception $e) { /* já existe */ }
+
 // Verificar se o utilizador atual é administrador
 $stmt = $pdo->prepare("SELECT * FROM admin_users WHERE user_id = ?");
 $stmt->execute([$current_user_id]);
@@ -132,6 +143,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_theme'])) {
         $erro_admin = "❌ Formato de cor inválido. Use formato hexadecimal (#RRGGBB).";
     }
 }
+
+// ========================================
+// CONFIGURAÇÃO MQTT (Bar Alert)
+// ========================================
+$mensagem_mqtt = '';
+$erro_mqtt = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_mqtt_settings'])) {
+    $mqtt_fields = ['mqtt_broker', 'mqtt_bar_user', 'mqtt_bar_pass', 'mqtt_bar_topic'];
+    try {
+        $stmt = $pdo->prepare("INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
+        foreach ($mqtt_fields as $field) {
+            $stmt->execute([$field, trim($_POST[$field] ?? '')]);
+        }
+        $mensagem_mqtt = "✅ Configuração MQTT guardada com sucesso!";
+    } catch (Exception $e) {
+        $erro_mqtt = "❌ Erro ao guardar: " . $e->getMessage();
+    }
+}
+
+// Carregar configurações MQTT actuais
+$mqtt_settings = ['mqtt_broker' => '', 'mqtt_bar_user' => '', 'mqtt_bar_pass' => '', 'mqtt_bar_topic' => '/PK/alertabarulho'];
+try {
+    $stmt = $pdo->query("SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ('mqtt_broker','mqtt_bar_user','mqtt_bar_pass','mqtt_bar_topic')");
+    foreach ($stmt->fetchAll(PDO::FETCH_KEY_PAIR) as $k => $v) {
+        $mqtt_settings[$k] = $v;
+    }
+} catch (Exception $e) { /* usar defaults */ }
 
 // Carregar configurações atuais de tema
 $current_theme = ['gradient_color1' => '#667eea', 'gradient_color2' => '#764ba2'];
@@ -406,6 +445,55 @@ function applyPreset(color1, color2) {
     updatePreview();
 }
 </script>
+
+<!-- Card de Configuração MQTT -->
+<div class="card mb-4 shadow-sm">
+    <div class="card-header" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white;">
+        <h3 class="mb-0">
+            <i class="bi bi-broadcast"></i> Configuração MQTT (Bar Alert)
+        </h3>
+    </div>
+    <div class="card-body">
+        <?php if ($mensagem_mqtt): ?>
+            <div class="alert alert-success alert-dismissible fade show">
+                <?= htmlspecialchars($mensagem_mqtt) ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+        <?php if ($erro_mqtt): ?>
+            <div class="alert alert-danger alert-dismissible fade show">
+                <?= htmlspecialchars($erro_mqtt) ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+        <p class="text-muted mb-3">Credenciais usadas pela PWA para publicar o alerta de barulho (botão 🔕). A PWA lê estas configurações via <code>api/settings.php</code> em tempo real.</p>
+        <form method="post">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label"><strong>Broker URL</strong> <small class="text-muted">(ex: wss://host:9002)</small></label>
+                    <input type="text" name="mqtt_broker" class="form-control" value="<?= htmlspecialchars($mqtt_settings['mqtt_broker']) ?>" placeholder="wss://mqtt.vifield.com:9002">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label"><strong>Tópico Bar Alert</strong></label>
+                    <input type="text" name="mqtt_bar_topic" class="form-control" value="<?= htmlspecialchars($mqtt_settings['mqtt_bar_topic']) ?>" placeholder="/PK/alertabarulho">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label"><strong>Utilizador MQTT</strong></label>
+                    <input type="text" name="mqtt_bar_user" class="form-control" value="<?= htmlspecialchars($mqtt_settings['mqtt_bar_user']) ?>" placeholder="username">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label"><strong>Password MQTT</strong></label>
+                    <input type="password" name="mqtt_bar_pass" class="form-control" value="<?= htmlspecialchars($mqtt_settings['mqtt_bar_pass']) ?>" placeholder="password" autocomplete="new-password">
+                </div>
+            </div>
+            <div class="mt-3">
+                <button type="submit" name="save_mqtt_settings" class="btn btn-primary">
+                    <i class="bi bi-save"></i> Guardar Configuração MQTT
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <div class="card mb-4 shadow-sm">
     <div class="card-header" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;">

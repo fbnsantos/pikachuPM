@@ -285,6 +285,14 @@
             <input type="date" id="todo-data-limite">
           </div>
         </div>
+        <div class="attach-row">
+          <span class="attach-label">Imagens</span>
+          <button type="button" class="attach-btn" id="todo-camera-btn">📷 Câmara</button>
+          <button type="button" class="attach-btn" id="todo-gallery-btn">🖼 Galeria</button>
+          <input type="file" id="todo-file-camera" accept="image/*" capture="environment" style="display:none">
+          <input type="file" id="todo-file-gallery" accept="image/*" multiple style="display:none">
+        </div>
+        <div class="attach-thumbs" id="todo-attach-thumbs"></div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="btn-modal-cancel">Cancelar</button>
@@ -354,6 +362,14 @@
             <option value="Won't">Won't Have</option>
           </select>
         </div>
+        <div class="attach-row">
+          <span class="attach-label">Imagens</span>
+          <button type="button" class="attach-btn" id="story-camera-btn">📷 Câmara</button>
+          <button type="button" class="attach-btn" id="story-gallery-btn">🖼 Galeria</button>
+          <input type="file" id="story-file-camera" accept="image/*" capture="environment" style="display:none">
+          <input type="file" id="story-file-gallery" accept="image/*" multiple style="display:none">
+        </div>
+        <div class="attach-thumbs" id="story-attach-thumbs"></div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="btn-story-cancel">Cancelar</button>

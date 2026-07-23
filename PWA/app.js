@@ -46,6 +46,9 @@ let mqttClient    = null;
 let mqttMessages  = [];
 const MAX_MQTT_MSGS = 50;
 
+let pendingTodoAttachments  = [];
+let pendingStoryAttachments = [];
+
 // ══════════════════════════════════════════════════════
 // API
 // ══════════════════════════════════════════════════════
@@ -415,6 +418,13 @@ function openModal(todo = null) {
   document.getElementById('todo-descritivo').value = todo?.descritivo || '';
   document.getElementById('todo-estado').value = todo?.estado || 'aberta';
   document.getElementById('todo-data-limite').value = todo?.data_limite?.split('T')[0] || '';
+  pendingTodoAttachments = [];
+  const th = document.getElementById('todo-attach-thumbs');
+  if (th) th.innerHTML = '';
+  const ci = document.getElementById('todo-file-camera');
+  const gi = document.getElementById('todo-file-gallery');
+  if (ci) ci.value = '';
+  if (gi) gi.value = '';
   document.getElementById('modal-overlay').style.display = '';
   setTimeout(() => document.getElementById('todo-titulo').focus(), 100);
 }
@@ -440,9 +450,13 @@ async function saveModal() {
   const wasEditing = !!editingTodoId;
   btn.disabled = true;
   try {
-    await saveTodo(todo);
+    const result = await saveTodo(todo);
+    const savedId = editingTodoId || result?.todo?.id;
+    const filesToUpload = pendingTodoAttachments.filter(Boolean);
+    pendingTodoAttachments = [];
     closeModal();
     showToast(wasEditing ? 'Todo atualizado!' : 'Todo criado!', 'success');
+    if (filesToUpload.length && savedId) await uploadAttachments(filesToUpload, savedId, 'todo');
     await loadTodos();
   } catch(e) {
     showToast('Erro ao guardar: ' + e.message, 'error');
@@ -1310,6 +1324,8 @@ function attachEvents() {
   document.getElementById('mqtt-pub-msg-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') mqttPublish();
   });
+
+  setupAttachEvents();
 }
 
 // ══════════════════════════════════════════════════════
@@ -1539,6 +1555,68 @@ function init() {
 document.addEventListener('DOMContentLoaded', init);
 
 // ══════════════════════════════════════════════════════
+// ATTACHMENTS — foto/imagem na criação de task ou story
+// ══════════════════════════════════════════════════════
+function handleAttachFiles(files, pendingArr, thumbsId) {
+  const thumbsEl = document.getElementById(thumbsId);
+  Array.from(files).forEach(file => {
+    const idx = pendingArr.length;
+    pendingArr.push(file);
+    if (!thumbsEl) return;
+    const url = URL.createObjectURL(file);
+    const div = document.createElement('div');
+    div.className = 'attach-thumb';
+    div.innerHTML = `<img src="${url}" alt=""><button class="attach-remove" data-idx="${idx}" title="Remover">✕</button>`;
+    thumbsEl.appendChild(div);
+  });
+}
+
+async function uploadAttachments(files, refId, type) {
+  const base = cfg.apiUrl.endsWith('/') ? cfg.apiUrl : cfg.apiUrl + '/';
+  for (const file of files) {
+    const fd = new FormData();
+    fd.append('type',   type);
+    fd.append('ref_id', String(refId));
+    fd.append('file',   file);
+    try {
+      const resp = await fetch(base + 'api/upload.php', {
+        method:  'POST',
+        headers: { 'Authorization': `Bearer ${cfg.token}` },
+        body:    fd,
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    } catch(e) {
+      showToast('Erro ao enviar imagem: ' + e.message, 'error');
+    }
+  }
+}
+
+function setupAttachEvents() {
+  document.getElementById('todo-camera-btn').addEventListener('click', () => document.getElementById('todo-file-camera').click());
+  document.getElementById('todo-gallery-btn').addEventListener('click', () => document.getElementById('todo-file-gallery').click());
+  document.getElementById('todo-file-camera').addEventListener('change', e => { handleAttachFiles(e.target.files, pendingTodoAttachments, 'todo-attach-thumbs'); e.target.value = ''; });
+  document.getElementById('todo-file-gallery').addEventListener('change', e => { handleAttachFiles(e.target.files, pendingTodoAttachments, 'todo-attach-thumbs'); e.target.value = ''; });
+
+  document.getElementById('story-camera-btn').addEventListener('click', () => document.getElementById('story-file-camera').click());
+  document.getElementById('story-gallery-btn').addEventListener('click', () => document.getElementById('story-file-gallery').click());
+  document.getElementById('story-file-camera').addEventListener('change', e => { handleAttachFiles(e.target.files, pendingStoryAttachments, 'story-attach-thumbs'); e.target.value = ''; });
+  document.getElementById('story-file-gallery').addEventListener('change', e => { handleAttachFiles(e.target.files, pendingStoryAttachments, 'story-attach-thumbs'); e.target.value = ''; });
+
+  document.getElementById('todo-attach-thumbs').addEventListener('click', e => {
+    const btn = e.target.closest('.attach-remove');
+    if (!btn) return;
+    pendingTodoAttachments[parseInt(btn.dataset.idx)] = null;
+    btn.closest('.attach-thumb').remove();
+  });
+  document.getElementById('story-attach-thumbs').addEventListener('click', e => {
+    const btn = e.target.closest('.attach-remove');
+    if (!btn) return;
+    pendingStoryAttachments[parseInt(btn.dataset.idx)] = null;
+    btn.closest('.attach-thumb').remove();
+  });
+}
+
+// ══════════════════════════════════════════════════════
 // PICKER — escolher tipo de item a adicionar
 // ══════════════════════════════════════════════════════
 function openPicker() {
@@ -1560,6 +1638,13 @@ async function openStoryForm(type) {
   document.getElementById('btn-story-save').textContent = `Criar ${type}`;
   document.getElementById('story-text').value = '';
   document.getElementById('story-priority').value = type === 'Bug' ? 'Must' : 'Should';
+  pendingStoryAttachments = [];
+  const sth = document.getElementById('story-attach-thumbs');
+  if (sth) sth.innerHTML = '';
+  const sci = document.getElementById('story-file-camera');
+  const sgi = document.getElementById('story-file-gallery');
+  if (sci) sci.value = '';
+  if (sgi) sgi.value = '';
 
   const sel = document.getElementById('story-prototype');
   sel.innerHTML = '<option value="">A carregar…</option>';
@@ -1592,12 +1677,16 @@ async function saveStoryForm() {
   const btn = document.getElementById('btn-story-save');
   btn.disabled = true;
   try {
-    await apiFetch('stories.php', {
+    const result = await apiFetch('stories.php', {
       method: 'POST',
       body: JSON.stringify({ prototype_id, story_text, story_type: storyType, moscow_priority }),
     });
+    const savedId = result?.id;
+    const filesToUpload = pendingStoryAttachments.filter(Boolean);
+    pendingStoryAttachments = [];
     closeStoryForm();
     showToast(`${storyType} criado com sucesso!`, 'success');
+    if (filesToUpload.length && savedId) await uploadAttachments(filesToUpload, savedId, 'story');
   } catch(e) {
     showToast('Erro ao criar: ' + e.message, 'error');
   } finally {

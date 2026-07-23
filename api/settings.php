@@ -47,7 +47,7 @@ $pdo->exec("
 ");
 
 // Ler settings de MQTT
-$keys = ['mqtt_broker', 'mqtt_bar_user', 'mqtt_bar_pass', 'mqtt_bar_topic'];
+$keys = ['mqtt_broker', 'mqtt_bar_user', 'mqtt_bar_pass', 'mqtt_bar_topic', 'mqtt_topics'];
 $placeholders = implode(',', array_fill(0, count($keys), '?'));
 $stmt = $pdo->prepare("SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ($placeholders)");
 $stmt->execute($keys);
@@ -58,4 +58,5 @@ echo json_encode([
     'mqtt_bar_user'  => $rows['mqtt_bar_user']  ?? '',
     'mqtt_bar_pass'  => $rows['mqtt_bar_pass']  ?? '',
     'mqtt_bar_topic' => $rows['mqtt_bar_topic'] ?? '/PK/alertabarulho',
+    'mqtt_topics'    => $rows['mqtt_topics']    ?? '#',
 ]);

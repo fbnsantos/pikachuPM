@@ -151,7 +151,7 @@ $mensagem_mqtt = '';
 $erro_mqtt = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_mqtt_settings'])) {
-    $mqtt_fields = ['mqtt_broker', 'mqtt_bar_user', 'mqtt_bar_pass', 'mqtt_bar_topic'];
+    $mqtt_fields = ['mqtt_broker', 'mqtt_bar_user', 'mqtt_bar_pass', 'mqtt_bar_topic', 'mqtt_topics'];
     try {
         $pdo->exec("
             CREATE TABLE IF NOT EXISTS app_settings (
@@ -171,10 +171,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_mqtt_settings'])
 }
 
 // Carregar configurações MQTT actuais
-$mqtt_settings = ['mqtt_broker' => '', 'mqtt_bar_user' => '', 'mqtt_bar_pass' => '', 'mqtt_bar_topic' => '/PK/alertabarulho'];
+$mqtt_settings = ['mqtt_broker' => '', 'mqtt_bar_user' => '', 'mqtt_bar_pass' => '', 'mqtt_bar_topic' => '/PK/alertabarulho', 'mqtt_topics' => '#'];
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS app_settings (setting_key VARCHAR(100) PRIMARY KEY, setting_value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    $stmt = $pdo->query("SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ('mqtt_broker','mqtt_bar_user','mqtt_bar_pass','mqtt_bar_topic')");
+    $stmt = $pdo->query("SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ('mqtt_broker','mqtt_bar_user','mqtt_bar_pass','mqtt_bar_topic','mqtt_topics')");
     foreach ($stmt->fetchAll(PDO::FETCH_KEY_PAIR) as $k => $v) {
         $mqtt_settings[$k] = $v;
     }
@@ -474,24 +474,28 @@ function applyPreset(color1, color2) {
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         <?php endif; ?>
-        <p class="text-muted mb-3">Credenciais usadas pela PWA para publicar o alerta de barulho (botão 🔕). A PWA lê estas configurações via <code>api/settings.php</code> em tempo real.</p>
+        <p class="text-muted mb-3">A PWA usa estas configurações para o painel MQTT e para o alerta de barulho 🔕. Lidas em tempo real via <code>api/settings.php</code>.</p>
         <form method="post">
             <div class="row g-3">
                 <div class="col-md-6">
-                    <label class="form-label"><strong>Broker URL</strong> <small class="text-muted">(ex: wss://host:9002)</small></label>
-                    <input type="text" name="mqtt_broker" class="form-control" value="<?= htmlspecialchars($mqtt_settings['mqtt_broker']) ?>" placeholder="wss://mqtt.vifield.com:9002">
+                    <label class="form-label"><strong>Broker URL</strong> <small class="text-muted">(ex: wss://host:9001)</small></label>
+                    <input type="text" name="mqtt_broker" class="form-control" value="<?= htmlspecialchars($mqtt_settings['mqtt_broker']) ?>" placeholder="wss://mqtt.exemplo.com:9001">
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label"><strong>Tópico Bar Alert</strong></label>
-                    <input type="text" name="mqtt_bar_topic" class="form-control" value="<?= htmlspecialchars($mqtt_settings['mqtt_bar_topic']) ?>" placeholder="/PK/alertabarulho">
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label"><strong>Utilizador MQTT</strong></label>
+                    <label class="form-label"><strong>Utilizador</strong></label>
                     <input type="text" name="mqtt_bar_user" class="form-control" value="<?= htmlspecialchars($mqtt_settings['mqtt_bar_user']) ?>" placeholder="username">
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label"><strong>Password MQTT</strong></label>
+                    <label class="form-label"><strong>Password</strong></label>
                     <input type="password" name="mqtt_bar_pass" class="form-control" value="<?= htmlspecialchars($mqtt_settings['mqtt_bar_pass']) ?>" placeholder="password" autocomplete="new-password">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label"><strong>Tópico Bar Alert</strong> <small class="text-muted">(botão 🔕)</small></label>
+                    <input type="text" name="mqtt_bar_topic" class="form-control" value="<?= htmlspecialchars($mqtt_settings['mqtt_bar_topic']) ?>" placeholder="/PK/alertabarulho">
+                </div>
+                <div class="col-12">
+                    <label class="form-label"><strong>Tópicos a subscrever</strong> <small class="text-muted">(um por linha; # para todos)</small></label>
+                    <textarea name="mqtt_topics" class="form-control" rows="3" placeholder="#"><?= htmlspecialchars($mqtt_settings['mqtt_topics']) ?></textarea>
                 </div>
             </div>
             <div class="mt-3">

@@ -8,11 +8,6 @@ const CFG_KEY = 'pikachu_pwa_cfg_v1';
 const DEFAULT_CFG = {
   apiUrl:      '',
   token:       '',
-  mqttEnabled: false,
-  mqttBroker:  '',
-  mqttUser:    '',
-  mqttPass:    '',
-  mqttTopics:  [],
   pomFocus:    25,
   pomShort:    5,
   pomLong:     15,
@@ -471,11 +466,6 @@ async function saveModal() {
 function openSettings() {
   document.getElementById('cfg-api-url').value        = cfg.apiUrl || '';
   document.getElementById('cfg-token').value          = cfg.token  || '';
-  document.getElementById('cfg-mqtt-enabled').checked = cfg.mqttEnabled || false;
-  document.getElementById('cfg-mqtt-broker').value    = cfg.mqttBroker || '';
-  document.getElementById('cfg-mqtt-user').value      = cfg.mqttUser  || '';
-  document.getElementById('cfg-mqtt-pass').value      = cfg.mqttPass  || '';
-  document.getElementById('cfg-mqtt-topics').value    = (cfg.mqttTopics || []).join('\n');
   document.getElementById('cfg-pom-focus').value      = cfg.pomFocus || 25;
   document.getElementById('cfg-pom-short').value      = cfg.pomShort || 5;
   document.getElementById('cfg-pom-long').value       = cfg.pomLong  || 15;
@@ -490,11 +480,6 @@ function closeSettings() {
 function saveSettings() {
   cfg.apiUrl      = document.getElementById('cfg-api-url').value.trim().replace(/\/$/, '') + '/';
   cfg.token       = document.getElementById('cfg-token').value.trim();
-  cfg.mqttEnabled = document.getElementById('cfg-mqtt-enabled').checked;
-  cfg.mqttBroker  = document.getElementById('cfg-mqtt-broker').value.trim();
-  cfg.mqttUser    = document.getElementById('cfg-mqtt-user').value.trim();
-  cfg.mqttPass    = document.getElementById('cfg-mqtt-pass').value;
-  cfg.mqttTopics  = document.getElementById('cfg-mqtt-topics').value.split('\n').map(s => s.trim()).filter(Boolean);
   cfg.pomFocus    = parseInt(document.getElementById('cfg-pom-focus').value) || 25;
   cfg.pomShort    = parseInt(document.getElementById('cfg-pom-short').value) || 5;
   cfg.pomLong     = parseInt(document.getElementById('cfg-pom-long').value)  || 15;
@@ -502,9 +487,8 @@ function saveSettings() {
   closeSettings();
   showToast('Definições guardadas!', 'success');
 
-  // Re-init MQTT
-  if (cfg.mqttEnabled && cfg.mqttBroker) mqttConnect();
-  else if (mqttClient) { try { mqttClient.end(true); } catch(e) {} mqttClient = null; mqttSetState('disconnected'); }
+  // Re-init MQTT com settings do admin
+  mqttConnect();
 
   // Show/hide main content
   if (isConfigured()) {
@@ -514,10 +498,6 @@ function saveSettings() {
   }
 }
 
-function updateMqttFields() {
-  const enabled = document.getElementById('cfg-mqtt-enabled').checked;
-  document.getElementById('mqtt-fields').classList.toggle('hidden', !enabled);
-}
 
 // ══════════════════════════════════════════════════════
 // SETUP SCREEN
@@ -736,9 +716,23 @@ function mqttAddMsg(topic, payload, dir = 'incoming') {
   while (feedEl.children.length > MAX_MQTT_MSGS) feedEl.lastChild.remove();
 }
 
-function mqttConnect() {
+async function mqttConnect() {
   if (mqttClient) { try { mqttClient.end(true); } catch(e) {} mqttClient = null; }
-  if (!cfg.mqttEnabled || !cfg.mqttBroker) { mqttSetState('disconnected'); return; }
+  if (!isConfigured()) { mqttSetState('disconnected'); return; }
+
+  let broker, user, pass, topics;
+  try {
+    const s = await apiFetch('settings.php');
+    broker = s.mqtt_broker;
+    user   = s.mqtt_bar_user;
+    pass   = s.mqtt_bar_pass;
+    topics = s.mqtt_topics ? s.mqtt_topics.split('\n').map(t => t.trim()).filter(Boolean) : ['#'];
+  } catch(e) {
+    mqttSetState('disconnected');
+    return;
+  }
+
+  if (!broker) { mqttSetState('disconnected'); return; }
 
   mqttSetState('connecting');
   try {
@@ -747,14 +741,13 @@ function mqttConnect() {
       keepalive:       60,
       reconnectPeriod: 5000,
     };
-    if (cfg.mqttUser) opts.username = cfg.mqttUser;
-    if (cfg.mqttPass) opts.password = cfg.mqttPass;
+    if (user) opts.username = user;
+    if (pass) opts.password = pass;
 
-    mqttClient = mqtt.connect(cfg.mqttBroker, opts);
+    mqttClient = mqtt.connect(broker, opts);
 
     mqttClient.on('connect', () => {
       mqttSetState('connected');
-      const topics = cfg.mqttTopics && cfg.mqttTopics.length > 0 ? cfg.mqttTopics : ['#'];
       topics.forEach(t => mqttClient.subscribe(t, { qos: 0 }));
     });
 
@@ -1251,9 +1244,6 @@ function attachEvents() {
     i.type = i.type === 'password' ? 'text' : 'password';
   });
 
-  // MQTT toggle in settings
-  document.getElementById('cfg-mqtt-enabled').addEventListener('change', updateMqttFields);
-
   // Setup save
   document.getElementById('btn-setup-save').addEventListener('click', saveSetup);
   document.getElementById('setup-api-url').addEventListener('keydown', e => { if (e.key === 'Enter') saveSetup(); });
@@ -1317,9 +1307,7 @@ function attachEvents() {
   });
 
   // MQTT reconnect & publish
-  document.getElementById('mqtt-reconnect-btn').addEventListener('click', () => {
-    if (cfg.mqttEnabled && cfg.mqttBroker) mqttConnect();
-  });
+  document.getElementById('mqtt-reconnect-btn').addEventListener('click', () => mqttConnect());
   document.getElementById('mqtt-pub-btn').addEventListener('click', mqttPublish);
   document.getElementById('mqtt-pub-msg-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') mqttPublish();
@@ -1539,13 +1527,11 @@ function init() {
     loadTodos();
     loadCalendar(); calendar_loaded = true;
 
-    if (cfg.mqttEnabled && cfg.mqttBroker) {
-      if (typeof mqtt !== 'undefined') mqttConnect();
-      else {
-        const t = setInterval(() => {
-          if (typeof mqtt !== 'undefined') { clearInterval(t); mqttConnect(); }
-        }, 200);
-      }
+    if (typeof mqtt !== 'undefined') mqttConnect();
+    else {
+      const t = setInterval(() => {
+        if (typeof mqtt !== 'undefined') { clearInterval(t); mqttConnect(); }
+      }, 200);
     }
   } else {
     document.getElementById('setup-screen').style.display = '';

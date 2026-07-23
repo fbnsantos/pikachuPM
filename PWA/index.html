@@ -207,31 +207,8 @@
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">
-          MQTT
-          <label class="toggle-switch">
-            <input type="checkbox" id="cfg-mqtt-enabled">
-            <span class="toggle-track"></span>
-          </label>
-        </div>
-        <div id="mqtt-fields">
-          <div class="form-group">
-            <label>Broker URL <span class="hint">(wss://host:porta)</span></label>
-            <input type="url" id="cfg-mqtt-broker" placeholder="wss://broker:9002">
-          </div>
-          <div class="form-group">
-            <label>Utilizador <span class="hint">(opcional)</span></label>
-            <input type="text" id="cfg-mqtt-user">
-          </div>
-          <div class="form-group">
-            <label>Password <span class="hint">(opcional)</span></label>
-            <input type="password" id="cfg-mqtt-pass">
-          </div>
-          <div class="form-group">
-            <label>Tópicos a subscrever</label>
-            <textarea id="cfg-mqtt-topics" rows="3" placeholder="Um por linha. Ex: /som/+/delta"></textarea>
-          </div>
-        </div>
+        <div class="settings-section-title">MQTT</div>
+        <p style="font-size:13px;color:var(--text-muted);margin:0">Broker, credenciais e tópicos configurados em <strong>Admin → MQTT</strong>.</p>
       </div>
 
       <div class="settings-section">

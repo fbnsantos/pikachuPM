@@ -984,16 +984,18 @@ html, body {
   gap: 10px;
 }
 .bar-btn {
+  display: block;
+  width: 100%;
   background: none;
   border: 1.5px solid var(--border);
   border-radius: 8px;
   color: var(--text-muted);
-  font-size: 17px;
-  padding: 3px 9px;
+  font-size: 15px;
+  padding: 10px 14px;
   cursor: pointer;
-  line-height: 1;
+  text-align: center;
+  margin: 8px 0 4px;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
-  flex-shrink: 0;
 }
 .bar-btn:active,
 .bar-btn:hover { background: var(--bg-hover); border-color: var(--primary); color: var(--text); }

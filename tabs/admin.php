@@ -85,9 +85,9 @@ try {
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS app_settings (
             setting_key VARCHAR(100) PRIMARY KEY,
-            setting_value TEXT NOT NULL DEFAULT '',
+            setting_value TEXT NOT NULL,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 } catch (Exception $e) { /* já existe */ }
 
@@ -156,7 +156,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_mqtt_settings'])
         $pdo->exec("
             CREATE TABLE IF NOT EXISTS app_settings (
                 setting_key VARCHAR(100) PRIMARY KEY,
-                setting_value TEXT NOT NULL DEFAULT '',
+                setting_value TEXT NOT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
@@ -173,7 +173,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_mqtt_settings'])
 // Carregar configurações MQTT actuais
 $mqtt_settings = ['mqtt_broker' => '', 'mqtt_bar_user' => '', 'mqtt_bar_pass' => '', 'mqtt_bar_topic' => '/PK/alertabarulho'];
 try {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS app_settings (setting_key VARCHAR(100) PRIMARY KEY, setting_value TEXT NOT NULL DEFAULT '', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_settings (setting_key VARCHAR(100) PRIMARY KEY, setting_value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     $stmt = $pdo->query("SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ('mqtt_broker','mqtt_bar_user','mqtt_bar_pass','mqtt_bar_topic')");
     foreach ($stmt->fetchAll(PDO::FETCH_KEY_PAIR) as $k => $v) {
         $mqtt_settings[$k] = $v;

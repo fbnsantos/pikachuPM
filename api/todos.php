@@ -132,7 +132,13 @@ switch ($method) {
                 $params = [$user_id];
 
                 // Adicionar filtro de estado se fornecido
-                if ($estado) {
+                $valid_estados_list = '"aberta","em execução","suspensa","completada"';
+                if ($estado === 'aberta') {
+                    // Inclui também registos com estado NULL ou valor inválido
+                    $query .= ' AND (t.estado = ? OR t.estado IS NULL OR t.estado NOT IN (' . $valid_estados_list . '))';
+                    $types .= 's';
+                    $params[] = $estado;
+                } elseif ($estado) {
                     $query .= ' AND t.estado = ?';
                     $types .= 's';
                     $params[] = $estado;
@@ -162,8 +168,12 @@ switch ($method) {
                 $stmt->execute();
                 $result = $stmt->get_result();
                 
+                $valid_for_norm = ['aberta', 'em execução', 'suspensa', 'completada'];
                 $todos = [];
                 while ($row = $result->fetch_assoc()) {
+                    if (!in_array($row['estado'], $valid_for_norm)) {
+                        $row['estado'] = 'aberta';
+                    }
                     $todos[] = $row;
                 }
                 $stmt->close();

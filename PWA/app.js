@@ -1562,8 +1562,10 @@ document.addEventListener('DOMContentLoaded', init);
 function publishBarAlert() {
   const TOPIC  = '/PK/alertabarulho';
   const MSG    = 'bar';
-  const BROKER = 'wss://vcriis01.inesctec.pt:9002';
-  const btn    = document.getElementById('btn-bar');
+  const BROKER      = 'wss://mqtt.vifield.com:9002';
+  const BAR_USER    = 'vifield';
+  const BAR_PASS    = '$vifield2025#';
+  const btn         = document.getElementById('btn-bar');
 
   function doPublish(client) {
     client.publish(TOPIC, MSG, { qos: 0 }, err => {
@@ -1585,15 +1587,15 @@ function publishBarAlert() {
     return;
   }
 
-  // Ligação temporária directa ao vcriis01
+  // Ligação temporária ao mqtt.vifield.com com credenciais fixas
   const opts = {
     clientId:        'pk_bar_' + Math.random().toString(16).slice(2),
     keepalive:       30,
     reconnectPeriod: 0,
     connectTimeout:  5000,
+    username:        BAR_USER,
+    password:        BAR_PASS,
   };
-  if (cfg.mqttUser) opts.username = cfg.mqttUser;
-  if (cfg.mqttPass) opts.password = cfg.mqttPass;
 
   try {
     const tmp = mqtt.connect(BROKER, opts);

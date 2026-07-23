@@ -165,13 +165,13 @@ const ESTADO_LABEL = {
   'aberta':      'Aberta',
   'em execução': 'A fazer',
   'suspensa':    'Pausada',
-  'completada':  'Concluída',
+  'concluída':  'Concluída',
 };
 const ESTADO_CLASS = {
   'aberta':      'badge-aberta',
   'em execução': 'badge-execucao',
   'suspensa':    'badge-suspensa',
-  'completada':  'badge-completada',
+  'concluída':  'badge-completada',
 };
 
 function fmtDate(s) {
@@ -192,7 +192,7 @@ function escHtml(s) {
 }
 
 function buildTodoCard(todo) {
-  const done   = todo.estado === 'completada';
+  const done   = todo.estado === 'concluída';
   const estado = ESTADO_LABEL[todo.estado] || todo.estado;
   const cls    = ESTADO_CLASS[todo.estado] || '';
   const date   = todo.data_limite ? fmtDate(todo.data_limite) : '';
@@ -1390,7 +1390,7 @@ function attachEvents() {
       const todo = allTodos.find(t => String(t.id) === doneBtn.dataset.id);
       if (!todo) return;
       const done = doneBtn.dataset.done === 'true';
-      saveTodo({ ...todo, estado: done ? 'aberta' : 'completada' })
+      saveTodo({ ...todo, estado: done ? 'aberta' : 'concluída' })
         .then(() => { showToast(done ? 'Todo reaberto' : 'Todo concluído!', 'success'); loadTodos(); })
         .catch(e => showToast('Erro: ' + e.message, 'error'));
       return;

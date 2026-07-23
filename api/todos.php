@@ -134,7 +134,7 @@ switch ($method) {
                 // Adicionar filtro de estado se fornecido
                 // CASE WHEN normaliza estados inválidos/NULL para 'aberta' antes de filtrar
                 if ($estado) {
-                    $query .= " AND CASE WHEN t.estado IN ('aberta', 'em execução', 'suspensa', 'completada') THEN t.estado ELSE 'aberta' END = ?";
+                    $query .= " AND CASE WHEN t.estado IN ('aberta', 'em execução', 'suspensa', 'concluída') THEN t.estado ELSE 'aberta' END = ?";
                     $types .= 's';
                     $params[] = $estado;
                 }
@@ -145,7 +145,7 @@ switch ($method) {
                         WHEN t.estado = "em execução" THEN 1
                         WHEN t.estado = "aberta" THEN 2
                         WHEN t.estado = "suspensa" THEN 3
-                        WHEN t.estado = "completada" THEN 4
+                        WHEN t.estado = "concluída" THEN 4
                         ELSE 5
                     END,
                     CASE 
@@ -163,7 +163,7 @@ switch ($method) {
                 $stmt->execute();
                 $result = $stmt->get_result();
                 
-                $valid_for_norm = ['aberta', 'em execução', 'suspensa', 'completada'];
+                $valid_for_norm = ['aberta', 'em execução', 'suspensa', 'concluída'];
                 $todos = [];
                 while ($row = $result->fetch_assoc()) {
                     if (!in_array($row['estado'], $valid_for_norm)) {
@@ -207,7 +207,7 @@ switch ($method) {
             $estado = trim($input['estado'] ?? 'aberta');
             
             // Validar o estado
-            $valid_estados = ['aberta', 'em execução', 'suspensa', 'completada'];
+            $valid_estados = ['aberta', 'em execução', 'suspensa', 'concluída'];
             if (!in_array($estado, $valid_estados)) {
                 json_error(400, 'Estado inválido. Use: ' . implode(', ', $valid_estados));
             }
@@ -308,7 +308,7 @@ switch ($method) {
                 $estado = trim($input['estado']);
                 
                 // Validar o estado
-                $valid_estados = ['aberta', 'em execução', 'suspensa', 'completada'];
+                $valid_estados = ['aberta', 'em execução', 'suspensa', 'concluída'];
                 if (!in_array($estado, $valid_estados)) {
                     json_error(400, 'Estado inválido. Use: ' . implode(', ', $valid_estados));
                 }
@@ -361,7 +361,7 @@ switch ($method) {
                 }
                 
                 // Validar o estado
-                $valid_estados = ['aberta', 'em execução', 'suspensa', 'completada'];
+                $valid_estados = ['aberta', 'em execução', 'suspensa', 'concluída'];
                 if (!in_array($estado, $valid_estados)) {
                     json_error(400, 'Estado inválido. Use: ' . implode(', ', $valid_estados));
                 }

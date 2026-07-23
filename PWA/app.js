@@ -1584,6 +1584,24 @@ async function publishBarAlert() {
 
   const MSG = 'bar';
 
+  function onSent(err) {
+    if (btn) btn.disabled = false;
+    if (!err) {
+      showToast('🔕 Alerta de barulho enviado!', 'success');
+      mqttAddMsg(TOPIC, MSG, 'outgoing');
+      if (btn) { btn.classList.add('sent'); setTimeout(() => btn.classList.remove('sent'), 1500); }
+    } else {
+      showToast('Erro ao publicar alerta: ' + err.message, 'error');
+    }
+  }
+
+  // Se o cliente principal já está ligado usa-o directamente
+  if (mqttClient && mqttClient.connected) {
+    mqttClient.publish(TOPIC, MSG, { qos: 0 }, onSent);
+    return;
+  }
+
+  // Ligação temporária dedicada ao broker do bar alert
   const opts = {
     clientId:        'pk_bar_' + Math.random().toString(16).slice(2),
     keepalive:       30,
@@ -1598,21 +1616,11 @@ async function publishBarAlert() {
     const t   = setTimeout(() => {
       tmp.end(true);
       if (btn) btn.disabled = false;
-      showToast('Tempo esgotado ao ligar ao broker (' + BROKER + ')', 'error');
+      showToast('Tempo esgotado (' + BROKER + ')', 'error');
     }, 10000);
     tmp.on('connect', () => {
       clearTimeout(t);
-      tmp.publish(TOPIC, MSG, { qos: 0 }, err => {
-        tmp.end(true);
-        if (btn) btn.disabled = false;
-        if (!err) {
-          showToast('🔕 Alerta de barulho enviado!', 'success');
-          mqttAddMsg(TOPIC, MSG, 'outgoing');
-          if (btn) { btn.classList.add('sent'); setTimeout(() => btn.classList.remove('sent'), 1500); }
-        } else {
-          showToast('Erro ao publicar alerta: ' + err.message, 'error');
-        }
-      });
+      tmp.publish(TOPIC, MSG, { qos: 0 }, err => { tmp.end(true); onSent(err); });
     });
     tmp.on('error', e => {
       clearTimeout(t);

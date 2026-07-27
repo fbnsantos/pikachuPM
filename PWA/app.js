@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 // VERSION — must match sw.js cache number
 // ══════════════════════════════════════════════════════
-const APP_VER = 31;
+const APP_VER = 32;
 
 // ══════════════════════════════════════════════════════
 // CONFIG
@@ -1878,12 +1878,13 @@ async function checkForUpdate() {
   showToast('A limpar cache e recarregar…', '');
 
   try {
-    // Limpar TODAS as caches e desregistar o SW → garante código fresco do servidor
     const cacheKeys = await caches.keys();
     await Promise.all(cacheKeys.map(k => caches.delete(k)));
     const regs = await navigator.serviceWorker.getRegistrations();
     await Promise.all(regs.map(r => r.unregister()));
-    setTimeout(() => window.location.reload(), 600);
+    // Navegar com parâmetro _sw= para forçar fetch da rede (ignora HTTP cache do browser)
+    const base = window.location.pathname.replace(/\?.*$/, '');
+    setTimeout(() => { window.location.href = base + '?_sw=' + Date.now(); }, 600);
   } catch(e) {
     showToast('Erro: ' + e.message, 'error');
     if (btn) btn.classList.remove('spin');
@@ -1900,7 +1901,8 @@ async function autoReloadIfStale() {
     const cacheKey = keys.find(k => /pikachu-pwa-v\d+/.test(k)) || '';
     const swV      = parseInt((cacheKey.match(/v(\d+)/) || ['', '0'])[1], 10);
     if (swV > 0 && swV !== APP_VER) {
-      window.location.reload();
+      const base = window.location.pathname.replace(/\?.*$/, '');
+      window.location.href = base + '?_sw=' + Date.now();
     }
   } catch {}
 }

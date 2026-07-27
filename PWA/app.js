@@ -845,8 +845,9 @@ async function mqttConnect() {
   try {
     const opts = {
       clientId:        'pk_pwa_' + Math.random().toString(16).slice(2),
-      keepalive:       60,
-      reconnectPeriod: 5000,
+      keepalive:       30,
+      reconnectPeriod: 3000,
+      connectTimeout:  10000,
     };
     if (user) opts.username = user;
     if (pass) opts.password = pass;

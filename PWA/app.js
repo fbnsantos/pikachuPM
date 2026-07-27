@@ -777,7 +777,7 @@ function initPomodoro() {
 // ══════════════════════════════════════════════════════
 // MQTT
 // ══════════════════════════════════════════════════════
-function mqttSetState(state) {
+function mqttSetState(state, detail = '') {
   const dot     = document.getElementById('mqtt-dot');
   const bar     = document.getElementById('mqtt-status-bar');
   const iconEl  = document.getElementById('mqtt-status-icon');
@@ -788,7 +788,7 @@ function mqttSetState(state) {
   }
   if (bar)    bar.className = `mqtt-status-bar ${state}`;
   if (iconEl) iconEl.textContent = '⬤';
-  if (textEl) textEl.textContent = labels[state] || state;
+  if (textEl) textEl.textContent = (labels[state] || state) + (detail ? ' — ' + detail : '');
 }
 
 function mqttAddMsg(topic, payload, dir = 'incoming') {
@@ -831,9 +831,17 @@ async function mqttConnect() {
     return;
   }
 
-  if (!broker) { mqttSetState('disconnected'); return; }
+  if (!broker) { mqttSetState('disconnected', 'broker não configurado'); return; }
 
-  mqttSetState('connecting');
+  // Browsers só suportam WebSocket — o URL deve começar por ws:// ou wss://
+  if (!broker.startsWith('ws://') && !broker.startsWith('wss://')) {
+    const msg = `URL inválido: usa wss://host:porta (atual: "${broker}")`;
+    mqttSetState('error', msg);
+    mqttAddMsg('⚙ sistema', msg, 'incoming');
+    return;
+  }
+
+  mqttSetState('connecting', broker);
   try {
     const opts = {
       clientId:        'pk_pwa_' + Math.random().toString(16).slice(2),
@@ -846,7 +854,8 @@ async function mqttConnect() {
     mqttClient = mqtt.connect(broker, opts);
 
     mqttClient.on('connect', () => {
-      mqttSetState('connected');
+      mqttSetState('connected', broker);
+      mqttAddMsg('⚙ sistema', `Ligado a ${broker}`, 'incoming');
       topics.forEach(t => mqttClient.subscribe(t, { qos: 0 }));
     });
 
@@ -854,12 +863,16 @@ async function mqttConnect() {
       mqttAddMsg(topic, payload.toString());
     });
 
-    mqttClient.on('error',     () => mqttSetState('error'));
+    mqttClient.on('error', err => {
+      const msg = err?.message || String(err) || 'erro desconhecido';
+      mqttSetState('error', msg);
+      mqttAddMsg('⚙ sistema', `Erro: ${msg}`, 'incoming');
+    });
     mqttClient.on('close',     () => mqttSetState('disconnected'));
     mqttClient.on('offline',   () => mqttSetState('disconnected'));
-    mqttClient.on('reconnect', () => mqttSetState('connecting'));
+    mqttClient.on('reconnect', () => mqttSetState('connecting', broker));
   } catch(e) {
-    mqttSetState('error');
+    mqttSetState('error', e.message || String(e));
   }
 }
 

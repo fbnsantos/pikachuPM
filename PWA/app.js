@@ -1676,17 +1676,36 @@ async function publishBarAlert() {
   let TOPIC;
   try {
     const s = await apiFetch('settings.php');
-    TOPIC   = s.mqtt_bar_topic || '/PK/alertabarulho';
+    TOPIC = s.mqtt_bar_topic || '/PK/alertabarulho';
+    // Se não há broker configurado, falhar cedo
+    if (!s.mqtt_broker) {
+      if (btn) btn.disabled = false;
+      showToast('Broker MQTT não configurado em Admin.', 'error');
+      return;
+    }
   } catch (e) {
     if (btn) btn.disabled = false;
     showToast('Erro ao obter configuração MQTT', 'error');
     return;
   }
 
+  // Se não ligado, religar e aguardar até 6s
   if (!mqttClient || !mqttClient.connected) {
-    if (btn) btn.disabled = false;
-    showToast('MQTT não ligado. Verifica configuração em Admin.', 'error');
-    return;
+    showToast('A ligar ao MQTT…', '');
+    mqttConnect();
+    const ok = await new Promise(resolve => {
+      let t = 0;
+      const iv = setInterval(() => {
+        t += 300;
+        if (mqttClient && mqttClient.connected) { clearInterval(iv); resolve(true); }
+        else if (t >= 6000)                     { clearInterval(iv); resolve(false); }
+      }, 300);
+    });
+    if (!ok) {
+      if (btn) btn.disabled = false;
+      showToast('Não foi possível ligar ao MQTT. Verifica broker/credenciais em Admin.', 'error');
+      return;
+    }
   }
 
   mqttClient.publish(TOPIC, 'bar', { qos: 0 }, err => {

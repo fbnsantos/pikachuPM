@@ -24,12 +24,14 @@
     <div class="header-actions">
       <button class="icon-btn" id="btn-install" title="Instalar app" style="display:none">⬇</button>
       <button class="icon-btn" id="btn-refresh" title="Atualizar">↻</button>
+      <button class="icon-btn" id="btn-inst-switch" title="Mudar instância">⊞</button>
       <button class="icon-btn" id="btn-settings" title="Definições">⚙</button>
     </div>
   </header>
 
   <!-- ── Pomodoro ── -->
   <div class="pomodoro-section">
+    <div class="inst-indicator" id="inst-indicator" style="display:none"></div>
     <div class="pom-clock-row">
       <div class="pom-clock" id="header-clock">--:--:--</div>
     </div>
@@ -372,6 +374,37 @@
         <button class="btn btn-secondary" id="btn-detail-edit">✏️ Editar</button>
         <button class="btn btn-primary" id="btn-detail-close2">Fechar</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Instance Switcher ── -->
+  <div class="inst-overlay" id="inst-overlay" style="display:none">
+    <div class="inst-sheet">
+      <div class="picker-handle"></div>
+      <div class="inst-sheet-header">
+        <span class="inst-sheet-title">⚡ Instâncias</span>
+        <button class="icon-btn" id="btn-inst-close">✕</button>
+      </div>
+      <div class="inst-list" id="inst-list"></div>
+      <div class="inst-add-row" id="inst-add-row" style="display:none">
+        <div class="form-group">
+          <label>Nome</label>
+          <input type="text" id="inst-add-name" placeholder="Ex: CRIIS, Local, Casa…">
+        </div>
+        <div class="form-group">
+          <label>URL da API</label>
+          <input type="url" id="inst-add-url" placeholder="https://…/PK/">
+        </div>
+        <div class="form-group">
+          <label>Token</label>
+          <input type="password" id="inst-add-token" placeholder="token de API">
+        </div>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button class="btn btn-secondary" id="btn-inst-add-cancel" style="flex:1">Cancelar</button>
+          <button class="btn btn-primary" id="btn-inst-add-save" style="flex:1">Guardar</button>
+        </div>
+      </div>
+      <button class="btn btn-secondary" id="btn-inst-add-show" style="margin-top:4px">+ Adicionar instância</button>
     </div>
   </div>
 

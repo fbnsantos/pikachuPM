@@ -45,6 +45,150 @@ const MAX_MQTT_MSGS  = 50;
 let pendingTodoAttachments  = [];
 let pendingStoryAttachments = [];
 
+// ── Instances ─────────────────────────────────────────
+const INSTANCES_KEY  = 'pikachu_instances_v1';
+const ACTIVE_INST_KEY = 'pikachu_active_inst';
+
+function instLoad() {
+  try { return JSON.parse(localStorage.getItem(INSTANCES_KEY) || '[]'); } catch { return []; }
+}
+function instSave(arr) {
+  try { localStorage.setItem(INSTANCES_KEY, JSON.stringify(arr)); } catch {}
+}
+function instGetActive() {
+  return localStorage.getItem(ACTIVE_INST_KEY) || '';
+}
+function instSetActive(id) {
+  try { localStorage.setItem(ACTIVE_INST_KEY, id); } catch {}
+}
+function instHostname(url) {
+  try { return new URL(url).hostname; } catch { return url || ''; }
+}
+
+function instMigrate() {
+  if (instLoad().length > 0) return;
+  if (!cfg.apiUrl || !cfg.token) return;
+  const id = 'inst_' + Date.now();
+  instSave([{ id, name: instHostname(cfg.apiUrl), apiUrl: cfg.apiUrl, token: cfg.token }]);
+  instSetActive(id);
+}
+
+function instApplyActive() {
+  const arr  = instLoad();
+  if (!arr.length) return;
+  const id   = instGetActive();
+  const inst = arr.find(i => i.id === id) || arr[0];
+  cfg.apiUrl = inst.apiUrl;
+  cfg.token  = inst.token;
+  if (!id) instSetActive(inst.id);
+}
+
+function updateInstIndicator() {
+  const el = document.getElementById('inst-indicator');
+  if (!el) return;
+  if (!cfg.apiUrl) { el.style.display = 'none'; return; }
+  const arr    = instLoad();
+  const active = arr.find(i => i.id === instGetActive()) || arr[0];
+  const label  = active?.name || instHostname(cfg.apiUrl);
+  el.textContent = `⚡ ${label}`;
+  el.style.display = '';
+}
+
+function renderInstList() {
+  const listEl   = document.getElementById('inst-list');
+  const arr      = instLoad();
+  const activeId = instGetActive();
+  if (!arr.length) {
+    listEl.innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:12px">Nenhuma instância configurada.</div>';
+    return;
+  }
+  listEl.innerHTML = arr.map(inst => {
+    const isActive = inst.id === activeId;
+    const hostname = instHostname(inst.apiUrl);
+    return `<div class="inst-item${isActive ? ' active' : ''}" data-id="${escHtml(inst.id)}">
+      <div class="inst-item-info">
+        <div class="inst-item-name">${escHtml(inst.name || hostname)}</div>
+        <div class="inst-item-url">${escHtml(hostname)}</div>
+      </div>
+      ${!isActive ? `<button class="inst-item-del" data-id="${escHtml(inst.id)}" title="Remover">✕</button>` : ''}
+    </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('.inst-item').forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target.closest('.inst-item-del')) return;
+      instSwitch(el.dataset.id);
+    });
+  });
+  listEl.querySelectorAll('.inst-item-del').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); instDelete(btn.dataset.id); });
+  });
+}
+
+function openInstSwitcher() {
+  hideInstAddForm();
+  renderInstList();
+  document.getElementById('inst-overlay').style.display = '';
+}
+function closeInstSwitcher() {
+  document.getElementById('inst-overlay').style.display = 'none';
+}
+function showInstAddForm() {
+  document.getElementById('inst-add-row').style.display = '';
+  document.getElementById('btn-inst-add-show').style.display = 'none';
+  document.getElementById('inst-add-name').value  = '';
+  document.getElementById('inst-add-url').value   = '';
+  document.getElementById('inst-add-token').value = '';
+  setTimeout(() => document.getElementById('inst-add-name').focus(), 80);
+}
+function hideInstAddForm() {
+  document.getElementById('inst-add-row').style.display  = 'none';
+  document.getElementById('btn-inst-add-show').style.display = '';
+}
+
+function instSwitch(id) {
+  const inst = instLoad().find(i => i.id === id);
+  if (!inst) return;
+  instSetActive(id);
+  cfg.apiUrl = inst.apiUrl;
+  cfg.token  = inst.token;
+  saveCfg();
+  closeInstSwitcher();
+  updateInstIndicator();
+  allTodos = [];
+  calendar_loaded = sprints_loaded = deliverables_loaded = leads_loaded = false;
+  if (isConfigured()) {
+    document.getElementById('setup-screen').style.display = 'none';
+    document.getElementById('main-content').style.display = '';
+    loadTodos();
+    if (typeof mqtt !== 'undefined') mqttConnect();
+  }
+  showToast(`⚡ ${inst.name || instHostname(inst.apiUrl)}`, 'success');
+}
+
+function instDelete(id) {
+  const arr = instLoad().filter(i => i.id !== id);
+  instSave(arr);
+  if (instGetActive() === id) {
+    if (arr.length > 0) instSwitch(arr[0].id);
+    else instSetActive('');
+  }
+  renderInstList();
+}
+
+function instSaveNew() {
+  const name  = document.getElementById('inst-add-name').value.trim();
+  const url   = document.getElementById('inst-add-url').value.trim();
+  const token = document.getElementById('inst-add-token').value.trim();
+  if (!url || !token) { showToast('URL e token são obrigatórios', 'error'); return; }
+  const apiUrl = url.endsWith('/') ? url : url + '/';
+  const id = 'inst_' + Date.now();
+  const arr = instLoad();
+  arr.push({ id, name: name || instHostname(apiUrl), apiUrl, token });
+  instSave(arr);
+  instSwitch(id);
+}
+
 // ══════════════════════════════════════════════════════
 // API
 // ══════════════════════════════════════════════════════
@@ -583,6 +727,22 @@ function saveSettings() {
   cfg.pomShort    = parseInt(document.getElementById('cfg-pom-short').value) || 5;
   cfg.pomLong     = parseInt(document.getElementById('cfg-pom-long').value)  || 15;
   saveCfg();
+
+  // Atualizar instância ativa com novos credenciais
+  const _activeId = instGetActive();
+  const _arr = instLoad();
+  const _idx = _arr.findIndex(i => i.id === _activeId);
+  if (_idx >= 0) {
+    _arr[_idx].apiUrl = cfg.apiUrl;
+    _arr[_idx].token  = cfg.token;
+    instSave(_arr);
+  } else {
+    const _id = 'inst_' + Date.now();
+    instSave([..._arr, { id: _id, name: instHostname(cfg.apiUrl), apiUrl: cfg.apiUrl, token: cfg.token }]);
+    instSetActive(_id);
+  }
+  updateInstIndicator();
+
   closeSettings();
   showToast('Definições guardadas!', 'success');
 
@@ -608,6 +768,10 @@ function saveSetup() {
   cfg.apiUrl = apiUrl.endsWith('/') ? apiUrl : apiUrl + '/';
   cfg.token  = token;
   saveCfg();
+  const id = 'inst_' + Date.now();
+  instSave([{ id, name: instHostname(cfg.apiUrl), apiUrl: cfg.apiUrl, token: cfg.token }]);
+  instSetActive(id);
+  updateInstIndicator();
   document.getElementById('setup-screen').style.display  = 'none';
   document.getElementById('main-content').style.display  = '';
   loadTodos();
@@ -1368,6 +1532,9 @@ function attachEvents() {
     if (confirm('Terminar sessão e apagar token?')) {
       cfg = { ...DEFAULT_CFG };
       saveCfg();
+      instSave([]);
+      instSetActive('');
+      updateInstIndicator();
       closeSettings();
       document.getElementById('main-content').style.display = 'none';
       document.getElementById('setup-screen').style.display = '';
@@ -1463,6 +1630,17 @@ function attachEvents() {
   document.querySelectorAll('.btab').forEach(btn => {
     btn.addEventListener('click', () => switchPanel(btn.dataset.panel));
   });
+
+  // Instance switcher
+  document.getElementById('btn-inst-switch').addEventListener('click', openInstSwitcher);
+  document.getElementById('inst-indicator').addEventListener('click', openInstSwitcher);
+  document.getElementById('btn-inst-close').addEventListener('click', closeInstSwitcher);
+  document.getElementById('inst-overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('inst-overlay')) closeInstSwitcher();
+  });
+  document.getElementById('btn-inst-add-show').addEventListener('click', showInstAddForm);
+  document.getElementById('btn-inst-add-cancel').addEventListener('click', hideInstAddForm);
+  document.getElementById('btn-inst-add-save').addEventListener('click', instSaveNew);
 
   // MQTT reconnect & publish
   document.getElementById('mqtt-reconnect-btn').addEventListener('click', () => mqttConnect());
@@ -1663,6 +1841,9 @@ async function checkForUpdate() {
 // ══════════════════════════════════════════════════════
 function init() {
   loadCfg();
+  instMigrate();
+  instApplyActive();
+  updateInstIndicator();
   registerSW();
   startClock();
   initPomodoro();

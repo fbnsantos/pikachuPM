@@ -1056,6 +1056,84 @@ html, body {
 .bar-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .bar-btn.sent { border-color: var(--success); color: var(--success); }
 
+/* ── Instance indicator ── */
+.inst-indicator {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inst-indicator:hover { color: var(--primary); }
+
+/* ── Instance switcher overlay ── */
+.inst-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+}
+.inst-sheet {
+  width: 100%;
+  background: var(--bg-card);
+  border-radius: 20px 20px 0 0;
+  padding: 8px 16px calc(20px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.3);
+}
+.inst-sheet-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 2px;
+}
+.inst-sheet-title { font-size: 14px; font-weight: 700; color: var(--text); }
+
+.inst-list { display: flex; flex-direction: column; gap: 6px; }
+
+.inst-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 13px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.inst-item:hover { border-color: var(--primary); }
+.inst-item.active { border-color: var(--primary); }
+.inst-item-info { flex: 1; min-width: 0; }
+.inst-item-name {
+  font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.2;
+}
+.inst-item.active .inst-item-name::before { content: '✓ '; color: var(--primary); }
+.inst-item-url {
+  font-size: 10px; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.inst-item-del {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; font-size: 15px; padding: 4px 7px;
+  border-radius: 4px; flex-shrink: 0; line-height: 1;
+}
+.inst-item-del:hover { color: var(--danger); }
+
+.inst-add-row {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 10px 0 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+
 /* ── Attachment UI ── */
 .attach-row {
   display: flex;

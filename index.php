@@ -60,17 +60,37 @@ try {
     error_log("Erro ao carregar tema: " . $e->getMessage());
 }
 
-// Buscar token da API do utilizador atual
+// Buscar ou gerar token da API do utilizador atual
 $user_api_token = '';
 try {
     if (isset($pdo_config)) {
         $stmt_tok = $pdo_config->prepare("SELECT token FROM user_tokens WHERE user_id = ?");
         $stmt_tok->execute([$_SESSION['user_id']]);
         $tok_row = $stmt_tok->fetch(PDO::FETCH_ASSOC);
-        if ($tok_row) $user_api_token = $tok_row['token'];
+        if ($tok_row) {
+            $user_api_token = $tok_row['token'];
+        } else {
+            // Utilizador sem token (ex: login via Redmine) — gerar e guardar automaticamente
+            $new_token = bin2hex(random_bytes(32));
+            try {
+                $stmt_ins = $pdo_config->prepare("
+                    INSERT INTO user_tokens (user_id, username, token, is_local_user, is_approved)
+                    VALUES (?, ?, ?, 0, 1)
+                ");
+                $stmt_ins->execute([$_SESSION['user_id'], $_SESSION['username'] ?? '', $new_token]);
+                $user_api_token = $new_token;
+            } catch (Exception $e_ins) {
+                // Corrida rara: já existe, buscar o existente
+                $stmt_retry = $pdo_config->prepare("SELECT token FROM user_tokens WHERE user_id = ?");
+                $stmt_retry->execute([$_SESSION['user_id']]);
+                $retry_row = $stmt_retry->fetch(PDO::FETCH_ASSOC);
+                if ($retry_row) $user_api_token = $retry_row['token'];
+                error_log("Colisão ao gerar token para user_id={$_SESSION['user_id']}: " . $e_ins->getMessage());
+            }
+        }
     }
 } catch (Exception $e) {
-    error_log("Erro ao buscar token API: " . $e->getMessage());
+    error_log("Erro ao buscar/gerar token API: " . $e->getMessage());
 }
 
 // Definição dos horários para reuniões e transições

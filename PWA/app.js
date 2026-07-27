@@ -1,6 +1,11 @@
 'use strict';
 
 // ══════════════════════════════════════════════════════
+// VERSION — must match sw.js cache number
+// ══════════════════════════════════════════════════════
+const APP_VER = 29;
+
+// ══════════════════════════════════════════════════════
 // CONFIG
 // ══════════════════════════════════════════════════════
 const CFG_KEY = 'pikachu_pwa_cfg_v1';
@@ -1839,7 +1844,20 @@ async function checkForUpdate() {
 // ══════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════
+async function autoReloadIfStale() {
+  if (!('caches' in window)) return;
+  try {
+    const keys     = await caches.keys();
+    const cacheKey = keys.find(k => /pikachu-pwa-v\d+/.test(k)) || '';
+    const swV      = parseInt((cacheKey.match(/v(\d+)/) || ['', '0'])[1], 10);
+    if (swV > 0 && swV !== APP_VER) {
+      window.location.reload();
+    }
+  } catch {}
+}
+
 function init() {
+  autoReloadIfStale();
   loadCfg();
   instMigrate();
   instApplyActive();

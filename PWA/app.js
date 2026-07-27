@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 // VERSION — must match sw.js cache number
 // ══════════════════════════════════════════════════════
-const APP_VER = 30;
+const APP_VER = 31;
 
 // ══════════════════════════════════════════════════════
 // CONFIG
@@ -179,6 +179,80 @@ function instDelete(id) {
     else instSetActive('');
   }
   renderInstList();
+}
+
+function injectInstanceUI() {
+  // Injetar CSS mínimo caso app.css seja antigo
+  if (!document.getElementById('inst-styles')) {
+    const s = document.createElement('style');
+    s.id = 'inst-styles';
+    s.textContent = `
+.inst-indicator{font-size:10px;color:#94a3b8;text-align:center;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.inst-indicator:hover{color:#f59e0b;}
+.inst-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:flex;align-items:flex-end;}
+.inst-sheet{width:100%;background:#1e293b;border-radius:20px 20px 0 0;padding:8px 16px 24px;display:flex;flex-direction:column;gap:8px;max-height:80vh;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.35);}
+.inst-sheet-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;}
+.inst-sheet-title{font-size:14px;font-weight:700;color:#f1f5f9;}
+.inst-list{display:flex;flex-direction:column;gap:6px;}
+.inst-item{display:flex;align-items:center;gap:10px;padding:11px 13px;border:1.5px solid #334155;border-radius:10px;background:#0f172a;cursor:pointer;transition:border-color .15s;}
+.inst-item:hover,.inst-item.active{border-color:#f59e0b;}
+.inst-item-info{flex:1;min-width:0;}
+.inst-item-name{font-size:13px;font-weight:600;color:#f1f5f9;}
+.inst-item.active .inst-item-name::before{content:'✓ ';color:#f59e0b;}
+.inst-item-url{font-size:10px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.inst-item-del{background:none;border:none;color:#94a3b8;cursor:pointer;font-size:15px;padding:4px 7px;border-radius:4px;flex-shrink:0;}
+.inst-item-del:hover{color:#ef4444;}
+.inst-add-row{display:flex;flex-direction:column;gap:10px;padding:10px 0 4px;border-top:1px solid #334155;margin-top:2px;}`;
+    document.head.appendChild(s);
+  }
+
+  // Botão no header (ao lado de ⚙)
+  if (!document.getElementById('btn-inst-switch')) {
+    const btn = document.createElement('button');
+    btn.className = 'icon-btn';
+    btn.id = 'btn-inst-switch';
+    btn.title = 'Mudar instância';
+    btn.textContent = '🔗';
+    const settingsBtn = document.getElementById('btn-settings');
+    if (settingsBtn) settingsBtn.parentNode.insertBefore(btn, settingsBtn);
+  }
+
+  // Indicador acima do pomodoro
+  if (!document.getElementById('inst-indicator')) {
+    const div = document.createElement('div');
+    div.className = 'inst-indicator';
+    div.id = 'inst-indicator';
+    div.style.display = 'none';
+    const pomSection = document.querySelector('.pomodoro-section');
+    if (pomSection) pomSection.insertBefore(div, pomSection.firstChild);
+  }
+
+  // Overlay do seletor (se não estiver no HTML estático)
+  if (!document.getElementById('inst-overlay')) {
+    const overlay = document.createElement('div');
+    overlay.className = 'inst-overlay';
+    overlay.id = 'inst-overlay';
+    overlay.style.display = 'none';
+    overlay.innerHTML = `<div class="inst-sheet">
+      <div class="picker-handle" style="width:36px;height:4px;background:#334155;border-radius:2px;margin:2px auto 10px;"></div>
+      <div class="inst-sheet-header">
+        <span class="inst-sheet-title">⚡ Instâncias</span>
+        <button class="icon-btn" id="btn-inst-close">✕</button>
+      </div>
+      <div class="inst-list" id="inst-list"></div>
+      <div class="inst-add-row" id="inst-add-row" style="display:none">
+        <div class="form-group"><label>Nome</label><input type="text" id="inst-add-name" placeholder="Ex: CRIIS, Local…"></div>
+        <div class="form-group"><label>URL da API</label><input type="url" id="inst-add-url" placeholder="https://…/PK/"></div>
+        <div class="form-group"><label>Token</label><input type="password" id="inst-add-token" placeholder="token de API"></div>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button class="btn btn-secondary" id="btn-inst-add-cancel" style="flex:1">Cancelar</button>
+          <button class="btn btn-primary" id="btn-inst-add-save" style="flex:1">Guardar</button>
+        </div>
+      </div>
+      <button class="btn btn-secondary" id="btn-inst-add-show" style="margin-top:4px">+ Adicionar instância</button>
+    </div>`;
+    document.getElementById('app')?.appendChild(overlay);
+  }
 }
 
 function instSaveNew() {
@@ -1636,16 +1710,19 @@ function attachEvents() {
     btn.addEventListener('click', () => switchPanel(btn.dataset.panel));
   });
 
-  // Instance switcher
-  document.getElementById('btn-inst-switch').addEventListener('click', openInstSwitcher);
-  document.getElementById('inst-indicator').addEventListener('click', openInstSwitcher);
-  document.getElementById('btn-inst-close').addEventListener('click', closeInstSwitcher);
-  document.getElementById('inst-overlay').addEventListener('click', e => {
+  // Instance switcher (null-safe — elementos podem ser injetados dinamicamente)
+  document.getElementById('btn-inst-switch')?.addEventListener('click', openInstSwitcher);
+  document.getElementById('inst-indicator')?.addEventListener('click', openInstSwitcher);
+  document.getElementById('inst-overlay')?.addEventListener('click', e => {
     if (e.target === document.getElementById('inst-overlay')) closeInstSwitcher();
   });
-  document.getElementById('btn-inst-add-show').addEventListener('click', showInstAddForm);
-  document.getElementById('btn-inst-add-cancel').addEventListener('click', hideInstAddForm);
-  document.getElementById('btn-inst-add-save').addEventListener('click', instSaveNew);
+  // btn-inst-close / btn-inst-add-* são criados dentro do overlay — wire via delegação no overlay
+  document.getElementById('inst-overlay')?.addEventListener('click', e => {
+    if (e.target.id === 'btn-inst-close') closeInstSwitcher();
+    if (e.target.id === 'btn-inst-add-show') showInstAddForm();
+    if (e.target.id === 'btn-inst-add-cancel') hideInstAddForm();
+    if (e.target.id === 'btn-inst-add-save') instSaveNew();
+  });
 
   // MQTT reconnect & publish
   document.getElementById('mqtt-reconnect-btn').addEventListener('click', () => mqttConnect());
@@ -1839,6 +1916,7 @@ function init() {
   initPomodoro();
   initPersonal();
   initPanelResize();
+  injectInstanceUI();
   attachEvents();
   setupPullToRefresh();
 

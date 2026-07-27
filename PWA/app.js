@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 // VERSION — must match sw.js cache number
 // ══════════════════════════════════════════════════════
-const APP_VER = 33;
+const APP_VER = 34;
 
 // ══════════════════════════════════════════════════════
 // CONFIG
@@ -16,6 +16,7 @@ const DEFAULT_CFG = {
   pomFocus:    25,
   pomShort:    5,
   pomLong:     15,
+  uiZoom:      1.0,
 };
 
 let cfg = { ...DEFAULT_CFG };
@@ -29,6 +30,10 @@ function loadCfg() {
 
 function saveCfg() {
   try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch(e) {}
+}
+
+function applyZoom(scale) {
+  document.documentElement.style.zoom = scale || 1;
 }
 
 function isConfigured() {
@@ -792,6 +797,10 @@ function openSettings() {
   document.getElementById('cfg-pom-focus').value      = cfg.pomFocus || 25;
   document.getElementById('cfg-pom-short').value      = cfg.pomShort || 5;
   document.getElementById('cfg-pom-long').value       = cfg.pomLong  || 15;
+  const zoomVal = cfg.uiZoom || 1.0;
+  document.querySelectorAll('#zoom-picker .zoom-opt').forEach(b => {
+    b.classList.toggle('active', parseFloat(b.dataset.zoom) === zoomVal);
+  });
   document.getElementById('settings-screen').style.display = '';
 }
 
@@ -805,6 +814,9 @@ function saveSettings() {
   cfg.pomFocus    = parseInt(document.getElementById('cfg-pom-focus').value) || 25;
   cfg.pomShort    = parseInt(document.getElementById('cfg-pom-short').value) || 5;
   cfg.pomLong     = parseInt(document.getElementById('cfg-pom-long').value)  || 15;
+  const activeZoom = document.querySelector('#zoom-picker .zoom-opt.active');
+  cfg.uiZoom      = activeZoom ? parseFloat(activeZoom.dataset.zoom) : 1.0;
+  applyZoom(cfg.uiZoom);
   saveCfg();
 
   // Atualizar instância ativa com novos credenciais
@@ -1607,6 +1619,13 @@ function attachEvents() {
   document.getElementById('btn-settings').addEventListener('click', openSettings);
   document.getElementById('btn-settings-close').addEventListener('click', closeSettings);
   document.getElementById('btn-cfg-save').addEventListener('click', saveSettings);
+  document.getElementById('zoom-picker')?.addEventListener('click', e => {
+    const btn = e.target.closest('.zoom-opt');
+    if (!btn) return;
+    document.querySelectorAll('#zoom-picker .zoom-opt').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyZoom(parseFloat(btn.dataset.zoom));
+  });
   document.getElementById('btn-cfg-logout').addEventListener('click', () => {
     if (confirm('Terminar sessão e apagar token?')) {
       cfg = { ...DEFAULT_CFG };
@@ -1910,6 +1929,7 @@ async function autoReloadIfStale() {
 function init() {
   autoReloadIfStale();
   loadCfg();
+  applyZoom(cfg.uiZoom);
   instMigrate();
   instApplyActive();
   updateInstIndicator();

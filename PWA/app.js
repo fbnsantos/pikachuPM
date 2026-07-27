@@ -777,6 +777,16 @@ function initPomodoro() {
 // ══════════════════════════════════════════════════════
 // MQTT
 // ══════════════════════════════════════════════════════
+function isMqttCertError(msg) {
+  if (!msg) return false;
+  const m = msg.toLowerCase();
+  return m.includes('certificate') || m.includes(' cert') ||
+         m.includes('ssl') || m.includes('tls') ||
+         m.includes('handshake') || m.includes('err_cert') ||
+         m.includes('self sign') || m.includes('unable to verify') ||
+         m.includes('net::err');
+}
+
 function mqttSetState(state, detail = '') {
   const dot     = document.getElementById('mqtt-dot');
   const bar     = document.getElementById('mqtt-status-bar');
@@ -852,9 +862,11 @@ async function mqttConnect() {
     if (user) opts.username = user;
     if (pass) opts.password = pass;
 
+    let _everConnected = false;
     mqttClient = mqtt.connect(broker, opts);
 
     mqttClient.on('connect', () => {
+      _everConnected = true;
       mqttSetState('connected', broker);
       mqttAddMsg('⚙ sistema', `Ligado a ${broker}`, 'incoming');
       topics.forEach(t => mqttClient.subscribe(t, { qos: 0 }));
@@ -865,11 +877,26 @@ async function mqttConnect() {
     });
 
     mqttClient.on('error', err => {
-      const msg = err?.message || String(err) || 'erro desconhecido';
+      const raw = err?.message || String(err) || '';
+      let msg;
+      if (isMqttCertError(raw)) {
+        msg = `Certificado SSL inválido ou expirado — ${raw}`;
+      } else if (!raw && broker.startsWith('wss://') && !_everConnected) {
+        msg = 'Possível certificado SSL inválido ou expirado — abre o broker no browser para verificar';
+      } else {
+        msg = raw || 'erro desconhecido';
+      }
       mqttSetState('error', msg);
       mqttAddMsg('⚙ sistema', `Erro: ${msg}`, 'incoming');
     });
-    mqttClient.on('close',     () => mqttSetState('disconnected'));
+
+    mqttClient.on('close', () => {
+      if (!_everConnected && broker.startsWith('wss://')) {
+        mqttSetState('error', 'Ligação WSS falhou — verifica certificado SSL do broker');
+      } else {
+        mqttSetState('disconnected');
+      }
+    });
     mqttClient.on('offline',   () => mqttSetState('disconnected'));
     mqttClient.on('reconnect', () => mqttSetState('connecting', broker));
   } catch(e) {

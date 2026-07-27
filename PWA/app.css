@@ -1074,19 +1074,21 @@ html, body {
 .bar-btn.sent { border-color: var(--success); color: var(--success); }
 
 /* ── Instance indicator (inline na logo-version) ── */
-.inst-indicator {
-  font-size: 10px;
+.inst-bar {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  padding: 4px 14px;
+  font-size: 11px;
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 0.15s;
-  max-width: 130px;
+  text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-left: 4px;
-  opacity: 0.75;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
 }
-.inst-indicator:hover { color: var(--primary); opacity: 1; }
+.inst-bar:hover { color: var(--primary); background: var(--bg-hover); }
 
 /* ── Instance switcher overlay ── */
 .inst-overlay {

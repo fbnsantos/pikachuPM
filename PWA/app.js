@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 // VERSION — must match sw.js cache number
 // ══════════════════════════════════════════════════════
-const APP_VER = 36;
+const APP_VER = 37;
 
 // ══════════════════════════════════════════════════════
 // CONFIG
@@ -192,8 +192,8 @@ function injectInstanceUI() {
     const s = document.createElement('style');
     s.id = 'inst-styles';
     s.textContent = `
-.inst-indicator{font-size:10px;color:#94a3b8;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px;margin-left:4px;opacity:.75;}
-.inst-indicator:hover{color:#f59e0b;opacity:1;}
+.inst-bar{background:#1e293b;border-bottom:1px solid #334155;padding:4px 14px;font-size:11px;color:#94a3b8;cursor:pointer;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;transition:color .15s,background .15s;}
+.inst-bar:hover{color:#f59e0b;background:#263347;}
 .inst-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:flex;align-items:flex-end;}
 .inst-sheet{width:100%;background:#1e293b;border-radius:20px 20px 0 0;padding:8px 16px 24px;display:flex;flex-direction:column;gap:8px;max-height:80vh;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.35);}
 .inst-sheet-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;}
@@ -222,14 +222,14 @@ function injectInstanceUI() {
     if (settingsBtn) settingsBtn.parentNode.insertBefore(btn, settingsBtn);
   }
 
-  // Indicador inline na logo-version (sem adicionar altura)
+  // Barra de instância entre cabeçalho e pomodoro
   if (!document.getElementById('inst-indicator')) {
-    const span = document.createElement('span');
-    span.className = 'inst-indicator';
-    span.id = 'inst-indicator';
-    span.style.display = 'none';
-    const logoVer = document.querySelector('.logo-version');
-    if (logoVer) logoVer.appendChild(span);
+    const bar = document.createElement('div');
+    bar.className = 'inst-bar';
+    bar.id = 'inst-indicator';
+    bar.style.display = 'none';
+    const pom = document.querySelector('.pomodoro-section');
+    if (pom) pom.parentNode.insertBefore(bar, pom);
   }
 
   // Overlay do seletor (se não estiver no HTML estático)

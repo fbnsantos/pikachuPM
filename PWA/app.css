@@ -1056,21 +1056,20 @@ html, body {
 .bar-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .bar-btn.sent { border-color: var(--success); color: var(--success); }
 
-/* ── Instance indicator ── */
+/* ── Instance indicator (inline na logo-version) ── */
 .inst-indicator {
   font-size: 10px;
   color: var(--text-muted);
-  text-align: center;
-  letter-spacing: 0.2px;
   cursor: pointer;
-  padding: 0;
   transition: color 0.15s;
-  max-width: 100%;
+  max-width: 130px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-left: 4px;
+  opacity: 0.75;
 }
-.inst-indicator:hover { color: var(--primary); }
+.inst-indicator:hover { color: var(--primary); opacity: 1; }
 
 /* ── Instance switcher overlay ── */
 .inst-overlay {

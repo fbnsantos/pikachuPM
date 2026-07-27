@@ -1,4 +1,4 @@
-const CACHE = 'pikachu-pwa-v29';
+const CACHE = 'pikachu-pwa-v30';
 const SHELL = [
   './index.html',
   './app.css',
@@ -14,10 +14,9 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
-      .then(clients => Promise.all(clients.map(c => c.navigate(c.url))))
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+    )
   );
   self.clients.claim();
 });

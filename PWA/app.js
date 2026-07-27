@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 // VERSION — must match sw.js cache number
 // ══════════════════════════════════════════════════════
-const APP_VER = 29;
+const APP_VER = 30;
 
 // ══════════════════════════════════════════════════════
 // CONFIG
@@ -1798,45 +1798,17 @@ function registerSW() {
 async function checkForUpdate() {
   const btn = document.getElementById('btn-update-app');
   if (btn) btn.classList.add('spin');
-  showToast('A verificar actualização…', '');
+  showToast('A limpar cache e recarregar…', '');
 
   try {
-    // Buscar sw.js do servidor sem qualquer cache
-    const fresh   = await fetch('./sw.js', { cache: 'no-store' });
-    const swText  = await fresh.text();
-    const serverV = parseInt((swText.match(/pikachu-pwa-v(\d+)/) || ['','0'])[1], 10);
-
-    // Versão instalada actualmente
+    // Limpar TODAS as caches e desregistar o SW → garante código fresco do servidor
     const cacheKeys = await caches.keys();
-    const activeKey = cacheKeys.find(k => /pikachu-pwa-v\d+/.test(k)) || '';
-    const localV    = parseInt((activeKey.match(/v(\d+)/) || ['','0'])[1], 10);
-
-    if (serverV > 0 && serverV !== localV) {
-      // Versões diferentes → limpar tudo e recarregar
-      showToast(`Nova versão (v${serverV})! A limpar cache…`, 'success');
-      await Promise.all(cacheKeys.map(k => caches.delete(k)));
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map(r => r.unregister()));
-      setTimeout(() => window.location.reload(), 700);
-    } else if (serverV === localV && localV > 0) {
-      showToast(`Versão v${localV} — já é a mais recente ✓`, 'success');
-    } else {
-      // Fallback: deixar o SW normal tratar
-      const reg = _swReg || await navigator.serviceWorker.getRegistration('./sw.js');
-      if (reg) {
-        let found = false;
-        reg.addEventListener('updatefound', () => { found = true; }, { once: true });
-        await reg.update();
-        await new Promise(r => setTimeout(r, 3000));
-        if (!found) showToast('Já tens a versão mais recente ✓', 'success');
-      } else {
-        showToast('A recarregar…', '');
-        setTimeout(() => window.location.reload(), 500);
-      }
-    }
+    await Promise.all(cacheKeys.map(k => caches.delete(k)));
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map(r => r.unregister()));
+    setTimeout(() => window.location.reload(), 600);
   } catch(e) {
     showToast('Erro: ' + e.message, 'error');
-  } finally {
     if (btn) btn.classList.remove('spin');
   }
 }

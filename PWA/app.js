@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 // VERSION — must match sw.js cache number
 // ══════════════════════════════════════════════════════
-const APP_VER = 35;
+const APP_VER = 36;
 
 // ══════════════════════════════════════════════════════
 // CONFIG
@@ -1915,11 +1915,14 @@ async function checkForUpdate() {
 // ══════════════════════════════════════════════════════
 async function autoReloadIfStale() {
   if (!('caches' in window)) return;
+  // Evitar loop infinito: só redireciona uma vez por sessão de tab
+  if (sessionStorage.getItem('_swv_reloaded')) return;
   try {
     const keys     = await caches.keys();
     const cacheKey = keys.find(k => /pikachu-pwa-v\d+/.test(k)) || '';
     const swV      = parseInt((cacheKey.match(/v(\d+)/) || ['', '0'])[1], 10);
     if (swV > 0 && swV !== APP_VER) {
+      sessionStorage.setItem('_swv_reloaded', '1');
       const base = window.location.pathname.replace(/\?.*$/, '');
       window.location.href = base + '?_sw=' + Date.now();
     }

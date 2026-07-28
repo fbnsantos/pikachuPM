@@ -85,18 +85,6 @@ $SECTIONS = [
             'comp_equipa'      => 'Trabalho em equipa',
         ],
     ],
-    'funcoes' => [
-        'title' => '1. Funções Assumidas',
-        'scale' => [
-            'A'=>'A — Funções superiores ao nível funcional na maioria das funções',
-            'B'=>'B — Funções superiores ao nível funcional em algumas funções',
-            'C'=>'C — Funções correspondentes ao nível funcional',
-            'D'=>'D — Funções inferiores ao nível funcional',
-        ],
-        'fields' => [
-            'func_global' => 'FUNÇÕES ASSUMIDAS (GLOBAL)',
-        ],
-    ],
     'desempenho' => [
         'title' => '2/3. Qualidade e Quantidade de Trabalho',
         'scale' => [

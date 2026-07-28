@@ -241,6 +241,17 @@ foreach ($SECTIONS as $sk => $sec) {
 
 /* Results */
 .pe-mean{display:inline-block;padding:3px 10px;border-radius:6px;font-size:13px;font-weight:700;letter-spacing:.5px}
+/* Distribution popover */
+.pe-pop{position:fixed;z-index:9999;background:#fff;border:1px solid #dee2e6;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.18);padding:12px 16px;min-width:160px;display:none}
+.pe-pop-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6c757d;margin-bottom:8px}
+.pe-pop-row{display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px}
+.pe-pop-row:last-child{margin-bottom:0}
+.pe-pop-lbl{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
+.pe-pop-bar-wrap{flex:1;background:#f0f0f0;border-radius:3px;height:10px;overflow:hidden}
+.pe-pop-bar{height:10px;border-radius:3px;transition:width .2s}
+.pe-pop-cnt{font-weight:600;min-width:18px;text-align:right}
+td.pe-clickable{cursor:pointer}
+td.pe-clickable:hover .pe-mean{opacity:.8}
 .pe-mean-Ap,.pe-mean-A{background:#d1e7dd;color:#0a3622}
 .pe-mean-Bp,.pe-mean-B{background:#cfe2ff;color:#031633}
 .pe-mean-Cp,.pe-mean-C{background:#fff3cd;color:#664d03}
@@ -543,12 +554,17 @@ foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $admin_results[$r['evaluatee_id']
     <tr>
       <td class="fw-semibold" style="white-space:nowrap;position:sticky;left:0;background:#f8f9fa"><?= htmlspecialchars($ee['username']) ?></td>
       <?php foreach ($all_fields as $fk=>$fi):
-        $vals = $admin_results[$eid][$fk] ?? [];
-        $mean = $vals ? peCalcMean($vals) : null;
-        $cls  = $mean ? 'pe-mean pe-mean-'.str_replace('+','p',$mean) : '';
-        $lbl  = $mean ? str_replace('+','⁺',$mean) : '';
+        $vals  = $admin_results[$eid][$fk] ?? [];
+        $mean  = $vals ? peCalcMean($vals) : null;
+        $cls   = $mean ? 'pe-mean pe-mean-'.str_replace('+','p',$mean) : '';
+        $lbl   = $mean ? str_replace('+','⁺',$mean) : '';
+        $freq  = $vals ? array_count_values($vals) : [];
+        $total = count($vals);
+        $dist  = $total ? htmlspecialchars(json_encode(['freq'=>$freq,'total'=>$total,'label'=>$fi['label']]),ENT_QUOTES) : '';
       ?>
-      <td style="text-align:center;padding:2px"><?= $mean ? "<span class=\"$cls\" style=\"font-size:11px;padding:1px 6px\">$lbl</span>" : '<span class="text-muted" style="font-size:10px">—</span>' ?></td>
+      <td style="text-align:center;padding:2px" <?= $dist ? "class=\"pe-clickable\" data-dist=\"$dist\"" : '' ?>>
+        <?= $mean ? "<span class=\"$cls\" style=\"font-size:11px;padding:1px 6px\">$lbl</span>" : '<span class="text-muted" style="font-size:10px">—</span>' ?>
+      </td>
       <?php endforeach; ?>
     </tr>
     <?php endforeach; ?>
@@ -561,6 +577,12 @@ foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $admin_results[$r['evaluatee_id']
 <?php endif; ?>
 
 <?php endif; // main gate ?>
+</div>
+
+<!-- ── Popover de distribuição ── -->
+<div id="pe-pop" class="pe-pop">
+  <div class="pe-pop-title" id="pe-pop-title"></div>
+  <div id="pe-pop-body"></div>
 </div>
 
 <script>
@@ -651,6 +673,46 @@ function peRemoveParticipant(cid, pid) {
         });
     });
 })();
+
+// ── Popover de distribuição ──
+const PE_COLORS = {A:'#198754',B:'#0d6efd',C:'#fd7e14',D:'#dc3545'};
+const PE_POP    = document.getElementById('pe-pop');
+
+document.addEventListener('click', e => {
+    const td = e.target.closest('td.pe-clickable');
+    if (!td) { PE_POP && (PE_POP.style.display='none'); return; }
+    const raw = td.dataset.dist;
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    document.getElementById('pe-pop-title').textContent = d.label;
+    const body = document.getElementById('pe-pop-body');
+    body.innerHTML = '';
+    const maxN = Math.max(...['A','B','C','D'].map(v => d.freq[v]||0), 1);
+    ['A','B','C','D'].forEach(v => {
+        const n = d.freq[v] || 0;
+        const pct = Math.round(n / maxN * 100);
+        const row = document.createElement('div');
+        row.className = 'pe-pop-row';
+        row.innerHTML = `
+            <span class="pe-pop-lbl" style="background:${PE_COLORS[v]}">${v}</span>
+            <div class="pe-pop-bar-wrap">
+              <div class="pe-pop-bar" style="width:${pct}%;background:${PE_COLORS[v]}"></div>
+            </div>
+            <span class="pe-pop-cnt">${n}</span>
+            <span class="text-muted" style="font-size:10px">${d.total>0?Math.round(n/d.total*100)+'%':''}</span>`;
+        body.appendChild(row);
+    });
+    // Position near click
+    const vw = window.innerWidth, vh = window.innerHeight;
+    PE_POP.style.display = 'block';
+    const pw = PE_POP.offsetWidth, ph = PE_POP.offsetHeight;
+    let left = e.clientX + 12, top = e.clientY + 12;
+    if (left + pw > vw - 8) left = e.clientX - pw - 8;
+    if (top  + ph > vh - 8) top  = e.clientY - ph - 8;
+    PE_POP.style.left = left + 'px';
+    PE_POP.style.top  = top  + 'px';
+    e.stopPropagation();
+});
 
 function pePost(data, cb) {
     const fd = new FormData();

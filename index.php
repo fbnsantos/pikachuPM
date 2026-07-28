@@ -116,9 +116,10 @@ $tabs = [
         'label' => 'Management',
         'submenu' => [
             'search' => 'Search Redmine',
-            'lab_management' => 'Lab Management', 
+            'lab_management' => 'Lab Management',
             'contactos_comerciais' => 'Contactos Comerciais',
             'financeiro' => 'Financeiro',
+            'peer_evaluation' => 'Avaliação entre Pares',
             'admin' => 'Administration'
         ]
     ],

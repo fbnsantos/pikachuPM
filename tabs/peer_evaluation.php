@@ -22,6 +22,7 @@ $pdo->exec("
         title VARCHAR(255) NOT NULL DEFAULT 'Avaliação entre Pares',
         year_label VARCHAR(20) DEFAULT NULL,
         is_public TINYINT(1) DEFAULT 0,
+        results_published TINYINT(1) DEFAULT 0,
         is_active TINYINT(1) DEFAULT 1,
         created_by INT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -56,14 +57,16 @@ $pdo->exec("
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ");
 
+// Adiciona coluna em instalações existentes (falha silenciosamente se já existir)
+try { $pdo->exec("ALTER TABLE peer_eval_campaigns ADD COLUMN results_published TINYINT(1) DEFAULT 0"); } catch(Exception $e) {}
+
 // ── Admin check ────────────────────────────────────────────────────────────
 $stmt = $pdo->prepare("SELECT id FROM admin_users WHERE user_id = ?");
 $stmt->execute([$cur_uid]);
 $is_admin = (bool)$stmt->fetch();
 
 // ── Definição de campos ────────────────────────────────────────────────────
-$TEXT_FIELDS = ['comment_desemp','comment_atitude','comment_colaborador'];
-$ABCD_STD    = ['A'=>'Excecional','B'=>'Muito Bom','C'=>'Bom','D'=>'A Desenvolver'];
+$ABCD_STD = ['A'=>'Excecional','B'=>'Muito Bom','C'=>'Bom','D'=>'A Desenvolver'];
 
 $SECTIONS = [
     'comp_esp' => [
@@ -102,7 +105,6 @@ $SECTIONS = [
             'desemp_quant_global' => 'Desempenho Quantitativo (Global)',
             'desemp_quant_a'      => 'Múltiplas tarefas ou projetos',
             'desemp_quant_b'      => 'Afetação de tempo suplementar',
-            'comment_desemp'      => 'Comentário Desempenho',
         ],
     ],
     'atitude' => [
@@ -114,14 +116,6 @@ $SECTIONS = [
             'atitude_aut'     => 'Autonomia',
             'atitude_coop'    => 'Cooperação',
             'atitude_resp'    => 'Responsabilidade',
-            'comment_atitude' => 'Comentário Atitude',
-        ],
-    ],
-    'colaborador' => [
-        'title'  => 'Colaborador',
-        'scale'  => [],
-        'fields' => [
-            'comment_colaborador' => 'Comentário do Colaborador',
         ],
     ],
 ];
@@ -153,23 +147,47 @@ if ($campaign) {
             $my_responses[$r['evaluatee_id']][$r['field_key']] = $r;
         }
     }
+
+    // Para admin: progresso por avaliador (quantas pessoas distintas já avaliaram)
+    $evaluator_progress = [];
+    if ($is_admin) {
+        $s = $pdo->prepare("SELECT evaluator_id, COUNT(DISTINCT evaluatee_id) as cnt FROM peer_eval_responses WHERE campaign_id=? GROUP BY evaluator_id");
+        $s->execute([$cid]);
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $evaluator_progress[(int)$r['evaluator_id']] = (int)$r['cnt'];
+        }
+    }
 }
 
-$can_view       = $is_admin || ($campaign && $campaign['is_public'] && $my_role);
-$is_evaluator   = $my_role && $my_role['can_evaluate'];
-$is_evaluatee   = $my_role && $my_role['can_be_evaluated'];
+$is_evaluator     = $my_role && $my_role['can_evaluate'];
+$is_evaluatee     = $my_role && $my_role['can_be_evaluated'];
+$can_eval         = $is_admin || ($campaign && $campaign['is_public'] && $is_evaluator);
+$can_see_results  = $campaign && $campaign['results_published'] && $is_evaluatee;
+
+// Calcular valor médio A+/A/B+/B/C+/C/D+/D a partir de respostas A/B/C/D
+function peCalcMean(array $vals): ?string {
+    $map = ['A'=>4,'B'=>3,'C'=>2,'D'=>1];
+    $sum = 0; $n = 0;
+    foreach ($vals as $v) { if (isset($map[$v])) { $sum += $map[$v]; $n++; } }
+    if (!$n) return null;
+    $avg = $sum / $n;
+    if ($avg >= 3.75) return 'A+';
+    if ($avg >= 3.25) return 'A';
+    if ($avg >= 2.75) return 'B+';
+    if ($avg >= 2.25) return 'B';
+    if ($avg >= 1.75) return 'C+';
+    if ($avg >= 1.25) return 'C';
+    if ($avg >= 0.75) return 'D+';
+    return 'D';
+}
 
 // flat field list
 $all_fields = [];
 foreach ($SECTIONS as $sk => $sec) {
     foreach ($sec['fields'] as $fk => $fl) {
-        $all_fields[$fk] = ['label'=>$fl,'section'=>$sk,'is_text'=>in_array($fk,$TEXT_FIELDS),'scale'=>$sec['scale'],'sec_title'=>$sec['title']];
+        $all_fields[$fk] = ['label'=>$fl,'section'=>$sk,'scale'=>$sec['scale'],'sec_title'=>$sec['title']];
     }
 }
-
-// Total non-text columns
-$total_cols = 0;
-foreach ($SECTIONS as $sec) $total_cols += count($sec['fields']);
 ?>
 
 <style>
@@ -217,25 +235,20 @@ foreach ($SECTIONS as $sec) $total_cols += count($sec['fields']);
 .pe-sel.val-D{background:#f8d7da;border-color:#f1aeb5;color:#58151c}
 .pe-sel.val-skip{background:#e9ecef;border-color:#adb5bd;color:#6c757d;font-style:italic}
 
-/* Comment cell button */
-.pe-cmt-btn{border:1px dashed #adb5bd;background:#f8f9fa;border-radius:4px;font-size:10px;padding:2px 5px;cursor:pointer;color:#6c757d;white-space:nowrap}
-.pe-cmt-btn.has-val{border-color:#ffc107;background:#fff3cd;color:#664d03}
-.pe-cmt-btn:hover{border-color:#0d6efd;color:#0d6efd}
-
-/* Comment modal */
-.pe-cmt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:500;display:flex;align-items:center;justify-content:center}
-.pe-cmt-box{background:#fff;border-radius:12px;padding:20px;width:min(480px,90vw);box-shadow:0 8px 32px rgba(0,0,0,.25)}
-.pe-cmt-box textarea{width:100%;border:1px solid #dee2e6;border-radius:6px;padding:8px;font-size:13px;resize:vertical;min-height:100px;margin-bottom:10px}
-
 /* Save status */
 .pe-status{font-size:11px;color:#6c757d;transition:all .2s}
 .pe-status.saving{color:#0d6efd}.pe-status.saved{color:#198754}.pe-status.err{color:#dc3545}
 
 /* Results */
-.pe-dist-bar{display:flex;height:14px;border-radius:3px;overflow:hidden;gap:1px;min-width:80px}
-.pe-dist-bar span{display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff}
-.pe-dist-bar .dA{background:#198754}.pe-dist-bar .dB{background:#0d6efd}
-.pe-dist-bar .dC{background:#fd7e14}.pe-dist-bar .dD{background:#dc3545}
+.pe-mean{display:inline-block;padding:3px 10px;border-radius:6px;font-size:13px;font-weight:700;letter-spacing:.5px}
+.pe-mean-Ap,.pe-mean-A{background:#d1e7dd;color:#0a3622}
+.pe-mean-Bp,.pe-mean-B{background:#cfe2ff;color:#031633}
+.pe-mean-Cp,.pe-mean-C{background:#fff3cd;color:#664d03}
+.pe-mean-Dp,.pe-mean-D{background:#f8d7da;color:#58151c}
+.pe-mean-Ap::after{content:'+';font-size:9px;vertical-align:super}
+.pe-mean-Bp::after{content:'+';font-size:9px;vertical-align:super}
+.pe-mean-Cp::after{content:'+';font-size:9px;vertical-align:super}
+.pe-mean-Dp::after{content:'+';font-size:9px;vertical-align:super}
 </style>
 
 <div class="pe-wrap">
@@ -246,7 +259,8 @@ foreach ($SECTIONS as $sec) $total_cols += count($sec['fields']);
     <h5 class="mb-0 fw-bold">👥 Avaliação entre Pares</h5>
     <?php if ($campaign): ?>
       <span class="text-muted" style="font-size:13px"><?= htmlspecialchars($campaign['title'].' '.($campaign['year_label']??'')) ?></span>
-      <?= $campaign['is_public'] ? '<span class="pe-badge-public">🔓 Pública</span>' : '<span class="pe-badge-draft">🔒 Rascunho</span>' ?>
+      <?= $campaign['is_public'] ? '<span class="pe-badge-public">🔓 Aberta</span>' : '<span class="pe-badge-draft">🔒 Rascunho</span>' ?>
+      <?= !empty($campaign['results_published']) ? '<span class="pe-badge-public" style="background:#0d6efd">📊 Resultados publicados</span>' : '' ?>
     <?php endif; ?>
     <span class="pe-status" id="pe-status"></span>
   </div>
@@ -256,11 +270,15 @@ foreach ($SECTIONS as $sec) $total_cols += count($sec['fields']);
       <?php if ($campaign): ?>
       <button class="btn btn-sm <?= $campaign['is_public'] ? 'btn-warning' : 'btn-success' ?>"
         onclick="peTogglePublic(<?= $campaign['id'] ?>,<?= $campaign['is_public'] ? 0 : 1 ?>)">
-        <?= $campaign['is_public'] ? '🔒 Tornar Rascunho' : '🔓 Tornar Pública' ?>
+        <?= $campaign['is_public'] ? '🔒 Fechar avaliação' : '🔓 Abrir avaliação' ?>
+      </button>
+      <button class="btn btn-sm <?= !empty($campaign['results_published']) ? 'btn-secondary' : 'btn-primary' ?>"
+        onclick="peToggleResults(<?= $campaign['id'] ?>,<?= !empty($campaign['results_published']) ? 0 : 1 ?>)">
+        <?= !empty($campaign['results_published']) ? '📊 Retirar resultados' : '📊 Publicar resultados' ?>
       </button>
       <?php endif; ?>
     <?php endif; ?>
-    <?php if ($can_view): ?>
+    <?php if ($can_eval || $can_see_results): ?>
     <button class="btn btn-sm btn-outline-info" onclick="peInfoToggle()">ⓘ Escalas</button>
     <?php endif; ?>
   </div>
@@ -360,12 +378,12 @@ foreach ($SECTIONS as $sec) $total_cols += count($sec['fields']);
 <?php if (!$campaign): ?>
   <div class="alert alert-info">Nenhuma campanha ativa. <?= $is_admin ? 'Cria uma campanha acima.' : 'Aguarda que um administrador crie uma campanha.' ?></div>
 
-<?php elseif (!$can_view): ?>
-  <div class="alert alert-secondary"><i class="bi bi-lock-fill"></i> A avaliação ainda não foi tornada pública. Aguarda a autorização do administrador.</div>
+<?php elseif (!$is_admin && !$can_eval && !$can_see_results): ?>
+  <div class="alert alert-secondary"><i class="bi bi-lock-fill"></i> A avaliação ainda não está disponível. Aguarda a autorização do administrador.</div>
 
 <?php else: ?>
 
-<?php if ($is_evaluator || $is_admin): ?>
+<?php if ($can_eval): ?>
 <?php if (!$is_admin): ?>
 <p class="text-muted mb-2" style="font-size:12px">A avaliar como: <strong><?= htmlspecialchars($cur_user) ?></strong> &nbsp;·&nbsp; Clica em ⓘ Escalas para ver o significado de cada letra.</p>
 <?php endif; ?>
@@ -388,29 +406,19 @@ foreach ($SECTIONS as $sec) $total_cols += count($sec['fields']);
   </thead>
   <tbody>
   <?php foreach ($evaluatees as $ee):
-    if ($ee['user_id'] == $cur_uid && !$is_admin) continue;
+    if ($ee['user_id'] == $cur_uid) continue;
     $eid = $ee['user_id'];
   ?>
   <tr>
     <td class="pe-td-name"><?= htmlspecialchars($ee['username']) ?></td>
     <?php foreach ($SECTIONS as $sk=>$sec): foreach ($sec['fields'] as $fk=>$fl):
-      $resp  = $my_responses[$eid][$fk] ?? null;
-      $val   = $resp['field_value'] ?? '';
-      $skip  = (int)($resp['is_skip'] ?? 0);
-      $is_txt = in_array($fk,$TEXT_FIELDS);
-    ?>
-    <td>
-    <?php if ($is_txt): ?>
-      <button class="pe-cmt-btn <?= $val ? 'has-val' : '' ?>"
-        id="cmt-<?= $eid ?>-<?= $fk ?>"
-        onclick="peOpenComment(<?= $campaign['id'] ?>,<?= $eid ?>,'<?= $fk ?>',<?= json_encode($fl) ?>)"
-        title="<?= $val ? htmlspecialchars(mb_strimwidth($val,0,60,'…')) : 'Sem comentário' ?>">
-        <?= $val ? '✏️ editar' : '+ comentário' ?>
-      </button>
-    <?php else:
+      $resp   = $my_responses[$eid][$fk] ?? null;
+      $val    = $resp['field_value'] ?? '';
+      $skip   = (int)($resp['is_skip'] ?? 0);
       $selval = $skip ? '__skip__' : $val;
       $cls    = $skip ? 'val-skip' : ($val ? 'val-'.$val : '');
     ?>
+    <td>
       <select class="pe-sel <?= $cls ?>"
         id="sel-<?= $eid ?>-<?= $fk ?>"
         onchange="peSelChange(<?= $campaign['id'] ?>,<?= $eid ?>,'<?= $fk ?>',this)">
@@ -420,7 +428,6 @@ foreach ($SECTIONS as $sec) $total_cols += count($sec['fields']);
         <?php endforeach; ?>
         <option value="__skip__" <?= $selval=='__skip__'?'selected':'' ?>>N/A</option>
       </select>
-    <?php endif; ?>
     </td>
     <?php endforeach; endforeach; ?>
   </tr>
@@ -428,93 +435,137 @@ foreach ($SECTIONS as $sec) $total_cols += count($sec['fields']);
   </tbody>
 </table>
 </div>
-<?php endif; // is_evaluator ?>
+<?php endif; // can_eval ?>
 
-<!-- ── Resultados públicos para o avaliado ── -->
-<?php if ($is_evaluatee && $campaign['is_public'] && !$is_admin): ?>
+<!-- ── Resultados publicados (avaliado) ── -->
+<?php if ($can_see_results && !$is_admin): ?>
+<?php
+$s = $pdo->prepare("SELECT field_key,field_value FROM peer_eval_responses WHERE campaign_id=? AND evaluatee_id=? AND is_skip=0 AND field_value IS NOT NULL AND field_value!=''");
+$s->execute([$cid,$cur_uid]);
+$by_field = [];
+foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $by_field[$r['field_key']][] = $r['field_value'];
+?>
 <div class="mt-4">
   <h6 class="fw-bold">📊 Os meus resultados</h6>
-  <p class="text-muted" style="font-size:12px">Distribuição das avaliações recebidas por parâmetro. A identidade dos avaliadores é anónima.</p>
-  <?php
-  $s = $pdo->prepare("SELECT field_key,field_value,is_skip FROM peer_eval_responses WHERE campaign_id=? AND evaluatee_id=? AND is_skip=0 AND (field_value IS NOT NULL AND field_value!='')");
-  $s->execute([$cid,$cur_uid]);
-  $by_field = [];
-  foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $by_field[$r['field_key']][] = $r['field_value'];
-  ?>
+  <p class="text-muted" style="font-size:12px">Valor médio das avaliações recebidas por parâmetro. A identidade dos avaliadores é anónima.</p>
   <div class="table-responsive">
   <table class="table table-sm table-bordered" style="font-size:12px">
-    <thead class="table-dark"><tr><th>Secção</th><th>Parâmetro</th><th>Distribuição</th><th>Mais frequente</th><th>Nº avaliações</th></tr></thead>
+    <thead class="table-dark"><tr><th>Secção</th><th>Parâmetro</th><th style="text-align:center">Valor médio</th><th style="text-align:center">Nº avaliações</th></tr></thead>
     <tbody>
     <?php
     $last_sec = '';
     foreach ($all_fields as $fk=>$fi):
-      if ($fi['is_text']) continue;
-      $vals = $by_field[$fk] ?? [];
+      $vals  = $by_field[$fk] ?? [];
       if (empty($vals)) continue;
-      $freq = array_count_values($vals);
-      $total = count($vals);
-      arsort($freq);
-      $moda = array_key_first($freq);
-      $bc = ['A'=>'bg-success','B'=>'bg-primary','C'=>'bg-warning text-dark','D'=>'bg-danger'];
+      $mean  = peCalcMean($vals);
+      $cls   = 'pe-mean pe-mean-'.str_replace('+','p',$mean);
+      $label = str_replace('+','⁺', $mean);
     ?>
     <tr>
-      <td class="text-muted" style="font-size:11px"><?= $last_sec!==$fi['sec_title'] ? ($last_sec=$fi['sec_title']) && htmlspecialchars($fi['sec_title']) : '' ?></td>
+      <td class="text-muted" style="font-size:11px;white-space:nowrap"><?php if ($last_sec !== $fi['sec_title']) { $last_sec = $fi['sec_title']; echo htmlspecialchars($fi['sec_title']); } ?></td>
       <td><?= htmlspecialchars($fi['label']) ?></td>
-      <td>
-        <div class="pe-dist-bar">
-          <?php foreach (['A','B','C','D'] as $v): $n=$freq[$v]??0; if(!$n) continue; $pct=round($n/$total*100); ?>
-          <span class="d<?= $v ?>" style="flex:<?= $n ?>" title="<?= $v ?>: <?= $n ?>"><?= $n ?></span>
-          <?php endforeach; ?>
-        </div>
-      </td>
-      <td><span class="badge <?= $bc[$moda] ?? 'bg-secondary' ?>"><?= $moda ?></span></td>
-      <td class="text-center"><?= $total ?></td>
+      <td style="text-align:center"><span class="<?= $cls ?>"><?= $label ?></span></td>
+      <td style="text-align:center"><?= count($vals) ?></td>
     </tr>
     <?php endforeach; ?>
     </tbody>
   </table>
   </div>
-  <!-- Comentários recebidos -->
-  <?php
-  $s = $pdo->prepare("SELECT field_key,field_value FROM peer_eval_responses WHERE campaign_id=? AND evaluatee_id=? AND is_skip=0 AND field_value IS NOT NULL AND field_value!='' AND field_key LIKE 'comment_%'");
-  $s->execute([$cid,$cur_uid]);
-  $comments = $s->fetchAll(PDO::FETCH_ASSOC);
-  if ($comments):
-  ?>
-  <h6 class="fw-bold mt-3">💬 Comentários recebidos</h6>
-  <?php foreach ($comments as $c):
-    $label = $all_fields[$c['field_key']]['label'] ?? $c['field_key'];
-  ?>
-  <div class="mb-2 p-2 border rounded" style="font-size:12px;background:#f8f9fa">
-    <div class="fw-semibold text-muted mb-1" style="font-size:11px"><?= htmlspecialchars($label) ?></div>
-    <?= nl2br(htmlspecialchars($c['field_value'])) ?>
-  </div>
-  <?php endforeach; endif; ?>
 </div>
 <?php endif; ?>
 
-<?php endif; // can_view ?>
+<!-- ── Admin: progresso + resultados ── -->
+<?php if ($is_admin && $campaign): ?>
+
+<!-- Progresso por avaliador -->
+<?php if ($evaluators): ?>
+<div class="mt-4">
+  <h6 class="fw-bold">📋 Progresso das avaliações</h6>
+  <div class="table-responsive">
+  <table class="table table-sm table-bordered" style="font-size:12px">
+    <thead class="table-secondary">
+      <tr><th>Avaliador</th><th style="text-align:center">Pessoas avaliadas</th><th style="text-align:center">Total a avaliar</th><th style="min-width:120px">Progresso</th></tr>
+    </thead>
+    <tbody>
+    <?php foreach ($evaluators as $ev):
+      $ev_uid     = $ev['user_id'];
+      $total_ev   = count(array_filter($evaluatees, fn($e) => $e['user_id'] != $ev_uid));
+      $done       = $evaluator_progress[$ev_uid] ?? 0;
+      $pct        = $total_ev > 0 ? round($done / $total_ev * 100) : 0;
+      $bar_cls    = $pct === 0 ? 'bg-secondary' : ($pct >= 100 ? 'bg-success' : 'bg-warning text-dark');
+    ?>
+    <tr>
+      <td><?= htmlspecialchars($ev['username']) ?></td>
+      <td style="text-align:center"><?= $done ?></td>
+      <td style="text-align:center"><?= $total_ev ?></td>
+      <td>
+        <div class="progress" style="height:16px;border-radius:4px">
+          <div class="progress-bar <?= $bar_cls ?>" style="width:<?= max($pct,0) ?>%;font-size:10px;line-height:16px">
+            <?= $pct > 0 ? $pct.'%' : '' ?>
+          </div>
+        </div>
+      </td>
+    </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
+  </div>
+</div>
+<?php endif; ?>
+
+<!-- Resultados agregados -->
+<?php
+$s = $pdo->prepare("SELECT evaluatee_id,field_key,field_value FROM peer_eval_responses WHERE campaign_id=? AND is_skip=0 AND field_value IS NOT NULL AND field_value!=''");
+$s->execute([$cid]);
+$admin_results = [];
+foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $admin_results[$r['evaluatee_id']][$r['field_key']][] = $r['field_value'];
+?>
+<div class="mt-3">
+  <h6 class="fw-bold">📊 Resultados agregados</h6>
+  <p class="text-muted" style="font-size:12px">Visível só ao administrador. Clica em «Publicar resultados» para que cada avaliado veja os seus valores.</p>
+  <?php if (!$admin_results): ?>
+  <p class="text-muted" style="font-size:12px"><em>Ainda não existem respostas submetidas.</em></p>
+  <?php else: ?>
+  <div class="table-responsive">
+  <table class="table table-sm table-bordered" style="font-size:12px">
+    <thead>
+      <tr class="table-dark">
+        <th style="position:sticky;left:0;background:#212529;min-width:130px">Avaliado</th>
+        <?php foreach ($all_fields as $fk=>$fi): ?>
+        <th style="text-align:center;font-size:10px;white-space:normal;max-width:70px;font-weight:500" title="<?= htmlspecialchars($fi['label']) ?>"><?= htmlspecialchars(mb_strimwidth($fi['label'],0,20,'…')) ?></th>
+        <?php endforeach; ?>
+      </tr>
+    </thead>
+    <tbody>
+    <?php foreach ($evaluatees as $ee):
+      $eid = $ee['user_id'];
+    ?>
+    <tr>
+      <td class="fw-semibold" style="white-space:nowrap;position:sticky;left:0;background:#f8f9fa"><?= htmlspecialchars($ee['username']) ?></td>
+      <?php foreach ($all_fields as $fk=>$fi):
+        $vals = $admin_results[$eid][$fk] ?? [];
+        $mean = $vals ? peCalcMean($vals) : null;
+        $cls  = $mean ? 'pe-mean pe-mean-'.str_replace('+','p',$mean) : '';
+        $lbl  = $mean ? str_replace('+','⁺',$mean) : '';
+      ?>
+      <td style="text-align:center;padding:2px"><?= $mean ? "<span class=\"$cls\" style=\"font-size:11px;padding:1px 6px\">$lbl</span>" : '<span class="text-muted" style="font-size:10px">—</span>' ?></td>
+      <?php endforeach; ?>
+    </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
+  </div>
+  <?php endif; ?>
 </div>
 
-<!-- ── Modal comentário ── -->
-<div id="pe-cmt-overlay" class="pe-cmt-overlay" style="display:none" onclick="if(event.target===this)peCloseComment()">
-  <div class="pe-cmt-box">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-      <strong id="pe-cmt-title" style="font-size:13px"></strong>
-      <button class="btn-close" onclick="peCloseComment()"></button>
-    </div>
-    <textarea id="pe-cmt-text" placeholder="Escreve o comentário…"></textarea>
-    <div class="d-flex gap-2 justify-content-end">
-      <button class="btn btn-sm btn-secondary" onclick="peCloseComment()">Cancelar</button>
-      <button class="btn btn-sm btn-primary" onclick="peSaveComment()">Guardar</button>
-    </div>
-  </div>
+<?php endif; ?>
+
+<?php endif; // main gate ?>
 </div>
 
 <script>
 const PE_URL = '<?= htmlspecialchars(dirname($_SERVER['PHP_SELF'])) ?>/peer_eval_ajax.php';
 let _peTimer = null;
-let _cmtCtx  = null; // {cid, eid, fkey}
 
 function peInfoToggle() {
     const p = document.getElementById('pe-info-panel');
@@ -541,40 +592,6 @@ function peSelChange(cid, eid, fkey, sel) {
     }, 500);
 }
 
-// ── Comment modal ──
-function peOpenComment(cid, eid, fkey, label) {
-    _cmtCtx = {cid, eid, fkey};
-    document.getElementById('pe-cmt-title').textContent = label;
-    // Load existing value from textarea/button
-    const btn = document.getElementById('cmt-'+eid+'-'+fkey);
-    document.getElementById('pe-cmt-text').value = btn?.dataset.val || '';
-    document.getElementById('pe-cmt-overlay').style.display = 'flex';
-    setTimeout(() => document.getElementById('pe-cmt-text').focus(), 50);
-}
-function peCloseComment() {
-    document.getElementById('pe-cmt-overlay').style.display = 'none';
-    _cmtCtx = null;
-}
-function peSaveComment() {
-    if (!_cmtCtx) return;
-    const {cid,eid,fkey} = _cmtCtx;
-    const val = document.getElementById('pe-cmt-text').value;
-    peStatus('saving');
-    pePost({pe_action:'save_response',campaign_id:cid,evaluatee_id:eid,field_key:fkey,field_value:val,is_skip:0}, d => {
-        peStatus(d.ok ? 'saved' : 'err', d.ok ? '' : d.msg);
-        if (d.ok) {
-            const btn = document.getElementById('cmt-'+eid+'-'+fkey);
-            if (btn) {
-                btn.dataset.val = val;
-                btn.textContent = val ? '✏️ editar' : '+ comentário';
-                btn.className   = 'pe-cmt-btn' + (val ? ' has-val' : '');
-                btn.title       = val || 'Sem comentário';
-            }
-            peCloseComment();
-        }
-    });
-}
-
 function peStatus(state, msg) {
     const el = document.getElementById('pe-status');
     if (!el) return;
@@ -593,9 +610,14 @@ function peCreateCampaign() {
     pePost({pe_action:'create_campaign',title,year}, d => d.ok ? location.reload() : alert(d.msg));
 }
 function peTogglePublic(cid, val) {
-    const msg = val ? 'Tornar pública? Os participantes poderão ver os resultados.' : 'Voltar a rascunho?';
+    const msg = val ? 'Abrir avaliação? Os avaliadores poderão preencher as avaliações.' : 'Fechar avaliação? Os avaliadores deixarão de poder preencher.';
     if (!confirm(msg)) return;
     pePost({pe_action:'toggle_public',campaign_id:cid,is_public:val}, d => d.ok ? location.reload() : alert(d.msg));
+}
+function peToggleResults(cid, val) {
+    const msg = val ? 'Publicar resultados? Os avaliados verão os valores médios das suas avaliações.' : 'Retirar resultados? Os avaliados deixarão de ver os resultados.';
+    if (!confirm(msg)) return;
+    pePost({pe_action:'toggle_results',campaign_id:cid,results_published:val}, d => d.ok ? location.reload() : alert(d.msg));
 }
 function peAddParticipant(cid) {
     const sel   = document.getElementById('pe-add-user');
@@ -629,11 +651,6 @@ function peRemoveParticipant(cid, pid) {
         });
     });
 })();
-
-// Load comment values into button dataset
-<?php if ($is_evaluator || $is_admin): foreach ($evaluatees as $ee): if ($ee['user_id']==$cur_uid && !$is_admin) continue; $eid=$ee['user_id']; foreach ($TEXT_FIELDS as $fk): $val=$my_responses[$eid][$fk]['field_value']??''; if (!$val) continue; ?>
-document.getElementById('cmt-<?= $eid ?>-<?= $fk ?>')?.setAttribute('data-val', <?= json_encode($val) ?>);
-<?php endforeach; endforeach; endif; ?>
 
 function pePost(data, cb) {
     const fd = new FormData();

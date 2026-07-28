@@ -25,7 +25,7 @@ $is_admin = (bool)$stmt->fetch();
 
 $act = $_POST['pe_action'] ?? $_GET['pe_action'] ?? '';
 
-$admin_only = ['create_campaign','add_participant','remove_participant','toggle_public'];
+$admin_only = ['create_campaign','add_participant','remove_participant','toggle_public','toggle_results'];
 if (in_array($act, $admin_only) && !$is_admin) {
     echo json_encode(['ok'=>false,'msg'=>'Acesso restrito a administradores']); exit;
 }
@@ -76,6 +76,14 @@ try {
             echo json_encode(['ok'=>true]);
             break;
 
+        case 'toggle_results':
+            $cid = (int)$_POST['campaign_id'];
+            $pub = (int)$_POST['results_published'];
+            $s = $pdo->prepare("UPDATE peer_eval_campaigns SET results_published=? WHERE id=?");
+            $s->execute([$pub,$cid]);
+            echo json_encode(['ok'=>true]);
+            break;
+
         case 'save_response':
             $cid     = (int)$_POST['campaign_id'];
             $eval_id = (int)$_POST['evaluatee_id'];
@@ -83,6 +91,9 @@ try {
             $fval    = $_POST['field_value'] ?? '';
             $is_skip = (int)($_POST['is_skip'] ?? 0);
 
+            if ($eval_id === $cur_uid) {
+                echo json_encode(['ok'=>false,'msg'=>'Não pode avaliar-se a si próprio']); exit;
+            }
             $s = $pdo->prepare("SELECT id FROM peer_eval_participants WHERE campaign_id=? AND user_id=? AND can_evaluate=1");
             $s->execute([$cid,$cur_uid]);
             if (!$s->fetch()) {

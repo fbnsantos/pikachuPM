@@ -46,8 +46,8 @@ try {
             $cid    = (int)$_POST['campaign_id'];
             $uid    = (int)$_POST['user_id'];
             $uname  = trim($_POST['username']);
-            $can_ev = isset($_POST['can_evaluate'])    ? 1 : 0;
-            $can_be = isset($_POST['can_be_evaluated']) ? 1 : 0;
+            $can_ev = (int)($_POST['can_evaluate']    ?? 0);
+            $can_be = (int)($_POST['can_be_evaluated'] ?? 0);
             $s = $pdo->prepare("
                 INSERT INTO peer_eval_participants
                     (campaign_id,user_id,username,can_evaluate,can_be_evaluated,added_by)

@@ -44,6 +44,7 @@ try {
             $items = $s->fetchAll(PDO::FETCH_ASSOC);
             foreach ($items as &$it) {
                 $it['prototype_refs'] = $it['prototype_refs'] ? json_decode($it['prototype_refs'],true) : [];
+                $it['co_responsible'] = $it['co_responsible'] ? json_decode($it['co_responsible'],true) : [];
             }
             echo json_encode(['ok'=>true,'items'=>$items]);
             break;
@@ -55,7 +56,8 @@ try {
             $s->execute([$id]);
             $item = $s->fetch(PDO::FETCH_ASSOC);
             if (!$item) { echo json_encode(['ok'=>false,'msg'=>'Não encontrado']); exit; }
-            $item['prototype_refs'] = $item['prototype_refs'] ? json_decode($item['prototype_refs'],true) : [];
+            $item['prototype_refs']  = $item['prototype_refs']  ? json_decode($item['prototype_refs'],true)  : [];
+            $item['co_responsible']  = $item['co_responsible']  ? json_decode($item['co_responsible'],true)   : [];
 
             $s = $pdo->prepare("SELECT * FROM equipment_issues WHERE equipment_id=? ORDER BY FIELD(priority,'critica','alta','media','baixa'), created_at DESC");
             $s->execute([$id]);
@@ -79,9 +81,13 @@ try {
             $resp     = trim($_POST['responsible'] ?? '');
             $resp_uid = (int)($_POST['responsible_uid'] ?? 0) ?: null;
             $status   = $_POST['status'] ?? 'funcional';
-            $refs_raw = $_POST['prototype_refs'] ?? '[]';
-            $refs     = json_decode($refs_raw, true) ?: [];
+            $notes     = trim($_POST['notes'] ?? '');
+            $refs_raw  = $_POST['prototype_refs'] ?? '[]';
+            $refs      = json_decode($refs_raw, true) ?: [];
             $refs_json = json_encode($refs);
+            $core_raw  = $_POST['co_responsible'] ?? '[]';
+            $core      = json_decode($core_raw, true) ?: [];
+            $core_json = json_encode($core);
 
             if (!$name) { echo json_encode(['ok'=>false,'msg'=>'Nome obrigatório']); exit; }
             $allowed_class  = ['equipamento','demonstrador','infraestrutura'];
@@ -90,11 +96,11 @@ try {
             if (!in_array($status,$allowed_status)) $status = 'funcional';
 
             if ($id) {
-                $s = $pdo->prepare("UPDATE equipment_items SET name=?,class=?,description=?,location=?,quantity=?,responsible=?,responsible_uid=?,status=?,prototype_refs=?,updated_at=NOW() WHERE id=?");
-                $s->execute([$name,$class,$desc,$location,$qty,$resp,$resp_uid,$status,$refs_json,$id]);
+                $s = $pdo->prepare("UPDATE equipment_items SET name=?,class=?,description=?,notes=?,location=?,quantity=?,responsible=?,responsible_uid=?,status=?,prototype_refs=?,co_responsible=?,updated_at=NOW() WHERE id=?");
+                $s->execute([$name,$class,$desc,$notes,$location,$qty,$resp,$resp_uid,$status,$refs_json,$core_json,$id]);
             } else {
-                $s = $pdo->prepare("INSERT INTO equipment_items (name,class,description,location,quantity,responsible,responsible_uid,status,prototype_refs,created_by) VALUES (?,?,?,?,?,?,?,?,?,?)");
-                $s->execute([$name,$class,$desc,$location,$qty,$resp,$resp_uid,$status,$refs_json,$cur_uid]);
+                $s = $pdo->prepare("INSERT INTO equipment_items (name,class,description,notes,location,quantity,responsible,responsible_uid,status,prototype_refs,co_responsible,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
+                $s->execute([$name,$class,$desc,$notes,$location,$qty,$resp,$resp_uid,$status,$refs_json,$core_json,$cur_uid]);
                 $id = (int)$pdo->lastInsertId();
             }
             echo json_encode(['ok'=>true,'id'=>$id]);

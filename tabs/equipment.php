@@ -54,6 +54,12 @@ $pdo->exec("
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ");
 
+// Adicionar colunas novas se não existirem
+if (!$pdo->query("SHOW COLUMNS FROM equipment_items LIKE 'notes'")->fetch())
+    $pdo->exec("ALTER TABLE equipment_items ADD COLUMN notes TEXT DEFAULT NULL");
+if (!$pdo->query("SHOW COLUMNS FROM equipment_items LIKE 'co_responsible'")->fetch())
+    $pdo->exec("ALTER TABLE equipment_items ADD COLUMN co_responsible JSON DEFAULT NULL");
+
 $users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
 
 $prototypes = [];
@@ -272,6 +278,25 @@ $UPLOAD_URL = rtrim(dirname($_SERVER['PHP_SELF']),'/').'/uploads/equipment/';
         <label class="form-label fw-semibold">Descrição</label>
         <textarea class="form-control" id="eq-f-desc" rows="3" placeholder="Descrição do equipamento, características, etc."></textarea>
       </div>
+      <div class="col-12">
+        <label class="form-label fw-semibold">Notas</label>
+        <textarea class="form-control" id="eq-f-notes" rows="2" placeholder="Notas internas, observações, etc."></textarea>
+      </div>
+
+      <!-- ── Co-responsáveis ── -->
+      <div class="col-12">
+        <label class="form-label fw-semibold">Co-responsáveis</label>
+        <div class="d-flex gap-2 mb-2">
+          <select class="form-select form-select-sm" id="eq-f-coresp-sel">
+            <option value="">— Adicionar co-responsável —</option>
+            <?php foreach ($users as $u): ?>
+            <option value="<?= $u['user_id'] ?>"><?= htmlspecialchars($u['username']) ?></option>
+            <?php endforeach; ?>
+          </select>
+          <button class="btn btn-sm btn-outline-secondary flex-shrink-0" onclick="eqAddCoresp()">+ Adicionar</button>
+        </div>
+        <div id="eq-coresp-chips" class="d-flex flex-wrap gap-2"></div>
+      </div>
 
       <!-- ── Referências a protótipos ── -->
       <div class="col-12">
@@ -327,11 +352,12 @@ const STATUS_LABEL = {funcional:'✅ Funcional', parcial:'⚠️ Parcial', inati
 const PRIO_LABEL   = {baixa:'Baixa', media:'Média', alta:'Alta', critica:'Crítica'};
 const STAT_LABEL   = {aberto:'Aberto', em_progresso:'Em progresso', resolvido:'Resolvido'};
 
-let _eqItems      = [];
-let _eqCurrentId  = null;
+let _eqItems       = [];
+let _eqCurrentId   = null;
 let _eqCurrentItem = null;
-let _eqRefs       = [];
-let _eqFilter     = {class:'', status:'', q:''};
+let _eqRefs        = [];
+let _eqCoresp      = [];
+let _eqFilter      = {class:'', status:'', q:''};
 
 // ── Layout height ────────────────────────────────────────────────────────────
 function eqSetHeight() {
@@ -514,6 +540,8 @@ function eqRenderDetail(it) {
             ${it.responsible ? `<span><span class="text-muted">👤</span> ${eHtml(it.responsible)}</span>` : ''}
             ${it.quantity > 1 ? `<span><span class="text-muted">📦</span> Quantidade: ${it.quantity}</span>` : ''}
           </div>
+          ${(it.co_responsible?.length) ? `<div class="d-flex flex-wrap gap-2 mt-2">${it.co_responsible.map(c=>`<span class="badge bg-light text-dark border" style="font-size:12px;font-weight:500">👤 ${eHtml(c.username)}</span>`).join('')}</div>` : ''}
+          ${it.notes ? `<div class="mt-2 p-2 bg-light rounded" style="font-size:12px;white-space:pre-wrap;border-left:3px solid #ced4da">📝 ${eHtml(it.notes)}</div>` : ''}
         </div>
 
         <div class="eq-right-sect">
@@ -630,7 +658,8 @@ function eqReloadDetail(id) {
 
 // ── Form ─────────────────────────────────────────────────────────────────────
 function eqOpenForm(item) {
-    _eqRefs = item ? (item.prototype_refs || []) : [];
+    _eqRefs   = item ? (item.prototype_refs  || []) : [];
+    _eqCoresp = item ? (item.co_responsible || []) : [];
     document.getElementById('eq-form-id').value    = item ? item.id : '';
     document.getElementById('eq-f-name').value     = item ? item.name : '';
     document.getElementById('eq-f-class').value    = item ? item.class : 'equipamento';
@@ -638,11 +667,13 @@ function eqOpenForm(item) {
     document.getElementById('eq-f-qty').value      = item ? item.quantity : 1;
     document.getElementById('eq-f-location').value = item ? (item.location||'') : '';
     document.getElementById('eq-f-desc').value     = item ? (item.description||'') : '';
+    document.getElementById('eq-f-notes').value    = item ? (item.notes||'') : '';
     document.getElementById('eq-f-resp-uid').value = item ? (item.responsible_uid||'') : '';
     document.getElementById('eq-f-resp').value     = item ? (item.responsible||'') : '';
     document.getElementById('eq-modal-title').textContent = item ? 'Editar: '+item.name : 'Novo item';
     document.getElementById('eq-delete-btn').style.display = item ? '' : 'none';
     eqRespUidChange();
+    eqRenderCoresp();
     document.getElementById('eq-proto-search').value = '';
     eqRenderProtoList();
     eqRenderRefs();
@@ -672,7 +703,9 @@ function eqSaveForm() {
         description: document.getElementById('eq-f-desc').value,
         responsible_uid: document.getElementById('eq-f-resp-uid').value,
         responsible: document.getElementById('eq-f-resp').value,
+        notes: document.getElementById('eq-f-notes').value,
         prototype_refs: JSON.stringify(_eqRefs),
+        co_responsible: JSON.stringify(_eqCoresp),
     };
     eqPost(data, d => {
         if (!d.ok) return alert(d.msg);
@@ -689,6 +722,34 @@ function eqDeleteCurrent() {
         _eqCurrentId = null; _eqCurrentItem = null;
         eqCloseForm(); eqShowEmpty(); eqLoad();
     });
+}
+
+// ── Co-responsáveis ───────────────────────────────────────────────────────────
+function eqAddCoresp() {
+    const sel = document.getElementById('eq-f-coresp-sel');
+    const uid = parseInt(sel.value);
+    if (!uid) return;
+    if (_eqCoresp.some(c => c.user_id === uid)) return;
+    _eqCoresp.push({user_id: uid, username: sel.options[sel.selectedIndex].text});
+    sel.value = '';
+    eqRenderCoresp();
+}
+function eqRemoveCoresp(uid) {
+    _eqCoresp = _eqCoresp.filter(c => c.user_id !== uid);
+    eqRenderCoresp();
+}
+function eqRenderCoresp() {
+    const el = document.getElementById('eq-coresp-chips');
+    if (!el) return;
+    if (!_eqCoresp.length) {
+        el.innerHTML = '<span class="text-muted" style="font-size:12px">Nenhum co-responsável.</span>';
+        return;
+    }
+    el.innerHTML = _eqCoresp.map(c => `
+      <span class="badge bg-light text-dark border d-inline-flex align-items-center gap-1" style="font-size:12px;font-weight:500">
+        👤 ${eHtml(c.username)}
+        <button class="btn btn-link p-0 ms-1 text-danger" style="font-size:11px;line-height:1" onclick="eqRemoveCoresp(${c.user_id})">✕</button>
+      </span>`).join('');
 }
 
 // ── Prototype picker ─────────────────────────────────────────────────────────

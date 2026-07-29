@@ -126,6 +126,11 @@ foreach ($pdo->query("SELECT user_id, competency_id, level FROM skills_matrix")-
     $lvl_idx[$l['user_id']][$l['competency_id']] = $l['level'];
 }
 
+// Colunas onde o utilizador atual é líder (para editar qualquer linha nessas colunas)
+$s = $pdo->prepare("SELECT competency_id FROM skills_matrix WHERE user_id=? AND level='L'");
+$s->execute([$cur_uid]);
+$leads_comp = array_fill_keys($s->fetchAll(PDO::FETCH_COLUMN), true);
+
 // Agrupar competências por categoria e marcar a primeira de cada
 $cats = [];
 foreach ($competencies as $c) $cats[$c['category']][] = $c;
@@ -250,12 +255,13 @@ thead .sk-col-person{z-index:30}
       <td class="sk-col-person sk-body"><?= htmlspecialchars($u['username']) ?></td>
       <?php foreach ($competencies as $c):
           $level = $lvl_idx[$u['user_id']][$c['id']] ?? '';
+          $can_edit_cell = $can_edit || isset($leads_comp[$c['id']]);
       ?>
-      <td class="sk-cell <?= $can_edit ? 'sk-editable' : '' ?> <?= isset($catFirstId[$c['id']]) ? 'sk-cat-first' : '' ?>"
+      <td class="sk-cell <?= $can_edit_cell ? 'sk-editable' : '' ?> <?= isset($catFirstId[$c['id']]) ? 'sk-cat-first' : '' ?>"
           data-uid="<?= $u['user_id'] ?>"
           data-comp="<?= $c['id'] ?>"
           data-level="<?= htmlspecialchars($level) ?>"
-          title="<?= htmlspecialchars($c['name']) ?><?= $level ? ' — '.htmlspecialchars($LEVEL_LABEL[$level]) : '' ?>">
+          title="<?= htmlspecialchars($c['name']) ?><?= $level ? ' — '.htmlspecialchars($LEVEL_LABEL[$level]) : '' ?><?= ($can_edit_cell && !$can_edit) ? ' · és líder desta coluna' : '' ?>">
         <?= $level ? '<span class="sk-badge sk-'.$level.'">'.$level.'</span>' : '<span class="sk-empty">·</span>' ?>
       </td>
       <?php endforeach; ?>

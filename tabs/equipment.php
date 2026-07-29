@@ -482,7 +482,7 @@ function eqRenderDetail(it) {
         ? it.prototype_refs.map(r => {
             const code  = r.short_name || '';
             const title = r.title || r.title || '—';
-            const href  = r.id ? `index.php?tab=prototypes%2Fprototypesv2` : (r.url||null);
+            const href  = r.id ? `index.php?tab=prototypes%2Fprototypesv2&prototype_id=${r.id}` : (r.url||null);
             return `<div class="eq-ref-item">
               🔗 ${code ? `<span class="eq-ref-code">${eHtml(code)}</span>` : ''}
               ${href ? `<a href="${eHtml(href)}" target="_blank">${eHtml(title)}</a>` : eHtml(title)}

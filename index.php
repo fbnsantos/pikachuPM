@@ -122,7 +122,6 @@ $tabs = [
             'financeiro' => 'Financeiro',
             'peer_evaluation' => 'Avaliação entre Pares',
             'skills' => 'Competências',
-            'lab_coordination' => 'Lab Coordination',
             'admin' => 'Administration'
         ]
     ],

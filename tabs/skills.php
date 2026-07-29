@@ -61,9 +61,15 @@ if (!(int)$pdo->query("SELECT COUNT(*) FROM skills_competencies")->fetchColumn()
         ['Management',  'Project Management',      21],
         ['Management',  'Prototype Management',    22],
         ['Management',  'Communication & Demos',   23],
+        ['Management',  'Lab Management',          24],
     ];
     $s = $pdo->prepare("INSERT INTO skills_competencies (category, name, sort_order) VALUES (?,?,?)");
     foreach ($seeds as $seed) $s->execute($seed);
+}
+
+// ── Migração: adicionar Lab Management se não existir ─────────────────────
+if (!$pdo->query("SELECT id FROM skills_competencies WHERE name='Lab Management'")->fetch()) {
+    $pdo->prepare("INSERT INTO skills_competencies (category, name, sort_order) VALUES ('Management','Lab Management',24)")->execute();
 }
 
 // ── Migração: fundir Embedded + Sensors → Embedded & Sensors ──────────────

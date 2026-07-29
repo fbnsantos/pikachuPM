@@ -121,6 +121,7 @@ $tabs = [
             'contactos_comerciais' => 'Contactos Comerciais',
             'financeiro' => 'Financeiro',
             'peer_evaluation' => 'Avaliação entre Pares',
+            'skills' => 'Competências',
             'admin' => 'Administration'
         ]
     ],

@@ -337,6 +337,7 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
         .menu-item {
             position: relative;
             display: inline-block;
+            padding-bottom: 6px;
         }
         
         .menu-link {
@@ -377,7 +378,7 @@ $tempoAlternanciaAbas = 60;  // 60 segundos para alternância entre abas (igual 
             box-shadow: 0px 8px 20px rgba(0,0,0,0.3);
             z-index: 1000;
             border-radius: 4px;
-            margin-top: 4px;
+            margin-top: 0;
             overflow: hidden;
         }
         

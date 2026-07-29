@@ -55,8 +55,7 @@ if (!(int)$pdo->query("SELECT COUNT(*) FROM skills_competencies")->fetchColumn()
         ['Systems',     'Navigation',              11],
         ['Systems',     'Perception & AI',         12],
         ['Systems',     'Manipulation',            13],
-        ['Systems',     'Embedded',                14],
-        ['Systems',     'Sensors',                 15],
+        ['Systems',     'Embedded & Sensors',      14],
         ['Systems',     'Advanced Mechatronics',   16],
         ['Management',  'Proposals Writing',       20],
         ['Management',  'Project Management',      21],
@@ -65,6 +64,35 @@ if (!(int)$pdo->query("SELECT COUNT(*) FROM skills_competencies")->fetchColumn()
     ];
     $s = $pdo->prepare("INSERT INTO skills_competencies (category, name, sort_order) VALUES (?,?,?)");
     foreach ($seeds as $seed) $s->execute($seed);
+}
+
+// ── Migração: fundir Embedded + Sensors → Embedded & Sensors ──────────────
+$emb = $pdo->query("SELECT id FROM skills_competencies WHERE name='Embedded'")->fetch(PDO::FETCH_ASSOC);
+$sen = $pdo->query("SELECT id FROM skills_competencies WHERE name='Sensors'")->fetch(PDO::FETCH_ASSOC);
+if ($emb && $sen) {
+    $emb_id = (int)$emb['id'];
+    $sen_id = (int)$sen['id'];
+    $rank   = ['L'=>1,'C'=>2,'S'=>3,'A'=>4,'I'=>5];
+
+    // Renomear Embedded → Embedded & Sensors
+    $pdo->prepare("UPDATE skills_competencies SET name='Embedded & Sensors' WHERE id=?")->execute([$emb_id]);
+
+    // Para cada utilizador com nível em Sensors: manter o melhor nível entre os dois
+    $s = $pdo->prepare("SELECT user_id, level, updated_by FROM skills_matrix WHERE competency_id=?");
+    $s->execute([$sen_id]);
+    foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $cur = $pdo->prepare("SELECT level FROM skills_matrix WHERE user_id=? AND competency_id=?");
+        $cur->execute([$row['user_id'], $emb_id]);
+        $existing = $cur->fetchColumn();
+        $best = (!$existing || ($rank[$row['level']] < $rank[$existing])) ? $row['level'] : $existing;
+        $pdo->prepare("INSERT INTO skills_matrix (user_id, competency_id, level, updated_by)
+            VALUES (?,?,?,?)
+            ON DUPLICATE KEY UPDATE level=VALUES(level), updated_by=VALUES(updated_by)")
+            ->execute([$row['user_id'], $emb_id, $best, $row['updated_by']]);
+    }
+    // Apagar Sensors
+    $pdo->prepare("DELETE FROM skills_matrix WHERE competency_id=?")->execute([$sen_id]);
+    $pdo->prepare("DELETE FROM skills_competencies WHERE id=?")->execute([$sen_id]);
 }
 
 // ── Dados ──────────────────────────────────────────────────────────────────

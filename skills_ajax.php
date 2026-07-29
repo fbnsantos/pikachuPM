@@ -39,6 +39,14 @@ try {
             $allowed = ['L','C','S','A','I',''];
             if (!in_array($level, $allowed)) { echo json_encode(['ok'=>false,'msg'=>'Nível inválido']); exit; }
 
+            if ($level === 'L') {
+                $s = $pdo->prepare("SELECT user_id FROM skills_matrix WHERE competency_id=? AND level='L' AND user_id!=?");
+                $s->execute([$comp_id, $target_uid]);
+                if ($s->fetch()) {
+                    echo json_encode(['ok'=>false,'msg'=>'Já existe um Líder (L) nesta competência. Só pode haver um por coluna.']); exit;
+                }
+            }
+
             if ($level === '') {
                 $pdo->prepare("DELETE FROM skills_matrix WHERE user_id=? AND competency_id=?")
                     ->execute([$target_uid, $comp_id]);

@@ -181,6 +181,30 @@ function peCalcMean(array $vals): ?string {
     return 'D';
 }
 
+// Guias de avaliação por campo
+$FIELD_GUIDES = [
+    'comp_metodologia' => 'Considera a capacidade de aplicar métodos científicos rigorosos, selecionar técnicas adequadas ao problema e seguir boas práticas de investigação. Observa se o trabalho produzido segue uma estrutura metodológica sólida e reproduzível.',
+    'comp_escrita'     => 'Considera a clareza, rigor e qualidade dos textos científicos produzidos — relatórios, artigos, apresentações. Avalia se as ideias são expostas de forma lógica, precisa e adequada ao público-alvo.',
+    'comp_comunicacao' => 'Considera a capacidade de transmitir ideias de forma clara e objetiva, tanto oralmente como por escrito. Inclui a capacidade de ouvir ativamente, adaptar o discurso ao interlocutor e manter uma comunicação construtiva.',
+    'comp_resultados'  => 'Considera o foco no cumprimento de objetivos e a determinação para superar obstáculos. Observa se a pessoa entrega resultados concretos e de qualidade mesmo perante dificuldades.',
+    'comp_analitico'   => 'Considera a capacidade de decompor problemas complexos em partes tratáveis, identificar padrões e tirar conclusões fundamentadas em dados ou evidências.',
+    'comp_criativo'    => 'Considera a capacidade de propor abordagens inovadoras e pensar além das soluções óbvias. Avalia a originalidade das ideias e a vontade de experimentar novas formas de resolver problemas.',
+    'comp_equipa'      => 'Considera a capacidade de colaborar, partilhar conhecimento e apoiar colegas. Observa se a pessoa contribui para um ambiente de trabalho positivo e se coloca os objetivos do grupo acima dos individuais quando necessário.',
+    'desemp_qual_global'  => 'Avaliação global da qualidade do trabalho produzido, tendo em conta todos os parâmetros qualitativos. Usa esta nota como síntese holística do desempenho qualitativo.',
+    'desemp_qual_a'       => 'Considera se a pessoa assume tarefas de maior complexidade técnica ou conceptual e as executa com sucesso, sem se limitar a trabalho rotineiro.',
+    'desemp_qual_b'       => 'Considera o cuidado, precisão e excelência técnica no trabalho realizado. Avalia se os outputs têm erros, se são bem documentados e se cumprem os padrões de qualidade da equipa.',
+    'desemp_qual_c'       => 'Considera a capacidade de entregar o trabalho dentro dos prazos acordados. Tem em conta tanto o cumprimento formal dos prazos como a capacidade de comunicar atempadamente quando surgem atrasos.',
+    'desemp_qual_d'       => 'Considera se a pessoa introduz melhorias de processo, novas ideias ou abordagens que acrescentam valor além do que lhe foi pedido.',
+    'desemp_quant_global' => 'Avaliação global da quantidade de trabalho produzido, tendo em conta todos os parâmetros quantitativos. Usa esta nota como síntese holística do volume de trabalho.',
+    'desemp_quant_a'      => 'Considera a capacidade de gerir e fazer progredir em simultâneo várias tarefas ou projetos, sem perder qualidade nem deixar pontas soltas.',
+    'desemp_quant_b'      => 'Considera a disponibilidade para dedicar tempo extra quando necessário para cumprir objetivos críticos, mesmo que isso implique esforço além do horário habitual.',
+    'atitude_global'      => 'Avaliação global da atitude demonstrada no contexto de trabalho, tendo em conta todos os parâmetros de atitude. Usa esta nota como síntese holística.',
+    'atitude_disp'        => 'Considera a prontidão para ajudar colegas, assumir novas tarefas e estar acessível quando solicitado. Avalia se a pessoa está presente e envolvida no dia-a-dia da equipa.',
+    'atitude_aut'         => 'Considera a capacidade de trabalhar de forma independente, tomar iniciativa e resolver problemas sem necessitar de orientação constante. Avalia se a pessoa avança sem esperar instruções para cada detalhe.',
+    'atitude_coop'        => 'Considera a predisposição para colaborar, partilhar recursos e informação, e apoiar os objetivos do grupo mesmo quando isso implica algum custo pessoal.',
+    'atitude_resp'        => 'Considera o sentido de responsabilidade pelas tarefas assumidas — cumprimento de compromissos, honestidade quando algo corre mal, e esforço para corrigir erros sem culpabilizar terceiros.',
+];
+
 // flat field list
 $all_fields = [];
 foreach ($SECTIONS as $sk => $sec) {
@@ -241,6 +265,12 @@ foreach ($SECTIONS as $sk => $sec) {
 
 /* Results */
 .pe-mean{display:inline-block;padding:3px 10px;border-radius:6px;font-size:13px;font-weight:700;letter-spacing:.5px}
+/* Field hint tooltip */
+.pe-hint{position:fixed;z-index:10000;background:#1e2530;color:#e9ecef;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.3);padding:14px 16px;max-width:320px;display:none;pointer-events:none}
+.pe-hint-title{font-size:12px;font-weight:700;margin-bottom:6px;color:#fff;line-height:1.3}
+.pe-hint-guide{font-size:11px;line-height:1.6;color:#adb5bd;margin-bottom:8px}
+.pe-hint-scale{display:flex;flex-wrap:wrap;gap:4px}
+.pe-hint-scale span{font-size:10px;border-radius:4px;padding:2px 7px;font-weight:600}
 /* Distribution popover */
 .pe-pop{position:fixed;z-index:9999;background:#fff;border:1px solid #dee2e6;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.18);padding:12px 16px;min-width:160px;display:none}
 .pe-pop-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6c757d;margin-bottom:8px}
@@ -410,8 +440,11 @@ td.pe-clickable:hover .pe-mean{opacity:.8}
       <?php endforeach; ?>
     </tr>
     <tr>
-      <?php foreach ($SECTIONS as $sk=>$sec): foreach ($sec['fields'] as $fk=>$fl): ?>
-      <th class="pe-th-field" title="<?= htmlspecialchars($fl) ?>"><?= htmlspecialchars(mb_strimwidth($fl,0,22,'…')) ?></th>
+      <?php foreach ($SECTIONS as $sk=>$sec): foreach ($sec['fields'] as $fk=>$fl):
+        $guide = $FIELD_GUIDES[$fk] ?? '';
+        $data  = htmlspecialchars(json_encode(['label'=>$fl,'guide'=>$guide,'scale'=>$sec['scale']]),ENT_QUOTES);
+      ?>
+      <th class="pe-th-field pe-th-hint" data-field="<?= $data ?>"><?= htmlspecialchars(mb_strimwidth($fl,0,22,'…')) ?> <span style="font-size:9px;opacity:.6">?</span></th>
       <?php endforeach; endforeach; ?>
     </tr>
   </thead>
@@ -542,8 +575,11 @@ foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $admin_results[$r['evaluatee_id']
     <thead>
       <tr class="table-dark">
         <th style="position:sticky;left:0;background:#212529;min-width:130px">Avaliado</th>
-        <?php foreach ($all_fields as $fk=>$fi): ?>
-        <th style="text-align:center;font-size:10px;white-space:normal;max-width:70px;font-weight:500" title="<?= htmlspecialchars($fi['label']) ?>"><?= htmlspecialchars(mb_strimwidth($fi['label'],0,20,'…')) ?></th>
+        <?php foreach ($all_fields as $fk=>$fi):
+          $guide = $FIELD_GUIDES[$fk] ?? '';
+          $data  = htmlspecialchars(json_encode(['label'=>$fi['label'],'guide'=>$guide,'scale'=>$fi['scale']]),ENT_QUOTES);
+        ?>
+        <th class="pe-th-hint" style="text-align:center;font-size:10px;white-space:normal;max-width:70px;font-weight:500;cursor:help" data-field="<?= $data ?>"><?= htmlspecialchars(mb_strimwidth($fi['label'],0,20,'…')) ?> <span style="font-size:9px;opacity:.6">?</span></th>
         <?php endforeach; ?>
       </tr>
     </thead>
@@ -577,6 +613,13 @@ foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $admin_results[$r['evaluatee_id']
 <?php endif; ?>
 
 <?php endif; // main gate ?>
+</div>
+
+<!-- ── Tooltip de campo ── -->
+<div id="pe-hint" class="pe-hint">
+  <div class="pe-hint-title" id="pe-hint-title"></div>
+  <div class="pe-hint-guide" id="pe-hint-guide"></div>
+  <div class="pe-hint-scale" id="pe-hint-scale"></div>
 </div>
 
 <!-- ── Popover de distribuição ── -->
@@ -673,6 +716,46 @@ function peRemoveParticipant(cid, pid) {
         });
     });
 })();
+
+// ── Tooltip de campo (hover nos cabeçalhos) ──
+const PE_HINT     = document.getElementById('pe-hint');
+const HINT_COLORS = {A:'background:#d1e7dd;color:#0a3622',B:'background:#cfe2ff;color:#031633',C:'background:#fff3cd;color:#664d03',D:'background:#f8d7da;color:#58151c'};
+let _hintTimer = null;
+
+document.addEventListener('mouseover', e => {
+    const th = e.target.closest('.pe-th-hint');
+    if (!th || !th.dataset.field) return;
+    clearTimeout(_hintTimer);
+    _hintTimer = setTimeout(() => {
+        const d = JSON.parse(th.dataset.field);
+        document.getElementById('pe-hint-title').textContent = d.label;
+        document.getElementById('pe-hint-guide').textContent = d.guide || '';
+        const scaleEl = document.getElementById('pe-hint-scale');
+        scaleEl.innerHTML = '';
+        if (d.scale) {
+            Object.entries(d.scale).forEach(([v, desc]) => {
+                const s = document.createElement('span');
+                s.setAttribute('style', HINT_COLORS[v] || '');
+                s.textContent = v + ' — ' + desc;
+                scaleEl.appendChild(s);
+            });
+        }
+        const rect = th.getBoundingClientRect();
+        const vw = window.innerWidth;
+        PE_HINT.style.display = 'block';
+        const pw = PE_HINT.offsetWidth;
+        let left = rect.left;
+        if (left + pw > vw - 8) left = vw - pw - 8;
+        PE_HINT.style.left = Math.max(8, left) + 'px';
+        PE_HINT.style.top  = (rect.bottom + 6) + 'px';
+    }, 120);
+});
+document.addEventListener('mouseout', e => {
+    const th = e.target.closest('.pe-th-hint');
+    if (!th) return;
+    clearTimeout(_hintTimer);
+    PE_HINT.style.display = 'none';
+});
 
 // ── Popover de distribuição ──
 const PE_COLORS = {A:'#198754',B:'#0d6efd',C:'#fd7e14',D:'#dc3545'};

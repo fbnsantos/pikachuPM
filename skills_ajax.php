@@ -67,6 +67,19 @@ try {
             echo json_encode(['ok'=>true]);
             break;
 
+        case 'toggle_member':
+            if (!$is_admin) { echo json_encode(['ok'=>false,'msg'=>'Sem permissão']); exit; }
+            $uid      = (int)($_POST['user_id'] ?? 0);
+            $included = (int)($_POST['included'] ?? 1);
+            if ($included) {
+                $pdo->prepare("DELETE FROM skills_excluded WHERE user_id=?")->execute([$uid]);
+            } else {
+                $pdo->prepare("INSERT IGNORE INTO skills_excluded (user_id, excluded_by) VALUES (?,?)")
+                    ->execute([$uid, $cur_uid]);
+            }
+            echo json_encode(['ok'=>true]);
+            break;
+
         // API pública: devolve os níveis de um utilizador (para outros módulos)
         case 'get_user_skills':
             $uid = (int)($_GET['user_id'] ?? 0);

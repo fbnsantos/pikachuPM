@@ -39,6 +39,16 @@ try {
             $allowed = ['L','C','S','A','I',''];
             if (!in_array($level, $allowed)) { echo json_encode(['ok'=>false,'msg'=>'Nível inválido']); exit; }
 
+            // Obter categoria da competência
+            $cat_row = $pdo->prepare("SELECT category FROM skills_competencies WHERE id=?");
+            $cat_row->execute([$comp_id]);
+            $category = $cat_row->fetchColumn();
+
+            // Grupo Management: só admin pode colocar L ou C
+            if ($category === 'Management' && in_array($level, ['L','C']) && !$is_admin) {
+                echo json_encode(['ok'=>false,'msg'=>'Apenas o administrador pode atribuir Líder (L) ou Co-líder (C) em competências de Management.']); exit;
+            }
+
             if ($level === 'L') {
                 $s = $pdo->prepare("SELECT user_id FROM skills_matrix WHERE competency_id=? AND level='L' AND user_id!=?");
                 $s->execute([$comp_id, $target_uid]);

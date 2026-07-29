@@ -31,24 +31,41 @@ try {
             $comp_id    = (int)($_POST['competency_id'] ?? 0);
             $level      = $_POST['level'] ?? '';
 
-            if ($target_uid !== $cur_uid && !$is_admin) {
-                echo json_encode(['ok'=>false,'msg'=>'Sem permissão']); exit;
-            }
             if (!$comp_id) { echo json_encode(['ok'=>false,'msg'=>'Competência inválida']); exit; }
 
             $allowed = ['L','C','S','A','I',''];
             if (!in_array($level, $allowed)) { echo json_encode(['ok'=>false,'msg'=>'Nível inválido']); exit; }
+
+            $editing_own   = ($target_uid === $cur_uid);
+
+            // Verificar se o utilizador atual é líder desta coluna
+            $is_col_leader = false;
+            if (!$is_admin) {
+                $ldr = $pdo->prepare("SELECT id FROM skills_matrix WHERE user_id=? AND competency_id=? AND level='L'");
+                $ldr->execute([$cur_uid, $comp_id]);
+                $is_col_leader = (bool)$ldr->fetch();
+            }
+
+            // Permissão de acesso à linha do target
+            if (!$editing_own && !$is_admin && !$is_col_leader) {
+                echo json_encode(['ok'=>false,'msg'=>'Sem permissão para editar esta linha.']); exit;
+            }
 
             // Obter categoria da competência
             $cat_row = $pdo->prepare("SELECT category FROM skills_competencies WHERE id=?");
             $cat_row->execute([$comp_id]);
             $category = $cat_row->fetchColumn();
 
-            // Grupo Management: só admin pode colocar L ou C
+            // Grupo Management: L e C reservados a admin
+            // Excepção: líder da coluna pode colocar C em outros (não em si próprio, não L)
             if ($category === 'Management' && in_array($level, ['L','C']) && !$is_admin) {
-                echo json_encode(['ok'=>false,'msg'=>'Apenas o administrador pode atribuir Líder (L) ou Co-líder (C) em competências de Management.']); exit;
+                $leader_can = ($level === 'C' && $is_col_leader && !$editing_own);
+                if (!$leader_can) {
+                    echo json_encode(['ok'=>false,'msg'=>'Apenas o administrador pode atribuir L ou C em competências de Management.']); exit;
+                }
             }
 
+            // Unicidade do L por coluna
             if ($level === 'L') {
                 $s = $pdo->prepare("SELECT user_id FROM skills_matrix WHERE competency_id=? AND level='L' AND user_id!=?");
                 $s->execute([$comp_id, $target_uid]);

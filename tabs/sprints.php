@@ -724,31 +724,31 @@ try {
             WHERE s.responsavel_id = ?
         ";
         
-        // Por padrão, mostrar apenas abertas e em execução
-        // Adicionar estados conforme checkboxes marcados
-        $estados_permitidos = ["'aberta'", "'em execução'"];
-        if ($showPaused) {
-            $estados_permitidos[] = "'suspensa'";
+        // Quando algum checkbox está marcado, mostrar APENAS os estados seleccionados
+        // Sem checkboxes: mostrar apenas abertas e em execução
+        if ($showClosed || $showPaused) {
+            $estados_permitidos = [];
+            if ($showPaused) $estados_permitidos[] = "'suspensa'";
+            if ($showClosed) $estados_permitidos[] = "'concluída'";
+        } else {
+            $estados_permitidos = ["'aberta'", "'em execução'"];
         }
-        if ($showClosed) {
-            $estados_permitidos[] = "'concluída'";
-        }
-        
+
         $query .= " AND s.estado IN (" . implode(', ', $estados_permitidos) . ")";
-        
-        $query .= " ORDER BY 
-                    CASE s.estado 
+
+        $query .= " ORDER BY
+                    CASE s.estado
                         WHEN 'aberta' THEN 1
-                        WHEN 'em execução' THEN 2 
-                        WHEN 'suspensa' THEN 3 
-                        WHEN 'concluída' THEN 4 
+                        WHEN 'em execução' THEN 2
+                        WHEN 'suspensa' THEN 3
+                        WHEN 'concluída' THEN 4
                     END,
                     s.data_fim ASC,
                     s.created_at DESC";
-        
+
         $stmt = $pdo->prepare($query);
         $stmt->execute([$current_user_id, $current_user_id]);
-        
+
     } elseif ($filter_my_sprints && $current_user_id) {
         // Show only sprints where user is responsible or member
         $query = "
@@ -767,28 +767,27 @@ try {
             WHERE (s.responsavel_id = ? OR sm.user_id IS NOT NULL)
         ";
         
-        // Por padrão, mostrar apenas abertas e em execução
-        // Adicionar estados conforme checkboxes marcados
-        $estados_permitidos = ["'aberta'", "'em execução'"];
-        if ($showPaused) {
-            $estados_permitidos[] = "'suspensa'";
+        // Quando algum checkbox está marcado, mostrar APENAS os estados seleccionados
+        if ($showClosed || $showPaused) {
+            $estados_permitidos = [];
+            if ($showPaused) $estados_permitidos[] = "'suspensa'";
+            if ($showClosed) $estados_permitidos[] = "'concluída'";
+        } else {
+            $estados_permitidos = ["'aberta'", "'em execução'"];
         }
-        if ($showClosed) {
-            $estados_permitidos[] = "'concluída'";
-        }
-        
+
         $query .= " AND s.estado IN (" . implode(', ', $estados_permitidos) . ")";
-        
-        $query .= " ORDER BY 
-                    CASE s.estado 
+
+        $query .= " ORDER BY
+                    CASE s.estado
                         WHEN 'aberta' THEN 1
-                        WHEN 'em execução' THEN 2 
-                        WHEN 'suspensa' THEN 3 
-                        WHEN 'concluída' THEN 4 
+                        WHEN 'em execução' THEN 2
+                        WHEN 'suspensa' THEN 3
+                        WHEN 'concluída' THEN 4
                     END,
                     s.data_fim ASC,
                     s.created_at DESC";
-        
+
         $stmt = $pdo->prepare($query);
         $stmt->execute([$current_user_id, $current_user_id, $current_user_id]);
     } else {
@@ -808,16 +807,15 @@ try {
             LEFT JOIN sprint_members sm ON s.id = sm.sprint_id AND sm.user_id = ?
         ";
         
-        // Por padrão, mostrar apenas abertas e em execução
-        // Adicionar estados conforme checkboxes marcados
-        $estados_permitidos = ["'aberta'", "'em execução'"];
-        if ($showPaused) {
-            $estados_permitidos[] = "'suspensa'";
+        // Quando algum checkbox está marcado, mostrar APENAS os estados seleccionados
+        if ($showClosed || $showPaused) {
+            $estados_permitidos = [];
+            if ($showPaused) $estados_permitidos[] = "'suspensa'";
+            if ($showClosed) $estados_permitidos[] = "'concluída'";
+        } else {
+            $estados_permitidos = ["'aberta'", "'em execução'"];
         }
-        if ($showClosed) {
-            $estados_permitidos[] = "'concluída'";
-        }
-        
+
         $query .= " WHERE s.estado IN (" . implode(', ', $estados_permitidos) . ")";
         
         $query .= " GROUP BY s.id

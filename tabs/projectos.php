@@ -1468,12 +1468,25 @@ if (isset($_GET['project_id'])) {
                     <?php else: ?>
                         <?php foreach ($selectedProject['deliverables'] as $deliv): ?>
                             <div class="deliverable-item <?= $deliv['status'] ?>">
-                                <div class="deliverable-header">
+                                <!-- Linha sempre visível: título + data + status + expandir -->
+                                <div class="deliverable-header" style="cursor:pointer;" onclick="toggleDeliverable(this)">
                                     <div class="deliverable-title"><?= htmlspecialchars($deliv['title']) ?></div>
-                                    <div class="deliverable-actions">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <?php if ($deliv['due_date']): ?>
+                                            <small class="text-muted"><i class="bi bi-calendar-event"></i> <?= date('d/m/Y', strtotime($deliv['due_date'])) ?></small>
+                                        <?php endif; ?>
                                         <span class="status-badge status-<?= $deliv['status'] ?>">
                                             <?= ucfirst(str_replace('-', ' ', $deliv['status'])) ?>
                                         </span>
+                                        <button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="event.stopPropagation();toggleDeliverable(this.closest('.deliverable-item').querySelector('.deliverable-header'))" title="Expandir">
+                                            <i class="bi bi-chevron-down"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Detalhes colapsados -->
+                                <div class="deliverable-details" style="display:none;">
+                                    <div class="deliverable-actions mt-2">
                                         <?php if ($deliv['status'] === 'pending'): ?>
                                         <div class="dropdown d-inline-block">
                                             <button class="btn btn-sm btn-warning dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Alterar estado">
@@ -1526,49 +1539,41 @@ if (isset($_GET['project_id'])) {
                                             </button>
                                         </form>
                                     </div>
-                                </div>
-                                
-                                <?php if ($deliv['description']): ?>
-                                    <p class="mb-2 small"><?= nl2br(htmlspecialchars($deliv['description'])) ?></p>
-                                <?php endif; ?>
-                                
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div class="small text-muted">
-                                        <?php if ($deliv['due_date']): ?>
-                                            <i class="bi bi-calendar-event"></i> <?= date('d/m/Y', strtotime($deliv['due_date'])) ?>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-                                
-                                <?php if (!empty($deliv['tasks'])): ?>
-                                    <div class="task-list">
-                                        <small class="text-muted fw-bold">Tasks Associadas (<?= count($deliv['tasks']) ?>):</small>
-                                        <?php foreach ($deliv['tasks'] as $task): ?>
-                                            <div class="task-item <?= $task['estado'] ?>">
-                                                <div class="task-info">
-                                                    <div class="task-title"><?= htmlspecialchars($task['titulo']) ?></div>
-                                                    <div class="task-meta">
-                                                        <span class="task-badge <?= $task['estado'] ?>"><?= ucfirst(str_replace('_', ' ', $task['estado'])) ?></span>
-                                                        <?php if ($task['autor_name']): ?>
-                                                            | <?= htmlspecialchars($task['autor_name']) ?>
-                                                        <?php endif; ?>
-                                                        <?php if ($task['data_limite']): ?>
-                                                            | <i class="bi bi-calendar"></i> <?= date('d/m/Y', strtotime($task['data_limite'])) ?>
-                                                        <?php endif; ?>
+
+                                    <?php if ($deliv['description']): ?>
+                                        <p class="mb-2 small mt-2"><?= nl2br(htmlspecialchars($deliv['description'])) ?></p>
+                                    <?php endif; ?>
+
+                                    <?php if (!empty($deliv['tasks'])): ?>
+                                        <div class="task-list mt-2">
+                                            <small class="text-muted fw-bold">Tasks Associadas (<?= count($deliv['tasks']) ?>):</small>
+                                            <?php foreach ($deliv['tasks'] as $task): ?>
+                                                <div class="task-item <?= $task['estado'] ?>">
+                                                    <div class="task-info">
+                                                        <div class="task-title"><?= htmlspecialchars($task['titulo']) ?></div>
+                                                        <div class="task-meta">
+                                                            <span class="task-badge <?= $task['estado'] ?>"><?= ucfirst(str_replace('_', ' ', $task['estado'])) ?></span>
+                                                            <?php if ($task['autor_name']): ?>
+                                                                | <?= htmlspecialchars($task['autor_name']) ?>
+                                                            <?php endif; ?>
+                                                            <?php if ($task['data_limite']): ?>
+                                                                | <i class="bi bi-calendar"></i> <?= date('d/m/Y', strtotime($task['data_limite'])) ?>
+                                                            <?php endif; ?>
+                                                        </div>
                                                     </div>
+                                                    <form method="post" style="display:inline;">
+                                                        <input type="hidden" name="action" value="remove_task_from_deliverable">
+                                                        <input type="hidden" name="task_link_id" value="<?= $task['link_id'] ?>">
+                                                        <input type="hidden" name="deliverable_id" value="<?= $deliv['id'] ?>">
+                                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Desassociar esta task?')" title="Desassociar">
+                                                            <i class="bi bi-x-lg"></i>
+                                                        </button>
+                                                    </form>
                                                 </div>
-                                                <form method="post" style="display:inline;">
-                                                    <input type="hidden" name="action" value="remove_task_from_deliverable">
-                                                    <input type="hidden" name="task_link_id" value="<?= $task['link_id'] ?>">
-                                                    <input type="hidden" name="deliverable_id" value="<?= $deliv['id'] ?>">
-                                                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Desassociar esta task?')" title="Desassociar">
-                                                        <i class="bi bi-x-lg"></i>
-                                                    </button>
-                                                </form>
-                                            </div>
-                                        <?php endforeach; ?>
-                                    </div>
-                                <?php endif; ?>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
                             </div>
                         <?php endforeach; ?>
                     <?php endif; ?>
@@ -1591,34 +1596,43 @@ if (isset($_GET['project_id'])) {
                             <div class="prototype-card">
                                 <div class="prototype-header">
                                     <div>
-                                        <strong><?= htmlspecialchars($proto['short_name']) ?></strong> - 
+                                        <strong><?= htmlspecialchars($proto['short_name']) ?></strong> -
                                         <?= htmlspecialchars($proto['title']) ?>
                                     </div>
-                                    <form method="post" style="display:inline;">
-                                        <input type="hidden" name="action" value="remove_prototype">
-                                        <input type="hidden" name="prototype_id" value="<?= $proto['association_id'] ?>">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Desassociar este protótipo?')">
-                                            <i class="bi bi-x-lg"></i>
+                                    <div class="d-flex gap-1 align-items-center flex-wrap">
+                                        <a href="index.php?tab=prototypes%2Fprototypesv2&prototype_id=<?= $proto['id'] ?>"
+                                           class="btn btn-sm btn-outline-info" title="Ver protótipo">
+                                            <i class="bi bi-box-arrow-up-right"></i> Ver
+                                        </a>
+                                        <?php if (!empty($proto['stories'])): ?>
+                                        <button class="btn btn-sm btn-outline-secondary"
+                                                onclick="toggleProtoStories(this)" title="Ver User Stories">
+                                            <i class="bi bi-list-ul"></i> User Stories (<?= count($proto['stories']) ?>)
                                         </button>
-                                    </form>
-                                </div>
-                                
-                                <?php if (!empty($proto['stories'])): ?>
-                                    <div class="mt-2">
-                                        <small class="text-muted fw-bold">User Stories:</small>
-                                        <?php foreach ($proto['stories'] as $story): ?>
-                                            <div class="story-item">
-                                                <span class="story-priority priority-<?= strtolower($story['moscow_priority'] ?? 'should') ?>">
-                                                    <?= strtoupper($story['moscow_priority'] ?? 'SHOULD') ?>
-                                                </span>
-                                                <div class="small mt-1">
-                                                    <?= nl2br(htmlspecialchars($story['story_text'])) ?>
-                                                </div>
-                                            </div>
-                                        <?php endforeach; ?>
+                                        <?php endif; ?>
+                                        <form method="post" style="display:inline;">
+                                            <input type="hidden" name="action" value="remove_prototype">
+                                            <input type="hidden" name="prototype_id" value="<?= $proto['association_id'] ?>">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Desassociar este protótipo?')">
+                                                <i class="bi bi-x-lg"></i>
+                                            </button>
+                                        </form>
                                     </div>
-                                <?php else: ?>
-                                    <p class="small text-muted mb-0 mt-2">Nenhuma user story definida neste protótipo</p>
+                                </div>
+                                <?php if (!empty($proto['stories'])): ?>
+                                <div class="proto-stories mt-2" style="display:none;">
+                                    <small class="text-muted fw-bold">User Stories:</small>
+                                    <?php foreach ($proto['stories'] as $story): ?>
+                                        <div class="story-item">
+                                            <span class="story-priority priority-<?= strtolower($story['moscow_priority'] ?? 'should') ?>">
+                                                <?= strtoupper($story['moscow_priority'] ?? 'SHOULD') ?>
+                                            </span>
+                                            <div class="small mt-1">
+                                                <?= nl2br(htmlspecialchars($story['story_text'])) ?>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
                                 <?php endif; ?>
                             </div>
                         <?php endforeach; ?>
@@ -2199,6 +2213,22 @@ if (isset($_GET['project_id'])) {
 <?php endif; ?>
 
 <script>
+function toggleProtoStories(btn) {
+    var stories = btn.closest('.prototype-card').querySelector('.proto-stories');
+    var open = stories.style.display !== 'none';
+    stories.style.display = open ? 'none' : 'block';
+    btn.classList.toggle('active', !open);
+}
+
+function toggleDeliverable(header) {
+    var item = header.closest('.deliverable-item');
+    var details = item.querySelector('.deliverable-details');
+    var icon = item.querySelector('.deliverable-header .bi-chevron-down, .deliverable-header .bi-chevron-up');
+    var open = details.style.display !== 'none';
+    details.style.display = open ? 'none' : 'block';
+    if (icon) icon.className = open ? 'bi bi-chevron-down' : 'bi bi-chevron-up';
+}
+
 function editDeliverable(deliverable) {
     document.getElementById('edit_deliverable_id').value = deliverable.id;
     document.getElementById('edit_deliverable_title').value = deliverable.title;

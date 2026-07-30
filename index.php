@@ -1778,35 +1778,49 @@ document.addEventListener('keydown', e => {
 
 <script>
 (function () {
-    const FIELD_SEL = 'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]), textarea, select';
-    function snapshot(modal) {
-        return Array.from(modal.querySelectorAll(FIELD_SEL)).map(f => f.value);
-    }
-    document.addEventListener('show.bs.modal', e => {
-        const modal = e.target;
-        modal._dirty_saved = false;
-        modal._dirty_snap = null;
-        setTimeout(() => {
-            const fields = modal.querySelectorAll(FIELD_SEL);
-            if (!fields.length) return;
-            modal._dirty_snap = snapshot(modal);
-        }, 250);
-        modal.querySelectorAll('.btn-primary, .btn-success, [type="submit"]').forEach(btn => {
-            btn.addEventListener('click', () => { modal._dirty_saved = true; }, { capture: true, once: false });
-        });
-    });
-    document.addEventListener('hide.bs.modal', e => {
-        const modal = e.target;
-        if (modal._dirty_saved || !modal._dirty_snap) return;
-        const current = snapshot(modal);
-        const changed = modal._dirty_snap.some((v, i) => v !== current[i]);
-        if (!changed) return;
-        e.preventDefault();
-        if (confirm('Tens alterações não guardadas. Fechar na mesma?')) {
-            modal._dirty_snap = null;
-            bootstrap.Modal.getInstance(modal)?.hide();
+    // Rastrear alterações via eventos reais (sem snapshots, sem timing issues)
+    document.addEventListener('input', function(e) {
+        var modal = e.target.closest('.modal');
+        if (modal) modal._dirty_changed = true;
+    }, true);
+    document.addEventListener('change', function(e) {
+        var modal = e.target.closest('.modal');
+        if (modal) modal._dirty_changed = true;
+    }, true);
+
+    // Guardar quando se carrega num botão de save/submit (delegação — apanha botões dinâmicos)
+    document.addEventListener('click', function(e) {
+        var modal = e.target.closest('.modal');
+        if (!modal) return;
+        if (e.target.closest('.btn-primary, .btn-success, [type="submit"], [data-dirty-save]')) {
+            modal._dirty_saved = true;
         }
-    });
+    }, true);
+
+    // Reset ao abrir o modal — usar capture:true garante que apanhamos mesmo sem bubble
+    document.addEventListener('show.bs.modal', function(e) {
+        var modal = e.target;
+        if (!modal.classList || !modal.classList.contains('modal')) return;
+        modal._dirty_changed = false;
+        modal._dirty_saved  = false;
+    }, true);
+
+    // Interceptar o fechar — capture:true funciona mesmo que hide.bs.modal não faça bubble
+    document.addEventListener('hide.bs.modal', function(e) {
+        var modal = e.target;
+        if (!modal.classList || !modal.classList.contains('modal')) return;
+        if (modal._dirty_saved || !modal._dirty_changed) return;
+        e.preventDefault();
+        // setTimeout para deixar o browser limpar o estado antes do confirm
+        setTimeout(function() {
+            if (confirm('Tens alterações não guardadas. Fechar na mesma?')) {
+                modal._dirty_saved  = true;
+                modal._dirty_changed = false;
+                var inst = bootstrap.Modal.getInstance(modal);
+                if (inst) inst.hide();
+            }
+        }, 0);
+    }, true);
 })();
 </script>
 

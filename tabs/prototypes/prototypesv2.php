@@ -236,6 +236,36 @@ try {
     // Ignorar se já existem
 }
 
+// Tabelas do Roadmap
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS prototype_milestones (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        prototype_id INT NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        target_date DATE NOT NULL,
+        color VARCHAR(7) NOT NULL DEFAULT '#0d6efd',
+        created_at DATETIME DEFAULT NOW(),
+        FOREIGN KEY (prototype_id) REFERENCES prototypes(id) ON DELETE CASCADE,
+        INDEX idx_rm_proto (prototype_id)
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS milestone_stories (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        milestone_id INT NOT NULL,
+        story_id INT NOT NULL,
+        FOREIGN KEY (milestone_id) REFERENCES prototype_milestones(id) ON DELETE CASCADE,
+        FOREIGN KEY (story_id) REFERENCES user_stories(id) ON DELETE CASCADE,
+        UNIQUE KEY uk_ms (milestone_id, story_id)
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS milestone_projects (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        milestone_id INT NOT NULL,
+        project_id INT NOT NULL,
+        FOREIGN KEY (milestone_id) REFERENCES prototype_milestones(id) ON DELETE CASCADE,
+        UNIQUE KEY uk_mp (milestone_id, project_id)
+    )");
+} catch (PDOException $e) {}
+
 // Migrações incrementais nas tabelas de surveys (compatível com MySQL < 8)
 $surveyMigrations = [
     ['prototype_surveys', 'intro_text',  "ALTER TABLE prototype_surveys ADD COLUMN intro_text TEXT NULL"],
@@ -957,6 +987,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId");
                 exit;
+
+            case 'add_milestone':
+            case 'edit_milestone':
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                $mid     = (int)($_POST['milestone_id'] ?? 0);
+                $title   = trim($_POST['milestone_title'] ?? '');
+                $desc    = trim($_POST['milestone_desc'] ?? '');
+                $date    = $_POST['milestone_date'] ?? '';
+                $color   = preg_match('/^#[0-9a-fA-F]{6}$/', $_POST['milestone_color'] ?? '') ? $_POST['milestone_color'] : '#0d6efd';
+                if ($protoId && $title && $date) {
+                    if ($mid) {
+                        $pdo->prepare("UPDATE prototype_milestones SET title=?,description=?,target_date=?,color=? WHERE id=? AND prototype_id=?")
+                            ->execute([$title, $desc, $date, $color, $mid, $protoId]);
+                    } else {
+                        $pdo->prepare("INSERT INTO prototype_milestones (prototype_id,title,description,target_date,color) VALUES (?,?,?,?,?)")
+                            ->execute([$protoId, $title, $desc, $date, $color]);
+                    }
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#roadmap-section");
+                exit;
+
+            case 'delete_milestone':
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                $mid     = (int)($_POST['milestone_id'] ?? 0);
+                if ($mid) $pdo->prepare("DELETE FROM prototype_milestones WHERE id=? AND prototype_id=?")->execute([$mid, $protoId]);
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#roadmap-section");
+                exit;
+
+            case 'toggle_milestone_story':
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                $mid     = (int)($_POST['milestone_id'] ?? 0);
+                $sid     = (int)($_POST['story_id'] ?? 0);
+                if ($mid && $sid) {
+                    $exists = $pdo->prepare("SELECT id FROM milestone_stories WHERE milestone_id=? AND story_id=?");
+                    $exists->execute([$mid, $sid]);
+                    if ($exists->fetch()) {
+                        $pdo->prepare("DELETE FROM milestone_stories WHERE milestone_id=? AND story_id=?")->execute([$mid, $sid]);
+                    } else {
+                        $pdo->prepare("INSERT IGNORE INTO milestone_stories (milestone_id,story_id) VALUES (?,?)")->execute([$mid, $sid]);
+                    }
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#roadmap-section");
+                exit;
+
+            case 'toggle_milestone_project':
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                $mid     = (int)($_POST['milestone_id'] ?? 0);
+                $pid     = (int)($_POST['project_id'] ?? 0);
+                if ($mid && $pid) {
+                    $exists = $pdo->prepare("SELECT id FROM milestone_projects WHERE milestone_id=? AND project_id=?");
+                    $exists->execute([$mid, $pid]);
+                    if ($exists->fetch()) {
+                        $pdo->prepare("DELETE FROM milestone_projects WHERE milestone_id=? AND project_id=?")->execute([$mid, $pid]);
+                    } else {
+                        $pdo->prepare("INSERT IGNORE INTO milestone_projects (milestone_id,project_id) VALUES (?,?)")->execute([$mid, $pid]);
+                    }
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#roadmap-section");
+                exit;
         }
     } catch (PDOException $e) {
         $message = "Erro: " . $e->getMessage();
@@ -1142,6 +1231,24 @@ if ($selectedPrototypeId) {
                 $respStmt->execute([$selectedPrototype['survey']['id']]);
                 $selectedPrototype['survey_responses'] = $respStmt->fetchAll(PDO::FETCH_ASSOC);
             }
+        } catch (PDOException $e) {}
+
+        // Roadmap milestones
+        $selectedPrototype['milestones'] = [];
+        try {
+            $mStmt = $pdo->prepare("SELECT * FROM prototype_milestones WHERE prototype_id=? ORDER BY target_date ASC");
+            $mStmt->execute([$selectedPrototypeId]);
+            $rmMilestones = $mStmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rmMilestones as &$rm) {
+                $sStmt = $pdo->prepare("SELECT us.id, us.story_text, us.moscow_priority, us.story_type FROM milestone_stories ms JOIN user_stories us ON ms.story_id=us.id WHERE ms.milestone_id=?");
+                $sStmt->execute([$rm['id']]);
+                $rm['stories'] = $sStmt->fetchAll(PDO::FETCH_ASSOC);
+                $pStmt = $pdo->prepare("SELECT p.id, p.title, COALESCE(p.short_name,'') as short_name FROM milestone_projects mp JOIN projects p ON mp.project_id=p.id WHERE mp.milestone_id=?");
+                $pStmt->execute([$rm['id']]);
+                $rm['projects'] = $pStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+            unset($rm);
+            $selectedPrototype['milestones'] = $rmMilestones;
         } catch (PDOException $e) {}
 
         // GitLab token status para este utilizador (apenas metadados, token nunca sai do servidor)
@@ -2626,6 +2733,411 @@ if ($selectedPrototype && $checkTodos) {
                 </div>
             </div>
             
+            <!-- ══ ROADMAP ══════════════════════════════════════════════════ -->
+            <div class="detail-section" id="roadmap-section">
+                <div class="section-header">
+                    <h5><i class="bi bi-map"></i> Roadmap <span style="font-size:12px;font-weight:400;color:#6c757d;">(24 meses)</span></h5>
+                    <button class="btn btn-sm btn-success" onclick="rmOpenAdd()">
+                        <i class="bi bi-plus-lg"></i> Milestone
+                    </button>
+                </div>
+
+                <?php
+                $rmMilestones = $selectedPrototype['milestones'] ?? [];
+                $rmProtoId    = (int)$selectedPrototypeId;
+                $rmStories    = $selectedPrototype['stories'] ?? [];
+                ?>
+
+                <!-- Timeline container -->
+                <div class="rm-wrap">
+                    <div class="rm-timeline" id="rm-timeline">
+                        <div class="rm-bar">
+                            <div class="rm-today" id="rm-today-marker" title="Hoje"></div>
+                            <?php foreach ($rmMilestones as $rm): ?>
+                            <div class="rm-milestone"
+                                 data-id="<?= $rm['id'] ?>"
+                                 data-date="<?= htmlspecialchars($rm['target_date']) ?>"
+                                 data-title="<?= htmlspecialchars($rm['title']) ?>"
+                                 data-desc="<?= htmlspecialchars($rm['description'] ?? '') ?>"
+                                 data-color="<?= htmlspecialchars($rm['color']) ?>"
+                                 style="background:<?= htmlspecialchars($rm['color']) ?>; border-color:<?= htmlspecialchars($rm['color']) ?>;"
+                                 onclick="rmSelect(this)"
+                                 title="<?= htmlspecialchars($rm['title']) ?> — <?= date('d/m/Y', strtotime($rm['target_date'])) ?>">
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="rm-months" id="rm-months"></div>
+                    </div>
+                </div>
+
+                <!-- Detail panel -->
+                <div id="rm-detail" style="display:none;" class="rm-detail-panel">
+                    <div class="rm-detail-header">
+                        <div>
+                            <span id="rm-d-dot" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;"></span>
+                            <strong id="rm-d-title"></strong>
+                            <small class="text-muted ms-2" id="rm-d-date"></small>
+                        </div>
+                        <div class="d-flex gap-1">
+                            <button class="btn btn-sm btn-outline-primary" onclick="rmOpenEdit()"><i class="bi bi-pencil"></i></button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="rmDeleteCurrent()"><i class="bi bi-trash"></i></button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('rm-detail').style.display='none'"><i class="bi bi-x"></i></button>
+                        </div>
+                    </div>
+                    <p id="rm-d-desc" class="small text-muted mb-2" style="white-space:pre-line;"></p>
+
+                    <div class="row g-3">
+                        <!-- User Stories -->
+                        <div class="col-md-6">
+                            <div class="rm-links-block">
+                                <div class="rm-links-title"><i class="bi bi-book"></i> User Stories</div>
+                                <div id="rm-d-stories-list" class="rm-linked-list"></div>
+                                <?php if (!empty($rmStories)): ?>
+                                <details class="mt-2">
+                                    <summary class="small text-primary" style="cursor:pointer;">+ Associar story</summary>
+                                    <div class="rm-story-picker mt-1">
+                                        <?php foreach ($rmStories as $rs): ?>
+                                        <form method="POST" class="rm-pick-form">
+                                            <input type="hidden" name="action" value="toggle_milestone_story">
+                                            <input type="hidden" name="prototype_id" value="<?= $rmProtoId ?>">
+                                            <input type="hidden" name="milestone_id" class="rm-mid-field" value="">
+                                            <input type="hidden" name="story_id" value="<?= $rs['id'] ?>">
+                                            <button type="submit" class="btn btn-xs rm-pick-btn" data-sid="<?= $rs['id'] ?>">
+                                                <span class="rm-moscow rm-moscow-<?= strtolower($rs['moscow_priority'] ?? 'should') ?>"><?= strtoupper($rs['moscow_priority'] ?? '?') ?></span>
+                                                <?= htmlspecialchars(mb_strimwidth($rs['story_text'], 0, 60, '…')) ?>
+                                            </button>
+                                        </form>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </details>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <!-- Projectos -->
+                        <div class="col-md-6">
+                            <div class="rm-links-block">
+                                <div class="rm-links-title"><i class="bi bi-kanban"></i> Projectos</div>
+                                <div id="rm-d-projects-list" class="rm-linked-list"></div>
+                                <?php if (!empty($projects)): ?>
+                                <details class="mt-2">
+                                    <summary class="small text-primary" style="cursor:pointer;">+ Associar projecto</summary>
+                                    <div class="rm-story-picker mt-1">
+                                        <?php foreach ($projects as $rp): ?>
+                                        <form method="POST" class="rm-pick-form">
+                                            <input type="hidden" name="action" value="toggle_milestone_project">
+                                            <input type="hidden" name="prototype_id" value="<?= $rmProtoId ?>">
+                                            <input type="hidden" name="milestone_id" class="rm-mid-field" value="">
+                                            <input type="hidden" name="project_id" value="<?= $rp['id'] ?>">
+                                            <button type="submit" class="btn btn-xs rm-pick-btn" data-pid="<?= $rp['id'] ?>">
+                                                <?php if ($rp['short_name']): ?><strong><?= htmlspecialchars($rp['short_name']) ?></strong> — <?php endif; ?>
+                                                <?= htmlspecialchars(mb_strimwidth($rp['title'], 0, 55, '…')) ?>
+                                            </button>
+                                        </form>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </details>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <?php if (empty($rmMilestones)): ?>
+                <p class="text-muted small mt-3">Nenhum milestone definido. Clica em <strong>+ Milestone</strong> para começar.</p>
+                <?php endif; ?>
+            </div>
+
+            <!-- Modal Add/Edit Milestone -->
+            <div class="modal fade" id="rmMilestoneModal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <form method="POST">
+                            <input type="hidden" name="prototype_id" value="<?= $rmProtoId ?>">
+                            <input type="hidden" name="milestone_id" id="rm-form-mid" value="">
+                            <input type="hidden" name="action" id="rm-form-action" value="add_milestone">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="rm-modal-title">Novo Milestone</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Título *</label>
+                                    <input type="text" name="milestone_title" id="rm-f-title" class="form-control" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Data alvo *</label>
+                                    <input type="date" name="milestone_date" id="rm-f-date" class="form-control" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Descrição</label>
+                                    <textarea name="milestone_desc" id="rm-f-desc" class="form-control" rows="3"></textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Cor</label>
+                                    <div class="d-flex gap-2 align-items-center">
+                                        <input type="color" name="milestone_color" id="rm-f-color" value="#0d6efd" class="form-control form-control-color" style="width:50px;">
+                                        <div class="d-flex gap-1 flex-wrap">
+                                            <?php foreach (['#0d6efd','#198754','#dc3545','#fd7e14','#6f42c1','#0dcaf0','#ffc107','#6c757d'] as $c): ?>
+                                            <div onclick="document.getElementById('rm-f-color').value='<?= $c ?>'" style="width:22px;height:22px;border-radius:50%;background:<?= $c ?>;cursor:pointer;border:2px solid #fff;box-shadow:0 0 0 1px #ccc;"></div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                <button type="submit" class="btn btn-primary">Guardar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Form oculto para delete -->
+            <form method="POST" id="rm-delete-form" style="display:none;">
+                <input type="hidden" name="action" value="delete_milestone">
+                <input type="hidden" name="prototype_id" value="<?= $rmProtoId ?>">
+                <input type="hidden" name="milestone_id" id="rm-delete-mid" value="">
+            </form>
+
+            <style>
+            .rm-wrap { overflow-x: auto; padding-bottom: 8px; }
+            .rm-timeline { min-width: 700px; padding: 24px 12px 0; position: relative; }
+            .rm-bar {
+                position: relative; height: 6px; background: #e9ecef;
+                border-radius: 3px; margin: 20px 0 0;
+            }
+            .rm-today {
+                position: absolute; top: -10px; width: 2px; background: #dc3545;
+                height: 26px; z-index: 3;
+            }
+            .rm-today::before {
+                content: 'Hoje'; position: absolute; top: -16px; left: 50%;
+                transform: translateX(-50%); font-size: 10px; color: #dc3545;
+                white-space: nowrap; font-weight: 600;
+            }
+            .rm-milestone {
+                position: absolute; top: 50%; transform: translate(-50%, -50%);
+                width: 18px; height: 18px; border-radius: 50%;
+                border: 3px solid; cursor: pointer; z-index: 4;
+                transition: transform .15s, box-shadow .15s;
+            }
+            .rm-milestone:hover, .rm-milestone.active {
+                transform: translate(-50%, -50%) scale(1.4);
+                box-shadow: 0 0 0 3px rgba(0,0,0,.15);
+            }
+            .rm-milestone .rm-label {
+                position: absolute; top: -22px; left: 50%; transform: translateX(-50%);
+                background: #333; color: #fff; font-size: 10px; padding: 2px 5px;
+                border-radius: 3px; white-space: nowrap; pointer-events: none;
+                opacity: 0; transition: opacity .15s;
+            }
+            .rm-milestone:hover .rm-label { opacity: 1; }
+            .rm-months {
+                display: flex; margin-top: 10px;
+                font-size: 11px; color: #6c757d;
+            }
+            .rm-month-cell {
+                flex: 1; text-align: center; position: relative;
+                padding-top: 6px; border-left: 1px solid #dee2e6;
+                cursor: pointer; user-select: none;
+            }
+            .rm-month-cell:hover { color: #0d6efd; }
+            .rm-month-cell.rm-cur-month { color: #dc3545; font-weight: 600; }
+            .rm-detail-panel {
+                border: 1px solid #dee2e6; border-radius: 8px;
+                padding: 14px 16px; margin-top: 16px; background: #fafafa;
+            }
+            .rm-detail-header {
+                display: flex; justify-content: space-between; align-items: flex-start;
+                margin-bottom: 8px;
+            }
+            .rm-links-block {
+                border: 1px solid #e9ecef; border-radius: 6px; padding: 10px;
+                background: #fff; height: 100%;
+            }
+            .rm-links-title { font-size: 12px; font-weight: 600; color: #6c757d; margin-bottom: 6px; }
+            .rm-linked-list { display: flex; flex-direction: column; gap: 4px; }
+            .rm-linked-item {
+                display: flex; align-items: center; gap: 6px; font-size: 12px;
+                background: #f0f4ff; border-radius: 4px; padding: 3px 7px;
+            }
+            .rm-linked-item form { margin: 0; }
+            .rm-linked-item .rm-remove { border: none; background: none; color: #aaa; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
+            .rm-linked-item .rm-remove:hover { color: #dc3545; }
+            .rm-story-picker { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+            .rm-pick-form { margin: 0; }
+            .rm-pick-btn {
+                width: 100%; text-align: left; font-size: 12px;
+                padding: 4px 8px; border: 1px solid #dee2e6; border-radius: 4px;
+                background: #fff; color: #333; white-space: normal; line-height: 1.3;
+            }
+            .rm-pick-btn:hover { background: #e8f0ff; border-color: #0d6efd; }
+            .rm-moscow { display:inline-block; font-size:10px; font-weight:700; padding:1px 4px; border-radius:3px; margin-right:4px; }
+            .rm-moscow-must   { background:#dc3545; color:#fff; }
+            .rm-moscow-should { background:#0d6efd; color:#fff; }
+            .rm-moscow-could  { background:#198754; color:#fff; }
+            .rm-moscow-won\\'t { background:#6c757d; color:#fff; }
+            </style>
+
+            <script>
+            (function(){
+            const MONTHS = 24;
+            const RM_DATA = <?= json_encode($selectedPrototype['milestones'] ?? []) ?>;
+
+            // Position milestones and months on the timeline bar
+            function rmInit() {
+                const bar = document.querySelector('.rm-bar');
+                if (!bar) return;
+                const barW = bar.offsetWidth;
+
+                const now = new Date();
+                const start = new Date(now.getFullYear(), now.getMonth(), 1);
+                const end   = new Date(start);
+                end.setMonth(end.getMonth() + MONTHS);
+                const totalMs = end - start;
+
+                // Today marker
+                const todayEl = document.getElementById('rm-today-marker');
+                if (todayEl) {
+                    const pct = Math.min(1, Math.max(0, (now - start) / totalMs));
+                    todayEl.style.left = (pct * 100) + '%';
+                }
+
+                // Milestone markers
+                document.querySelectorAll('.rm-milestone').forEach(el => {
+                    const d = new Date(el.dataset.date + 'T12:00:00');
+                    const pct = Math.min(1, Math.max(0, (d - start) / totalMs));
+                    el.style.left = (pct * 100) + '%';
+                    // Label inside marker
+                    let lbl = el.querySelector('.rm-label');
+                    if (!lbl) { lbl = document.createElement('div'); lbl.className = 'rm-label'; el.appendChild(lbl); }
+                    lbl.textContent = el.dataset.title;
+                });
+
+                // Month grid
+                const grid = document.getElementById('rm-months');
+                if (!grid) return;
+                grid.innerHTML = '';
+                for (let i = 0; i < MONTHS; i++) {
+                    const m = new Date(start);
+                    m.setMonth(m.getMonth() + i);
+                    const cell = document.createElement('div');
+                    cell.className = 'rm-month-cell';
+                    if (i === 0) cell.classList.add('rm-cur-month');
+                    const mo = m.toLocaleString('pt-PT', {month:'short'});
+                    cell.innerHTML = '<div>' + mo + '</div><div style="font-size:10px;opacity:.7;">' + m.getFullYear() + '</div>';
+                    // Click month cell → pre-fill date in add modal
+                    cell.addEventListener('click', () => {
+                        const y = m.getFullYear(), mo2 = String(m.getMonth()+1).padStart(2,'0');
+                        const day = String(m.getDate()).padStart(2,'0');
+                        rmOpenAdd(y+'-'+mo2+'-'+day);
+                    });
+                    grid.appendChild(cell);
+                }
+            }
+
+            window.rmOpenAdd = function(preDate) {
+                document.getElementById('rm-modal-title').textContent = 'Novo Milestone';
+                document.getElementById('rm-form-action').value = 'add_milestone';
+                document.getElementById('rm-form-mid').value = '';
+                document.getElementById('rm-f-title').value = '';
+                document.getElementById('rm-f-date').value = preDate || '';
+                document.getElementById('rm-f-desc').value = '';
+                document.getElementById('rm-f-color').value = '#0d6efd';
+                new bootstrap.Modal(document.getElementById('rmMilestoneModal')).show();
+            };
+
+            window.rmOpenEdit = function() {
+                const mid = window._rmSelectedId;
+                if (!mid) return;
+                const m = RM_DATA.find(x => x.id == mid);
+                if (!m) return;
+                document.getElementById('rm-modal-title').textContent = 'Editar Milestone';
+                document.getElementById('rm-form-action').value = 'edit_milestone';
+                document.getElementById('rm-form-mid').value = mid;
+                document.getElementById('rm-f-title').value = m.title;
+                document.getElementById('rm-f-date').value = m.target_date;
+                document.getElementById('rm-f-desc').value = m.description || '';
+                document.getElementById('rm-f-color').value = m.color || '#0d6efd';
+                new bootstrap.Modal(document.getElementById('rmMilestoneModal')).show();
+            };
+
+            window.rmDeleteCurrent = function() {
+                if (!window._rmSelectedId) return;
+                if (!confirm('Eliminar este milestone?')) return;
+                document.getElementById('rm-delete-mid').value = window._rmSelectedId;
+                document.getElementById('rm-delete-form').submit();
+            };
+
+            window.rmSelect = function(el) {
+                document.querySelectorAll('.rm-milestone').forEach(e => e.classList.remove('active'));
+                el.classList.add('active');
+                const mid = el.dataset.id;
+                window._rmSelectedId = mid;
+                const m = RM_DATA.find(x => x.id == mid);
+                if (!m) return;
+
+                document.getElementById('rm-d-dot').style.background = m.color;
+                document.getElementById('rm-d-title').textContent = m.title;
+                const d = new Date(m.target_date + 'T12:00:00');
+                document.getElementById('rm-d-date').textContent = d.toLocaleDateString('pt-PT', {day:'2-digit',month:'long',year:'numeric'});
+                document.getElementById('rm-d-desc').textContent = m.description || '';
+
+                // Stories
+                const sList = document.getElementById('rm-d-stories-list');
+                sList.innerHTML = '';
+                (m.stories || []).forEach(s => {
+                    const div = document.createElement('div');
+                    div.className = 'rm-linked-item';
+                    div.innerHTML = '<span class="rm-moscow rm-moscow-' + (s.moscow_priority||'should').toLowerCase() + '">' +
+                        (s.moscow_priority||'?').toUpperCase() + '</span>' +
+                        '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;">' + escHtml(s.story_text.substring(0,70)) + '</span>' +
+                        '<form method="POST" style="margin:0"><input type="hidden" name="action" value="toggle_milestone_story">' +
+                        '<input type="hidden" name="prototype_id" value="<?= $rmProtoId ?>">' +
+                        '<input type="hidden" name="milestone_id" value="' + mid + '">' +
+                        '<input type="hidden" name="story_id" value="' + s.id + '">' +
+                        '<button type="submit" class="rm-remove" title="Remover">×</button></form>';
+                    sList.appendChild(div);
+                });
+                if (!m.stories || !m.stories.length) sList.innerHTML = '<span class="text-muted" style="font-size:12px;">Nenhuma story associada</span>';
+
+                // Projects
+                const pList = document.getElementById('rm-d-projects-list');
+                pList.innerHTML = '';
+                (m.projects || []).forEach(p => {
+                    const div = document.createElement('div');
+                    div.className = 'rm-linked-item';
+                    div.innerHTML = (p.short_name ? '<strong>' + escHtml(p.short_name) + '</strong> — ' : '') + escHtml(p.title.substring(0,55)) +
+                        '<form method="POST" style="margin:0"><input type="hidden" name="action" value="toggle_milestone_project">' +
+                        '<input type="hidden" name="prototype_id" value="<?= $rmProtoId ?>">' +
+                        '<input type="hidden" name="milestone_id" value="' + mid + '">' +
+                        '<input type="hidden" name="project_id" value="' + p.id + '">' +
+                        '<button type="submit" class="rm-remove" title="Remover">×</button></form>';
+                    pList.appendChild(div);
+                });
+                if (!m.projects || !m.projects.length) pList.innerHTML = '<span class="text-muted" style="font-size:12px;">Nenhum projecto associado</span>';
+
+                // Fill milestone_id in pick forms
+                document.querySelectorAll('.rm-mid-field').forEach(f => f.value = mid);
+
+                document.getElementById('rm-detail').style.display = 'block';
+            };
+
+            function escHtml(s) {
+                return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            }
+
+            // Init after layout
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', rmInit);
+            } else {
+                rmInit();
+                window.addEventListener('resize', rmInit);
+            }
+            })();
+            </script>
+
             <!-- User Stories -->
             <div class="detail-section">
                 <div class="section-header">

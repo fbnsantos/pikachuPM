@@ -288,6 +288,26 @@ $users = $pdo->query('SELECT user_id, username FROM user_tokens ORDER BY usernam
     flex-direction: column;
 }
 
+#task-editor-unsaved {
+    display: none;
+    background: #fff3cd;
+    border-bottom: 2px solid #ffc107;
+    padding: 10px 16px;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+    color: #856404;
+}
+#task-editor-unsaved.active { display: flex; }
+#task-editor-unsaved span { flex: 1; }
+#task-editor-unsaved button { font-size: 13px; padding: 4px 12px; border-radius: 6px; border: none; cursor: pointer; }
+#task-editor-unsaved .btn-save   { background: #0d6efd; color: #fff; }
+#task-editor-unsaved .btn-save:hover   { background: #0b5ed7; }
+#task-editor-unsaved .btn-discard { background: #dc3545; color: #fff; }
+#task-editor-unsaved .btn-discard:hover { background: #bb2d3b; }
+#task-editor-unsaved .btn-cancel  { background: #6c757d; color: #fff; }
+#task-editor-unsaved .btn-cancel:hover  { background: #5c636a; }
+
 .task-editor-header {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
@@ -613,7 +633,14 @@ textarea.form-control {
             <h3>✏️ Editar Task</h3>
             <button class="task-editor-close" onclick="closeTaskEditor()">&times;</button>
         </div>
-        
+
+        <div id="task-editor-unsaved">
+            <span>⚠️ Tens alterações não guardadas.</span>
+            <button class="btn-save"    onclick="saveTask()">💾 Guardar</button>
+            <button class="btn-discard" onclick="closeTaskEditor(true)">🗑️ Descartar</button>
+            <button class="btn-cancel"  onclick="document.getElementById('task-editor-unsaved').classList.remove('active')">Cancelar</button>
+        </div>
+
         <div class="task-editor-body">
             <form id="task-editor-form">
                 <input type="hidden" id="edit_todo_id" name="todo_id">
@@ -753,6 +780,7 @@ function openTaskEditor(taskId) {
                 
                 // Mostrar modal
                 window._taskEditorDirty = false;
+                document.getElementById('task-editor-unsaved').classList.remove('active');
                 document.getElementById('task-editor-overlay').style.display = 'block';
             } else {
                 alert('Erro ao carregar task: ' + data.error);
@@ -767,9 +795,11 @@ function openTaskEditor(taskId) {
 // Fechar editor
 function closeTaskEditor(force) {
     if (!force && window._taskEditorDirty) {
-        if (!confirm('Tens alterações não guardadas. Fechar na mesma?')) return;
+        document.getElementById('task-editor-unsaved').classList.add('active');
+        return;
     }
     window._taskEditorDirty = false;
+    document.getElementById('task-editor-unsaved').classList.remove('active');
     document.getElementById('task-editor-overlay').style.display = 'none';
 }
 

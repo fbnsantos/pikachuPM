@@ -1484,3 +1484,12 @@ document.addEventListener('DOMContentLoaded', function() {
 // Incluir editor universal
 include __DIR__ . '/../edit_task.php';
 ?>
+<script>
+(function() {
+    var p = new URLSearchParams(window.location.search);
+    var tid = p.get('open_task');
+    if (tid && typeof openTaskEditor === 'function') {
+        openTaskEditor(parseInt(tid, 10));
+    }
+})();
+</script>

@@ -631,7 +631,19 @@ textarea.form-control {
     <div id="task-editor-modal">
         <div class="task-editor-header">
             <h3>✏️ Editar Task</h3>
-            <button class="task-editor-close" onclick="closeTaskEditor()">&times;</button>
+            <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+                <div style="position:relative;display:inline-block;">
+                    <button id="task-share-btn" onclick="shareTaskLink()" title="Copiar link para esta tarefa"
+                        style="background:none;border:1px solid rgba(255,255,255,0.4);border-radius:6px;color:inherit;cursor:pointer;padding:4px 8px;font-size:16px;line-height:1;">
+                        <i class="bi bi-link-45deg"></i>
+                    </button>
+                    <span id="task-share-tooltip"
+                        style="display:none;position:absolute;top:calc(100% + 6px);right:0;background:#333;color:#fff;font-size:12px;padding:4px 8px;border-radius:4px;white-space:nowrap;z-index:10;">
+                        Copiado!
+                    </span>
+                </div>
+                <button class="task-editor-close" onclick="closeTaskEditor()">&times;</button>
+            </div>
         </div>
 
         <div id="task-editor-unsaved">
@@ -997,6 +1009,21 @@ function saveTask() {
     .catch(err => {
         console.error(err);
         alert('Erro ao guardar task');
+    });
+}
+
+// Gerar e copiar link de partilha da tarefa
+function shareTaskLink() {
+    var taskId = document.getElementById('edit_todo_id').value;
+    if (!taskId) return;
+    var base = window.location.origin + window.location.pathname;
+    var link = base + '?tab=todos&open_task=' + taskId;
+    navigator.clipboard.writeText(link).then(function() {
+        var tooltip = document.getElementById('task-share-tooltip');
+        tooltip.style.display = 'block';
+        setTimeout(function() { tooltip.style.display = 'none'; }, 2000);
+    }).catch(function() {
+        prompt('Copia este link:', link);
     });
 }
 

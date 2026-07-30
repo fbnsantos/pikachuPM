@@ -752,6 +752,7 @@ function openTaskEditor(taskId) {
                 toggleEditMode();
                 
                 // Mostrar modal
+                window._taskEditorDirty = false;
                 document.getElementById('task-editor-overlay').style.display = 'block';
             } else {
                 alert('Erro ao carregar task: ' + data.error);
@@ -764,7 +765,11 @@ function openTaskEditor(taskId) {
 }
 
 // Fechar editor
-function closeTaskEditor() {
+function closeTaskEditor(force) {
+    if (!force && window._taskEditorDirty) {
+        if (!confirm('Tens alterações não guardadas. Fechar na mesma?')) return;
+    }
+    window._taskEditorDirty = false;
     document.getElementById('task-editor-overlay').style.display = 'none';
 }
 
@@ -951,8 +956,9 @@ function saveTask() {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
+            window._taskEditorDirty = false;
             alert('Task guardada com sucesso!');
-            closeTaskEditor();
+            closeTaskEditor(true);
             location.reload();
         } else {
             alert('Erro ao guardar: ' + data.error);
@@ -964,7 +970,15 @@ function saveTask() {
     });
 }
 
-// Fechar ao clicar fora
+// Marcar dirty quando o utilizador edita qualquer campo do editor
+document.getElementById('task-editor-form').addEventListener('input', function() {
+    window._taskEditorDirty = true;
+});
+document.getElementById('task-editor-form').addEventListener('change', function() {
+    window._taskEditorDirty = true;
+});
+
+// Fechar ao clicar fora (backdrop)
 document.addEventListener('click', function(e) {
     if (e.target.id === 'task-editor-overlay') {
         closeTaskEditor();

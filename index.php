@@ -1776,6 +1776,40 @@ document.addEventListener('keydown', e => {
 });
 </script>
 
+<script>
+(function () {
+    const FIELD_SEL = 'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]), textarea, select';
+    function snapshot(modal) {
+        return Array.from(modal.querySelectorAll(FIELD_SEL)).map(f => f.value);
+    }
+    document.addEventListener('show.bs.modal', e => {
+        const modal = e.target;
+        modal._dirty_saved = false;
+        modal._dirty_snap = null;
+        setTimeout(() => {
+            const fields = modal.querySelectorAll(FIELD_SEL);
+            if (!fields.length) return;
+            modal._dirty_snap = snapshot(modal);
+        }, 250);
+        modal.querySelectorAll('.btn-primary, .btn-success, [type="submit"]').forEach(btn => {
+            btn.addEventListener('click', () => { modal._dirty_saved = true; }, { capture: true, once: false });
+        });
+    });
+    document.addEventListener('hide.bs.modal', e => {
+        const modal = e.target;
+        if (modal._dirty_saved || !modal._dirty_snap) return;
+        const current = snapshot(modal);
+        const changed = modal._dirty_snap.some((v, i) => v !== current[i]);
+        if (!changed) return;
+        e.preventDefault();
+        if (confirm('Tens alterações não guardadas. Fechar na mesma?')) {
+            modal._dirty_snap = null;
+            bootstrap.Modal.getInstance(modal)?.hide();
+        }
+    });
+})();
+</script>
+
 </body>
 </html>
 <?php

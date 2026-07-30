@@ -868,6 +868,7 @@ if (isset($_GET['project_id'])) {
                 $stmt->execute([$proto['id']]);
                 $proto['stories'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
+            unset($proto); // quebrar a referência do foreach para evitar corrupção do array
         } else {
             $selectedProject['prototypes'] = [];
         }

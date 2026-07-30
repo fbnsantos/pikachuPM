@@ -653,6 +653,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message = "Protótipo desassociado!";
                 $messageType = 'success';
                 break;
+
+            case 'add_milestone':
+                $stmt = $pdo->prepare("INSERT INTO prototype_milestones (prototype_id, title, description, target_date, color) VALUES (?,?,?,?,?)");
+                $stmt->execute([(int)$_POST['prototype_id'], $_POST['milestone_title'], $_POST['milestone_desc'] ?? '', $_POST['milestone_date'], $_POST['milestone_color'] ?? '#0d6efd']);
+                $message = "Milestone criado!"; $messageType = 'success';
+                break;
+
+            case 'edit_milestone':
+                $stmt = $pdo->prepare("UPDATE prototype_milestones SET title=?, description=?, target_date=?, color=? WHERE id=?");
+                $stmt->execute([$_POST['milestone_title'], $_POST['milestone_desc'] ?? '', $_POST['milestone_date'], $_POST['milestone_color'] ?? '#0d6efd', (int)$_POST['milestone_id']]);
+                $message = "Milestone atualizado!"; $messageType = 'success';
+                break;
+
+            case 'delete_milestone':
+                $stmt = $pdo->prepare("DELETE FROM prototype_milestones WHERE id=?");
+                $stmt->execute([(int)$_POST['milestone_id']]);
+                $message = "Milestone eliminado!"; $messageType = 'success';
+                break;
+
+            case 'toggle_milestone_story':
+                $mid = (int)$_POST['milestone_id']; $sid = (int)$_POST['story_id'];
+                $chk = $pdo->prepare("SELECT id FROM milestone_stories WHERE milestone_id=? AND story_id=?");
+                $chk->execute([$mid, $sid]);
+                if ($chk->fetch()) { $pdo->prepare("DELETE FROM milestone_stories WHERE milestone_id=? AND story_id=?")->execute([$mid, $sid]); }
+                else { $pdo->prepare("INSERT IGNORE INTO milestone_stories (milestone_id, story_id) VALUES (?,?)")->execute([$mid, $sid]); }
+                $message = "Story atualizada!"; $messageType = 'success';
+                break;
+
+            case 'toggle_milestone_project':
+                $mid = (int)$_POST['milestone_id']; $pid2 = (int)$_POST['project_id'];
+                $chk = $pdo->prepare("SELECT id FROM milestone_projects WHERE milestone_id=? AND project_id=?");
+                $chk->execute([$mid, $pid2]);
+                if ($chk->fetch()) { $pdo->prepare("DELETE FROM milestone_projects WHERE milestone_id=? AND project_id=?")->execute([$mid, $pid2]); }
+                else { $pdo->prepare("INSERT IGNORE INTO milestone_projects (milestone_id, project_id) VALUES (?,?)")->execute([$mid, $pid2]); }
+                $message = "Projecto atualizado!"; $messageType = 'success';
+                break;
                 
             case 'create_sprint_for_deliverable':
                 // Criar sprint e associar ao entregável
@@ -869,6 +905,30 @@ if (isset($_GET['project_id'])) {
                 $proto['stories'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
             unset($proto); // quebrar a referência do foreach para evitar corrupção do array
+
+            // Carregar milestones para cada protótipo
+            $checkMilestones = $pdo->query("SHOW TABLES LIKE 'prototype_milestones'")->fetch();
+            foreach ($selectedProject['prototypes'] as &$proto) {
+                $proto['milestones'] = [];
+                if ($checkMilestones) {
+                    try {
+                        $mStmt = $pdo->prepare("SELECT * FROM prototype_milestones WHERE prototype_id=? ORDER BY target_date ASC");
+                        $mStmt->execute([$proto['id']]);
+                        $mRows = $mStmt->fetchAll(PDO::FETCH_ASSOC);
+                        foreach ($mRows as &$rm) {
+                            $sStmt = $pdo->prepare("SELECT us.id, us.story_text, us.moscow_priority FROM milestone_stories ms JOIN user_stories us ON ms.story_id=us.id WHERE ms.milestone_id=?");
+                            $sStmt->execute([$rm['id']]);
+                            $rm['stories'] = $sStmt->fetchAll(PDO::FETCH_ASSOC);
+                            $pStmt2 = $pdo->prepare("SELECT p2.id, p2.title, COALESCE(p2.short_name,'') as short_name FROM milestone_projects mp JOIN projects p2 ON mp.project_id=p2.id WHERE mp.milestone_id=?");
+                            $pStmt2->execute([$rm['id']]);
+                            $rm['projects'] = $pStmt2->fetchAll(PDO::FETCH_ASSOC);
+                        }
+                        unset($rm);
+                        $proto['milestones'] = $mRows;
+                    } catch (PDOException $e) {}
+                }
+            }
+            unset($proto);
         } else {
             $selectedProject['prototypes'] = [];
         }
@@ -1634,6 +1694,114 @@ if (isset($_GET['project_id'])) {
                                     <?php endforeach; ?>
                                 </div>
                                 <?php endif; ?>
+
+                                <!-- Roadmap do protótipo -->
+                                <?php $rmPid = (int)$proto['id']; $rmMs = $proto['milestones'] ?? []; ?>
+                                <div class="proto-roadmap mt-3" id="proto-roadmap-<?= $rmPid ?>">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <small class="fw-bold text-secondary"><i class="bi bi-map"></i> Roadmap <span style="font-weight:400;">(24 meses)</span></small>
+                                        <button class="btn btn-xs btn-outline-success py-0 px-2" style="font-size:11px;"
+                                                onclick="rmqOpenAdd(<?= $rmPid ?>)">
+                                            <i class="bi bi-plus-lg"></i> Milestone
+                                        </button>
+                                    </div>
+                                    <div class="rmq-wrap">
+                                        <div class="rmq-timeline" data-proto="<?= $rmPid ?>"
+                                             data-milestones="<?= htmlspecialchars(json_encode($rmMs), ENT_QUOTES) ?>">
+                                            <div class="rmq-bar">
+                                                <div class="rmq-today" title="Hoje"></div>
+                                                <?php foreach ($rmMs as $rm): ?>
+                                                <div class="rmq-dot"
+                                                     data-id="<?= $rm['id'] ?>"
+                                                     data-date="<?= htmlspecialchars($rm['target_date']) ?>"
+                                                     data-title="<?= htmlspecialchars($rm['title']) ?>"
+                                                     style="background:<?= htmlspecialchars($rm['color']) ?>;border-color:<?= htmlspecialchars($rm['color']) ?>;"
+                                                     onclick="rmqSelect(this)"
+                                                     title="<?= htmlspecialchars($rm['title']) ?> — <?= date('d/m/Y', strtotime($rm['target_date'])) ?>">
+                                                </div>
+                                                <?php endforeach; ?>
+                                            </div>
+                                            <div class="rmq-months"></div>
+                                        </div>
+                                    </div>
+                                    <?php if (empty($rmMs)): ?>
+                                    <p class="text-muted" style="font-size:11px;margin-top:4px;">Sem milestones. Clica em <strong>+ Milestone</strong> para começar.</p>
+                                    <?php endif; ?>
+                                    <!-- Detalhe inline do milestone -->
+                                    <div class="rmq-detail" id="rmq-detail-<?= $rmPid ?>" style="display:none;">
+                                        <div class="rmq-detail-header">
+                                            <div>
+                                                <span class="rmq-d-dot"></span>
+                                                <strong class="rmq-d-title"></strong>
+                                                <small class="text-muted ms-1 rmq-d-date"></small>
+                                            </div>
+                                            <div class="d-flex gap-1">
+                                                <button class="btn btn-xs btn-outline-primary" onclick="rmqOpenEdit(<?= $rmPid ?>)"><i class="bi bi-pencil"></i></button>
+                                                <button class="btn btn-xs btn-outline-danger" onclick="rmqDelete(<?= $rmPid ?>)"><i class="bi bi-trash"></i></button>
+                                                <button class="btn btn-xs btn-outline-secondary" onclick="document.getElementById('rmq-detail-<?= $rmPid ?>').style.display='none'"><i class="bi bi-x"></i></button>
+                                            </div>
+                                        </div>
+                                        <p class="rmq-d-desc small text-muted mb-2" style="white-space:pre-line;"></p>
+                                        <div class="row g-2">
+                                            <div class="col-md-6">
+                                                <div class="rmq-links-block">
+                                                    <div class="rmq-links-title"><i class="bi bi-book"></i> User Stories</div>
+                                                    <div class="rmq-d-stories"></div>
+                                                    <?php if (!empty($proto['stories'])): ?>
+                                                    <details class="mt-1">
+                                                        <summary class="small text-primary" style="cursor:pointer;font-size:11px;">+ Associar</summary>
+                                                        <div class="rmq-picker">
+                                                            <?php foreach ($proto['stories'] as $rs): ?>
+                                                            <form method="POST" class="rmq-pick-form">
+                                                                <input type="hidden" name="action" value="toggle_milestone_story">
+                                                                <input type="hidden" name="prototype_id" value="<?= $rmPid ?>">
+                                                                <input type="hidden" name="milestone_id" class="rmq-mid-f-<?= $rmPid ?>" value="">
+                                                                <input type="hidden" name="story_id" value="<?= $rs['id'] ?>">
+                                                                <button type="submit" class="btn rmq-pick-btn" data-sid="<?= $rs['id'] ?>">
+                                                                    <span class="rmq-mos rmq-mos-<?= strtolower($rs['moscow_priority'] ?? 'should') ?>"><?= strtoupper($rs['moscow_priority'] ?? '?') ?></span>
+                                                                    <?= htmlspecialchars(mb_strimwidth($rs['story_text'], 0, 55, '…')) ?>
+                                                                </button>
+                                                            </form>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                    </details>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="rmq-links-block">
+                                                    <div class="rmq-links-title"><i class="bi bi-kanban"></i> Projectos</div>
+                                                    <div class="rmq-d-projects"></div>
+                                                    <?php if (!empty($projects)): ?>
+                                                    <details class="mt-1">
+                                                        <summary class="small text-primary" style="cursor:pointer;font-size:11px;">+ Associar</summary>
+                                                        <div class="rmq-picker">
+                                                            <?php foreach ($projects as $rp2): ?>
+                                                            <form method="POST" class="rmq-pick-form">
+                                                                <input type="hidden" name="action" value="toggle_milestone_project">
+                                                                <input type="hidden" name="prototype_id" value="<?= $rmPid ?>">
+                                                                <input type="hidden" name="milestone_id" class="rmq-mid-f-<?= $rmPid ?>" value="">
+                                                                <input type="hidden" name="project_id" value="<?= $rp2['id'] ?>">
+                                                                <button type="submit" class="btn rmq-pick-btn" data-pid="<?= $rp2['id'] ?>">
+                                                                    <?php if (!empty($rp2['short_name'])): ?><strong><?= htmlspecialchars($rp2['short_name']) ?></strong> — <?php endif; ?>
+                                                                    <?= htmlspecialchars(mb_strimwidth($rp2['title'], 0, 50, '…')) ?>
+                                                                </button>
+                                                            </form>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                    </details>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- form oculto delete -->
+                                    <form method="POST" id="rmq-del-<?= $rmPid ?>" style="display:none;">
+                                        <input type="hidden" name="action" value="delete_milestone">
+                                        <input type="hidden" name="prototype_id" value="<?= $rmPid ?>">
+                                        <input type="hidden" name="milestone_id" class="rmq-del-mid-<?= $rmPid ?>" value="">
+                                    </form>
+                                </div>
                             </div>
                         <?php endforeach; ?>
                     <?php endif; ?>
@@ -2170,6 +2338,84 @@ if (isset($_GET['project_id'])) {
 </div>
 <?php endif; ?>
 
+<!-- Modal partilhado: Add/Edit Milestone (roadmap inline) -->
+<div class="modal fade" id="rmqMilestoneModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST">
+                <input type="hidden" name="action" id="rmq-form-action" value="add_milestone">
+                <input type="hidden" name="prototype_id" id="rmq-form-proto" value="">
+                <input type="hidden" name="milestone_id" id="rmq-form-mid" value="">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="rmq-modal-title">Novo Milestone</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Título *</label>
+                        <input type="text" name="milestone_title" id="rmq-f-title" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Data alvo *</label>
+                        <input type="date" name="milestone_date" id="rmq-f-date" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Descrição</label>
+                        <textarea name="milestone_desc" id="rmq-f-desc" class="form-control" rows="2"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Cor</label>
+                        <div class="d-flex gap-2 align-items-center">
+                            <input type="color" name="milestone_color" id="rmq-f-color" value="#0d6efd" class="form-control form-control-color" style="width:46px;">
+                            <div class="d-flex gap-1 flex-wrap">
+                                <?php foreach (['#0d6efd','#198754','#dc3545','#fd7e14','#6f42c1','#0dcaf0','#ffc107','#6c757d'] as $c): ?>
+                                <div onclick="document.getElementById('rmq-f-color').value='<?= $c ?>'"
+                                     style="width:20px;height:20px;border-radius:50%;background:<?= $c ?>;cursor:pointer;border:2px solid #fff;box-shadow:0 0 0 1px #ccc;"></div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+.proto-roadmap { border-top:1px solid #e9ecef; padding-top:10px; }
+.rmq-wrap { overflow-x:auto; padding-bottom:4px; }
+.rmq-timeline { min-width:500px; padding:18px 8px 0; position:relative; }
+.rmq-bar { position:relative; height:5px; background:#e9ecef; border-radius:3px; margin:14px 0 0; }
+.rmq-today { position:absolute; top:-8px; width:2px; background:#dc3545; height:22px; z-index:3; }
+.rmq-today::before { content:'Hoje'; position:absolute; top:-14px; left:50%; transform:translateX(-50%); font-size:9px; color:#dc3545; white-space:nowrap; font-weight:600; }
+.rmq-dot { position:absolute; top:50%; transform:translate(-50%,-50%); width:14px; height:14px; border-radius:50%; border:2px solid; cursor:pointer; z-index:4; transition:transform .15s,box-shadow .15s; }
+.rmq-dot:hover,.rmq-dot.active { transform:translate(-50%,-50%) scale(1.45); box-shadow:0 0 0 3px rgba(0,0,0,.12); }
+.rmq-months { display:flex; margin-top:8px; font-size:10px; color:#6c757d; }
+.rmq-month-cell { flex:1; text-align:center; padding-top:4px; border-left:1px solid #dee2e6; cursor:pointer; user-select:none; }
+.rmq-month-cell:hover { color:#0d6efd; }
+.rmq-cur-month { color:#dc3545; font-weight:600; }
+.rmq-detail { border:1px solid #dee2e6; border-radius:6px; padding:10px 12px; margin-top:10px; background:#fafafa; font-size:13px; }
+.rmq-detail-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; }
+.rmq-d-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; }
+.rmq-links-block { border:1px solid #e9ecef; border-radius:5px; padding:8px; background:#fff; height:100%; }
+.rmq-links-title { font-size:11px; font-weight:600; color:#6c757d; margin-bottom:4px; }
+.rmq-linked-item { display:flex; align-items:center; gap:5px; font-size:11px; background:#f0f4ff; border-radius:3px; padding:2px 6px; margin-bottom:3px; }
+.rmq-linked-item form { margin:0; }
+.rmq-remove { border:none; background:none; color:#aaa; cursor:pointer; font-size:13px; line-height:1; padding:0 2px; }
+.rmq-remove:hover { color:#dc3545; }
+.rmq-picker { max-height:140px; overflow-y:auto; display:flex; flex-direction:column; gap:2px; margin-top:4px; }
+.rmq-pick-btn { width:100%; text-align:left; font-size:11px; padding:3px 7px; border:1px solid #dee2e6; border-radius:3px; background:#fff; color:#333; white-space:normal; line-height:1.3; }
+.rmq-pick-btn:hover { background:#e8f0ff; border-color:#0d6efd; }
+.rmq-mos { display:inline-block; font-size:9px; font-weight:700; padding:1px 3px; border-radius:2px; margin-right:3px; }
+.rmq-mos-must   { background:#dc3545; color:#fff; }
+.rmq-mos-should { background:#0d6efd; color:#fff; }
+.rmq-mos-could  { background:#198754; color:#fff; }
+</style>
+
 <?php if ($checkPrototypes): ?>
 <!-- Modal: Associar Protótipo -->
 <div class="modal fade" id="addPrototypeModal" tabindex="-1">
@@ -2219,6 +2465,156 @@ function toggleProtoStories(btn) {
     stories.style.display = open ? 'none' : 'block';
     btn.classList.toggle('active', !open);
 }
+
+/* ── Roadmap inline nos prototype-cards ──────────────────────────── */
+(function(){
+const RMQ_MONTHS = 24;
+// keyed by protoId
+const _rmqData = {};
+const _rmqSel  = {};
+
+function _now()  { return new Date(); }
+function _start(){ var d = _now(); return new Date(d.getFullYear(), d.getMonth(), 1); }
+function _end()  { var s = _start(), e = new Date(s); e.setMonth(e.getMonth() + RMQ_MONTHS); return e; }
+
+function _pct(dateStr) {
+    var s = _start(), e = _end(), d = new Date(dateStr + 'T12:00:00');
+    return Math.min(1, Math.max(0, (d - s) / (e - s)));
+}
+
+function _esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function rmqLayout(protoId) {
+    var tl = document.querySelector('.rmq-timeline[data-proto="' + protoId + '"]');
+    if (!tl) return;
+
+    // Parse data once
+    if (!_rmqData[protoId]) {
+        try { _rmqData[protoId] = JSON.parse(tl.dataset.milestones || '[]'); } catch(e) { _rmqData[protoId] = []; }
+    }
+
+    // Today marker
+    var todayEl = tl.querySelector('.rmq-today');
+    if (todayEl) todayEl.style.left = (_pct(_now().toISOString().slice(0,10)) * 100) + '%';
+
+    // Milestone dots
+    tl.querySelectorAll('.rmq-dot').forEach(function(el) {
+        el.style.left = (_pct(el.dataset.date) * 100) + '%';
+    });
+
+    // Month grid
+    var grid = tl.querySelector('.rmq-months');
+    if (!grid || grid.children.length) return;
+    var s = _start();
+    for (var i = 0; i < RMQ_MONTHS; i++) {
+        var m = new Date(s); m.setMonth(m.getMonth() + i);
+        var cell = document.createElement('div');
+        cell.className = 'rmq-month-cell' + (i===0 ? ' rmq-cur-month' : '');
+        cell.innerHTML = '<div>' + m.toLocaleString('pt-PT',{month:'short'}) + '</div><div style="font-size:9px;opacity:.7;">' + m.getFullYear() + '</div>';
+        (function(mi, yr){ cell.addEventListener('click', function() { rmqOpenAdd(protoId, yr+'-'+String(mi+1).padStart(2,'0')+'-01'); }); })(m.getMonth(), m.getFullYear());
+        grid.appendChild(cell);
+    }
+}
+
+window.rmqOpenAdd = function(protoId, preDate) {
+    document.getElementById('rmq-modal-title').textContent = 'Novo Milestone';
+    document.getElementById('rmq-form-action').value = 'add_milestone';
+    document.getElementById('rmq-form-proto').value = protoId;
+    document.getElementById('rmq-form-mid').value = '';
+    document.getElementById('rmq-f-title').value = '';
+    document.getElementById('rmq-f-date').value = preDate || '';
+    document.getElementById('rmq-f-desc').value = '';
+    document.getElementById('rmq-f-color').value = '#0d6efd';
+    window._rmqCurrentProto = protoId;
+    new bootstrap.Modal(document.getElementById('rmqMilestoneModal')).show();
+};
+
+window.rmqOpenEdit = function(protoId) {
+    var mid = _rmqSel[protoId];
+    if (!mid) return;
+    var ms = (_rmqData[protoId] || []).find(function(x){ return x.id == mid; });
+    if (!ms) return;
+    document.getElementById('rmq-modal-title').textContent = 'Editar Milestone';
+    document.getElementById('rmq-form-action').value = 'edit_milestone';
+    document.getElementById('rmq-form-proto').value = protoId;
+    document.getElementById('rmq-form-mid').value = mid;
+    document.getElementById('rmq-f-title').value = ms.title;
+    document.getElementById('rmq-f-date').value = ms.target_date;
+    document.getElementById('rmq-f-desc').value = ms.description || '';
+    document.getElementById('rmq-f-color').value = ms.color || '#0d6efd';
+    window._rmqCurrentProto = protoId;
+    new bootstrap.Modal(document.getElementById('rmqMilestoneModal')).show();
+};
+
+window.rmqDelete = function(protoId) {
+    var mid = _rmqSel[protoId];
+    if (!mid || !confirm('Eliminar este milestone?')) return;
+    var form = document.getElementById('rmq-del-' + protoId);
+    form.querySelector('.rmq-del-mid-' + protoId).value = mid;
+    form.submit();
+};
+
+window.rmqSelect = function(el) {
+    var tl = el.closest('.rmq-timeline');
+    var protoId = tl.dataset.proto;
+    tl.querySelectorAll('.rmq-dot').forEach(function(d){ d.classList.remove('active'); });
+    el.classList.add('active');
+    var mid = el.dataset.id;
+    _rmqSel[protoId] = mid;
+
+    var ms = (_rmqData[protoId] || []).find(function(x){ return x.id == mid; });
+    if (!ms) return;
+
+    var panel = document.getElementById('rmq-detail-' + protoId);
+    panel.querySelector('.rmq-d-dot').style.background = ms.color;
+    panel.querySelector('.rmq-d-title').textContent = ms.title;
+    var d = new Date(ms.target_date + 'T12:00:00');
+    panel.querySelector('.rmq-d-date').textContent = d.toLocaleDateString('pt-PT',{day:'2-digit',month:'long',year:'numeric'});
+    panel.querySelector('.rmq-d-desc').textContent = ms.description || '';
+
+    // Stories
+    var sl = panel.querySelector('.rmq-d-stories'); sl.innerHTML = '';
+    (ms.stories || []).forEach(function(s) {
+        var div = document.createElement('div'); div.className = 'rmq-linked-item';
+        div.innerHTML = '<span class="rmq-mos rmq-mos-' + (s.moscow_priority||'should').toLowerCase() + '">' + (s.moscow_priority||'?').toUpperCase() + '</span>' +
+            '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;">' + _esc(s.story_text.substring(0,55)) + '</span>' +
+            '<form method="POST" style="margin:0"><input type="hidden" name="action" value="toggle_milestone_story"><input type="hidden" name="prototype_id" value="' + protoId + '"><input type="hidden" name="milestone_id" value="' + mid + '"><input type="hidden" name="story_id" value="' + s.id + '"><button type="submit" class="rmq-remove" title="Remover">×</button></form>';
+        sl.appendChild(div);
+    });
+    if (!ms.stories || !ms.stories.length) sl.innerHTML = '<span class="text-muted" style="font-size:11px;">Sem stories associadas</span>';
+
+    // Projects
+    var pl = panel.querySelector('.rmq-d-projects'); pl.innerHTML = '';
+    (ms.projects || []).forEach(function(p) {
+        var div = document.createElement('div'); div.className = 'rmq-linked-item';
+        div.innerHTML = (p.short_name ? '<strong>' + _esc(p.short_name) + '</strong> — ' : '') + _esc(p.title.substring(0,45)) +
+            '<form method="POST" style="margin:0"><input type="hidden" name="action" value="toggle_milestone_project"><input type="hidden" name="prototype_id" value="' + protoId + '"><input type="hidden" name="milestone_id" value="' + mid + '"><input type="hidden" name="project_id" value="' + p.id + '"><button type="submit" class="rmq-remove" title="Remover">×</button></form>';
+        pl.appendChild(div);
+    });
+    if (!ms.projects || !ms.projects.length) pl.innerHTML = '<span class="text-muted" style="font-size:11px;">Sem projectos associados</span>';
+
+    // Fill hidden milestone_id fields in pick forms
+    document.querySelectorAll('.rmq-mid-f-' + protoId).forEach(function(f){ f.value = mid; });
+
+    panel.style.display = 'block';
+};
+
+// Init all timelines on load
+function rmqInitAll() {
+    document.querySelectorAll('.rmq-timeline[data-proto]').forEach(function(tl) {
+        rmqLayout(tl.dataset.proto);
+    });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', rmqInitAll);
+} else {
+    rmqInitAll();
+}
+window.addEventListener('resize', rmqInitAll);
+})();
 
 function toggleDeliverable(header) {
     var item = header.closest('.deliverable-item');

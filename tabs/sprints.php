@@ -728,8 +728,8 @@ try {
         // Sem checkboxes: mostrar apenas abertas e em execução
         if ($showClosed || $showPaused) {
             $estados_permitidos = [];
-            if ($showPaused) $estados_permitidos[] = "'suspensa'";
-            if ($showClosed) $estados_permitidos[] = "'concluída'";
+            if ($showPaused) $estados_permitidos[] = "'pausa'";
+            if ($showClosed) $estados_permitidos[] = "'fechada'";
         } else {
             $estados_permitidos = ["'aberta'", "'em execução'"];
         }
@@ -770,8 +770,8 @@ try {
         // Quando algum checkbox está marcado, mostrar APENAS os estados seleccionados
         if ($showClosed || $showPaused) {
             $estados_permitidos = [];
-            if ($showPaused) $estados_permitidos[] = "'suspensa'";
-            if ($showClosed) $estados_permitidos[] = "'concluída'";
+            if ($showPaused) $estados_permitidos[] = "'pausa'";
+            if ($showClosed) $estados_permitidos[] = "'fechada'";
         } else {
             $estados_permitidos = ["'aberta'", "'em execução'"];
         }
@@ -810,8 +810,8 @@ try {
         // Quando algum checkbox está marcado, mostrar APENAS os estados seleccionados
         if ($showClosed || $showPaused) {
             $estados_permitidos = [];
-            if ($showPaused) $estados_permitidos[] = "'suspensa'";
-            if ($showClosed) $estados_permitidos[] = "'concluída'";
+            if ($showPaused) $estados_permitidos[] = "'pausa'";
+            if ($showClosed) $estados_permitidos[] = "'fechada'";
         } else {
             $estados_permitidos = ["'aberta'", "'em execução'"];
         }

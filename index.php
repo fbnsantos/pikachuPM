@@ -1778,48 +1778,62 @@ document.addEventListener('keydown', e => {
 
 <script>
 (function () {
-    // Rastrear alterações via eventos reais (sem snapshots, sem timing issues)
+    function _isDirty(modal) {
+        return !!modal._dirty_changed && !modal._dirty_saved;
+    }
+    function _forceClose(modal) {
+        modal._dirty_saved  = true;
+        modal._dirty_changed = false;
+        var inst = (typeof bootstrap !== 'undefined') && bootstrap.Modal.getInstance(modal);
+        if (inst) inst.hide();
+    }
+
+    // Rastrear alterações reais do utilizador
     document.addEventListener('input', function(e) {
-        var modal = e.target.closest('.modal');
-        if (modal) modal._dirty_changed = true;
+        var m = e.target.closest('.modal'); if (m) m._dirty_changed = true;
     }, true);
     document.addEventListener('change', function(e) {
-        var modal = e.target.closest('.modal');
-        if (modal) modal._dirty_changed = true;
+        var m = e.target.closest('.modal'); if (m) m._dirty_changed = true;
     }, true);
 
-    // Guardar quando se carrega num botão de save/submit (delegação — apanha botões dinâmicos)
+    // Marcar como guardado quando se clica num botão de submit/save
     document.addEventListener('click', function(e) {
-        var modal = e.target.closest('.modal');
-        if (!modal) return;
-        if (e.target.closest('.btn-primary, .btn-success, [type="submit"], [data-dirty-save]')) {
-            modal._dirty_saved = true;
+        var m = e.target.closest('.modal'); if (!m) return;
+        if (e.target.closest('.btn-primary,.btn-success,[type=submit],[data-dirty-save]'))
+            m._dirty_saved = true;
+    }, true);
+
+    // Reset ao abrir
+    document.addEventListener('show.bs.modal', function(e) {
+        var m = e.target;
+        if (m.classList && m.classList.contains('modal')) {
+            m._dirty_changed = false; m._dirty_saved = false;
         }
     }, true);
 
-    // Reset ao abrir o modal — usar capture:true garante que apanhamos mesmo sem bubble
-    document.addEventListener('show.bs.modal', function(e) {
-        var modal = e.target;
-        if (!modal.classList || !modal.classList.contains('modal')) return;
-        modal._dirty_changed = false;
-        modal._dirty_saved  = false;
+    // 1) Clique no backdrop (target é o próprio .modal, não um filho)
+    document.addEventListener('click', function(e) {
+        var m = e.target;
+        if (!m.classList || !m.classList.contains('modal') || !_isDirty(m)) return;
+        e.stopImmediatePropagation();
+        if (confirm('Tens alterações não guardadas. Fechar na mesma?')) _forceClose(m);
     }, true);
 
-    // Interceptar o fechar — capture:true funciona mesmo que hide.bs.modal não faça bubble
-    document.addEventListener('hide.bs.modal', function(e) {
-        var modal = e.target;
-        if (!modal.classList || !modal.classList.contains('modal')) return;
-        if (modal._dirty_saved || !modal._dirty_changed) return;
-        e.preventDefault();
-        // setTimeout para deixar o browser limpar o estado antes do confirm
-        setTimeout(function() {
-            if (confirm('Tens alterações não guardadas. Fechar na mesma?')) {
-                modal._dirty_saved  = true;
-                modal._dirty_changed = false;
-                var inst = bootstrap.Modal.getInstance(modal);
-                if (inst) inst.hide();
-            }
-        }, 0);
+    // 2) Botão fechar com data-bs-dismiss="modal"
+    document.addEventListener('click', function(e) {
+        var d = e.target.closest('[data-bs-dismiss=modal]'); if (!d) return;
+        var m = d.closest('.modal'); if (!m || !_isDirty(m)) return;
+        e.stopImmediatePropagation(); e.preventDefault();
+        if (confirm('Tens alterações não guardadas. Fechar na mesma?')) _forceClose(m);
+    }, true);
+
+    // 3) Tecla Escape
+    document.addEventListener('keydown', function(e) {
+        if (e.key !== 'Escape') return;
+        var m = document.querySelector('.modal.show');
+        if (!m || !_isDirty(m)) return;
+        e.stopImmediatePropagation(); e.preventDefault();
+        if (confirm('Tens alterações não guardadas. Fechar na mesma?')) _forceClose(m);
     }, true);
 })();
 </script>

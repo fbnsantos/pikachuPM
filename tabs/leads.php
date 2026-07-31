@@ -58,6 +58,28 @@ if ($tables_check == 0) {
     ");
 }
 
+// Criar tabelas de notas
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS lead_notes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        lead_id INT NOT NULL,
+        user_id INT NOT NULL,
+        note_text TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES user_tokens(user_id) ON DELETE CASCADE,
+        INDEX idx_ln_lead (lead_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS lead_note_images (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        note_id INT NOT NULL,
+        file_path VARCHAR(500) NOT NULL,
+        original_name VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (note_id) REFERENCES lead_notes(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (PDOException $e) {}
+
 // Criar tabela lead_tasks separadamente (após verificar que todos existe)
 $todos_exists = $pdo->query("SHOW TABLES LIKE 'todos'")->rowCount() > 0;
 $lead_tasks_check = $pdo->query("SHOW TABLES LIKE 'lead_tasks'")->rowCount();
@@ -359,6 +381,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$_POST['kanban_id']]);
                 $message = "Task removida do Kanban!";
                 break;
+
+            case 'add_lead_note':
+                $noteText = trim($_POST['note_text'] ?? '');
+                $leadId   = (int)$_POST['lead_id'];
+                if ($noteText !== '' || !empty($_FILES['note_images']['name'][0])) {
+                    $stmt = $pdo->prepare("INSERT INTO lead_notes (lead_id, user_id, note_text) VALUES (?,?,?)");
+                    $stmt->execute([$leadId, $current_user_id, $noteText]);
+                    $noteId = (int)$pdo->lastInsertId();
+                    // Guardar imagens
+                    if (!empty($_FILES['note_images']['name'][0])) {
+                        $uploadDir = __DIR__ . '/../files/lead_notes/';
+                        if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+                        $allowed = ['image/jpeg','image/png','image/gif','image/webp'];
+                        foreach ($_FILES['note_images']['tmp_name'] as $i => $tmp) {
+                            if ($_FILES['note_images']['error'][$i] !== UPLOAD_ERR_OK) continue;
+                            $mime = mime_content_type($tmp);
+                            if (!in_array($mime, $allowed)) continue;
+                            $ext  = pathinfo($_FILES['note_images']['name'][$i], PATHINFO_EXTENSION);
+                            $name = 'ln_' . $noteId . '_' . $i . '_' . uniqid() . '.' . $ext;
+                            if (move_uploaded_file($tmp, $uploadDir . $name)) {
+                                $pdo->prepare("INSERT INTO lead_note_images (note_id, file_path, original_name) VALUES (?,?,?)")
+                                    ->execute([$noteId, 'files/lead_notes/' . $name, $_FILES['note_images']['name'][$i]]);
+                            }
+                        }
+                    }
+                    $message = "Nota adicionada!";
+                } else {
+                    $message = "Nota vazia.";
+                }
+                break;
+
+            case 'delete_lead_note':
+                $nid = (int)$_POST['note_id'];
+                // Apagar imagens do disco
+                $imgs = $pdo->prepare("SELECT file_path FROM lead_note_images WHERE note_id=?");
+                $imgs->execute([$nid]);
+                foreach ($imgs->fetchAll(PDO::FETCH_COLUMN) as $fp) {
+                    @unlink(__DIR__ . '/../' . $fp);
+                }
+                $pdo->prepare("DELETE FROM lead_notes WHERE id=? AND user_id=?")->execute([$nid, $current_user_id]);
+                $message = "Nota eliminada!";
+                break;
+
+            case 'delete_lead_note_image':
+                $iid = (int)$_POST['image_id'];
+                $row = $pdo->prepare("SELECT lni.file_path, ln.user_id FROM lead_note_images lni JOIN lead_notes ln ON lni.note_id=ln.id WHERE lni.id=?");
+                $row->execute([$iid]);
+                $img = $row->fetch(PDO::FETCH_ASSOC);
+                if ($img && $img['user_id'] == $current_user_id) {
+                    @unlink(__DIR__ . '/../' . $img['file_path']);
+                    $pdo->prepare("DELETE FROM lead_note_images WHERE id=?")->execute([$iid]);
+                }
+                $message = "Imagem removida!";
+                break;
         }
         
         if (!headers_sent()) {
@@ -432,6 +508,7 @@ $selected_lead = null;
 $lead_members = [];
 $lead_links = [];
 $lead_kanban = [];
+$lead_notes_by_user = [];
 
 if ($selected_lead_id) {
     $stmt = $pdo->prepare("SELECT l.*, u.username as responsavel_nome FROM leads l LEFT JOIN user_tokens u ON l.responsavel_id = u.user_id WHERE l.id = ?");
@@ -453,6 +530,27 @@ if ($selected_lead_id) {
         $stmt = $pdo->prepare("SELECT * FROM lead_links WHERE lead_id = ? ORDER BY adicionado_em DESC");
         $stmt->execute([$selected_lead_id]);
         $lead_links = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Buscar notas agrupadas por utilizador
+        $lead_notes_by_user = [];
+        try {
+            $nStmt = $pdo->prepare("
+                SELECT ln.id, ln.user_id, ln.note_text, ln.created_at, u.username
+                FROM lead_notes ln
+                JOIN user_tokens u ON ln.user_id = u.user_id
+                WHERE ln.lead_id = ?
+                ORDER BY ln.created_at DESC
+            ");
+            $nStmt->execute([$selected_lead_id]);
+            $allNotes = $nStmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($allNotes as $n) {
+                $iStmt = $pdo->prepare("SELECT id, file_path, original_name FROM lead_note_images WHERE note_id=? ORDER BY created_at ASC");
+                $iStmt->execute([$n['id']]);
+                $n['images'] = $iStmt->fetchAll(PDO::FETCH_ASSOC);
+                $lead_notes_by_user[$n['user_id']]['username'] = $n['username'];
+                $lead_notes_by_user[$n['user_id']]['notes'][]  = $n;
+            }
+        } catch (PDOException $e) {}
         
         // Buscar tasks do kanban (verificar se tabela existe)
         $lead_kanban = [];
@@ -845,6 +943,120 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                     </div>
                 </div>
                 
+                <!-- Notas -->
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-journal-text"></i> Notas</h5>
+                        <button class="btn btn-sm btn-outline-primary" onclick="lnToggleAdd()" id="ln-add-btn">
+                            <i class="bi bi-plus"></i> Adicionar nota
+                        </button>
+                    </div>
+                    <div class="card-body p-2">
+                        <!-- Formulário de adicionar nota (oculto por default) -->
+                        <div id="ln-add-form" style="display:none;" class="mb-3 p-3 bg-light rounded border">
+                            <form method="POST" enctype="multipart/form-data">
+                                <input type="hidden" name="action" value="add_lead_note">
+                                <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
+                                <div class="mb-2">
+                                    <textarea name="note_text" class="form-control" rows="3"
+                                              placeholder="Escreve a tua nota…" style="font-size:14px;"></textarea>
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label small text-muted mb-1">Imagens (opcional)</label>
+                                    <input type="file" name="note_images[]" class="form-control form-control-sm"
+                                           accept="image/*" multiple id="ln-file-input"
+                                           onchange="lnPreviewImages(this)">
+                                    <div id="ln-img-preview" class="d-flex flex-wrap gap-2 mt-2"></div>
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <button type="submit" class="btn btn-sm btn-primary">
+                                        <i class="bi bi-check-lg"></i> Guardar
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-secondary" onclick="lnToggleAdd()">
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <?php if (empty($lead_notes_by_user)): ?>
+                            <p class="text-muted text-center small py-2">Nenhuma nota ainda.</p>
+                        <?php else: ?>
+                            <?php foreach ($lead_notes_by_user as $uid => $udata): ?>
+                            <?php $isMe = ($uid == $current_user_id); $openClass = $isMe ? '' : 'ln-collapsed'; ?>
+                            <div class="ln-user-block mb-2">
+                                <!-- Cabeçalho clicável -->
+                                <div class="ln-user-header <?= $openClass ?>"
+                                     onclick="lnToggleUser(this)">
+                                    <span class="ln-avatar <?= $isMe ? 'ln-avatar-me' : '' ?>">
+                                        <?= strtoupper(substr($udata['username'], 0, 1)) ?>
+                                    </span>
+                                    <span class="fw-semibold" style="font-size:14px;">
+                                        <?= htmlspecialchars($udata['username']) ?>
+                                        <?php if ($isMe): ?><span class="badge bg-secondary ms-1" style="font-size:10px;font-weight:400;">Eu</span><?php endif; ?>
+                                    </span>
+                                    <span class="ln-count text-muted ms-1" style="font-size:12px;">
+                                        (<?= count($udata['notes']) ?>)
+                                    </span>
+                                    <i class="bi bi-chevron-down ln-chevron ms-auto"></i>
+                                </div>
+                                <!-- Notas do utilizador -->
+                                <div class="ln-user-notes <?= $isMe ? '' : 'd-none' ?>">
+                                    <?php foreach ($udata['notes'] as $note): ?>
+                                    <div class="ln-note-item">
+                                        <div class="ln-note-meta">
+                                            <small class="text-muted">
+                                                <?= date('d/m/Y H:i', strtotime($note['created_at'])) ?>
+                                            </small>
+                                            <?php if ($note['user_id'] == $current_user_id): ?>
+                                            <form method="POST" style="display:inline;" onsubmit="return confirm('Eliminar esta nota?')">
+                                                <input type="hidden" name="action" value="delete_lead_note">
+                                                <input type="hidden" name="note_id" value="<?= $note['id'] ?>">
+                                                <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
+                                                <button type="submit" class="btn btn-xs btn-outline-danger py-0 px-1" title="Eliminar nota">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </form>
+                                            <?php endif; ?>
+                                        </div>
+                                        <?php if ($note['note_text'] !== ''): ?>
+                                        <div class="ln-note-text"><?= nl2br(htmlspecialchars($note['note_text'])) ?></div>
+                                        <?php endif; ?>
+                                        <?php if (!empty($note['images'])): ?>
+                                        <div class="ln-note-images">
+                                            <?php foreach ($note['images'] as $img): ?>
+                                            <div class="ln-img-wrap">
+                                                <img src="<?= htmlspecialchars($img['file_path']) ?>"
+                                                     alt="<?= htmlspecialchars($img['original_name']) ?>"
+                                                     onclick="lnLightbox(this.src)"
+                                                     title="<?= htmlspecialchars($img['original_name']) ?>">
+                                                <?php if ($note['user_id'] == $current_user_id): ?>
+                                                <form method="POST" class="ln-img-del">
+                                                    <input type="hidden" name="action" value="delete_lead_note_image">
+                                                    <input type="hidden" name="image_id" value="<?= $img['id'] ?>">
+                                                    <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
+                                                    <button type="submit" class="ln-del-img" title="Remover imagem" onclick="return confirm('Remover imagem?')">×</button>
+                                                </form>
+                                                <?php endif; ?>
+                                            </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                        <?php endif; ?>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <!-- Lightbox simples -->
+                <div id="ln-lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;cursor:zoom-out;align-items:center;justify-content:center;"
+                     onclick="this.style.display='none'">
+                    <img id="ln-lightbox-img" style="max-width:90vw;max-height:90vh;border-radius:6px;box-shadow:0 4px 32px rgba(0,0,0,.5);" src="" alt="">
+                </div>
+
                 <!-- Links -->
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
@@ -1276,3 +1488,80 @@ foreach (['aberta', 'em execução', 'suspensa', 'concluída'] as $col):
 // Incluir editor universal no final da página
 include __DIR__ . '/../edit_task.php';
 ?>
+
+<style>
+/* ── Lead Notes ───────────────────────────────────────────── */
+.ln-user-block { border: 1px solid #e9ecef; border-radius: 8px; overflow: hidden; }
+.ln-user-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; cursor: pointer; background: #f8f9fa;
+    user-select: none; transition: background .15s;
+}
+.ln-user-header:hover { background: #e9ecef; }
+.ln-user-header.ln-collapsed .ln-chevron { transform: rotate(-90deg); }
+.ln-chevron { transition: transform .2s; font-size: 13px; color: #6c757d; }
+.ln-avatar {
+    width: 28px; height: 28px; border-radius: 50%; background: #6c757d;
+    color: #fff; font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.ln-avatar-me { background: #0d6efd; }
+.ln-user-notes { padding: 0 8px 8px; }
+.ln-note-item {
+    margin-top: 8px; padding: 8px 10px; background: #fff;
+    border: 1px solid #e9ecef; border-radius: 6px;
+}
+.ln-note-meta {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 4px;
+}
+.ln-note-text { font-size: 13px; color: #333; line-height: 1.5; }
+.ln-note-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ln-img-wrap { position: relative; display: inline-block; }
+.ln-img-wrap img {
+    width: 80px; height: 80px; object-fit: cover; border-radius: 4px;
+    cursor: zoom-in; border: 1px solid #dee2e6; transition: opacity .15s;
+}
+.ln-img-wrap img:hover { opacity: .85; }
+.ln-del-img {
+    position: absolute; top: -5px; right: -5px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #dc3545; color: #fff; border: none; cursor: pointer;
+    font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.ln-img-del { margin: 0; }
+#ln-img-preview img { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; border: 1px solid #dee2e6; }
+</style>
+
+<script>
+function lnToggleAdd() {
+    var f = document.getElementById('ln-add-form');
+    f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+
+function lnToggleUser(header) {
+    var notes = header.nextElementSibling;
+    var collapsed = header.classList.toggle('ln-collapsed');
+    notes.classList.toggle('d-none', collapsed);
+}
+
+function lnPreviewImages(input) {
+    var preview = document.getElementById('ln-img-preview');
+    preview.innerHTML = '';
+    Array.from(input.files).forEach(function(f) {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            var img = document.createElement('img');
+            img.src = e.target.result;
+            preview.appendChild(img);
+        };
+        reader.readAsDataURL(f);
+    });
+}
+
+function lnLightbox(src) {
+    var lb = document.getElementById('ln-lightbox');
+    document.getElementById('ln-lightbox-img').src = src;
+    lb.style.display = 'flex';
+}
+</script>

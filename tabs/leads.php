@@ -1107,6 +1107,21 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                                 </div>
                                                 <textarea name="note_text" class="form-control ln-md-textarea" rows="4"
                                                           style="font-size:13px;font-family:monospace;"><?= htmlspecialchars($note['note_text'], ENT_QUOTES) ?></textarea>
+                                                <?php if (!empty($note['images'])): ?>
+                                                <div class="ln-edit-img-gallery mt-2">
+                                                    <div class="small text-muted mb-1">Clica numa imagem para a inserir no texto:</div>
+                                                    <div class="d-flex flex-wrap gap-2">
+                                                        <?php foreach ($note['images'] as $img): ?>
+                                                        <div class="ln-edit-img-ref"
+                                                             onclick="lnInsertImgRef(<?= $note['id'] ?>, '<?= addslashes($img['file_path']) ?>', '<?= addslashes($img['original_name']) ?>')"
+                                                             title="Inserir: <?= htmlspecialchars($img['original_name']) ?>">
+                                                            <img src="<?= htmlspecialchars($img['file_path']) ?>" alt="">
+                                                            <div class="ln-edit-img-ref-overlay"><i class="bi bi-plus-circle-fill"></i></div>
+                                                        </div>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                </div>
+                                                <?php endif; ?>
                                                 <div class="mt-2 mb-1">
                                                     <label class="form-label small text-muted mb-1">Adicionar imagens</label>
                                                     <input type="file" name="note_images[]" class="form-control form-control-sm"
@@ -1629,6 +1644,14 @@ include __DIR__ . '/../edit_task.php';
 .ln-note-md-view h1,.ln-note-md-view h2,.ln-note-md-view h3 { font-size: 14px; font-weight: 700; margin: .5em 0 .2em; }
 .ln-note-md-view blockquote { border-left: 3px solid #ccc; margin: .3em 0; padding-left: 8px; color: #666; }
 .ln-note-md-view a { color: #0d6efd; }
+.ln-note-md-view img { max-width: 100%; max-height: 320px; border-radius: 4px; border: 1px solid #dee2e6; cursor: zoom-in; display: block; margin: 6px 0; }
+/* Edit image gallery */
+.ln-edit-img-gallery { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 4px; padding: 8px; }
+.ln-edit-img-ref { position: relative; width: 72px; height: 72px; cursor: pointer; border-radius: 4px; overflow: hidden; border: 2px solid transparent; transition: border-color .15s; flex-shrink: 0; }
+.ln-edit-img-ref:hover { border-color: #0d6efd; }
+.ln-edit-img-ref img { width: 100%; height: 100%; object-fit: cover; }
+.ln-edit-img-ref-overlay { position: absolute; inset: 0; background: rgba(13,110,253,.4); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; opacity: 0; transition: opacity .15s; }
+.ln-edit-img-ref:hover .ln-edit-img-ref-overlay { opacity: 1; }
 /* MD toolbar */
 .ln-md-toolbar {
     display: flex; align-items: center; gap: 3px; flex-wrap: wrap;
@@ -1775,6 +1798,18 @@ function lnPreviewImages(input, previewId) {
         };
         reader.readAsDataURL(f);
     });
+}
+
+function lnInsertImgRef(noteId, path, alt) {
+    var item = document.getElementById('ln-note-' + noteId);
+    if (!item) return;
+    var ta = item.querySelector('.ln-note-edit-area textarea');
+    if (!ta) return;
+    var s = ta.selectionStart;
+    var ins = '![' + alt + '](' + path + ')';
+    ta.value = ta.value.substring(0, s) + ins + ta.value.substring(s);
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = s + ins.length;
 }
 
 function lnLightbox(src) {

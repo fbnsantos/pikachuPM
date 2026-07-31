@@ -3384,6 +3384,21 @@ if ($selectedPrototype && $checkTodos) {
                                         </div>
                                         <textarea name="note_text" class="form-control pn-md-textarea" rows="4"
                                                   style="font-size:13px;font-family:monospace;"><?= htmlspecialchars($note['note_text'], ENT_QUOTES) ?></textarea>
+                                        <?php if (!empty($note['images'])): ?>
+                                        <div class="pn-edit-img-gallery mt-2">
+                                            <div class="small text-muted mb-1">Clica numa imagem para a inserir no texto:</div>
+                                            <div class="d-flex flex-wrap gap-2">
+                                                <?php foreach ($note['images'] as $img): ?>
+                                                <div class="pn-edit-img-ref"
+                                                     onclick="pnInsertImgRef(<?= $note['id'] ?>, '<?= addslashes($img['file_path']) ?>', '<?= addslashes($img['original_name']) ?>')"
+                                                     title="Inserir: <?= htmlspecialchars($img['original_name']) ?>">
+                                                    <img src="<?= htmlspecialchars($img['file_path']) ?>" alt="">
+                                                    <div class="pn-edit-img-ref-overlay"><i class="bi bi-plus-circle-fill"></i></div>
+                                                </div>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        </div>
+                                        <?php endif; ?>
                                         <div class="mt-2 mb-1">
                                             <label class="form-label small text-muted mb-1">Adicionar imagens</label>
                                             <input type="file" name="note_images[]" class="form-control form-control-sm"
@@ -3453,6 +3468,13 @@ if ($selectedPrototype && $checkTodos) {
             .pn-note-md-view blockquote { border-left:3px solid #ccc; margin:.3em 0; padding-left:8px; color:#666; }
             .pn-note-md-view a { color:#0d6efd; }
             .pn-note-md-view input[type=checkbox] { margin-right:4px; }
+            .pn-note-md-view img { max-width:100%; max-height:320px; border-radius:4px; border:1px solid #dee2e6; cursor:zoom-in; display:block; margin:6px 0; }
+            .pn-edit-img-gallery { background:#f8f9fa; border:1px solid #e9ecef; border-radius:4px; padding:8px; }
+            .pn-edit-img-ref { position:relative; width:72px; height:72px; cursor:pointer; border-radius:4px; overflow:hidden; border:2px solid transparent; transition:border-color .15s; flex-shrink:0; }
+            .pn-edit-img-ref:hover { border-color:#0d6efd; }
+            .pn-edit-img-ref img { width:100%; height:100%; object-fit:cover; }
+            .pn-edit-img-ref-overlay { position:absolute; inset:0; background:rgba(13,110,253,.4); display:flex; align-items:center; justify-content:center; color:#fff; font-size:18px; opacity:0; transition:opacity .15s; }
+            .pn-edit-img-ref:hover .pn-edit-img-ref-overlay { opacity:1; }
             .pn-note-images { display:flex; flex-wrap:wrap; gap:6px; }
             .pn-img-wrap { position:relative; display:inline-block; }
             .pn-img-wrap img { width:80px; height:80px; object-fit:cover; border-radius:4px; cursor:zoom-in; border:1px solid #dee2e6; transition:opacity .15s; }
@@ -3523,6 +3545,15 @@ if ($selectedPrototype && $checkTodos) {
                 var lb = document.getElementById('pn-lightbox');
                 document.getElementById('pn-lightbox-img').src = src;
                 lb.style.display = 'flex';
+            }
+            function pnInsertImgRef(noteId, path, alt) {
+                var ta = document.querySelector('#pn-note-' + noteId + ' .pn-note-edit-area textarea');
+                if (!ta) return;
+                var text = '![' + alt + '](' + path + ')';
+                var s = ta.selectionStart, e = ta.selectionEnd;
+                ta.value = ta.value.substring(0, s) + text + ta.value.substring(e);
+                ta.selectionStart = ta.selectionEnd = s + text.length;
+                ta.focus();
             }
             /* MD toolbar helpers */
             function pnMdWrap(btn, before, after) {

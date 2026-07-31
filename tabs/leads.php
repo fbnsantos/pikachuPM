@@ -1659,7 +1659,8 @@ include __DIR__ . '/../edit_task.php';
     font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
 .ln-img-del { margin: 0; }
-#ln-img-preview img { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; border: 1px solid #dee2e6; }
+[id^="ln-img-preview"] img,
+[id^="ln-edit-preview"] img { width: 72px; height: 72px; object-fit: cover; border-radius: 4px; border: 1px solid #dee2e6; }
 </style>
 
 <script>
@@ -1769,6 +1770,7 @@ function lnPreviewImages(input, previewId) {
         reader.onload = function(e) {
             var img = document.createElement('img');
             img.src = e.target.result;
+            img.style.cssText = 'width:72px;height:72px;object-fit:cover;border-radius:4px;border:1px solid #dee2e6;';
             preview.appendChild(img);
         };
         reader.readAsDataURL(f);

@@ -3457,6 +3457,8 @@ if ($selectedPrototype && $checkTodos) {
             .pn-img-wrap { position:relative; display:inline-block; }
             .pn-img-wrap img { width:80px; height:80px; object-fit:cover; border-radius:4px; cursor:zoom-in; border:1px solid #dee2e6; transition:opacity .15s; }
             .pn-img-wrap img:hover { opacity:.85; }
+            [id^="pn-add-preview"] img,
+            [id^="pn-edit-preview"] img { width:72px; height:72px; object-fit:cover; border-radius:4px; border:1px solid #dee2e6; }
             .pn-del-img { position:absolute; top:-5px; right:-5px; width:18px; height:18px; border-radius:50%; background:#dc3545; color:#fff; border:none; cursor:pointer; font-size:13px; line-height:1; display:flex; align-items:center; justify-content:center; }
             .pn-md-toolbar { display:flex; align-items:center; gap:3px; flex-wrap:wrap; background:#f1f3f5; border:1px solid #dee2e6; border-bottom:none; border-radius:4px 4px 0 0; padding:4px 6px; }
             .pn-md-toolbar + .pn-md-textarea { border-radius:0 0 4px 4px; }
@@ -3511,7 +3513,7 @@ if ($selectedPrototype && $checkTodos) {
                     reader.onload = function(e) {
                         var img = document.createElement('img');
                         img.src = e.target.result;
-                        img.style.cssText = 'width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid #dee2e6;';
+                        img.style.cssText = 'width:72px;height:72px;object-fit:cover;border-radius:4px;border:1px solid #dee2e6;';
                         preview.appendChild(img);
                     };
                     reader.readAsDataURL(f);

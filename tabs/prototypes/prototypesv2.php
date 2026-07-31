@@ -1101,6 +1101,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $nid     = (int)($_POST['note_id'] ?? 0);
                 $pdo->prepare("UPDATE prototype_notes SET note_text=? WHERE id=? AND user_id=?")
                     ->execute([trim($_POST['note_text'] ?? ''), $nid, $currentUserId]);
+                if (!empty($_FILES['note_images']['name'][0])) {
+                    $uploadDir = __DIR__ . '/../../files/proto_notes/';
+                    if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+                    $allowed = ['image/jpeg','image/png','image/gif','image/webp'];
+                    foreach ($_FILES['note_images']['tmp_name'] as $i => $tmp) {
+                        if ($_FILES['note_images']['error'][$i] !== UPLOAD_ERR_OK) continue;
+                        $mime = mime_content_type($tmp);
+                        if (!in_array($mime, $allowed)) continue;
+                        $ext  = pathinfo($_FILES['note_images']['name'][$i], PATHINFO_EXTENSION);
+                        $name = 'pn_' . $nid . '_e' . $i . '_' . uniqid() . '.' . $ext;
+                        if (move_uploaded_file($tmp, $uploadDir . $name)) {
+                            $pdo->prepare("INSERT INTO prototype_note_images (note_id, file_path, original_name) VALUES (?,?,?)")
+                                ->execute([$nid, 'files/proto_notes/' . $name, $_FILES['note_images']['name'][$i]]);
+                        }
+                    }
+                }
                 header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#pn-section");
                 exit;
 
@@ -3339,7 +3355,7 @@ if ($selectedPrototype && $checkTodos) {
 
                                 <?php if ($note['user_id'] == $currentUserId): ?>
                                 <div class="pn-note-edit-area" style="display:none;">
-                                    <form method="POST">
+                                    <form method="POST" enctype="multipart/form-data">
                                         <input type="hidden" name="action" value="edit_proto_note">
                                         <input type="hidden" name="note_id" value="<?= $note['id'] ?>">
                                         <input type="hidden" name="prototype_id" value="<?= $pnProtoId ?>">
@@ -3368,6 +3384,13 @@ if ($selectedPrototype && $checkTodos) {
                                         </div>
                                         <textarea name="note_text" class="form-control pn-md-textarea" rows="4"
                                                   style="font-size:13px;font-family:monospace;"><?= htmlspecialchars($note['note_text'], ENT_QUOTES) ?></textarea>
+                                        <div class="mt-2 mb-1">
+                                            <label class="form-label small text-muted mb-1">Adicionar imagens</label>
+                                            <input type="file" name="note_images[]" class="form-control form-control-sm"
+                                                   accept="image/*" multiple
+                                                   onchange="pnPreviewImages(this,'pn-edit-preview-<?= $note['id'] ?>')">
+                                            <div id="pn-edit-preview-<?= $note['id'] ?>" class="d-flex flex-wrap gap-2 mt-1"></div>
+                                        </div>
                                         <div class="d-flex gap-2 mt-2">
                                             <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> Guardar</button>
                                             <button type="button" class="btn btn-sm btn-secondary" onclick="pnCancelEdit(<?= $note['id'] ?>)">Cancelar</button>

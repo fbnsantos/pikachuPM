@@ -437,8 +437,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
 
             case 'edit_lead_note':
+                $nid = (int)$_POST['note_id'];
                 $pdo->prepare("UPDATE lead_notes SET note_text=? WHERE id=? AND user_id=?")
-                    ->execute([trim($_POST['note_text'] ?? ''), (int)$_POST['note_id'], $current_user_id]);
+                    ->execute([trim($_POST['note_text'] ?? ''), $nid, $current_user_id]);
+                if (!empty($_FILES['note_images']['name'][0])) {
+                    $uploadDir = __DIR__ . '/../files/lead_notes/';
+                    if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+                    $allowed = ['image/jpeg','image/png','image/gif','image/webp'];
+                    foreach ($_FILES['note_images']['tmp_name'] as $i => $tmp) {
+                        if ($_FILES['note_images']['error'][$i] !== UPLOAD_ERR_OK) continue;
+                        $mime = mime_content_type($tmp);
+                        if (!in_array($mime, $allowed)) continue;
+                        $ext  = pathinfo($_FILES['note_images']['name'][$i], PATHINFO_EXTENSION);
+                        $name = 'ln_' . $nid . '_e' . $i . '_' . uniqid() . '.' . $ext;
+                        if (move_uploaded_file($tmp, $uploadDir . $name)) {
+                            $pdo->prepare("INSERT INTO lead_note_images (note_id, file_path, original_name) VALUES (?,?,?)")
+                                ->execute([$nid, 'files/lead_notes/' . $name, $_FILES['note_images']['name'][$i]]);
+                        }
+                    }
+                }
                 $message = "Nota atualizada!";
                 break;
         }
@@ -994,7 +1011,7 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                     <label class="form-label small text-muted mb-1">Imagens (opcional)</label>
                                     <input type="file" name="note_images[]" class="form-control form-control-sm"
                                            accept="image/*" multiple id="ln-file-input"
-                                           onchange="lnPreviewImages(this)">
+                                           onchange="lnPreviewImages(this,'ln-img-preview')">
                                     <div id="ln-img-preview" class="d-flex flex-wrap gap-2 mt-2"></div>
                                 </div>
                                 <div class="d-flex gap-2">
@@ -1061,21 +1078,42 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                         <!-- Formulário de edição (oculto) -->
                                         <?php if ($note['user_id'] == $current_user_id): ?>
                                         <div class="ln-note-edit-area" style="display:none;">
-                                            <form method="POST">
+                                            <form method="POST" enctype="multipart/form-data">
                                                 <input type="hidden" name="action" value="edit_lead_note">
                                                 <input type="hidden" name="note_id" value="<?= $note['id'] ?>">
                                                 <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
                                                 <div class="ln-md-toolbar mb-1">
                                                     <button type="button" onclick="lnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
-                                                    <button type="button" onclick="lnMdWrap(this,'*','*')" title="Itálico"><i>I</i></button>
-                                                    <button type="button" onclick="lnMdWrap(this,'`','`')" title="Código"><code>{ }</code></button>
-                                                    <button type="button" onclick="lnMdInsert(this,'- ')" title="Lista">≡</button>
-                                                    <button type="button" onclick="lnMdInsert(this,'## ')" title="Título">H</button>
+                                                    <button type="button" onclick="lnMdWrap(this,'*','*')" title="Itálico"><em>I</em></button>
+                                                    <button type="button" onclick="lnMdWrap(this,'***','***')" title="Negrito+Itálico"><b><em>BI</em></b></button>
+                                                    <button type="button" onclick="lnMdWrap(this,'~~','~~')" title="Riscado"><s>S</s></button>
+                                                    <span class="ln-sep"></span>
+                                                    <button type="button" onclick="lnMdWrap(this,'`','`')" title="Código inline"><code>c</code></button>
+                                                    <button type="button" onclick="lnMdBlock(this,'```\n','\n```')" title="Bloco de código"><code>```</code></button>
+                                                    <span class="ln-sep"></span>
+                                                    <button type="button" onclick="lnMdInsert(this,'# ')" title="H1" style="font-weight:700;">H1</button>
+                                                    <button type="button" onclick="lnMdInsert(this,'## ')" title="H2" style="font-weight:700;">H2</button>
+                                                    <button type="button" onclick="lnMdInsert(this,'### ')" title="H3" style="font-weight:700;">H3</button>
+                                                    <span class="ln-sep"></span>
+                                                    <button type="button" onclick="lnMdInsert(this,'- ')" title="Lista não ordenada">• ≡</button>
+                                                    <button type="button" onclick="lnMdInsert(this,'1. ')" title="Lista ordenada">1.</button>
+                                                    <button type="button" onclick="lnMdInsert(this,'- [ ] ')" title="Checklist">☐</button>
+                                                    <span class="ln-sep"></span>
+                                                    <button type="button" onclick="lnMdInsert(this,'> ')" title="Blockquote">❝</button>
                                                     <button type="button" onclick="lnMdWrap(this,'[','](url)')" title="Link">🔗</button>
+                                                    <button type="button" onclick="lnMdInsertLine(this,'---')" title="Linha horizontal">—</button>
+                                                    <button type="button" onclick="lnMdTable(this)" title="Tabela">⊞</button>
                                                     <span class="ln-md-hint">Markdown</span>
                                                 </div>
                                                 <textarea name="note_text" class="form-control ln-md-textarea" rows="4"
                                                           style="font-size:13px;font-family:monospace;"><?= htmlspecialchars($note['note_text'], ENT_QUOTES) ?></textarea>
+                                                <div class="mt-2 mb-1">
+                                                    <label class="form-label small text-muted mb-1">Adicionar imagens</label>
+                                                    <input type="file" name="note_images[]" class="form-control form-control-sm"
+                                                           accept="image/*" multiple
+                                                           onchange="lnPreviewImages(this,'ln-edit-preview-<?= $note['id'] ?>')">
+                                                    <div id="ln-edit-preview-<?= $note['id'] ?>" class="d-flex flex-wrap gap-2 mt-1"></div>
+                                                </div>
                                                 <div class="d-flex gap-2 mt-2">
                                                     <button type="submit" class="btn btn-sm btn-primary">
                                                         <i class="bi bi-check-lg"></i> Guardar
@@ -1722,8 +1760,9 @@ function lnMdTable(btn) {
     ta.selectionStart = ta.selectionEnd = s + before.length + tpl.length;
 }
 
-function lnPreviewImages(input) {
-    var preview = document.getElementById('ln-img-preview');
+function lnPreviewImages(input, previewId) {
+    var preview = document.getElementById(previewId || 'ln-img-preview');
+    if (!preview) return;
     preview.innerHTML = '';
     Array.from(input.files).forEach(function(f) {
         var reader = new FileReader();

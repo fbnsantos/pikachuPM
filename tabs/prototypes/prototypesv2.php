@@ -266,6 +266,28 @@ try {
     )");
 } catch (PDOException $e) {}
 
+// Tabelas de notas de protótipo
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS prototype_notes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        prototype_id INT NOT NULL,
+        user_id INT NOT NULL,
+        note_text TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (prototype_id) REFERENCES prototypes(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES user_tokens(user_id) ON DELETE CASCADE,
+        INDEX idx_pn_proto (prototype_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS prototype_note_images (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        note_id INT NOT NULL,
+        file_path VARCHAR(500) NOT NULL,
+        original_name VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (note_id) REFERENCES prototype_notes(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (PDOException $e) {}
+
 // Migrações incrementais nas tabelas de surveys (compatível com MySQL < 8)
 $surveyMigrations = [
     ['prototype_surveys', 'intro_text',  "ALTER TABLE prototype_surveys ADD COLUMN intro_text TEXT NULL"],
@@ -1046,6 +1068,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#roadmap-section");
                 exit;
+
+            case 'add_proto_note':
+                $protoId  = (int)($_POST['prototype_id'] ?? 0);
+                $noteText = trim($_POST['note_text'] ?? '');
+                if ($protoId && ($currentUserId) && ($noteText !== '' || !empty($_FILES['note_images']['name'][0]))) {
+                    $pdo->prepare("INSERT INTO prototype_notes (prototype_id, user_id, note_text) VALUES (?,?,?)")
+                        ->execute([$protoId, $currentUserId, $noteText]);
+                    $noteId = (int)$pdo->lastInsertId();
+                    if (!empty($_FILES['note_images']['name'][0])) {
+                        $uploadDir = __DIR__ . '/../../files/proto_notes/';
+                        if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+                        $allowed = ['image/jpeg','image/png','image/gif','image/webp'];
+                        foreach ($_FILES['note_images']['tmp_name'] as $i => $tmp) {
+                            if ($_FILES['note_images']['error'][$i] !== UPLOAD_ERR_OK) continue;
+                            $mime = mime_content_type($tmp);
+                            if (!in_array($mime, $allowed)) continue;
+                            $ext  = pathinfo($_FILES['note_images']['name'][$i], PATHINFO_EXTENSION);
+                            $name = 'pn_' . $noteId . '_' . $i . '_' . uniqid() . '.' . $ext;
+                            if (move_uploaded_file($tmp, $uploadDir . $name)) {
+                                $pdo->prepare("INSERT INTO prototype_note_images (note_id, file_path, original_name) VALUES (?,?,?)")
+                                    ->execute([$noteId, 'files/proto_notes/' . $name, $_FILES['note_images']['name'][$i]]);
+                            }
+                        }
+                    }
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#pn-section");
+                exit;
+
+            case 'edit_proto_note':
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                $nid     = (int)($_POST['note_id'] ?? 0);
+                $pdo->prepare("UPDATE prototype_notes SET note_text=? WHERE id=? AND user_id=?")
+                    ->execute([trim($_POST['note_text'] ?? ''), $nid, $currentUserId]);
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#pn-section");
+                exit;
+
+            case 'delete_proto_note':
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                $nid     = (int)($_POST['note_id'] ?? 0);
+                $imgs = $pdo->prepare("SELECT file_path FROM prototype_note_images WHERE note_id=?");
+                $imgs->execute([$nid]);
+                foreach ($imgs->fetchAll(PDO::FETCH_COLUMN) as $fp) { @unlink(__DIR__ . '/../../' . $fp); }
+                $pdo->prepare("DELETE FROM prototype_notes WHERE id=? AND user_id=?")->execute([$nid, $currentUserId]);
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#pn-section");
+                exit;
+
+            case 'delete_proto_note_image':
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                $iid     = (int)($_POST['image_id'] ?? 0);
+                $row = $pdo->prepare("SELECT pni.file_path, pn.user_id FROM prototype_note_images pni JOIN prototype_notes pn ON pni.note_id=pn.id WHERE pni.id=?");
+                $row->execute([$iid]);
+                $img = $row->fetch(PDO::FETCH_ASSOC);
+                if ($img && $img['user_id'] == $currentUserId) {
+                    @unlink(__DIR__ . '/../../' . $img['file_path']);
+                    $pdo->prepare("DELETE FROM prototype_note_images WHERE id=?")->execute([$iid]);
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#pn-section");
+                exit;
         }
     } catch (PDOException $e) {
         $message = "Erro: " . $e->getMessage();
@@ -1249,6 +1329,26 @@ if ($selectedPrototypeId) {
             }
             unset($rm);
             $selectedPrototype['milestones'] = $rmMilestones;
+        } catch (PDOException $e) {}
+
+        // Notas do protótipo, agrupadas por utilizador
+        $protoNotesByUser = [];
+        try {
+            $nStmt = $pdo->prepare("
+                SELECT pn.id, pn.user_id, pn.note_text, pn.created_at, u.username
+                FROM prototype_notes pn
+                JOIN user_tokens u ON pn.user_id = u.user_id
+                WHERE pn.prototype_id = ?
+                ORDER BY pn.created_at DESC
+            ");
+            $nStmt->execute([$selectedPrototypeId]);
+            foreach ($nStmt->fetchAll(PDO::FETCH_ASSOC) as $n) {
+                $iStmt = $pdo->prepare("SELECT id, file_path, original_name FROM prototype_note_images WHERE note_id=? ORDER BY created_at ASC");
+                $iStmt->execute([$n['id']]);
+                $n['images'] = $iStmt->fetchAll(PDO::FETCH_ASSOC);
+                $protoNotesByUser[$n['user_id']]['username'] = $n['username'];
+                $protoNotesByUser[$n['user_id']]['notes'][]  = $n;
+            }
         } catch (PDOException $e) {}
 
         // GitLab token status para este utilizador (apenas metadados, token nunca sai do servidor)
@@ -3136,6 +3236,311 @@ if ($selectedPrototype && $checkTodos) {
                 window.addEventListener('resize', rmInit);
             }
             })();
+            </script>
+
+            <!-- ══ NOTAS ══════════════════════════════════════════════════════ -->
+            <div class="detail-section" id="pn-section">
+                <div class="section-header">
+                    <h5><i class="bi bi-journal-text"></i> Notas</h5>
+                    <button class="btn btn-sm btn-success" onclick="pnToggleAdd()">
+                        <i class="bi bi-plus-lg"></i> Adicionar nota
+                    </button>
+                </div>
+
+                <?php $pnProtoId = (int)$selectedPrototypeId; ?>
+
+                <!-- Formulário de adicionar -->
+                <div id="pn-add-form" style="display:none;" class="mb-3 p-3 bg-light rounded border">
+                    <form method="POST" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="add_proto_note">
+                        <input type="hidden" name="prototype_id" value="<?= $pnProtoId ?>">
+                        <div class="mb-2">
+                            <div class="pn-md-toolbar">
+                                <button type="button" onclick="pnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
+                                <button type="button" onclick="pnMdWrap(this,'*','*')" title="Itálico"><em>I</em></button>
+                                <button type="button" onclick="pnMdWrap(this,'***','***')" title="Negrito+Itálico"><b><em>BI</em></b></button>
+                                <button type="button" onclick="pnMdWrap(this,'~~','~~')" title="Riscado"><s>S</s></button>
+                                <span class="pn-sep"></span>
+                                <button type="button" onclick="pnMdWrap(this,'`','`')" title="Código inline"><code>c</code></button>
+                                <button type="button" onclick="pnMdBlock(this,'```\n','\n```')" title="Bloco de código"><code>```</code></button>
+                                <span class="pn-sep"></span>
+                                <button type="button" onclick="pnMdInsert(this,'# ')" title="H1" style="font-weight:700;">H1</button>
+                                <button type="button" onclick="pnMdInsert(this,'## ')" title="H2" style="font-weight:700;">H2</button>
+                                <button type="button" onclick="pnMdInsert(this,'### ')" title="H3" style="font-weight:700;">H3</button>
+                                <span class="pn-sep"></span>
+                                <button type="button" onclick="pnMdInsert(this,'- ')" title="Lista não ordenada">• ≡</button>
+                                <button type="button" onclick="pnMdInsert(this,'1. ')" title="Lista ordenada">1.</button>
+                                <button type="button" onclick="pnMdInsert(this,'- [ ] ')" title="Checklist">☐</button>
+                                <span class="pn-sep"></span>
+                                <button type="button" onclick="pnMdInsert(this,'> ')" title="Blockquote">❝</button>
+                                <button type="button" onclick="pnMdWrap(this,'[','](url)')" title="Link">🔗</button>
+                                <button type="button" onclick="pnMdInsertLine(this,'---')" title="Linha horizontal">—</button>
+                                <button type="button" onclick="pnMdTable(this)" title="Tabela">⊞</button>
+                                <span class="pn-md-hint">Markdown</span>
+                            </div>
+                            <textarea name="note_text" class="form-control pn-md-textarea" rows="4"
+                                      placeholder="Suporta **Markdown**…" style="font-size:13px;font-family:monospace;"></textarea>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small text-muted mb-1">Imagens (opcional)</label>
+                            <input type="file" name="note_images[]" class="form-control form-control-sm"
+                                   accept="image/*" multiple onchange="pnPreviewImages(this,'pn-add-preview')">
+                            <div id="pn-add-preview" class="d-flex flex-wrap gap-2 mt-2"></div>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> Guardar</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="pnToggleAdd()">Cancelar</button>
+                        </div>
+                    </form>
+                </div>
+
+                <?php if (empty($protoNotesByUser)): ?>
+                    <p class="text-muted small">Nenhuma nota. Clica em <strong>+ Adicionar nota</strong> para começar.</p>
+                <?php else: ?>
+                    <?php foreach ($protoNotesByUser as $uid => $udata): ?>
+                    <?php $isMe = ($uid == $currentUserId); ?>
+                    <div class="pn-user-block mb-2">
+                        <div class="pn-user-header pn-collapsed" onclick="pnToggleUser(this)">
+                            <span class="pn-avatar <?= $isMe ? 'pn-avatar-me' : '' ?>">
+                                <?= strtoupper(substr($udata['username'], 0, 1)) ?>
+                            </span>
+                            <span class="fw-semibold" style="font-size:14px;">
+                                <?= htmlspecialchars($udata['username']) ?>
+                                <?php if ($isMe): ?><span class="badge bg-secondary ms-1" style="font-size:10px;font-weight:400;">Eu</span><?php endif; ?>
+                            </span>
+                            <span class="text-muted ms-1" style="font-size:12px;">(<?= count($udata['notes']) ?>)</span>
+                            <i class="bi bi-chevron-down pn-chevron ms-auto"></i>
+                        </div>
+                        <div class="pn-user-notes d-none">
+                            <?php foreach ($udata['notes'] as $note): ?>
+                            <div class="pn-note-item" id="pn-note-<?= $note['id'] ?>">
+                                <div class="pn-note-meta">
+                                    <small class="text-muted"><?= date('d/m/Y H:i', strtotime($note['created_at'])) ?></small>
+                                    <?php if ($note['user_id'] == $currentUserId): ?>
+                                    <div class="d-flex gap-1">
+                                        <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1"
+                                                onclick="pnStartEdit(<?= $note['id'] ?>)" title="Editar">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <form method="POST" style="display:inline;" onsubmit="return confirm('Eliminar esta nota?')">
+                                            <input type="hidden" name="action" value="delete_proto_note">
+                                            <input type="hidden" name="note_id" value="<?= $note['id'] ?>">
+                                            <input type="hidden" name="prototype_id" value="<?= $pnProtoId ?>">
+                                            <button type="submit" class="btn btn-xs btn-outline-danger py-0 px-1" title="Eliminar">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </form>
+                                    </div>
+                                    <?php endif; ?>
+                                </div>
+
+                                <div class="pn-note-md-view"
+                                     data-raw="<?= htmlspecialchars($note['note_text'], ENT_QUOTES) ?>"></div>
+
+                                <?php if ($note['user_id'] == $currentUserId): ?>
+                                <div class="pn-note-edit-area" style="display:none;">
+                                    <form method="POST">
+                                        <input type="hidden" name="action" value="edit_proto_note">
+                                        <input type="hidden" name="note_id" value="<?= $note['id'] ?>">
+                                        <input type="hidden" name="prototype_id" value="<?= $pnProtoId ?>">
+                                        <div class="pn-md-toolbar mb-1">
+                                            <button type="button" onclick="pnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
+                                            <button type="button" onclick="pnMdWrap(this,'*','*')" title="Itálico"><em>I</em></button>
+                                            <button type="button" onclick="pnMdWrap(this,'***','***')" title="Negrito+Itálico"><b><em>BI</em></b></button>
+                                            <button type="button" onclick="pnMdWrap(this,'~~','~~')" title="Riscado"><s>S</s></button>
+                                            <span class="pn-sep"></span>
+                                            <button type="button" onclick="pnMdWrap(this,'`','`')" title="Código inline"><code>c</code></button>
+                                            <button type="button" onclick="pnMdBlock(this,'```\n','\n```')" title="Bloco de código"><code>```</code></button>
+                                            <span class="pn-sep"></span>
+                                            <button type="button" onclick="pnMdInsert(this,'# ')" title="H1" style="font-weight:700;">H1</button>
+                                            <button type="button" onclick="pnMdInsert(this,'## ')" title="H2" style="font-weight:700;">H2</button>
+                                            <button type="button" onclick="pnMdInsert(this,'### ')" title="H3" style="font-weight:700;">H3</button>
+                                            <span class="pn-sep"></span>
+                                            <button type="button" onclick="pnMdInsert(this,'- ')" title="Lista não ordenada">• ≡</button>
+                                            <button type="button" onclick="pnMdInsert(this,'1. ')" title="Lista ordenada">1.</button>
+                                            <button type="button" onclick="pnMdInsert(this,'- [ ] ')" title="Checklist">☐</button>
+                                            <span class="pn-sep"></span>
+                                            <button type="button" onclick="pnMdInsert(this,'> ')" title="Blockquote">❝</button>
+                                            <button type="button" onclick="pnMdWrap(this,'[','](url)')" title="Link">🔗</button>
+                                            <button type="button" onclick="pnMdInsertLine(this,'---')" title="Linha horizontal">—</button>
+                                            <button type="button" onclick="pnMdTable(this)" title="Tabela">⊞</button>
+                                            <span class="pn-md-hint">Markdown</span>
+                                        </div>
+                                        <textarea name="note_text" class="form-control pn-md-textarea" rows="4"
+                                                  style="font-size:13px;font-family:monospace;"><?= htmlspecialchars($note['note_text'], ENT_QUOTES) ?></textarea>
+                                        <div class="d-flex gap-2 mt-2">
+                                            <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> Guardar</button>
+                                            <button type="button" class="btn btn-sm btn-secondary" onclick="pnCancelEdit(<?= $note['id'] ?>)">Cancelar</button>
+                                        </div>
+                                    </form>
+                                </div>
+                                <?php endif; ?>
+
+                                <?php if (!empty($note['images'])): ?>
+                                <div class="pn-note-images mt-2">
+                                    <?php foreach ($note['images'] as $img): ?>
+                                    <div class="pn-img-wrap">
+                                        <img src="<?= htmlspecialchars($img['file_path']) ?>"
+                                             alt="<?= htmlspecialchars($img['original_name']) ?>"
+                                             onclick="pnLightbox(this.src)"
+                                             title="<?= htmlspecialchars($img['original_name']) ?>">
+                                        <?php if ($note['user_id'] == $currentUserId): ?>
+                                        <form method="POST" style="margin:0;">
+                                            <input type="hidden" name="action" value="delete_proto_note_image">
+                                            <input type="hidden" name="image_id" value="<?= $img['id'] ?>">
+                                            <input type="hidden" name="prototype_id" value="<?= $pnProtoId ?>">
+                                            <button type="submit" class="pn-del-img" title="Remover" onclick="return confirm('Remover imagem?')">×</button>
+                                        </form>
+                                        <?php endif; ?>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+                                <?php endif; ?>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
+
+            <!-- Lightbox -->
+            <div id="pn-lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;cursor:zoom-out;align-items:center;justify-content:center;"
+                 onclick="this.style.display='none'">
+                <img id="pn-lightbox-img" style="max-width:90vw;max-height:90vh;border-radius:6px;box-shadow:0 4px 32px rgba(0,0,0,.5);" src="" alt="">
+            </div>
+
+            <style>
+            .pn-user-block { border:1px solid #e9ecef; border-radius:8px; overflow:hidden; margin-bottom:6px; }
+            .pn-user-header { display:flex; align-items:center; gap:8px; padding:8px 12px; cursor:pointer; background:#f8f9fa; user-select:none; transition:background .15s; }
+            .pn-user-header:hover { background:#e9ecef; }
+            .pn-user-header.pn-collapsed .pn-chevron { transform:rotate(-90deg); }
+            .pn-chevron { transition:transform .2s; font-size:13px; color:#6c757d; }
+            .pn-avatar { width:28px; height:28px; border-radius:50%; background:#6c757d; color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+            .pn-avatar-me { background:#0d6efd; }
+            .pn-user-notes { padding:0 8px 8px; }
+            .pn-note-item { margin-top:8px; padding:8px 10px; background:#fff; border:1px solid #e9ecef; border-radius:6px; }
+            .pn-note-meta { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+            .pn-note-md-view { font-size:13px; color:#333; line-height:1.6; }
+            .pn-note-md-view p { margin:0 0 .4em; }
+            .pn-note-md-view ul,.pn-note-md-view ol { padding-left:1.4em; margin:.3em 0; }
+            .pn-note-md-view code { background:#f0f0f0; border-radius:3px; padding:1px 4px; font-size:12px; }
+            .pn-note-md-view pre code { display:block; padding:8px; }
+            .pn-note-md-view h1,.pn-note-md-view h2,.pn-note-md-view h3 { font-size:14px; font-weight:700; margin:.5em 0 .2em; }
+            .pn-note-md-view blockquote { border-left:3px solid #ccc; margin:.3em 0; padding-left:8px; color:#666; }
+            .pn-note-md-view a { color:#0d6efd; }
+            .pn-note-md-view input[type=checkbox] { margin-right:4px; }
+            .pn-note-images { display:flex; flex-wrap:wrap; gap:6px; }
+            .pn-img-wrap { position:relative; display:inline-block; }
+            .pn-img-wrap img { width:80px; height:80px; object-fit:cover; border-radius:4px; cursor:zoom-in; border:1px solid #dee2e6; transition:opacity .15s; }
+            .pn-img-wrap img:hover { opacity:.85; }
+            .pn-del-img { position:absolute; top:-5px; right:-5px; width:18px; height:18px; border-radius:50%; background:#dc3545; color:#fff; border:none; cursor:pointer; font-size:13px; line-height:1; display:flex; align-items:center; justify-content:center; }
+            .pn-md-toolbar { display:flex; align-items:center; gap:3px; flex-wrap:wrap; background:#f1f3f5; border:1px solid #dee2e6; border-bottom:none; border-radius:4px 4px 0 0; padding:4px 6px; }
+            .pn-md-toolbar + .pn-md-textarea { border-radius:0 0 4px 4px; }
+            .pn-md-toolbar button { border:1px solid #ced4da; background:#fff; border-radius:3px; padding:1px 6px; font-size:11px; cursor:pointer; line-height:1.6; white-space:nowrap; }
+            .pn-md-toolbar button:hover { background:#e9ecef; }
+            .pn-md-hint { font-size:10px; color:#adb5bd; margin-left:auto; }
+            .pn-sep { width:1px; height:16px; background:#ced4da; margin:0 2px; flex-shrink:0; }
+            </style>
+
+            <script>
+            /* Render Markdown */
+            document.addEventListener('DOMContentLoaded', function() {
+                if (typeof marked === 'undefined') return;
+                marked.setOptions({ breaks: true, gfm: true });
+                document.querySelectorAll('.pn-note-md-view').forEach(function(el) {
+                    var raw = el.dataset.raw || '';
+                    el.innerHTML = raw ? marked.parse(raw) : '';
+                });
+            });
+
+            function pnToggleAdd() {
+                var f = document.getElementById('pn-add-form');
+                f.style.display = f.style.display === 'none' ? 'block' : 'none';
+                if (f.style.display === 'block') f.querySelector('textarea').focus();
+            }
+            function pnToggleUser(header) {
+                var notes = header.nextElementSibling;
+                var collapsed = header.classList.toggle('pn-collapsed');
+                notes.classList.toggle('d-none', collapsed);
+            }
+            function pnStartEdit(noteId) {
+                var item = document.getElementById('pn-note-' + noteId);
+                item.querySelector('.pn-note-md-view').style.display = 'none';
+                var ea = item.querySelector('.pn-note-edit-area');
+                ea.style.display = 'block';
+                ea.querySelector('textarea').focus();
+                var btns = item.querySelector('.pn-note-meta .d-flex');
+                if (btns) btns.style.visibility = 'hidden';
+            }
+            function pnCancelEdit(noteId) {
+                var item = document.getElementById('pn-note-' + noteId);
+                item.querySelector('.pn-note-md-view').style.display = '';
+                item.querySelector('.pn-note-edit-area').style.display = 'none';
+                var btns = item.querySelector('.pn-note-meta .d-flex');
+                if (btns) btns.style.visibility = '';
+            }
+            function pnPreviewImages(input, previewId) {
+                var preview = document.getElementById(previewId);
+                preview.innerHTML = '';
+                Array.from(input.files).forEach(function(f) {
+                    var reader = new FileReader();
+                    reader.onload = function(e) {
+                        var img = document.createElement('img');
+                        img.src = e.target.result;
+                        img.style.cssText = 'width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid #dee2e6;';
+                        preview.appendChild(img);
+                    };
+                    reader.readAsDataURL(f);
+                });
+            }
+            function pnLightbox(src) {
+                var lb = document.getElementById('pn-lightbox');
+                document.getElementById('pn-lightbox-img').src = src;
+                lb.style.display = 'flex';
+            }
+            /* MD toolbar helpers */
+            function pnMdWrap(btn, before, after) {
+                var ta = btn.closest('.pn-md-toolbar').nextElementSibling;
+                var s = ta.selectionStart, e = ta.selectionEnd;
+                var sel = ta.value.substring(s, e) || 'texto';
+                ta.value = ta.value.substring(0, s) + before + sel + after + ta.value.substring(e);
+                ta.focus(); ta.selectionStart = s + before.length; ta.selectionEnd = s + before.length + sel.length;
+            }
+            function pnMdInsert(btn, prefix) {
+                var ta = btn.closest('.pn-md-toolbar').nextElementSibling;
+                var s = ta.selectionStart;
+                var ls = ta.value.lastIndexOf('\n', s - 1) + 1;
+                ta.value = ta.value.substring(0, ls) + prefix + ta.value.substring(ls);
+                ta.focus(); ta.selectionStart = ta.selectionEnd = ls + prefix.length;
+            }
+            function pnMdBlock(btn, before, after) {
+                var ta = btn.closest('.pn-md-toolbar').nextElementSibling;
+                var s = ta.selectionStart, e = ta.selectionEnd;
+                var sel = ta.value.substring(s, e) || 'código';
+                var nb = s > 0 && ta.value[s-1] !== '\n' ? '\n' : '';
+                var na = e < ta.value.length && ta.value[e] !== '\n' ? '\n' : '';
+                var ins = nb + before + sel + after + na;
+                ta.value = ta.value.substring(0, s) + ins + ta.value.substring(e);
+                ta.focus(); var is = s + nb.length + before.length; ta.selectionStart = is; ta.selectionEnd = is + sel.length;
+            }
+            function pnMdInsertLine(btn, text) {
+                var ta = btn.closest('.pn-md-toolbar').nextElementSibling;
+                var s = ta.selectionStart;
+                var nb = s > 0 && ta.value[s-1] !== '\n' ? '\n' : '';
+                var na = s < ta.value.length && ta.value[s] !== '\n' ? '\n' : '';
+                var ins = nb + text + na;
+                ta.value = ta.value.substring(0, s) + ins + ta.value.substring(s);
+                ta.focus(); ta.selectionStart = ta.selectionEnd = s + ins.length;
+            }
+            function pnMdTable(btn) {
+                var ta = btn.closest('.pn-md-toolbar').nextElementSibling;
+                var s = ta.selectionStart;
+                var tpl = '\n| Coluna 1 | Coluna 2 | Coluna 3 |\n| --- | --- | --- |\n| Célula | Célula | Célula |\n';
+                var nb = s > 0 && ta.value[s-1] !== '\n' ? '\n' : '';
+                ta.value = ta.value.substring(0, s) + nb + tpl + ta.value.substring(s);
+                ta.focus(); ta.selectionStart = ta.selectionEnd = s + nb.length + tpl.length;
+            }
             </script>
 
             <!-- User Stories -->

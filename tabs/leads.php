@@ -435,6 +435,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $message = "Imagem removida!";
                 break;
+
+            case 'edit_lead_note':
+                $pdo->prepare("UPDATE lead_notes SET note_text=? WHERE id=? AND user_id=?")
+                    ->execute([trim($_POST['note_text'] ?? ''), (int)$_POST['note_id'], $current_user_id]);
+                $message = "Nota atualizada!";
+                break;
         }
         
         if (!headers_sent()) {
@@ -958,8 +964,17 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                 <input type="hidden" name="action" value="add_lead_note">
                                 <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
                                 <div class="mb-2">
-                                    <textarea name="note_text" class="form-control" rows="3"
-                                              placeholder="Escreve a tua nota…" style="font-size:14px;"></textarea>
+                                    <div class="ln-md-toolbar">
+                                        <button type="button" onclick="lnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
+                                        <button type="button" onclick="lnMdWrap(this,'*','*')" title="Itálico"><i>I</i></button>
+                                        <button type="button" onclick="lnMdWrap(this,'`','`')" title="Código"><code>{ }</code></button>
+                                        <button type="button" onclick="lnMdInsert(this,'- ')" title="Lista">≡</button>
+                                        <button type="button" onclick="lnMdInsert(this,'## ')" title="Título">H</button>
+                                        <button type="button" onclick="lnMdWrap(this,'[','](url)')" title="Link">🔗</button>
+                                        <span class="ln-md-hint">Markdown</span>
+                                    </div>
+                                    <textarea name="note_text" class="form-control ln-md-textarea" rows="4"
+                                              placeholder="Suporta **Markdown**…" style="font-size:13px;font-family:monospace;"></textarea>
                                 </div>
                                 <div class="mb-2">
                                     <label class="form-label small text-muted mb-1">Imagens (opcional)</label>
@@ -983,11 +998,10 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                             <p class="text-muted text-center small py-2">Nenhuma nota ainda.</p>
                         <?php else: ?>
                             <?php foreach ($lead_notes_by_user as $uid => $udata): ?>
-                            <?php $isMe = ($uid == $current_user_id); $openClass = $isMe ? '' : 'ln-collapsed'; ?>
+                            <?php $isMe = ($uid == $current_user_id); ?>
                             <div class="ln-user-block mb-2">
-                                <!-- Cabeçalho clicável -->
-                                <div class="ln-user-header <?= $openClass ?>"
-                                     onclick="lnToggleUser(this)">
+                                <!-- Cabeçalho clicável — todos colapsados por default -->
+                                <div class="ln-user-header ln-collapsed" onclick="lnToggleUser(this)">
                                     <span class="ln-avatar <?= $isMe ? 'ln-avatar-me' : '' ?>">
                                         <?= strtoupper(substr($udata['username'], 0, 1)) ?>
                                     </span>
@@ -1000,30 +1014,69 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                     </span>
                                     <i class="bi bi-chevron-down ln-chevron ms-auto"></i>
                                 </div>
-                                <!-- Notas do utilizador -->
-                                <div class="ln-user-notes <?= $isMe ? '' : 'd-none' ?>">
+                                <!-- Notas do utilizador — todas ocultas por default -->
+                                <div class="ln-user-notes d-none">
                                     <?php foreach ($udata['notes'] as $note): ?>
-                                    <div class="ln-note-item">
+                                    <div class="ln-note-item" id="ln-note-<?= $note['id'] ?>">
                                         <div class="ln-note-meta">
                                             <small class="text-muted">
                                                 <?= date('d/m/Y H:i', strtotime($note['created_at'])) ?>
                                             </small>
                                             <?php if ($note['user_id'] == $current_user_id): ?>
-                                            <form method="POST" style="display:inline;" onsubmit="return confirm('Eliminar esta nota?')">
-                                                <input type="hidden" name="action" value="delete_lead_note">
-                                                <input type="hidden" name="note_id" value="<?= $note['id'] ?>">
-                                                <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
-                                                <button type="submit" class="btn btn-xs btn-outline-danger py-0 px-1" title="Eliminar nota">
-                                                    <i class="bi bi-trash"></i>
+                                            <div class="d-flex gap-1">
+                                                <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1"
+                                                        onclick="lnStartEdit(<?= $note['id'] ?>)" title="Editar nota">
+                                                    <i class="bi bi-pencil"></i>
                                                 </button>
-                                            </form>
+                                                <form method="POST" style="display:inline;" onsubmit="return confirm('Eliminar esta nota?')">
+                                                    <input type="hidden" name="action" value="delete_lead_note">
+                                                    <input type="hidden" name="note_id" value="<?= $note['id'] ?>">
+                                                    <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
+                                                    <button type="submit" class="btn btn-xs btn-outline-danger py-0 px-1" title="Eliminar nota">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
                                             <?php endif; ?>
                                         </div>
-                                        <?php if ($note['note_text'] !== ''): ?>
-                                        <div class="ln-note-text"><?= nl2br(htmlspecialchars($note['note_text'])) ?></div>
+
+                                        <!-- Vista MD (renderizado) -->
+                                        <div class="ln-note-md-view"
+                                             data-raw="<?= htmlspecialchars($note['note_text'], ENT_QUOTES) ?>"></div>
+
+                                        <!-- Formulário de edição (oculto) -->
+                                        <?php if ($note['user_id'] == $current_user_id): ?>
+                                        <div class="ln-note-edit-area" style="display:none;">
+                                            <form method="POST">
+                                                <input type="hidden" name="action" value="edit_lead_note">
+                                                <input type="hidden" name="note_id" value="<?= $note['id'] ?>">
+                                                <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
+                                                <div class="ln-md-toolbar mb-1">
+                                                    <button type="button" onclick="lnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
+                                                    <button type="button" onclick="lnMdWrap(this,'*','*')" title="Itálico"><i>I</i></button>
+                                                    <button type="button" onclick="lnMdWrap(this,'`','`')" title="Código"><code>{ }</code></button>
+                                                    <button type="button" onclick="lnMdInsert(this,'- ')" title="Lista">≡</button>
+                                                    <button type="button" onclick="lnMdInsert(this,'## ')" title="Título">H</button>
+                                                    <button type="button" onclick="lnMdWrap(this,'[','](url)')" title="Link">🔗</button>
+                                                    <span class="ln-md-hint">Markdown</span>
+                                                </div>
+                                                <textarea name="note_text" class="form-control ln-md-textarea" rows="4"
+                                                          style="font-size:13px;font-family:monospace;"><?= htmlspecialchars($note['note_text'], ENT_QUOTES) ?></textarea>
+                                                <div class="d-flex gap-2 mt-2">
+                                                    <button type="submit" class="btn btn-sm btn-primary">
+                                                        <i class="bi bi-check-lg"></i> Guardar
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-secondary"
+                                                            onclick="lnCancelEdit(<?= $note['id'] ?>)">
+                                                        Cancelar
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
                                         <?php endif; ?>
+
                                         <?php if (!empty($note['images'])): ?>
-                                        <div class="ln-note-images">
+                                        <div class="ln-note-images mt-2">
                                             <?php foreach ($note['images'] as $img): ?>
                                             <div class="ln-img-wrap">
                                                 <img src="<?= htmlspecialchars($img['file_path']) ?>"
@@ -1515,8 +1568,30 @@ include __DIR__ . '/../edit_task.php';
     display: flex; justify-content: space-between; align-items: center;
     margin-bottom: 4px;
 }
-.ln-note-text { font-size: 13px; color: #333; line-height: 1.5; }
-.ln-note-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+/* Markdown rendered output */
+.ln-note-md-view { font-size: 13px; color: #333; line-height: 1.6; }
+.ln-note-md-view p { margin: 0 0 .4em; }
+.ln-note-md-view ul, .ln-note-md-view ol { padding-left: 1.4em; margin: .3em 0; }
+.ln-note-md-view code { background: #f0f0f0; border-radius: 3px; padding: 1px 4px; font-size: 12px; }
+.ln-note-md-view pre code { display: block; padding: 8px; }
+.ln-note-md-view h1,.ln-note-md-view h2,.ln-note-md-view h3 { font-size: 14px; font-weight: 700; margin: .5em 0 .2em; }
+.ln-note-md-view blockquote { border-left: 3px solid #ccc; margin: .3em 0; padding-left: 8px; color: #666; }
+.ln-note-md-view a { color: #0d6efd; }
+/* MD toolbar */
+.ln-md-toolbar {
+    display: flex; align-items: center; gap: 3px;
+    background: #f1f3f5; border: 1px solid #dee2e6;
+    border-bottom: none; border-radius: 4px 4px 0 0; padding: 4px 6px;
+}
+.ln-md-toolbar + .ln-md-textarea { border-radius: 0 0 4px 4px; }
+.ln-md-toolbar button {
+    border: 1px solid #ced4da; background: #fff; border-radius: 3px;
+    padding: 1px 7px; font-size: 12px; cursor: pointer; line-height: 1.5;
+}
+.ln-md-toolbar button:hover { background: #e9ecef; }
+.ln-md-hint { font-size: 10px; color: #adb5bd; margin-left: auto; }
+/* Images */
+.ln-note-images { display: flex; flex-wrap: wrap; gap: 6px; }
 .ln-img-wrap { position: relative; display: inline-block; }
 .ln-img-wrap img {
     width: 80px; height: 80px; object-fit: cover; border-radius: 4px;
@@ -1534,15 +1609,63 @@ include __DIR__ . '/../edit_task.php';
 </style>
 
 <script>
+/* ── Render Markdown on all note views ── */
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof marked === 'undefined') return;
+    marked.setOptions({ breaks: true, gfm: true });
+    document.querySelectorAll('.ln-note-md-view').forEach(function(el) {
+        var raw = el.dataset.raw || '';
+        el.innerHTML = raw ? marked.parse(raw) : '';
+    });
+});
+
 function lnToggleAdd() {
     var f = document.getElementById('ln-add-form');
     f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    if (f.style.display === 'block') f.querySelector('textarea').focus();
 }
 
 function lnToggleUser(header) {
     var notes = header.nextElementSibling;
     var collapsed = header.classList.toggle('ln-collapsed');
     notes.classList.toggle('d-none', collapsed);
+}
+
+function lnStartEdit(noteId) {
+    var item = document.getElementById('ln-note-' + noteId);
+    item.querySelector('.ln-note-md-view').style.display = 'none';
+    var editArea = item.querySelector('.ln-note-edit-area');
+    editArea.style.display = 'block';
+    editArea.querySelector('textarea').focus();
+    // hide edit/delete buttons while editing
+    item.querySelector('.ln-note-meta .d-flex').style.visibility = 'hidden';
+}
+
+function lnCancelEdit(noteId) {
+    var item = document.getElementById('ln-note-' + noteId);
+    item.querySelector('.ln-note-md-view').style.display = '';
+    item.querySelector('.ln-note-edit-area').style.display = 'none';
+    item.querySelector('.ln-note-meta .d-flex').style.visibility = '';
+}
+
+/* MD toolbar helpers — work on the nearest textarea */
+function lnMdWrap(btn, before, after) {
+    var ta = btn.closest('.ln-md-toolbar').nextElementSibling;
+    var s = ta.selectionStart, e = ta.selectionEnd;
+    var sel = ta.value.substring(s, e) || 'texto';
+    ta.value = ta.value.substring(0, s) + before + sel + after + ta.value.substring(e);
+    ta.focus();
+    ta.selectionStart = s + before.length;
+    ta.selectionEnd   = s + before.length + sel.length;
+}
+
+function lnMdInsert(btn, prefix) {
+    var ta = btn.closest('.ln-md-toolbar').nextElementSibling;
+    var s = ta.selectionStart;
+    var lineStart = ta.value.lastIndexOf('\n', s - 1) + 1;
+    ta.value = ta.value.substring(0, lineStart) + prefix + ta.value.substring(lineStart);
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = lineStart + prefix.length;
 }
 
 function lnPreviewImages(input) {

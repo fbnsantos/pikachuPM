@@ -966,11 +966,25 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                 <div class="mb-2">
                                     <div class="ln-md-toolbar">
                                         <button type="button" onclick="lnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
-                                        <button type="button" onclick="lnMdWrap(this,'*','*')" title="Itálico"><i>I</i></button>
-                                        <button type="button" onclick="lnMdWrap(this,'`','`')" title="Código"><code>{ }</code></button>
-                                        <button type="button" onclick="lnMdInsert(this,'- ')" title="Lista">≡</button>
-                                        <button type="button" onclick="lnMdInsert(this,'## ')" title="Título">H</button>
+                                        <button type="button" onclick="lnMdWrap(this,'*','*')" title="Itálico"><em>I</em></button>
+                                        <button type="button" onclick="lnMdWrap(this,'***','***')" title="Negrito + Itálico"><b><em>BI</em></b></button>
+                                        <button type="button" onclick="lnMdWrap(this,'~~','~~')" title="Riscado"><s>S</s></button>
+                                        <span class="ln-sep"></span>
+                                        <button type="button" onclick="lnMdWrap(this,'`','`')" title="Código inline"><code>c</code></button>
+                                        <button type="button" onclick="lnMdBlock(this,'```\n','\n```')" title="Bloco de código"><code>```</code></button>
+                                        <span class="ln-sep"></span>
+                                        <button type="button" onclick="lnMdInsert(this,'# ')" title="Título H1" style="font-weight:700;">H1</button>
+                                        <button type="button" onclick="lnMdInsert(this,'## ')" title="Título H2" style="font-weight:700;">H2</button>
+                                        <button type="button" onclick="lnMdInsert(this,'### ')" title="Título H3" style="font-weight:700;">H3</button>
+                                        <span class="ln-sep"></span>
+                                        <button type="button" onclick="lnMdInsert(this,'- ')" title="Lista não ordenada">• ≡</button>
+                                        <button type="button" onclick="lnMdInsert(this,'1. ')" title="Lista ordenada">1.</button>
+                                        <button type="button" onclick="lnMdInsert(this,'- [ ] ')" title="Checklist">☐</button>
+                                        <span class="ln-sep"></span>
+                                        <button type="button" onclick="lnMdInsert(this,'> ')" title="Citação / Blockquote">❝</button>
                                         <button type="button" onclick="lnMdWrap(this,'[','](url)')" title="Link">🔗</button>
+                                        <button type="button" onclick="lnMdInsertLine(this,'---')" title="Linha horizontal">—</button>
+                                        <button type="button" onclick="lnMdTable(this)" title="Inserir tabela">⊞</button>
                                         <span class="ln-md-hint">Markdown</span>
                                     </div>
                                     <textarea name="note_text" class="form-control ln-md-textarea" rows="4"
@@ -1579,17 +1593,19 @@ include __DIR__ . '/../edit_task.php';
 .ln-note-md-view a { color: #0d6efd; }
 /* MD toolbar */
 .ln-md-toolbar {
-    display: flex; align-items: center; gap: 3px;
+    display: flex; align-items: center; gap: 3px; flex-wrap: wrap;
     background: #f1f3f5; border: 1px solid #dee2e6;
     border-bottom: none; border-radius: 4px 4px 0 0; padding: 4px 6px;
 }
 .ln-md-toolbar + .ln-md-textarea { border-radius: 0 0 4px 4px; }
 .ln-md-toolbar button {
     border: 1px solid #ced4da; background: #fff; border-radius: 3px;
-    padding: 1px 7px; font-size: 12px; cursor: pointer; line-height: 1.5;
+    padding: 1px 6px; font-size: 11px; cursor: pointer; line-height: 1.6;
+    white-space: nowrap;
 }
 .ln-md-toolbar button:hover { background: #e9ecef; }
 .ln-md-hint { font-size: 10px; color: #adb5bd; margin-left: auto; }
+.ln-sep { width: 1px; height: 16px; background: #ced4da; margin: 0 2px; flex-shrink: 0; }
 /* Images */
 .ln-note-images { display: flex; flex-wrap: wrap; gap: 6px; }
 .ln-img-wrap { position: relative; display: inline-block; }
@@ -1666,6 +1682,44 @@ function lnMdInsert(btn, prefix) {
     ta.value = ta.value.substring(0, lineStart) + prefix + ta.value.substring(lineStart);
     ta.focus();
     ta.selectionStart = ta.selectionEnd = lineStart + prefix.length;
+}
+
+/* Wraps selection with before/after, ensuring they sit on their own lines */
+function lnMdBlock(btn, before, after) {
+    var ta = btn.closest('.ln-md-toolbar').nextElementSibling;
+    var s = ta.selectionStart, e = ta.selectionEnd;
+    var sel = ta.value.substring(s, e) || 'código';
+    var needsBefore = s > 0 && ta.value[s - 1] !== '\n' ? '\n' : '';
+    var needsAfter  = e < ta.value.length && ta.value[e] !== '\n' ? '\n' : '';
+    var insertion = needsBefore + before + sel + after + needsAfter;
+    ta.value = ta.value.substring(0, s) + insertion + ta.value.substring(e);
+    ta.focus();
+    var innerStart = s + needsBefore.length + before.length;
+    ta.selectionStart = innerStart;
+    ta.selectionEnd   = innerStart + sel.length;
+}
+
+/* Inserts text on its own line (e.g. --- ) */
+function lnMdInsertLine(btn, text) {
+    var ta = btn.closest('.ln-md-toolbar').nextElementSibling;
+    var s = ta.selectionStart;
+    var before = s > 0 && ta.value[s - 1] !== '\n' ? '\n' : '';
+    var after  = s < ta.value.length && ta.value[s] !== '\n' ? '\n' : '';
+    var ins = before + text + after;
+    ta.value = ta.value.substring(0, s) + ins + ta.value.substring(s);
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = s + ins.length;
+}
+
+/* Inserts a markdown table template */
+function lnMdTable(btn) {
+    var ta = btn.closest('.ln-md-toolbar').nextElementSibling;
+    var s = ta.selectionStart;
+    var tpl = '\n| Coluna 1 | Coluna 2 | Coluna 3 |\n| --- | --- | --- |\n| Célula | Célula | Célula |\n';
+    var before = s > 0 && ta.value[s - 1] !== '\n' ? '\n' : '';
+    ta.value = ta.value.substring(0, s) + before + tpl + ta.value.substring(s);
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = s + before.length + tpl.length;
 }
 
 function lnPreviewImages(input) {

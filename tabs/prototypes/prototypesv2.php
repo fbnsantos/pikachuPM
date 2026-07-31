@@ -3271,6 +3271,11 @@ if ($selectedPrototype && $checkTodos) {
                         <input type="hidden" name="action" value="add_proto_note">
                         <input type="hidden" name="prototype_id" value="<?= $pnProtoId ?>">
                         <div class="mb-2">
+                            <div class="pn-editor-wrap">
+                            <div class="pn-editor-tabs">
+                                <button type="button" class="pn-tab active" onclick="pnEditorTab(this,'write')">Escrever</button>
+                                <button type="button" class="pn-tab" onclick="pnEditorTab(this,'preview')">Pré-visualizar</button>
+                            </div>
                             <div class="pn-md-toolbar">
                                 <button type="button" onclick="pnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
                                 <button type="button" onclick="pnMdWrap(this,'*','*')" title="Itálico"><em>I</em></button>
@@ -3296,6 +3301,8 @@ if ($selectedPrototype && $checkTodos) {
                             </div>
                             <textarea name="note_text" class="form-control pn-md-textarea" rows="4"
                                       placeholder="Suporta **Markdown**…" style="font-size:13px;font-family:monospace;"></textarea>
+                            <div class="pn-md-live-preview" style="display:none;"></div>
+                            </div>
                         </div>
                         <div class="mb-2">
                             <label class="form-label small text-muted mb-1">Imagens (opcional)</label>
@@ -3359,6 +3366,11 @@ if ($selectedPrototype && $checkTodos) {
                                         <input type="hidden" name="action" value="edit_proto_note">
                                         <input type="hidden" name="note_id" value="<?= $note['id'] ?>">
                                         <input type="hidden" name="prototype_id" value="<?= $pnProtoId ?>">
+                                        <div class="pn-editor-wrap">
+                                        <div class="pn-editor-tabs">
+                                            <button type="button" class="pn-tab active" onclick="pnEditorTab(this,'write')">Escrever</button>
+                                            <button type="button" class="pn-tab" onclick="pnEditorTab(this,'preview')">Pré-visualizar</button>
+                                        </div>
                                         <div class="pn-md-toolbar mb-1">
                                             <button type="button" onclick="pnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
                                             <button type="button" onclick="pnMdWrap(this,'*','*')" title="Itálico"><em>I</em></button>
@@ -3384,6 +3396,8 @@ if ($selectedPrototype && $checkTodos) {
                                         </div>
                                         <textarea name="note_text" class="form-control pn-md-textarea" rows="4"
                                                   style="font-size:13px;font-family:monospace;"><?= htmlspecialchars($note['note_text'], ENT_QUOTES) ?></textarea>
+                                        <div class="pn-md-live-preview" style="display:none;"></div>
+                                        </div>
                                         <?php if (!empty($note['images'])): ?>
                                         <div class="pn-edit-img-gallery mt-2">
                                             <div class="small text-muted mb-1">Clica numa imagem para a inserir no texto:</div>
@@ -3482,6 +3496,19 @@ if ($selectedPrototype && $checkTodos) {
             [id^="pn-add-preview"] img,
             [id^="pn-edit-preview"] img { width:72px; height:72px; object-fit:cover; border-radius:4px; border:1px solid #dee2e6; }
             .pn-del-img { position:absolute; top:-5px; right:-5px; width:18px; height:18px; border-radius:50%; background:#dc3545; color:#fff; border:none; cursor:pointer; font-size:13px; line-height:1; display:flex; align-items:center; justify-content:center; }
+            .pn-editor-tabs { display:flex; gap:4px; margin-bottom:4px; }
+            .pn-tab { border:1px solid #dee2e6; border-radius:4px; padding:2px 10px; font-size:12px; cursor:pointer; background:#f8f9fa; color:#6c757d; transition:all .15s; }
+            .pn-tab.active { background:#fff; border-color:#0d6efd; color:#0d6efd; font-weight:600; }
+            .pn-tab:hover:not(.active) { background:#e9ecef; }
+            .pn-md-live-preview { border:1px solid #ced4da; border-radius:4px; min-height:100px; padding:8px 12px; font-size:13px; line-height:1.6; background:#fff; }
+            .pn-md-live-preview p { margin:0 0 .4em; }
+            .pn-md-live-preview ul,.pn-md-live-preview ol { padding-left:1.4em; margin:.3em 0; }
+            .pn-md-live-preview code { background:#f0f0f0; border-radius:3px; padding:1px 4px; font-size:12px; }
+            .pn-md-live-preview pre code { display:block; padding:8px; }
+            .pn-md-live-preview h1,.pn-md-live-preview h2,.pn-md-live-preview h3 { font-size:14px; font-weight:700; margin:.5em 0 .2em; }
+            .pn-md-live-preview blockquote { border-left:3px solid #ccc; margin:.3em 0; padding-left:8px; color:#666; }
+            .pn-md-live-preview a { color:#0d6efd; }
+            .pn-md-live-preview img { max-width:100%; max-height:320px; border-radius:4px; border:1px solid #dee2e6; display:block; margin:6px 0; }
             .pn-md-toolbar { display:flex; align-items:center; gap:3px; flex-wrap:wrap; background:#f1f3f5; border:1px solid #dee2e6; border-bottom:none; border-radius:4px 4px 0 0; padding:4px 6px; }
             .pn-md-toolbar + .pn-md-textarea { border-radius:0 0 4px 4px; }
             .pn-md-toolbar button { border:1px solid #ced4da; background:#fff; border-radius:3px; padding:1px 6px; font-size:11px; cursor:pointer; line-height:1.6; white-space:nowrap; }
@@ -3501,10 +3528,38 @@ if ($selectedPrototype && $checkTodos) {
                 });
             });
 
+            function pnEditorTab(btn, mode) {
+                var wrap = btn.closest('.pn-editor-wrap');
+                var toolbar = wrap.querySelector('.pn-md-toolbar');
+                var ta = wrap.querySelector('.pn-md-textarea');
+                var preview = wrap.querySelector('.pn-md-live-preview');
+                wrap.querySelectorAll('.pn-tab').forEach(function(t) { t.classList.toggle('active', t === btn); });
+                if (mode === 'preview') {
+                    toolbar.style.display = 'none';
+                    ta.style.display = 'none';
+                    preview.style.display = '';
+                    preview.innerHTML = (typeof marked !== 'undefined') ? marked.parse(ta.value || '') : ta.value;
+                } else {
+                    toolbar.style.display = '';
+                    ta.style.display = '';
+                    preview.style.display = 'none';
+                    ta.focus();
+                }
+            }
             function pnToggleAdd() {
                 var f = document.getElementById('pn-add-form');
                 f.style.display = f.style.display === 'none' ? 'block' : 'none';
-                if (f.style.display === 'block') f.querySelector('textarea').focus();
+                if (f.style.display === 'block') {
+                    var wrap = f.querySelector('.pn-editor-wrap');
+                    if (wrap) {
+                        var tabs = wrap.querySelectorAll('.pn-tab');
+                        tabs[0].classList.add('active'); tabs[1].classList.remove('active');
+                        wrap.querySelector('.pn-md-toolbar').style.display = '';
+                        wrap.querySelector('.pn-md-textarea').style.display = '';
+                        wrap.querySelector('.pn-md-live-preview').style.display = 'none';
+                    }
+                    f.querySelector('textarea').focus();
+                }
             }
             function pnToggleUser(header) {
                 var notes = header.nextElementSibling;
@@ -3516,6 +3571,14 @@ if ($selectedPrototype && $checkTodos) {
                 item.querySelector('.pn-note-md-view').style.display = 'none';
                 var ea = item.querySelector('.pn-note-edit-area');
                 ea.style.display = 'block';
+                var wrap = ea.querySelector('.pn-editor-wrap');
+                if (wrap) {
+                    var tabs = wrap.querySelectorAll('.pn-tab');
+                    tabs[0].classList.add('active'); tabs[1].classList.remove('active');
+                    wrap.querySelector('.pn-md-toolbar').style.display = '';
+                    wrap.querySelector('.pn-md-textarea').style.display = '';
+                    wrap.querySelector('.pn-md-live-preview').style.display = 'none';
+                }
                 ea.querySelector('textarea').focus();
                 var btns = item.querySelector('.pn-note-meta .d-flex');
                 if (btns) btns.style.visibility = 'hidden';

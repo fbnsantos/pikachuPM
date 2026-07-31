@@ -981,6 +981,11 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                 <input type="hidden" name="action" value="add_lead_note">
                                 <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
                                 <div class="mb-2">
+                                    <div class="ln-editor-wrap">
+                                    <div class="ln-editor-tabs">
+                                        <button type="button" class="ln-tab active" onclick="lnEditorTab(this,'write')">Escrever</button>
+                                        <button type="button" class="ln-tab" onclick="lnEditorTab(this,'preview')">Pré-visualizar</button>
+                                    </div>
                                     <div class="ln-md-toolbar">
                                         <button type="button" onclick="lnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
                                         <button type="button" onclick="lnMdWrap(this,'*','*')" title="Itálico"><em>I</em></button>
@@ -1006,6 +1011,8 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                     </div>
                                     <textarea name="note_text" class="form-control ln-md-textarea" rows="4"
                                               placeholder="Suporta **Markdown**…" style="font-size:13px;font-family:monospace;"></textarea>
+                                    <div class="ln-md-live-preview" style="display:none;"></div>
+                                    </div>
                                 </div>
                                 <div class="mb-2">
                                     <label class="form-label small text-muted mb-1">Imagens (opcional)</label>
@@ -1082,6 +1089,11 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                                 <input type="hidden" name="action" value="edit_lead_note">
                                                 <input type="hidden" name="note_id" value="<?= $note['id'] ?>">
                                                 <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
+                                                <div class="ln-editor-wrap">
+                                                <div class="ln-editor-tabs">
+                                                    <button type="button" class="ln-tab active" onclick="lnEditorTab(this,'write')">Escrever</button>
+                                                    <button type="button" class="ln-tab" onclick="lnEditorTab(this,'preview')">Pré-visualizar</button>
+                                                </div>
                                                 <div class="ln-md-toolbar mb-1">
                                                     <button type="button" onclick="lnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
                                                     <button type="button" onclick="lnMdWrap(this,'*','*')" title="Itálico"><em>I</em></button>
@@ -1107,6 +1119,8 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                                 </div>
                                                 <textarea name="note_text" class="form-control ln-md-textarea" rows="4"
                                                           style="font-size:13px;font-family:monospace;"><?= htmlspecialchars($note['note_text'], ENT_QUOTES) ?></textarea>
+                                                <div class="ln-md-live-preview" style="display:none;"></div>
+                                                </div>
                                                 <?php if (!empty($note['images'])): ?>
                                                 <div class="ln-edit-img-gallery mt-2">
                                                     <div class="small text-muted mb-1">Clica numa imagem para a inserir no texto:</div>
@@ -1652,6 +1666,20 @@ include __DIR__ . '/../edit_task.php';
 .ln-edit-img-ref img { width: 100%; height: 100%; object-fit: cover; }
 .ln-edit-img-ref-overlay { position: absolute; inset: 0; background: rgba(13,110,253,.4); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; opacity: 0; transition: opacity .15s; }
 .ln-edit-img-ref:hover .ln-edit-img-ref-overlay { opacity: 1; }
+/* Editor tabs */
+.ln-editor-tabs { display:flex; gap:4px; margin-bottom:4px; }
+.ln-tab { border:1px solid #dee2e6; border-radius:4px; padding:2px 10px; font-size:12px; cursor:pointer; background:#f8f9fa; color:#6c757d; transition:all .15s; }
+.ln-tab.active { background:#fff; border-color:#0d6efd; color:#0d6efd; font-weight:600; }
+.ln-tab:hover:not(.active) { background:#e9ecef; }
+.ln-md-live-preview { border:1px solid #ced4da; border-radius:4px; min-height:100px; padding:8px 12px; font-size:13px; line-height:1.6; background:#fff; }
+.ln-md-live-preview p { margin:0 0 .4em; }
+.ln-md-live-preview ul,.ln-md-live-preview ol { padding-left:1.4em; margin:.3em 0; }
+.ln-md-live-preview code { background:#f0f0f0; border-radius:3px; padding:1px 4px; font-size:12px; }
+.ln-md-live-preview pre code { display:block; padding:8px; }
+.ln-md-live-preview h1,.ln-md-live-preview h2,.ln-md-live-preview h3 { font-size:14px; font-weight:700; margin:.5em 0 .2em; }
+.ln-md-live-preview blockquote { border-left:3px solid #ccc; margin:.3em 0; padding-left:8px; color:#666; }
+.ln-md-live-preview a { color:#0d6efd; }
+.ln-md-live-preview img { max-width:100%; max-height:320px; border-radius:4px; border:1px solid #dee2e6; display:block; margin:6px 0; }
 /* MD toolbar */
 .ln-md-toolbar {
     display: flex; align-items: center; gap: 3px; flex-wrap: wrap;
@@ -1697,10 +1725,38 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+function lnEditorTab(btn, mode) {
+    var wrap = btn.closest('.ln-editor-wrap');
+    var toolbar = wrap.querySelector('.ln-md-toolbar');
+    var ta = wrap.querySelector('.ln-md-textarea');
+    var preview = wrap.querySelector('.ln-md-live-preview');
+    wrap.querySelectorAll('.ln-tab').forEach(function(t) { t.classList.toggle('active', t === btn); });
+    if (mode === 'preview') {
+        toolbar.style.display = 'none';
+        ta.style.display = 'none';
+        preview.style.display = '';
+        preview.innerHTML = (typeof marked !== 'undefined') ? marked.parse(ta.value || '') : ta.value;
+    } else {
+        toolbar.style.display = '';
+        ta.style.display = '';
+        preview.style.display = 'none';
+        ta.focus();
+    }
+}
+
 function lnToggleAdd() {
     var f = document.getElementById('ln-add-form');
     f.style.display = f.style.display === 'none' ? 'block' : 'none';
-    if (f.style.display === 'block') f.querySelector('textarea').focus();
+    if (f.style.display === 'block') {
+        var wrap = f.querySelector('.ln-editor-wrap');
+        if (wrap) {
+            wrap.querySelectorAll('.ln-tab').forEach(function(t) { t.classList.toggle('active', t.onclick && t.onclick.toString().indexOf("'write'") > -1); });
+            wrap.querySelector('.ln-md-toolbar').style.display = '';
+            wrap.querySelector('.ln-md-textarea').style.display = '';
+            wrap.querySelector('.ln-md-live-preview').style.display = 'none';
+        }
+        f.querySelector('textarea').focus();
+    }
 }
 
 function lnToggleUser(header) {
@@ -1714,8 +1770,15 @@ function lnStartEdit(noteId) {
     item.querySelector('.ln-note-md-view').style.display = 'none';
     var editArea = item.querySelector('.ln-note-edit-area');
     editArea.style.display = 'block';
+    var wrap = editArea.querySelector('.ln-editor-wrap');
+    if (wrap) {
+        var tabs = wrap.querySelectorAll('.ln-tab');
+        tabs[0].classList.add('active'); tabs[1].classList.remove('active');
+        wrap.querySelector('.ln-md-toolbar').style.display = '';
+        wrap.querySelector('.ln-md-textarea').style.display = '';
+        wrap.querySelector('.ln-md-live-preview').style.display = 'none';
+    }
     editArea.querySelector('textarea').focus();
-    // hide edit/delete buttons while editing
     item.querySelector('.ln-note-meta .d-flex').style.visibility = 'hidden';
 }
 

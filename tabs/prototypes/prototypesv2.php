@@ -1213,6 +1213,18 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $allPrototypes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Quando há filtro activo, um filho cujo pai não está na lista filtrada
+// seria invisível na árvore — promovê-lo a raiz resolve isso.
+if (!empty($whereConditions)) {
+    $availableIds = array_flip(array_column($allPrototypes, 'id'));
+    foreach ($allPrototypes as &$p) {
+        if ($p['parent_id'] !== null && !isset($availableIds[$p['parent_id']])) {
+            $p['parent_id'] = null;
+        }
+    }
+    unset($p);
+}
+
 // Função para construir árvore hierárquica
 function buildPrototypeTree($prototypes, $parentId = null) {
     $branch = [];

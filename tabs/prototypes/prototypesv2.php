@@ -1010,6 +1010,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId");
                 exit;
 
+            case 'close_story_with_milestone':
+                $sid     = (int)($_POST['story_id'] ?? 0);
+                $protoId = (int)($_POST['prototype_id'] ?? $selectedPrototypeId);
+                if ($sid) {
+                    // Fechar a story
+                    $pdo->prepare("UPDATE user_stories SET status='closed', closed_at=NOW(), updated_at=NOW() WHERE id=?")
+                        ->execute([$sid]);
+
+                    $milestoneIdToAssoc = 0;
+
+                    // Criar nova milestone se pedido
+                    if (!empty($_POST['new_milestone_title']) && !empty($_POST['new_milestone_date'])) {
+                        $nmTitle = trim($_POST['new_milestone_title']);
+                        $nmDate  = $_POST['new_milestone_date'];
+                        $nmColor = preg_match('/^#[0-9a-fA-F]{6}$/', $_POST['new_milestone_color'] ?? '') ? $_POST['new_milestone_color'] : '#0d6efd';
+                        $nmDesc  = trim($_POST['new_milestone_desc'] ?? '');
+                        $pdo->prepare("INSERT INTO prototype_milestones (prototype_id,title,description,target_date,color) VALUES (?,?,?,?,?)")
+                            ->execute([$protoId, $nmTitle, $nmDesc, $nmDate, $nmColor]);
+                        $milestoneIdToAssoc = (int)$pdo->lastInsertId();
+                    } elseif (!empty($_POST['milestone_id'])) {
+                        $milestoneIdToAssoc = (int)$_POST['milestone_id'];
+                    }
+
+                    // Associar story à milestone
+                    if ($milestoneIdToAssoc > 0) {
+                        $pdo->prepare("INSERT IGNORE INTO milestone_stories (milestone_id, story_id) VALUES (?,?)")
+                            ->execute([$milestoneIdToAssoc, $sid]);
+                    }
+                }
+                $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=$protoId";
+                if ($filterMine) $redirectUrl .= "&filter_mine=true";
+                if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($showClosedStories) $redirectUrl .= "&show_closed=true";
+                header("Location: " . $redirectUrl);
+                exit;
+
             case 'add_milestone':
             case 'edit_milestone':
                 $protoId = (int)($_POST['prototype_id'] ?? 0);
@@ -3097,9 +3133,10 @@ if ($selectedPrototype && $checkTodos) {
             </style>
 
             <script>
+            // Global: milestones deste protótipo (usado no modal Fechar Story)
+            var RM_DATA = <?= json_encode($selectedPrototype['milestones'] ?? []) ?>;
             (function(){
             const MONTHS = 24;
-            const RM_DATA = <?= json_encode($selectedPrototype['milestones'] ?? []) ?>;
 
             // Position milestones and months on the timeline bar
             function rmInit() {
@@ -3662,6 +3699,68 @@ if ($selectedPrototype && $checkTodos) {
             }
             </script>
 
+            <!-- Modal: Fechar Story + Milestone -->
+            <div class="modal fade" id="closeStoryModal" tabindex="-1">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title"><i class="bi bi-check-circle text-success"></i> Fechar Story</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <form method="POST" id="closeStoryForm">
+                            <div class="modal-body">
+                                <input type="hidden" name="action" value="close_story_with_milestone">
+                                <input type="hidden" name="story_id" id="csm-story-id">
+                                <input type="hidden" name="prototype_id" id="csm-proto-id">
+
+                                <p class="text-muted small mb-1">Story:</p>
+                                <p id="csm-story-text" class="fw-semibold mb-3" style="font-size:13px;border-left:3px solid #198754;padding-left:8px;"></p>
+
+                                <label class="form-label fw-semibold mb-1">Associar a uma Milestone do Roadmap?</label>
+                                <select class="form-select form-select-sm mb-2" id="csm-milestone-select" onchange="csmOnMilestoneChange(this)">
+                                    <option value="">— Não associar —</option>
+                                    <!-- populado por JS -->
+                                    <option value="__new__">＋ Criar nova milestone…</option>
+                                </select>
+
+                                <!-- Painel nova milestone -->
+                                <div id="csm-new-milestone" style="display:none;background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:12px;margin-top:4px;">
+                                    <div class="row g-2 mb-2">
+                                        <div class="col-8">
+                                            <label class="form-label small mb-1">Título *</label>
+                                            <input type="text" name="new_milestone_title" id="csm-nm-title" class="form-control form-control-sm" placeholder="ex: v1.0 – MVP">
+                                        </div>
+                                        <div class="col-4">
+                                            <label class="form-label small mb-1">Cor</label>
+                                            <input type="color" name="new_milestone_color" id="csm-nm-color" class="form-control form-control-sm form-control-color" value="#0d6efd" style="height:31px;">
+                                        </div>
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label small mb-1">Data alvo *</label>
+                                        <input type="date" name="new_milestone_date" id="csm-nm-date" class="form-control form-control-sm">
+                                    </div>
+                                    <div>
+                                        <label class="form-label small mb-1">Descrição (opcional)</label>
+                                        <textarea name="new_milestone_desc" id="csm-nm-desc" class="form-control form-control-sm" rows="2"></textarea>
+                                    </div>
+                                </div>
+
+                                <!-- Campo hidden para milestone_id existente -->
+                                <input type="hidden" name="milestone_id" id="csm-milestone-id" value="">
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="csmSubmitWithout()">
+                                    Fechar sem associar
+                                </button>
+                                <button type="submit" class="btn btn-sm btn-success" id="csm-submit-btn">
+                                    <i class="bi bi-check-circle"></i> Fechar Story
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
             <!-- User Stories -->
             <div class="detail-section">
                 <div class="section-header">
@@ -3848,14 +3947,10 @@ if ($selectedPrototype && $checkTodos) {
                                         <i class="bi bi-pencil"></i> Editar
                                     </button>
                                     <?php if ($story['status'] === 'open'): ?>
-                                    <form method="POST" style="display:inline;">
-                                        <input type="hidden" name="action" value="toggle_story_status">
-                                        <input type="hidden" name="story_id" value="<?= $story['id'] ?>">
-                                        <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
-                                        <button type="submit" class="btn btn-sm btn-success">
-                                            <i class="bi bi-check-circle"></i> Fechar Story
-                                        </button>
-                                    </form>
+                                    <button type="button" class="btn btn-sm btn-success"
+                                            onclick="openCloseStoryModal(<?= $story['id'] ?>, <?= htmlspecialchars(json_encode(mb_strimwidth($story['story_text'],0,80,'…')), ENT_QUOTES) ?>, <?= (int)$selectedPrototype['id'] ?>)">
+                                        <i class="bi bi-check-circle"></i> Fechar Story
+                                    </button>
                                     <?php else: ?>
                                     <form method="POST" style="display:inline;">
                                         <input type="hidden" name="action" value="toggle_story_status">
@@ -5973,6 +6068,68 @@ function renderGitlabSummary(d, protoId) {
 function escHtml(str) {
     if (!str) return '';
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ===== Fechar Story + Milestone ===== */
+function openCloseStoryModal(storyId, storyText, protoId) {
+    document.getElementById('csm-story-id').value  = storyId;
+    document.getElementById('csm-proto-id').value  = protoId;
+    document.getElementById('csm-story-text').textContent = storyText;
+    document.getElementById('csm-milestone-id').value = '';
+
+    // Popula o select com milestones do roadmap (RM_DATA definido no bloco do roadmap)
+    var sel = document.getElementById('csm-milestone-select');
+    // Remover opções dinâmicas anteriores (manter a 1.ª e a última)
+    while (sel.options.length > 2) sel.remove(1);
+    var milestones = (typeof RM_DATA !== 'undefined') ? RM_DATA : [];
+    milestones.forEach(function(m) {
+        var opt = document.createElement('option');
+        opt.value = m.id;
+        var dt = m.target_date ? ' (' + m.target_date.substring(0,7) + ')' : '';
+        opt.textContent = m.title + dt;
+        sel.insertBefore(opt, sel.options[sel.options.length - 1]);
+    });
+    sel.value = '';
+
+    // Reset campos nova milestone
+    document.getElementById('csm-new-milestone').style.display = 'none';
+    ['csm-nm-title','csm-nm-date','csm-nm-desc'].forEach(function(id){ document.getElementById(id).value = ''; });
+    document.getElementById('csm-nm-color').value = '#0d6efd';
+
+    // Ajusta texto do botão
+    document.getElementById('csm-submit-btn').textContent = 'Fechar Story';
+
+    new bootstrap.Modal(document.getElementById('closeStoryModal')).show();
+}
+
+function csmOnMilestoneChange(sel) {
+    var newPanel = document.getElementById('csm-new-milestone');
+    var milestoneIdInput = document.getElementById('csm-milestone-id');
+    var submitBtn = document.getElementById('csm-submit-btn');
+
+    if (sel.value === '__new__') {
+        newPanel.style.display = 'block';
+        milestoneIdInput.value = '';
+        submitBtn.innerHTML = '<i class="bi bi-check-circle"></i> Fechar e criar milestone';
+    } else if (sel.value) {
+        newPanel.style.display = 'none';
+        milestoneIdInput.value = sel.value;
+        submitBtn.innerHTML = '<i class="bi bi-check-circle"></i> Fechar e associar';
+    } else {
+        newPanel.style.display = 'none';
+        milestoneIdInput.value = '';
+        submitBtn.innerHTML = '<i class="bi bi-check-circle"></i> Fechar Story';
+    }
+}
+
+function csmSubmitWithout() {
+    // Fechar sem associar: limpa campos de milestone e submete
+    document.getElementById('csm-milestone-select').value = '';
+    document.getElementById('csm-milestone-id').value = '';
+    document.getElementById('csm-new-milestone').style.display = 'none';
+    ['csm-nm-title','csm-nm-date','csm-nm-desc'].forEach(function(id){ document.getElementById(id).value = ''; });
+    document.getElementById('csm-nm-color').value = '#0d6efd';
+    document.getElementById('closeStoryForm').submit();
 }
 </script>
 

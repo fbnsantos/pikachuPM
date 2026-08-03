@@ -337,6 +337,49 @@ if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
                 $search_results['research'] = $s->fetchAll(PDO::FETCH_ASSOC);
             }
 
+            // 9. Notas de Tasks
+            if ($pdo_s->query("SHOW TABLES LIKE 'task_notes'")->rowCount()) {
+                [$w, $p] = gsWhere(['tn.note_text'], $gsTerms, $gsExcludes);
+                $s = $pdo_s->prepare("SELECT tn.id, tn.note_text, tn.created_at,
+                                             tn.task_id, COALESCE(t.titulo,'') as task_title,
+                                             COALESCE(u.username,'') as username
+                                      FROM task_notes tn
+                                      LEFT JOIN todos t ON tn.task_id = t.id
+                                      LEFT JOIN user_tokens u ON tn.user_id = u.user_id
+                                      WHERE $w ORDER BY tn.created_at DESC LIMIT 15");
+                $s->execute($p);
+                $search_results['task_notes'] = $s->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            // 10. Notas de Leads
+            if ($pdo_s->query("SHOW TABLES LIKE 'lead_notes'")->rowCount()) {
+                [$w, $p] = gsWhere(['ln.note_text'], $gsTerms, $gsExcludes);
+                $s = $pdo_s->prepare("SELECT ln.id, ln.note_text, ln.created_at,
+                                             ln.lead_id, COALESCE(l.titulo,'') as lead_titulo,
+                                             COALESCE(u.username,'') as username
+                                      FROM lead_notes ln
+                                      LEFT JOIN leads l ON ln.lead_id = l.id
+                                      LEFT JOIN user_tokens u ON ln.user_id = u.user_id
+                                      WHERE $w ORDER BY ln.created_at DESC LIMIT 15");
+                $s->execute($p);
+                $search_results['lead_notes'] = $s->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            // 11. Notas de Protótipos
+            if ($pdo_s->query("SHOW TABLES LIKE 'prototype_notes'")->rowCount()) {
+                [$w, $p] = gsWhere(['pn.note_text'], $gsTerms, $gsExcludes);
+                $s = $pdo_s->prepare("SELECT pn.id, pn.note_text, pn.created_at,
+                                             pn.prototype_id, COALESCE(p.short_name,'') as proto_short_name,
+                                             COALESCE(p.title,'') as proto_title,
+                                             COALESCE(u.username,'') as username
+                                      FROM prototype_notes pn
+                                      LEFT JOIN prototypes p ON pn.prototype_id = p.id
+                                      LEFT JOIN user_tokens u ON pn.user_id = u.user_id
+                                      WHERE $w ORDER BY pn.created_at DESC LIMIT 15");
+                $s->execute($p);
+                $search_results['proto_notes'] = $s->fetchAll(PDO::FETCH_ASSOC);
+            }
+
         } catch (PDOException $e) { /* ignorar */ }
     }
 }
@@ -408,6 +451,9 @@ $sections = [
     'projects'   => ['📁', 'Projetos'],
     'leads'      => ['🎯', 'Leads'],
     'research'   => ['💡', 'Research Ideas'],
+    'task_notes' => ['💬', 'Notas de Tasks'],
+    'lead_notes' => ['💬', 'Notas de Leads'],
+    'proto_notes'=> ['💬', 'Notas de Protótipos'],
     'links'      => ['🔗', 'Links'],
 ];
 $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
@@ -523,6 +569,34 @@ $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
             </div>
             <div class="gs-meta">👤 <?= htmlspecialchars($r['author']) ?></div>
             <?php if ($r['description']): ?><div class="gs-snippet"><?= hl(snippet($r['description'], $q), $q) ?></div><?php endif; ?>
+
+        <?php elseif ($key === 'task_notes'): ?>
+            <div class="gs-title">
+                <a href="#" onclick="event.preventDefault();openTaskEditor(<?= (int)$r['task_id'] ?>)">
+                    <?= hl($r['task_title'] ?: '(task #'.$r['task_id'].')', $q) ?>
+                </a>
+                <span class="gs-badge ms-1" style="background:#e0e7ff;color:#3730a3;">nota</span>
+            </div>
+            <div class="gs-meta">👤 <?= htmlspecialchars($r['username']) ?> · <?= date('d/m/Y', strtotime($r['created_at'])) ?></div>
+            <div class="gs-snippet"><?= hl(snippet($r['note_text'], $q), $q) ?></div>
+
+        <?php elseif ($key === 'lead_notes'): ?>
+            <div class="gs-title">
+                <a href="?tab=leads"><?= hl($r['lead_titulo'] ?: '(lead #'.$r['lead_id'].')', $q) ?></a>
+                <span class="gs-badge ms-1" style="background:#e0e7ff;color:#3730a3;">nota</span>
+            </div>
+            <div class="gs-meta">👤 <?= htmlspecialchars($r['username']) ?> · <?= date('d/m/Y', strtotime($r['created_at'])) ?></div>
+            <div class="gs-snippet"><?= hl(snippet($r['note_text'], $q), $q) ?></div>
+
+        <?php elseif ($key === 'proto_notes'): ?>
+            <div class="gs-title">
+                <a href="?tab=prototypes/prototypesv2&prototype_id=<?= (int)$r['prototype_id'] ?>">
+                    <?= hl($r['proto_short_name'], $q) ?><?php if ($r['proto_title']): ?> — <?= hl($r['proto_title'], $q) ?><?php endif; ?>
+                </a>
+                <span class="gs-badge ms-1" style="background:#e0e7ff;color:#3730a3;">nota</span>
+            </div>
+            <div class="gs-meta">👤 <?= htmlspecialchars($r['username']) ?> · <?= date('d/m/Y', strtotime($r['created_at'])) ?></div>
+            <div class="gs-snippet"><?= hl(snippet($r['note_text'], $q), $q) ?></div>
 
         <?php elseif ($key === 'files'): ?>
             <?php $ext = strtolower(pathinfo($r['file_name'], PATHINFO_EXTENSION));

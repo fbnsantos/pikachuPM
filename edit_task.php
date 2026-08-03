@@ -29,6 +29,49 @@ try {
     die('Erro de conexão: ' . $e->getMessage());
 }
 
+// Migração tabelas de notas de tasks
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS task_notes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        task_id INT NOT NULL,
+        user_id INT NOT NULL,
+        note_text TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (task_id) REFERENCES todos(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES user_tokens(user_id) ON DELETE CASCADE,
+        INDEX idx_tn_task (task_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS task_note_images (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        note_id INT NOT NULL,
+        file_path VARCHAR(500) NOT NULL,
+        original_name VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (note_id) REFERENCES task_notes(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (PDOException $e) {}
+
+// GET: listar notas de uma task
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action']) && $_GET['action'] === 'get_task_notes') {
+    header('Content-Type: application/json');
+    $task_id = (int)($_GET['task_id'] ?? 0);
+    $notes = [];
+    try {
+        $nStmt = $pdo->prepare("SELECT tn.id, tn.user_id, tn.note_text, tn.created_at, u.username
+            FROM task_notes tn JOIN user_tokens u ON tn.user_id = u.user_id
+            WHERE tn.task_id = ? ORDER BY tn.created_at DESC");
+        $nStmt->execute([$task_id]);
+        foreach ($nStmt->fetchAll(PDO::FETCH_ASSOC) as $n) {
+            $iStmt = $pdo->prepare("SELECT id, file_path, original_name FROM task_note_images WHERE note_id=? ORDER BY created_at ASC");
+            $iStmt->execute([$n['id']]);
+            $n['images'] = $iStmt->fetchAll(PDO::FETCH_ASSOC);
+            $notes[] = $n;
+        }
+    } catch (PDOException $e) {}
+    echo json_encode(['success' => true, 'notes' => $notes, 'current_user_id' => (int)$_SESSION['user_id']]);
+    exit;
+}
+
 // PROCESSAR UPLOAD DE FICHEIROS - VERSÃO CORRIGIDA
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload_file') {
     // Aumentar limites temporariamente para suportar ficheiros até 300MB
@@ -248,6 +291,109 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
     
     echo json_encode(['success' => true]);
+    exit;
+}
+
+// POST: adicionar nota de task
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_task_note') {
+    header('Content-Type: application/json');
+    $task_id = (int)($_POST['task_id'] ?? 0);
+    $note_text = trim($_POST['note_text'] ?? '');
+    $user_id = (int)$_SESSION['user_id'];
+    try {
+        $stmt = $pdo->prepare("INSERT INTO task_notes (task_id, user_id, note_text) VALUES (?,?,?)");
+        $stmt->execute([$task_id, $user_id, $note_text]);
+        $note_id = (int)$pdo->lastInsertId();
+        $images = [];
+        if (!empty($_FILES['note_images']['name'][0])) {
+            $upload_dir = 'files/task_notes/';
+            if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+            foreach ($_FILES['note_images']['tmp_name'] as $i => $tmp) {
+                if ($_FILES['note_images']['error'][$i] !== UPLOAD_ERR_OK) continue;
+                $mime = mime_content_type($tmp);
+                if (!str_starts_with($mime, 'image/')) continue;
+                $ext = strtolower(pathinfo($_FILES['note_images']['name'][$i], PATHINFO_EXTENSION));
+                $filename = "tn_{$note_id}_{$i}_" . uniqid() . ".$ext";
+                $dest = $upload_dir . $filename;
+                if (move_uploaded_file($tmp, $dest)) {
+                    $iStmt = $pdo->prepare("INSERT INTO task_note_images (note_id, file_path, original_name) VALUES (?,?,?)");
+                    $iStmt->execute([$note_id, $dest, $_FILES['note_images']['name'][$i]]);
+                    $images[] = ['id' => (int)$pdo->lastInsertId(), 'file_path' => $dest, 'original_name' => $_FILES['note_images']['name'][$i]];
+                }
+            }
+        }
+        $uStmt = $pdo->prepare("SELECT username FROM user_tokens WHERE user_id=?");
+        $uStmt->execute([$user_id]);
+        $username = $uStmt->fetchColumn();
+        echo json_encode(['success' => true, 'note' => [
+            'id' => $note_id, 'user_id' => $user_id, 'username' => $username,
+            'note_text' => $note_text, 'created_at' => date('Y-m-d H:i:s'), 'images' => $images
+        ]]);
+    } catch (PDOException $e) { echo json_encode(['success' => false, 'error' => $e->getMessage()]); }
+    exit;
+}
+
+// POST: editar nota de task
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_task_note') {
+    header('Content-Type: application/json');
+    $note_id = (int)($_POST['note_id'] ?? 0);
+    $note_text = trim($_POST['note_text'] ?? '');
+    $user_id = (int)$_SESSION['user_id'];
+    try {
+        $pdo->prepare("UPDATE task_notes SET note_text=? WHERE id=? AND user_id=?")->execute([$note_text, $note_id, $user_id]);
+        if (!empty($_FILES['note_images']['name'][0])) {
+            $upload_dir = 'files/task_notes/';
+            if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+            foreach ($_FILES['note_images']['tmp_name'] as $i => $tmp) {
+                if ($_FILES['note_images']['error'][$i] !== UPLOAD_ERR_OK) continue;
+                $mime = mime_content_type($tmp);
+                if (!str_starts_with($mime, 'image/')) continue;
+                $ext = strtolower(pathinfo($_FILES['note_images']['name'][$i], PATHINFO_EXTENSION));
+                $filename = "tn_{$note_id}_e{$i}_" . uniqid() . ".$ext";
+                $dest = $upload_dir . $filename;
+                if (move_uploaded_file($tmp, $dest)) {
+                    $iStmt = $pdo->prepare("INSERT INTO task_note_images (note_id, file_path, original_name) VALUES (?,?,?)");
+                    $iStmt->execute([$note_id, $dest, $_FILES['note_images']['name'][$i]]);
+                }
+            }
+        }
+        $iStmt = $pdo->prepare("SELECT id, file_path, original_name FROM task_note_images WHERE note_id=? ORDER BY created_at ASC");
+        $iStmt->execute([$note_id]);
+        echo json_encode(['success' => true, 'note_text' => $note_text, 'images' => $iStmt->fetchAll(PDO::FETCH_ASSOC)]);
+    } catch (PDOException $e) { echo json_encode(['success' => false, 'error' => $e->getMessage()]); }
+    exit;
+}
+
+// POST: eliminar nota de task
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_task_note') {
+    header('Content-Type: application/json');
+    $note_id = (int)($_POST['note_id'] ?? 0);
+    $user_id = (int)$_SESSION['user_id'];
+    try {
+        $iStmt = $pdo->prepare("SELECT file_path FROM task_note_images WHERE note_id=?");
+        $iStmt->execute([$note_id]);
+        foreach ($iStmt->fetchAll(PDO::FETCH_ASSOC) as $img) { if (file_exists($img['file_path'])) unlink($img['file_path']); }
+        $pdo->prepare("DELETE FROM task_notes WHERE id=? AND user_id=?")->execute([$note_id, $user_id]);
+        echo json_encode(['success' => true]);
+    } catch (PDOException $e) { echo json_encode(['success' => false, 'error' => $e->getMessage()]); }
+    exit;
+}
+
+// POST: eliminar imagem de nota de task
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_task_note_image') {
+    header('Content-Type: application/json');
+    $image_id = (int)($_POST['image_id'] ?? 0);
+    $user_id = (int)$_SESSION['user_id'];
+    try {
+        $stmt = $pdo->prepare("SELECT tni.file_path FROM task_note_images tni JOIN task_notes tn ON tni.note_id=tn.id WHERE tni.id=? AND tn.user_id=?");
+        $stmt->execute([$image_id, $user_id]);
+        $img = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($img) {
+            if (file_exists($img['file_path'])) unlink($img['file_path']);
+            $pdo->prepare("DELETE FROM task_note_images WHERE id=?")->execute([$image_id]);
+            echo json_encode(['success' => true]);
+        } else { echo json_encode(['success' => false, 'error' => 'Sem permissão']); }
+    } catch (PDOException $e) { echo json_encode(['success' => false, 'error' => $e->getMessage()]); }
     exit;
 }
 
@@ -624,6 +770,55 @@ textarea.form-control {
 .btn-danger:hover {
     background: #c82333;
 }
+
+/* Task Notes */
+.tn-user-block { border:1px solid #e9ecef; border-radius:8px; overflow:hidden; margin-bottom:6px; }
+.tn-user-header { display:flex; align-items:center; gap:8px; padding:8px 12px; cursor:pointer; background:#f8f9fa; user-select:none; }
+.tn-user-header:hover { background:#e9ecef; }
+.tn-collapsed .tn-chevron { transform:rotate(-90deg); }
+.tn-chevron { transition:transform .2s; }
+.tn-avatar { width:28px; height:28px; border-radius:50%; background:#6c757d; color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0; }
+.tn-avatar-me { background:#0d6efd; }
+.tn-user-notes { padding:8px; }
+.tn-note-item { padding:8px; border-bottom:1px solid #f0f0f0; }
+.tn-note-item:last-child { border-bottom:none; }
+.tn-note-meta { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; }
+.tn-note-md-view { font-size:13px; color:#333; line-height:1.6; }
+.tn-note-md-view p { margin:0 0 .4em; }
+.tn-note-md-view ul,.tn-note-md-view ol { padding-left:1.4em; margin:.3em 0; }
+.tn-note-md-view code { background:#f0f0f0; border-radius:3px; padding:1px 4px; font-size:12px; }
+.tn-note-md-view h1,.tn-note-md-view h2,.tn-note-md-view h3 { font-size:14px; font-weight:700; margin:.5em 0 .2em; }
+.tn-note-md-view blockquote { border-left:3px solid #ccc; margin:.3em 0; padding-left:8px; color:#666; }
+.tn-note-md-view a { color:#0d6efd; }
+.tn-note-md-view img { max-width:100%; max-height:280px; border-radius:4px; border:1px solid #dee2e6; cursor:zoom-in; display:block; margin:6px 0; }
+.tn-note-images { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.tn-img-wrap img { width:72px; height:72px; object-fit:cover; border-radius:4px; cursor:zoom-in; border:1px solid #dee2e6; }
+.tn-note-edit-area { margin-top:8px; padding:8px; background:#f8f9fa; border-radius:6px; border:1px solid #dee2e6; }
+.tn-editor-tabs { display:flex; gap:4px; margin-bottom:4px; }
+.tn-tab { border:1px solid #dee2e6; border-radius:4px; padding:2px 10px; font-size:12px; cursor:pointer; background:#fff; color:#6c757d; transition:all .15s; }
+.tn-tab.active { border-color:#0d6efd; color:#0d6efd; font-weight:600; }
+.tn-tab:hover:not(.active) { background:#e9ecef; }
+.tn-md-toolbar { display:flex; align-items:center; gap:3px; flex-wrap:wrap; background:#f1f3f5; border:1px solid #dee2e6; border-bottom:none; border-radius:4px 4px 0 0; padding:4px 6px; }
+.tn-md-toolbar button { border:1px solid #ced4da; background:#fff; border-radius:3px; padding:1px 6px; font-size:11px; cursor:pointer; line-height:1.6; white-space:nowrap; }
+.tn-md-toolbar button:hover { background:#e9ecef; }
+.tn-sep { width:1px; height:16px; background:#ced4da; margin:0 2px; flex-shrink:0; }
+.tn-md-toolbar + .tn-md-textarea { border-radius:0 0 4px 4px; }
+.tn-md-textarea { width:100%; font-size:13px; font-family:monospace; border:1px solid #ced4da; border-radius:0 0 4px 4px; padding:6px 8px; }
+.tn-md-live-preview { border:1px solid #ced4da; border-radius:4px; min-height:80px; padding:8px 12px; font-size:13px; line-height:1.6; background:#fff; }
+.tn-md-live-preview p { margin:0 0 .4em; }
+.tn-md-live-preview ul,.tn-md-live-preview ol { padding-left:1.4em; margin:.3em 0; }
+.tn-md-live-preview code { background:#f0f0f0; border-radius:3px; padding:1px 4px; font-size:12px; }
+.tn-md-live-preview h1,.tn-md-live-preview h2,.tn-md-live-preview h3 { font-size:14px; font-weight:700; margin:.5em 0 .2em; }
+.tn-md-live-preview blockquote { border-left:3px solid #ccc; margin:.3em 0; padding-left:8px; color:#666; }
+.tn-md-live-preview img { max-width:100%; max-height:280px; border-radius:4px; border:1px solid #dee2e6; display:block; margin:6px 0; }
+.tn-edit-img-gallery { background:#fff; border:1px solid #e9ecef; border-radius:4px; padding:8px; margin-top:6px; }
+.tn-edit-img-ref { position:relative; width:64px; height:64px; cursor:pointer; border-radius:4px; overflow:hidden; border:2px solid transparent; transition:border-color .15s; flex-shrink:0; }
+.tn-edit-img-ref:hover { border-color:#0d6efd; }
+.tn-edit-img-ref img { width:100%; height:100%; object-fit:cover; }
+.tn-edit-img-ref-overlay { position:absolute; inset:0; background:rgba(13,110,253,.4); display:flex; align-items:center; justify-content:center; color:#fff; font-size:16px; opacity:0; transition:opacity .15s; }
+.tn-edit-img-ref:hover .tn-edit-img-ref-overlay { opacity:1; }
+#tn-lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:99999; align-items:center; justify-content:center; cursor:zoom-out; }
+#tn-lightbox img { max-width:90vw; max-height:90vh; border-radius:6px; }
 </style>
 
 <!-- Modal HTML -->
@@ -744,13 +939,75 @@ textarea.form-control {
                     </div>
                 </div>
             </form>
+
+            <!-- Notas por utilizador -->
+            <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e9ecef;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                    <label style="margin:0;font-weight:600;font-size:14px;">💬 Notas</label>
+                    <button type="button" onclick="tnToggleAdd()"
+                        style="background:#28a745;color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:12px;cursor:pointer;">
+                        + Adicionar nota
+                    </button>
+                </div>
+                <div id="tn-add-form" style="display:none;margin-bottom:10px;padding:10px;background:#f8f9fa;border-radius:6px;border:1px solid #dee2e6;">
+                    <div class="tn-editor-wrap">
+                        <div class="tn-editor-tabs">
+                            <button type="button" class="tn-tab active" onclick="tnEditorTab(this,'write')">Escrever</button>
+                            <button type="button" class="tn-tab" onclick="tnEditorTab(this,'preview')">Pré-visualizar</button>
+                        </div>
+                        <div class="tn-md-toolbar">
+                            <button type="button" onclick="tnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
+                            <button type="button" onclick="tnMdWrap(this,'*','*')" title="Itálico"><em>I</em></button>
+                            <button type="button" onclick="tnMdWrap(this,'***','***')" title="BI"><b><em>BI</em></b></button>
+                            <button type="button" onclick="tnMdWrap(this,'~~','~~')" title="Riscado"><s>S</s></button>
+                            <span class="tn-sep"></span>
+                            <button type="button" onclick="tnMdWrap(this,'`','`')" title="Código inline"><code>c</code></button>
+                            <button type="button" onclick="tnMdBlock(this,'```\n','\n```')" title="Bloco"><code>```</code></button>
+                            <span class="tn-sep"></span>
+                            <button type="button" onclick="tnMdInsert(this,'# ')" style="font-weight:700;">H1</button>
+                            <button type="button" onclick="tnMdInsert(this,'## ')" style="font-weight:700;">H2</button>
+                            <button type="button" onclick="tnMdInsert(this,'### ')" style="font-weight:700;">H3</button>
+                            <span class="tn-sep"></span>
+                            <button type="button" onclick="tnMdInsert(this,'- ')">• ≡</button>
+                            <button type="button" onclick="tnMdInsert(this,'1. ')">1.</button>
+                            <button type="button" onclick="tnMdInsert(this,'- [ ] ')">☐</button>
+                            <span class="tn-sep"></span>
+                            <button type="button" onclick="tnMdInsert(this,'> ')">❝</button>
+                            <button type="button" onclick="tnMdWrap(this,'[','](url)')">🔗</button>
+                            <button type="button" onclick="tnMdInsertLine(this,'---')">—</button>
+                            <button type="button" onclick="tnMdTable(this)">⊞</button>
+                        </div>
+                        <textarea id="tn-add-text" class="tn-md-textarea" rows="4"
+                                  placeholder="Suporta **Markdown**…"></textarea>
+                        <div class="tn-md-live-preview" style="display:none;"></div>
+                    </div>
+                    <div style="margin-top:8px;">
+                        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Imagens (opcional)</label>
+                        <input type="file" id="tn-add-images" accept="image/*" multiple style="font-size:12px;"
+                               onchange="tnPreviewImages(this,'tn-add-preview')">
+                        <div id="tn-add-preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;"></div>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:10px;">
+                        <button type="button" class="btn btn-sm btn-primary" onclick="tnAddNote()"
+                            style="padding:4px 12px;font-size:12px;">Guardar</button>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="tnToggleAdd()"
+                            style="padding:4px 12px;font-size:12px;">Cancelar</button>
+                    </div>
+                </div>
+                <div id="tn-notes-list"></div>
+            </div>
         </div>
-        
+
         <div class="task-editor-footer">
             <button type="button" class="btn btn-secondary" onclick="closeTaskEditor()">Cancelar</button>
             <button type="button" class="btn btn-primary" onclick="saveTask()">💾 Guardar</button>
         </div>
     </div>
+</div>
+
+<!-- Lightbox de notas -->
+<div id="tn-lightbox" onclick="this.style.display='none'">
+    <img src="" alt="">
 </div>
 
 <script>
@@ -790,6 +1047,9 @@ function openTaskEditor(taskId) {
                 updatePreview();
                 toggleEditMode();
                 
+                // Carregar notas
+                tnLoadNotes(data.task.id);
+
                 // Mostrar modal
                 window._taskEditorDirty = false;
                 document.getElementById('task-editor-unsaved').classList.remove('active');
@@ -1034,6 +1294,301 @@ document.getElementById('task-editor-form').addEventListener('input', function()
 document.getElementById('task-editor-form').addEventListener('change', function() {
     window._taskEditorDirty = true;
 });
+
+/* ===== TASK NOTES ===== */
+var _tnCurrentTaskId = null;
+var _tnCurrentUserId = null;
+
+function tnLoadNotes(taskId) {
+    _tnCurrentTaskId = taskId;
+    document.getElementById('tn-notes-list').innerHTML = '<p style="color:#999;font-size:12px;padding:6px;">A carregar…</p>';
+    fetch('edit_task.php?action=get_task_notes&task_id=' + taskId)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            _tnCurrentUserId = data.current_user_id;
+            tnRenderNotes(data.notes, data.current_user_id);
+        }
+    });
+}
+
+function tnToggleAdd() {
+    var f = document.getElementById('tn-add-form');
+    var showing = f.style.display !== 'none';
+    f.style.display = showing ? 'none' : 'block';
+    if (!showing) {
+        var wrap = f.querySelector('.tn-editor-wrap');
+        if (wrap) {
+            var tabs = wrap.querySelectorAll('.tn-tab');
+            tabs[0].classList.add('active'); tabs[1].classList.remove('active');
+            wrap.querySelector('.tn-md-toolbar').style.display = '';
+            wrap.querySelector('.tn-md-textarea').style.display = '';
+            wrap.querySelector('.tn-md-live-preview').style.display = 'none';
+        }
+        document.getElementById('tn-add-text').focus();
+    }
+}
+
+function tnAddNote() {
+    var taskId = _tnCurrentTaskId;
+    var text = document.getElementById('tn-add-text').value.trim();
+    var files = document.getElementById('tn-add-images').files;
+    var fd = new FormData();
+    fd.append('action', 'add_task_note');
+    fd.append('task_id', taskId);
+    fd.append('note_text', text);
+    Array.from(files).forEach(function(f) { fd.append('note_images[]', f); });
+    fetch('edit_task.php', {method:'POST', body:fd})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            document.getElementById('tn-add-text').value = '';
+            document.getElementById('tn-add-preview').innerHTML = '';
+            document.getElementById('tn-add-images').value = '';
+            document.getElementById('tn-add-form').style.display = 'none';
+            tnLoadNotes(taskId);
+        } else { alert('Erro: ' + (data.error || 'desconhecido')); }
+    });
+}
+
+function tnRenderNotes(notes, currentUserId) {
+    var container = document.getElementById('tn-notes-list');
+    if (!notes.length) {
+        container.innerHTML = '<p style="color:#999;font-size:13px;text-align:center;padding:8px;">Nenhuma nota ainda.</p>';
+        return;
+    }
+    var byUser = {};
+    notes.forEach(function(n) {
+        if (!byUser[n.user_id]) byUser[n.user_id] = {username: n.username, notes: []};
+        byUser[n.user_id].notes.push(n);
+    });
+    var html = '';
+    Object.keys(byUser).forEach(function(uid) {
+        var udata = byUser[uid];
+        var isMe = (parseInt(uid) === parseInt(currentUserId));
+        var initial = udata.username.charAt(0).toUpperCase();
+        html += '<div class="tn-user-block">';
+        html += '<div class="tn-user-header tn-collapsed" onclick="tnToggleUser(this)">';
+        html += '<span class="tn-avatar' + (isMe ? ' tn-avatar-me' : '') + '">' + initial + '</span>';
+        html += '<span style="font-weight:600;font-size:14px;">' + tnH(udata.username);
+        if (isMe) html += '<span style="font-size:10px;font-weight:400;background:#6c757d;color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;">Eu</span>';
+        html += '</span>';
+        html += '<span style="font-size:12px;color:#6c757d;margin-left:4px;">(' + udata.notes.length + ')</span>';
+        html += '<i class="bi bi-chevron-down tn-chevron" style="margin-left:auto;font-size:12px;"></i></div>';
+        html += '<div class="tn-user-notes" style="display:none;">';
+        udata.notes.forEach(function(note) { html += tnNoteHtml(note, isMe); });
+        html += '</div></div>';
+    });
+    container.innerHTML = html;
+    container.querySelectorAll('.tn-note-md-view').forEach(function(el) {
+        var raw = el.dataset.raw || '';
+        el.innerHTML = raw ? marked.parse(raw) : '';
+    });
+}
+
+function tnNoteHtml(note, canEdit) {
+    var dt = note.created_at ? note.created_at.replace(' ', 'T') : '';
+    var dtObj = dt ? new Date(dt) : null;
+    var dtStr = dtObj ? dtObj.toLocaleDateString('pt-PT') + ' ' + dtObj.toLocaleTimeString('pt-PT', {hour:'2-digit',minute:'2-digit'}) : '';
+    var html = '<div class="tn-note-item" id="tn-note-' + note.id + '">';
+    html += '<div class="tn-note-meta">';
+    html += '<small style="color:#6c757d;">' + dtStr + '</small>';
+    if (canEdit) {
+        html += '<span style="display:flex;gap:4px;">';
+        html += '<button type="button" class="btn btn-sm" style="padding:1px 6px;font-size:11px;border:1px solid #6c757d;background:#fff;border-radius:3px;cursor:pointer;" onclick="tnStartEdit(' + note.id + ')"><i class="bi bi-pencil"></i></button>';
+        html += '<button type="button" class="btn btn-sm" style="padding:1px 6px;font-size:11px;border:1px solid #dc3545;color:#dc3545;background:#fff;border-radius:3px;cursor:pointer;" onclick="tnDeleteNote(' + note.id + ')"><i class="bi bi-trash"></i></button>';
+        html += '</span>';
+    }
+    html += '</div>';
+    html += '<div class="tn-note-md-view" data-raw="' + tnA(note.note_text) + '"></div>';
+    if (note.images && note.images.length) {
+        html += '<div class="tn-note-images">';
+        note.images.forEach(function(img) {
+            html += '<div class="tn-img-wrap"><img src="' + tnH(img.file_path) + '" onclick="tnLightbox(this.src)" title="' + tnA(img.original_name) + '"></div>';
+        });
+        html += '</div>';
+    }
+    if (canEdit) {
+        html += '<div class="tn-note-edit-area" style="display:none;">';
+        html += '<div class="tn-editor-wrap">';
+        html += '<div class="tn-editor-tabs"><button type="button" class="tn-tab active" onclick="tnEditorTab(this,\'write\')">Escrever</button><button type="button" class="tn-tab" onclick="tnEditorTab(this,\'preview\')">Pré-visualizar</button></div>';
+        html += '<div class="tn-md-toolbar"><button type="button" onclick="tnMdWrap(this,\'**\',\'**\')"><b>B</b></button><button type="button" onclick="tnMdWrap(this,\'*\',\'*\')"><em>I</em></button><button type="button" onclick="tnMdWrap(this,\'***\',\'***\')"><b><em>BI</em></b></button><button type="button" onclick="tnMdWrap(this,\'~~\',\'~~\')"><s>S</s></button><span class="tn-sep"></span><button type="button" onclick="tnMdWrap(this,\'`\',\'`\')"><code>c</code></button><button type="button" onclick="tnMdBlock(this,\'```\\n\',\'\\n```\')"><code>```</code></button><span class="tn-sep"></span><button type="button" onclick="tnMdInsert(this,\'# \')">H1</button><button type="button" onclick="tnMdInsert(this,\'## \')">H2</button><button type="button" onclick="tnMdInsert(this,\'### \')">H3</button><span class="tn-sep"></span><button type="button" onclick="tnMdInsert(this,\'- \')">• ≡</button><button type="button" onclick="tnMdInsert(this,\'1. \')">1.</button><button type="button" onclick="tnMdInsert(this,\'- [ ] \')">☐</button><span class="tn-sep"></span><button type="button" onclick="tnMdInsert(this,\'> \')">❝</button><button type="button" onclick="tnMdWrap(this,\'[\',\'](url)\')">🔗</button><button type="button" onclick="tnMdInsertLine(this,\'---\')">—</button><button type="button" onclick="tnMdTable(this)">⊞</button></div>';
+        html += '<textarea class="tn-md-textarea" rows="4">' + tnT(note.note_text) + '</textarea>';
+        html += '<div class="tn-md-live-preview" style="display:none;"></div>';
+        html += '</div>';
+        if (note.images && note.images.length) {
+            html += '<div class="tn-edit-img-gallery"><div style="font-size:12px;color:#6c757d;margin-bottom:4px;">Clica numa imagem para inserir no texto:</div><div style="display:flex;flex-wrap:wrap;gap:6px;">';
+            note.images.forEach(function(img) {
+                html += '<div class="tn-edit-img-ref" onclick="tnInsertImgRef(' + note.id + ',\'' + tnJ(img.file_path) + '\',\'' + tnJ(img.original_name) + '\')" title="' + tnA(img.original_name) + '">';
+                html += '<img src="' + tnH(img.file_path) + '" alt=""><div class="tn-edit-img-ref-overlay"><i class="bi bi-plus-circle-fill"></i></div></div>';
+            });
+            html += '</div></div>';
+        }
+        html += '<div style="margin-top:8px;"><label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Adicionar imagens</label>';
+        html += '<input type="file" accept="image/*" multiple style="font-size:12px;" onchange="tnPreviewImages(this,\'tn-edit-preview-' + note.id + '\')">';
+        html += '<div id="tn-edit-preview-' + note.id + '" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;"></div></div>';
+        html += '<div style="display:flex;gap:8px;margin-top:10px;">';
+        html += '<button type="button" class="btn btn-sm btn-primary" onclick="tnSaveEdit(' + note.id + ')" style="padding:4px 12px;font-size:12px;">Guardar</button>';
+        html += '<button type="button" class="btn btn-sm btn-secondary" onclick="tnCancelEdit(' + note.id + ')" style="padding:4px 12px;font-size:12px;">Cancelar</button>';
+        html += '</div></div>';
+    }
+    html += '</div>';
+    return html;
+}
+
+function tnToggleUser(header) {
+    var notes = header.nextElementSibling;
+    var collapsed = header.classList.toggle('tn-collapsed');
+    notes.style.display = collapsed ? 'none' : 'block';
+}
+
+function tnStartEdit(noteId) {
+    var item = document.getElementById('tn-note-' + noteId);
+    item.querySelector('.tn-note-md-view').style.display = 'none';
+    var ea = item.querySelector('.tn-note-edit-area');
+    ea.style.display = 'block';
+    var wrap = ea.querySelector('.tn-editor-wrap');
+    if (wrap) {
+        var tabs = wrap.querySelectorAll('.tn-tab');
+        tabs[0].classList.add('active'); tabs[1].classList.remove('active');
+        wrap.querySelector('.tn-md-toolbar').style.display = '';
+        wrap.querySelector('.tn-md-textarea').style.display = '';
+        wrap.querySelector('.tn-md-live-preview').style.display = 'none';
+    }
+    ea.querySelector('textarea').focus();
+    var btns = item.querySelector('.tn-note-meta span');
+    if (btns) btns.style.visibility = 'hidden';
+}
+
+function tnCancelEdit(noteId) {
+    var item = document.getElementById('tn-note-' + noteId);
+    item.querySelector('.tn-note-md-view').style.display = '';
+    item.querySelector('.tn-note-edit-area').style.display = 'none';
+    var btns = item.querySelector('.tn-note-meta span');
+    if (btns) btns.style.visibility = '';
+}
+
+function tnSaveEdit(noteId) {
+    var item = document.getElementById('tn-note-' + noteId);
+    var ta = item.querySelector('.tn-note-edit-area .tn-md-textarea');
+    var fileInput = item.querySelector('.tn-note-edit-area input[type=file]');
+    var fd = new FormData();
+    fd.append('action', 'edit_task_note');
+    fd.append('note_id', noteId);
+    fd.append('note_text', ta.value);
+    if (fileInput && fileInput.files.length) {
+        Array.from(fileInput.files).forEach(function(f) { fd.append('note_images[]', f); });
+    }
+    fetch('edit_task.php', {method:'POST', body:fd})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) { tnLoadNotes(_tnCurrentTaskId); }
+        else { alert('Erro: ' + (data.error || 'desconhecido')); }
+    });
+}
+
+function tnDeleteNote(noteId) {
+    if (!confirm('Eliminar esta nota?')) return;
+    var fd = new FormData();
+    fd.append('action', 'delete_task_note');
+    fd.append('note_id', noteId);
+    fetch('edit_task.php', {method:'POST', body:fd})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) { tnLoadNotes(_tnCurrentTaskId); }
+        else { alert('Erro: ' + (data.error || 'desconhecido')); }
+    });
+}
+
+function tnEditorTab(btn, mode) {
+    var wrap = btn.closest('.tn-editor-wrap');
+    var toolbar = wrap.querySelector('.tn-md-toolbar');
+    var ta = wrap.querySelector('.tn-md-textarea');
+    var preview = wrap.querySelector('.tn-md-live-preview');
+    wrap.querySelectorAll('.tn-tab').forEach(function(t) { t.classList.toggle('active', t === btn); });
+    if (mode === 'preview') {
+        toolbar.style.display = 'none'; ta.style.display = 'none'; preview.style.display = '';
+        preview.innerHTML = (typeof marked !== 'undefined') ? marked.parse(ta.value || '') : ta.value;
+    } else {
+        toolbar.style.display = ''; ta.style.display = ''; preview.style.display = 'none'; ta.focus();
+    }
+}
+
+function tnPreviewImages(input, previewId) {
+    var preview = document.getElementById(previewId);
+    if (!preview) return;
+    preview.innerHTML = '';
+    Array.from(input.files).forEach(function(f) {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            var img = document.createElement('img');
+            img.src = e.target.result;
+            img.style.cssText = 'width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid #dee2e6;';
+            preview.appendChild(img);
+        };
+        reader.readAsDataURL(f);
+    });
+}
+
+function tnInsertImgRef(noteId, path, alt) {
+    var ta = document.querySelector('#tn-note-' + noteId + ' .tn-note-edit-area .tn-md-textarea');
+    if (!ta) return;
+    var text = '![' + alt + '](' + path + ')';
+    var s = ta.selectionStart, e = ta.selectionEnd;
+    ta.value = ta.value.substring(0, s) + text + ta.value.substring(e);
+    ta.selectionStart = ta.selectionEnd = s + text.length;
+    ta.focus();
+}
+
+function tnLightbox(src) {
+    var lb = document.getElementById('tn-lightbox');
+    lb.querySelector('img').src = src;
+    lb.style.display = 'flex';
+}
+
+/* MD toolbar helpers */
+function tnMdWrap(btn, before, after) {
+    var ta = btn.closest('.tn-md-toolbar').nextElementSibling;
+    var s = ta.selectionStart, e = ta.selectionEnd;
+    var sel = ta.value.substring(s, e) || 'texto';
+    ta.value = ta.value.substring(0, s) + before + sel + after + ta.value.substring(e);
+    ta.focus(); ta.selectionStart = s + before.length; ta.selectionEnd = s + before.length + sel.length;
+}
+function tnMdInsert(btn, prefix) {
+    var ta = btn.closest('.tn-md-toolbar').nextElementSibling;
+    var s = ta.selectionStart;
+    var lineStart = ta.value.lastIndexOf('\n', s - 1) + 1;
+    ta.value = ta.value.substring(0, lineStart) + prefix + ta.value.substring(lineStart);
+    ta.focus(); ta.selectionStart = ta.selectionEnd = lineStart + prefix.length;
+}
+function tnMdBlock(btn, before, after) {
+    var ta = btn.closest('.tn-md-toolbar').nextElementSibling;
+    var s = ta.selectionStart, e = ta.selectionEnd;
+    var sel = ta.value.substring(s, e) || 'código';
+    var needsBefore = s > 0 && ta.value[s - 1] !== '\n' ? '\n' : '';
+    var needsAfter  = e < ta.value.length && ta.value[e] !== '\n' ? '\n' : '';
+    var ins = needsBefore + before + sel + after + needsAfter;
+    ta.value = ta.value.substring(0, s) + ins + ta.value.substring(e);
+    ta.focus();
+}
+function tnMdInsertLine(btn, text) {
+    var ta = btn.closest('.tn-md-toolbar').nextElementSibling;
+    var s = ta.selectionStart;
+    var pre = ta.value.substring(0, s);
+    var post = ta.value.substring(s);
+    ta.value = pre + (pre.endsWith('\n') || pre === '' ? '' : '\n') + text + '\n' + post;
+    ta.focus();
+}
+function tnMdTable(btn) {
+    var tbl = '| Col 1 | Col 2 | Col 3 |\n|-------|-------|-------|\n| A     | B     | C     |\n';
+    tnMdInsertLine(btn, tbl);
+}
+
+/* Escape helpers */
+function tnH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function tnA(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function tnT(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function tnJ(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
 // Fechar ao clicar fora (backdrop)
 document.addEventListener('click', function(e) {

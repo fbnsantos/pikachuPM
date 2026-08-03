@@ -39,8 +39,19 @@ if ($action === 'upload') {
         exit;
     }
 
-    if ($file['size'] > 50 * 1024 * 1024) {
-        echo json_encode(['success' => false, 'error' => 'Ficheiro demasiado grande (máx. 50MB)']);
+    @ini_set('upload_max_filesize', '500M');
+    @ini_set('post_max_size', '505M');
+    @ini_set('max_execution_time', '600');
+    @ini_set('memory_limit', '512M');
+
+    $video_exts  = ['mp4','webm','mov','avi','mkv','m4v','ogv','3gp'];
+    $max_size    = in_array(strtolower(pathinfo($file['name'], PATHINFO_EXTENSION)), $video_exts)
+                   ? 500 * 1024 * 1024   // 500 MB para vídeos
+                   : 100 * 1024 * 1024;  // 100 MB para outros
+
+    if ($file['size'] > $max_size) {
+        $maxLabel = in_array(strtolower(pathinfo($file['name'], PATHINFO_EXTENSION)), $video_exts) ? '500MB' : '100MB';
+        echo json_encode(['success' => false, 'error' => "Ficheiro demasiado grande (máx. $maxLabel)"]);
         exit;
     }
 

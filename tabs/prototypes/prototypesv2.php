@@ -5475,7 +5475,7 @@ document.getElementById('versionDetailModal').addEventListener('show.bs.modal', 
                     <p class="mb-1 mt-2 text-muted">Arraste ficheiros aqui ou clique para selecionar</p>
                     <p class="small text-muted mb-0">Imagens, PDF, Office, TXT, CSV, ZIP — máx. 50MB</p>
                     <input type="file" id="attachFileInput" style="display:none;"
-                           accept=".jpg,.jpeg,.png,.gif,.webp,.svg,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" multiple>
+                           accept=".jpg,.jpeg,.png,.gif,.webp,.svg,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.mp4,.webm,.mov,.avi,.mkv,.m4v,.ogv,.3gp" multiple>
                 </div>
                 <div id="attachUploadProgress" style="display:none;" class="mb-3">
                     <div class="progress">
@@ -5510,21 +5510,35 @@ function loadAttachments() {
                 return;
             }
             const imageExts = ['jpg','jpeg','png','gif','webp','svg'];
+            const videoExts = ['mp4','webm','mov','avi','mkv','m4v','ogv','3gp'];
             gallery.innerHTML = files.map(f => {
                 const ext = f.file_name.split('.').pop().toLowerCase();
-                const isImg = imageExts.includes(ext);
+                const isImg   = imageExts.includes(ext);
+                const isVideo = videoExts.includes(ext);
                 const size = formatBytes(f.file_size);
                 const date = f.uploaded_at ? f.uploaded_at.substring(0,10).split('-').reverse().join('/') : '';
                 const basePath = '<?= rtrim(dirname($_SERVER['PHP_SELF']), '/') ?>/' + f.file_path;
-                const thumb = isImg
-                    ? `<a href="${basePath}" target="_blank"><img src="${basePath}" style="width:100%; height:80px; object-fit:cover; border-radius:4px;"></a>`
-                    : `<div style="font-size:2rem; text-align:center; padding:12px;"><i class="bi bi-file-earmark"></i></div>`;
+                let thumb;
+                if (isImg) {
+                    thumb = `<a href="${basePath}" target="_blank"><img src="${basePath}" style="width:100%; height:80px; object-fit:cover; border-radius:4px;"></a>`;
+                } else if (isVideo) {
+                    thumb = `<video src="${basePath}" controls preload="metadata"
+                        style="width:100%; height:80px; object-fit:cover; border-radius:4px; background:#000;"
+                        onclick="event.stopPropagation()"></video>`;
+                } else {
+                    const ficons = {pdf:'bi-file-pdf',doc:'bi-file-word',docx:'bi-file-word',xls:'bi-file-excel',xlsx:'bi-file-excel',ppt:'bi-file-ppt',pptx:'bi-file-ppt',txt:'bi-file-text',csv:'bi-file-spreadsheet',zip:'bi-file-zip'};
+                    const ico = ficons[ext] || 'bi-file-earmark';
+                    thumb = `<a href="${basePath}" target="_blank" style="text-decoration:none;"><div style="font-size:2rem; text-align:center; padding:12px; color:#6c757d;"><i class="bi ${ico}"></i></div></a>`;
+                }
                 return `<div class="col-6 col-md-3">
                     <div class="border rounded p-2 h-100 d-flex flex-column">
                         ${thumb}
                         <div class="small mt-1 text-truncate" title="${f.file_name}">${f.file_name}</div>
                         <div class="small text-muted">${size} · ${date}</div>
-                        <button class="btn btn-sm btn-outline-danger mt-auto" onclick="deleteAttachment(${f.id})"><i class="bi bi-trash"></i></button>
+                        <div class="d-flex gap-1 mt-auto pt-1">
+                            <a href="${basePath}" target="_blank" class="btn btn-sm btn-outline-secondary flex-fill" title="Abrir"><i class="bi bi-box-arrow-up-right"></i></a>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteAttachment(${f.id})" title="Eliminar"><i class="bi bi-trash"></i></button>
+                        </div>
                     </div>
                 </div>`;
             }).join('');

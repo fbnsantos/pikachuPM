@@ -732,7 +732,7 @@ if ($has_local_auth && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['edit_username'])) {
         $user_id = (int)$_POST['user_id'];
         $new_username = trim($_POST['new_username']);
-        
+
         if (empty($new_username)) {
             $erro_users = "❌ O username não pode estar vazio.";
         } elseif (strlen($new_username) < 3) {
@@ -743,7 +743,7 @@ if ($has_local_auth && $_SERVER['REQUEST_METHOD'] === 'POST') {
             // Verificar se o novo username já existe (para outro utilizador)
             $stmt = $pdo->prepare("SELECT id FROM user_tokens WHERE username = ? AND id != ?");
             $stmt->execute([$new_username, $user_id]);
-            
+
             if ($stmt->rowCount() > 0) {
                 $erro_users = "❌ Já existe um utilizador com o username '$new_username'.";
             } else {
@@ -752,18 +752,91 @@ if ($has_local_auth && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$user_id]);
                 $user_data = $stmt->fetch(PDO::FETCH_ASSOC);
                 $old_username = $user_data['username'];
-                
+
                 // Atualizar username
                 $stmt = $pdo->prepare("UPDATE user_tokens SET username = ? WHERE id = ?");
-                
+
                 if ($stmt->execute([$new_username, $user_id])) {
                     // Atualizar também em admin_users se o utilizador for admin
                     $stmt = $pdo->prepare("UPDATE admin_users SET username = ? WHERE user_id = ?");
                     $stmt->execute([$new_username, $user_data['user_id']]);
-                    
+
                     $mensagem_users = "✅ Username alterado de '$old_username' para '$new_username'!";
                 } else {
                     $erro_users = "❌ Erro ao alterar username.";
+                }
+            }
+        }
+    }
+
+    // GUARDAR PERMISSÕES DE TABS
+    if (isset($_POST['save_tab_permissions'])) {
+        $target_uid = (int)$_POST['target_user_id'];
+        $selected_tabs = $_POST['allowed_tabs'] ?? [];
+        $selected_tabs = array_values(array_filter(array_map('trim', (array)$selected_tabs)));
+
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS user_tab_access (
+                user_id INT PRIMARY KEY,
+                allowed_tabs TEXT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+            if (empty($selected_tabs)) {
+                // Sem restrição = acesso total → remover linha
+                $pdo->prepare("DELETE FROM user_tab_access WHERE user_id = ?")->execute([$target_uid]);
+                $mensagem_users = "✅ Acesso total restaurado para este utilizador.";
+            } else {
+                $pdo->prepare("INSERT INTO user_tab_access (user_id, allowed_tabs) VALUES (?, ?)
+                    ON DUPLICATE KEY UPDATE allowed_tabs = VALUES(allowed_tabs)")
+                    ->execute([$target_uid, json_encode($selected_tabs)]);
+                $mensagem_users = "✅ Permissões de acesso guardadas (" . count($selected_tabs) . " módulo(s)).";
+            }
+        } catch (Exception $e) {
+            $erro_users = "❌ Erro ao guardar permissões: " . $e->getMessage();
+        }
+    }
+
+    // CRIAR UTILIZADOR LOCAL
+    if (isset($_POST['create_local_user'])) {
+        $nu_username  = trim($_POST['nu_username'] ?? '');
+        $nu_password  = $_POST['nu_password'] ?? '';
+        $nu_full_name = trim($_POST['nu_full_name'] ?? '');
+        $nu_email     = trim($_POST['nu_email'] ?? '');
+        $nu_tabs      = array_values(array_filter(array_map('trim', (array)($_POST['nu_allowed_tabs'] ?? []))));
+
+        if (strlen($nu_username) < 3) {
+            $erro_users = "❌ Username deve ter pelo menos 3 caracteres.";
+        } elseif (!preg_match('/^[a-zA-Z0-9._-]+$/', $nu_username)) {
+            $erro_users = "❌ Username só pode conter letras, números, . _ -";
+        } elseif (strlen($nu_password) < 6) {
+            $erro_users = "❌ Password deve ter pelo menos 6 caracteres.";
+        } else {
+            $check = $pdo->prepare("SELECT id FROM user_tokens WHERE username = ?");
+            $check->execute([$nu_username]);
+            if ($check->fetch()) {
+                $erro_users = "❌ Já existe um utilizador com esse username.";
+            } else {
+                try {
+                    $next_id_row = $pdo->query("SELECT COALESCE(MAX(user_id),0)+1 AS nid FROM user_tokens")->fetch(PDO::FETCH_ASSOC);
+                    $next_uid = (int)$next_id_row['nid'];
+                    $hash  = password_hash($nu_password, PASSWORD_BCRYPT);
+                    $token = bin2hex(random_bytes(32));
+                    $pdo->prepare("INSERT INTO user_tokens (user_id, username, token, password_hash, is_local_user, is_approved, full_name, email, approved_by, approved_at)
+                        VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?, NOW())")
+                        ->execute([$next_uid, $nu_username, $token, $hash, $nu_full_name ?: null, $nu_email ?: null, $current_user_id]);
+
+                    if (!empty($nu_tabs)) {
+                        $pdo->exec("CREATE TABLE IF NOT EXISTS user_tab_access (
+                            user_id INT PRIMARY KEY, allowed_tabs TEXT NULL,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                        $pdo->prepare("INSERT INTO user_tab_access (user_id, allowed_tabs) VALUES (?, ?)")
+                            ->execute([$next_uid, json_encode($nu_tabs)]);
+                    }
+                    $mensagem_users = "✅ Utilizador '$nu_username' criado com sucesso" . (!empty($nu_tabs) ? " (acesso restrito a " . count($nu_tabs) . " módulo(s))" : " (acesso total)") . ".";
+                } catch (Exception $e) {
+                    $erro_users = "❌ Erro ao criar utilizador: " . $e->getMessage();
                 }
             }
         }
@@ -796,6 +869,47 @@ if ($has_local_auth) {
     ");
     $approved_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
+    // Carregar permissões de tabs para cada utilizador aprovado
+    $user_tab_perms = [];
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS user_tab_access (
+            user_id INT PRIMARY KEY, allowed_tabs TEXT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        if (!empty($approved_users)) {
+            $uid_list = implode(',', array_map(fn($u) => (int)$u['user_id'], $approved_users));
+            $stmt_p = $pdo->query("SELECT user_id, allowed_tabs FROM user_tab_access WHERE user_id IN ($uid_list)");
+            foreach ($stmt_p->fetchAll(PDO::FETCH_ASSOC) as $pr) {
+                $user_tab_perms[$pr['user_id']] = json_decode($pr['allowed_tabs'], true) ?: [];
+            }
+        }
+    } catch (Exception $e) { /* ignore */ }
+
+    // Lista de todos os módulos disponíveis para selecção de permissões
+    $all_available_tabs = [
+        'dashboard'                  => 'Painel Principal',
+        'research_ideas'             => 'Research Ideas',
+        'equipment'                  => 'Infraestrutura',
+        'prototypes/prototypesv2'    => 'Prototypes',
+        'projectos'                  => 'Projects',
+        'sprints'                    => 'Sprints',
+        'gantt'                      => 'Gantt',
+        'todos'                      => 'To Do',
+        'phd_kanban'                 => 'PhD&MSc plan',
+        'leads'                      => 'Leads',
+        'equipa'                     => 'Daily Meeting',
+        'calendar'                   => 'Calendar',
+        'links'                      => 'Search & Links',
+        'search'                     => 'Search Redmine',
+        'bomlist/bomlist'            => 'Boom List',
+        'lab_management'             => 'Lab Management',
+        'contactos_comerciais'       => 'Contactos Comerciais',
+        'financeiro'                 => 'Financeiro',
+        'peer_evaluation'            => 'Avaliação entre Pares',
+        'skills'                     => 'Competências',
+        'admin'                      => 'Administration',
+    ];
+
     // Obter estatísticas de login (se a tabela existir)
     try {
         $stmt = $pdo->query("
@@ -820,6 +934,74 @@ if ($has_local_auth) {
 if ($has_local_auth):
 ?>
 
+<!-- CARD: CRIAR UTILIZADOR LOCAL -->
+<div class="card mb-4 shadow-sm">
+    <div class="card-header" style="background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%); color: white;">
+        <h3 class="mb-0">
+            <i class="bi bi-person-plus-fill"></i> Criar Utilizador Local
+        </h3>
+    </div>
+    <div class="card-body">
+        <?php if (!empty($mensagem_users) && isset($_POST['create_local_user'])): ?>
+            <div class="alert alert-success alert-dismissible fade show">
+                <?= htmlspecialchars($mensagem_users) ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+        <?php if (!empty($erro_users) && isset($_POST['create_local_user'])): ?>
+            <div class="alert alert-danger alert-dismissible fade show">
+                <?= htmlspecialchars($erro_users) ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+        <form method="post">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Username *</label>
+                    <input type="text" name="nu_username" class="form-control" required minlength="3" pattern="[a-zA-Z0-9._-]+" placeholder="utilizador123">
+                    <small class="text-muted">Mín. 3 caracteres; letras, números, . _ -</small>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Password *</label>
+                    <input type="password" name="nu_password" class="form-control" required minlength="6" placeholder="••••••">
+                    <small class="text-muted">Mínimo 6 caracteres</small>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Nome Completo</label>
+                    <input type="text" name="nu_full_name" class="form-control" placeholder="Nome Apelido">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Email</label>
+                    <input type="email" name="nu_email" class="form-control" placeholder="email@exemplo.com">
+                </div>
+                <div class="col-12">
+                    <label class="form-label fw-bold"><i class="bi bi-shield-lock"></i> Acesso restrito a módulos <small class="text-muted fw-normal">(deixar vazio = acesso total)</small></label>
+                    <div class="d-flex flex-wrap gap-2">
+                        <?php foreach ($all_available_tabs as $tk => $tl): ?>
+                            <div class="form-check form-check-inline border rounded px-3 py-1 <?= $tk === 'phd_kanban' ? 'border-primary bg-primary bg-opacity-10' : '' ?>">
+                                <input class="form-check-input" type="checkbox" name="nu_allowed_tabs[]"
+                                       value="<?= htmlspecialchars($tk) ?>"
+                                       id="nu_tab_<?= preg_replace('/[^a-z0-9]/i','_',$tk) ?>"
+                                       <?= $tk === 'phd_kanban' ? 'checked' : '' ?>>
+                                <label class="form-check-label small" for="nu_tab_<?= preg_replace('/[^a-z0-9]/i','_',$tk) ?>">
+                                    <?= htmlspecialchars($tl) ?>
+                                </label>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <small class="text-muted">O módulo <strong>PhD&MSc plan</strong> está pré-selecionado. Desmarcar tudo = acesso total.</small>
+                </div>
+            </div>
+            <div class="mt-3">
+                <button type="submit" name="create_local_user" class="btn btn-primary">
+                    <i class="bi bi-person-plus"></i> Criar Utilizador
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- CARD: GESTÃO DE UTILIZADORES LOCAIS -->
 <div class="card mb-4 shadow-sm">
     <div class="card-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
         <h3 class="mb-0">
@@ -929,6 +1111,11 @@ if ($has_local_auth):
                                     <td><?= $user['user_id'] ?></td>
                                     <td>
                                         <strong><?= htmlspecialchars($user['username']) ?></strong>
+                                        <?php if (!empty($user_tab_perms[$user['user_id']])): ?>
+                                            <br><span class="badge bg-primary mt-1" title="<?= htmlspecialchars(implode(', ', $user_tab_perms[$user['user_id']])) ?>">
+                                                <i class="bi bi-shield-lock-fill"></i> <?= count($user_tab_perms[$user['user_id']]) ?> módulo(s)
+                                            </span>
+                                        <?php endif; ?>
                                     </td>
                                     <td>
                                         <?= htmlspecialchars($user['full_name'] ?? 'N/A') ?>
@@ -948,38 +1135,101 @@ if ($has_local_auth):
                                         <?php endif; ?>
                                     </td>
                                     <td class="text-center">
+                                        <?php
+                                        $uPerms = $user_tab_perms[$user['user_id']] ?? null;
+                                        $hasRestriction = !empty($uPerms);
+                                        ?>
                                         <div class="btn-group" role="group">
+                                            <!-- Botão Permissões -->
+                                            <button type="button"
+                                                    class="btn btn-sm <?= $hasRestriction ? 'btn-primary' : 'btn-outline-primary' ?>"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#tabPermsModal<?= $user['id'] ?>"
+                                                    title="Gerir acesso a módulos">
+                                                <i class="bi bi-shield-lock<?= $hasRestriction ? '-fill' : '' ?>"></i>
+                                            </button>
+
                                             <!-- Botão Editar Username -->
-                                            <button type="button" class="btn btn-sm btn-info" 
-                                                    data-bs-toggle="modal" 
+                                            <button type="button" class="btn btn-sm btn-info"
+                                                    data-bs-toggle="modal"
                                                     data-bs-target="#editUsernameModal<?= $user['id'] ?>"
                                                     title="Editar Username">
                                                 <i class="bi bi-pencil-square"></i>
                                             </button>
-                                            
+
                                             <!-- Botão Reset Password -->
-                                            <button type="button" class="btn btn-sm btn-warning" 
-                                                    data-bs-toggle="modal" 
+                                            <button type="button" class="btn btn-sm btn-warning"
+                                                    data-bs-toggle="modal"
                                                     data-bs-target="#resetPasswordModal<?= $user['id'] ?>"
                                                     title="Reset Password">
                                                 <i class="bi bi-key"></i>
                                             </button>
-                                            
+
                                             <!-- Botão Bloquear -->
-                                            <button type="button" class="btn btn-sm btn-secondary" 
-                                                    data-bs-toggle="modal" 
+                                            <button type="button" class="btn btn-sm btn-secondary"
+                                                    data-bs-toggle="modal"
                                                     data-bs-target="#blockUserModal<?= $user['id'] ?>"
                                                     title="Bloquear">
                                                 <i class="bi bi-lock"></i>
                                             </button>
-                                            
+
                                             <!-- Botão Eliminar -->
-                                            <button type="button" class="btn btn-sm btn-danger" 
-                                                    data-bs-toggle="modal" 
+                                            <button type="button" class="btn btn-sm btn-danger"
+                                                    data-bs-toggle="modal"
                                                     data-bs-target="#deleteUserModal<?= $user['id'] ?>"
                                                     title="Eliminar">
                                                 <i class="bi bi-trash"></i>
                                             </button>
+                                        </div>
+
+                                        <!-- Modal: Permissões de Tabs -->
+                                        <div class="modal fade" id="tabPermsModal<?= $user['id'] ?>" tabindex="-1">
+                                            <div class="modal-dialog modal-lg">
+                                                <div class="modal-content">
+                                                    <div class="modal-header" style="background:linear-gradient(135deg,#0ea5e9,#6366f1);color:white;">
+                                                        <h5 class="modal-title">
+                                                            <i class="bi bi-shield-lock"></i> Acesso a Módulos — <?= htmlspecialchars($user['username']) ?>
+                                                        </h5>
+                                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                                    </div>
+                                                    <form method="post">
+                                                        <div class="modal-body">
+                                                            <input type="hidden" name="target_user_id" value="<?= $user['user_id'] ?>">
+                                                            <div class="alert alert-info py-2">
+                                                                <i class="bi bi-info-circle"></i>
+                                                                <strong>Sem seleção</strong> = acesso total a todos os módulos.<br>
+                                                                Com seleção, o utilizador só acede aos módulos marcados.
+                                                            </div>
+                                                            <div class="d-flex flex-wrap gap-2">
+                                                                <?php foreach ($all_available_tabs as $tk => $tl): ?>
+                                                                    <?php $isChecked = $hasRestriction && in_array($tk, $uPerms); ?>
+                                                                    <div class="form-check form-check-inline border rounded px-3 py-2 <?= $isChecked ? 'border-primary bg-primary bg-opacity-10' : '' ?>">
+                                                                        <input class="form-check-input" type="checkbox"
+                                                                               name="allowed_tabs[]"
+                                                                               value="<?= htmlspecialchars($tk) ?>"
+                                                                               id="tp_<?= $user['id'] ?>_<?= preg_replace('/[^a-z0-9]/i','_',$tk) ?>"
+                                                                               <?= $isChecked ? 'checked' : '' ?>>
+                                                                        <label class="form-check-label small"
+                                                                               for="tp_<?= $user['id'] ?>_<?= preg_replace('/[^a-z0-9]/i','_',$tk) ?>">
+                                                                            <?= htmlspecialchars($tl) ?>
+                                                                        </label>
+                                                                    </div>
+                                                                <?php endforeach; ?>
+                                                            </div>
+                                                        </div>
+                                                        <div class="modal-footer">
+                                                            <button type="button" class="btn btn-outline-secondary me-auto"
+                                                                    onclick="this.closest('form').querySelectorAll('input[type=checkbox]').forEach(c=>c.checked=false)">
+                                                                Desmarcar tudo (acesso total)
+                                                            </button>
+                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                            <button type="submit" name="save_tab_permissions" class="btn btn-primary">
+                                                                <i class="bi bi-save"></i> Guardar Permissões
+                                                            </button>
+                                                        </div>
+                                                    </form>
+                                                </div>
+                                            </div>
                                         </div>
                                         
                                         <!-- Modal: Editar Username -->

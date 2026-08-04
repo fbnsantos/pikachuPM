@@ -93,6 +93,27 @@ try {
     error_log("Erro ao buscar/gerar token API: " . $e->getMessage());
 }
 
+// Carregar restrições de tabs para este utilizador (NULL = acesso total)
+$allowed_tabs_for_user = null;
+try {
+    if (isset($pdo_config)) {
+        $pdo_config->exec("CREATE TABLE IF NOT EXISTS user_tab_access (
+            user_id INT PRIMARY KEY,
+            allowed_tabs TEXT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $stmt_ta = $pdo_config->prepare("SELECT allowed_tabs FROM user_tab_access WHERE user_id = ?");
+        $stmt_ta->execute([$_SESSION['user_id']]);
+        $ta_row = $stmt_ta->fetch(PDO::FETCH_ASSOC);
+        if ($ta_row && $ta_row['allowed_tabs'] !== null) {
+            $decoded = json_decode($ta_row['allowed_tabs'], true);
+            if (!empty($decoded)) $allowed_tabs_for_user = $decoded;
+        }
+    }
+} catch (Exception $e) {
+    error_log("Erro ao verificar permissões de tabs: " . $e->getMessage());
+}
+
 // Definição dos horários para reuniões e transições
 $HORA_REUNIAO_EQUIPA = "11:26"; // formato HH:MM - Hora para iniciar contagem para reunião
 $HORA_TRANSICAO_CALENDARIO = "12:00"; // formato HH:MM - Hora para transição para o calendário
@@ -107,7 +128,7 @@ $tabs = [
     'sprints' => 'Sprints',
     'gantt' => 'Gantt',
     'todos' => 'To Do',
-    'phd_kanban' => 'PhD plan',
+    'phd_kanban' => 'PhD&MSc plan',
     'leads' => 'Leads',
     'equipa' => 'Daily Meeting',
     'calendar' => 'Calendar',
@@ -128,6 +149,26 @@ $tabs = [
     
 ];
 
+// Filtrar tabs para utilizadores com acesso restrito
+if (!empty($allowed_tabs_for_user)) {
+    $filtered_tabs = [];
+    foreach ($tabs as $key => $value) {
+        if (is_array($value) && isset($value['submenu'])) {
+            $allowed_sub = array_filter(
+                $value['submenu'],
+                fn($subKey) => in_array($subKey, $allowed_tabs_for_user),
+                ARRAY_FILTER_USE_KEY
+            );
+            if (!empty($allowed_sub)) {
+                $filtered_tabs[$key] = ['label' => $value['label'], 'submenu' => $allowed_sub];
+            }
+        } elseif (in_array($key, $allowed_tabs_for_user)) {
+            $filtered_tabs[$key] = $value;
+        }
+    }
+    $tabs = $filtered_tabs;
+}
+
 $tabSelecionada = $_GET['tab'] ?? 'dashboard';
 
 // Validar se a tab existe (incluindo submenus)
@@ -146,7 +187,17 @@ foreach ($tabs as $key => $value) {
 }
 
 if (!$tabValida) {
-    $tabSelecionada = 'dashboard';
+    $fallbackTab = 'dashboard';
+    foreach ($tabs as $k => $v) {
+        if (is_array($v) && isset($v['submenu'])) {
+            $firstSub = array_key_first($v['submenu']);
+            if ($firstSub) { $fallbackTab = $firstSub; break; }
+        } else {
+            $fallbackTab = $k;
+            break;
+        }
+    }
+    $tabSelecionada = $fallbackTab;
 }
 
 // Função auxiliar para obter o título da tab

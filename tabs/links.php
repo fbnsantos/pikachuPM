@@ -395,6 +395,33 @@ if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
                 $search_results['project_notes'] = $s->fetchAll(PDO::FETCH_ASSOC);
             }
 
+            if ($pdo_s->query("SHOW TABLES LIKE 'sprint_notes'")->rowCount()) {
+                [$w, $p] = gsWhere(['sn.note_text'], $gsTerms, $gsExcludes);
+                $s = $pdo_s->prepare("SELECT sn.id, sn.note_text, sn.created_at,
+                                             sn.sprint_id, COALESCE(sp.nome,'') as sprint_nome,
+                                             COALESCE(u.username,'') as username
+                                      FROM sprint_notes sn
+                                      LEFT JOIN sprints sp ON sn.sprint_id = sp.id
+                                      LEFT JOIN user_tokens u ON sn.user_id = u.user_id
+                                      WHERE $w ORDER BY sn.created_at DESC LIMIT 15");
+                $s->execute($p);
+                $search_results['sprint_notes'] = $s->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            if ($pdo_s->query("SHOW TABLES LIKE 'phd_notes'")->rowCount()) {
+                [$w, $p] = gsWhere(['pn.note_text'], $gsTerms, $gsExcludes);
+                $s = $pdo_s->prepare("SELECT pn.id, pn.note_text, pn.created_at,
+                                             pn.phd_user_id,
+                                             COALESCE(uo.username,'') as phd_username,
+                                             COALESCE(ua.username,'') as username
+                                      FROM phd_notes pn
+                                      LEFT JOIN user_tokens uo ON pn.phd_user_id = uo.user_id
+                                      LEFT JOIN user_tokens ua ON pn.author_user_id = ua.user_id
+                                      WHERE $w ORDER BY pn.created_at DESC LIMIT 15");
+                $s->execute($p);
+                $search_results['phd_notes'] = $s->fetchAll(PDO::FETCH_ASSOC);
+            }
+
         } catch (PDOException $e) { /* ignorar */ }
     }
 }
@@ -470,6 +497,8 @@ $sections = [
     'lead_notes'    => ['💬', 'Notas de Leads'],
     'proto_notes'   => ['💬', 'Notas de Protótipos'],
     'project_notes' => ['💬', 'Notas de Projetos'],
+    'sprint_notes'  => ['💬', 'Notas de Sprints'],
+    'phd_notes'     => ['💬', 'Notas de Doutoramento'],
     'links'         => ['🔗', 'Links'],
 ];
 $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
@@ -620,6 +649,27 @@ $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
                     <?= hl($r['project_short_name'] ?: '(projeto #'.$r['project_id'].')', $q) ?><?php if ($r['project_title']): ?> — <?= hl($r['project_title'], $q) ?><?php endif; ?>
                 </a>
                 <span class="gs-badge ms-1" style="background:#e0e7ff;color:#3730a3;">nota</span>
+            </div>
+            <div class="gs-meta">👤 <?= htmlspecialchars($r['username']) ?> · <?= date('d/m/Y', strtotime($r['created_at'])) ?></div>
+            <div class="gs-snippet"><?= hl(snippet($r['note_text'], $q), $q) ?></div>
+
+        <?php elseif ($key === 'sprint_notes'): ?>
+            <div class="gs-title">
+                <a href="?tab=sprints&sprint_id=<?= (int)$r['sprint_id'] ?>">
+                    <?= hl($r['sprint_nome'] ?: '(sprint #'.$r['sprint_id'].')', $q) ?>
+                </a>
+                <span class="gs-badge ms-1" style="background:#e0e7ff;color:#3730a3;">nota</span>
+            </div>
+            <div class="gs-meta">👤 <?= htmlspecialchars($r['username']) ?> · <?= date('d/m/Y', strtotime($r['created_at'])) ?></div>
+            <div class="gs-snippet"><?= hl(snippet($r['note_text'], $q), $q) ?></div>
+
+        <?php elseif ($key === 'phd_notes'): ?>
+            <div class="gs-title">
+                <a href="?tab=phd_kanban&user=<?= (int)$r['phd_user_id'] ?>">
+                    <?= hl($r['phd_username'] ?: '(utilizador #'.$r['phd_user_id'].')', $q) ?>
+                </a>
+                <span class="gs-badge ms-1" style="background:#e0e7ff;color:#3730a3;">nota</span>
+                <span class="gs-badge ms-1" style="background:#f3f4f6;color:#374151;">PhD</span>
             </div>
             <div class="gs-meta">👤 <?= htmlspecialchars($r['username']) ?> · <?= date('d/m/Y', strtotime($r['created_at'])) ?></div>
             <div class="gs-snippet"><?= hl(snippet($r['note_text'], $q), $q) ?></div>

@@ -3129,8 +3129,8 @@ function pjnNoteHtml(n, canEdit){
                 <div class="pjn-md-toolbar">
                     <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdWrap(this,'**','**')"><b>B</b></button>
                     <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdWrap(this,'*','*')"><i>I</i></button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsert(this,'`')"><i class="bi bi-code"></i></button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdBlock(this,'```\n','\n```')"><i class="bi bi-code-square"></i></button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsert(this,'\x60')"><i class="bi bi-code"></i></button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdCodeFence(this)"><i class="bi bi-code-square"></i></button>
                     <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsertLine(this,'- ')"><i class="bi bi-list-ul"></i></button>
                     <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsertLine(this,'> ')"><i class="bi bi-blockquote-left"></i></button>
                     <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdTable(this)"><i class="bi bi-table"></i></button>
@@ -3275,8 +3275,9 @@ function pjnMdInsert(btn,t){ pjnMdWrap(btn,t,t); }
 function pjnMdBlock(btn,o,c){ pjnMdWrap(btn,o,c); }
 function pjnMdInsertLine(btn,p){ const ta=_pjnTa(btn);const s=ta.selectionStart,v=ta.value;const nl=v.lastIndexOf('\n',s-1)+1;ta.value=v.slice(0,nl)+p+v.slice(nl);ta.focus();ta.selectionStart=ta.selectionEnd=s+p.length; }
 function pjnMdTable(btn){ pjnMdWrap(btn,'| Col1 | Col2 |\n|------|------|\n| val1 | val2 |',''); }
+function pjnMdCodeFence(btn){ pjnMdBlock(btn,'```\n','\n```'); }
 window.pjnMdWrap=pjnMdWrap; window.pjnMdInsert=pjnMdInsert; window.pjnMdBlock=pjnMdBlock;
-window.pjnMdInsertLine=pjnMdInsertLine; window.pjnMdTable=pjnMdTable;
+window.pjnMdInsertLine=pjnMdInsertLine; window.pjnMdTable=pjnMdTable; window.pjnMdCodeFence=pjnMdCodeFence;
 
 // Carregar notas ao abrir projeto
 if(_pjnProjectId) pjnLoadNotes(_pjnProjectId);

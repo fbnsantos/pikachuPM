@@ -1247,7 +1247,7 @@ $allPrototypes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Quando há filtro activo, um filho cujo pai não está na lista filtrada
 // seria invisível na árvore — promovê-lo a raiz resolve isso.
-if (!empty($whereConditions)) {
+if (!empty($whereConditions) || $filterType) {
     $availableIds = array_flip(array_column($allPrototypes, 'id'));
     foreach ($allPrototypes as &$p) {
         if ($p['parent_id'] !== null && !isset($availableIds[$p['parent_id']])) {

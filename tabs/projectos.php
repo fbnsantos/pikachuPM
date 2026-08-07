@@ -315,6 +315,29 @@ try {
     // Tabela já existe
 }
 
+// Tabelas para notas de projetos
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS project_notes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        project_id INT NOT NULL,
+        user_id INT NOT NULL,
+        note_text TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        INDEX idx_project (project_id), INDEX idx_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS project_note_images (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        note_id INT NOT NULL,
+        file_path VARCHAR(500) NOT NULL,
+        original_name VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (note_id) REFERENCES project_notes(id) ON DELETE CASCADE,
+        INDEX idx_note (note_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+} catch (PDOException $e) { /* tabelas já existem */ }
+
 // PROCESSAR UPLOAD DE FICHEIROS
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload_project_file') {
     @ini_set('upload_max_filesize', '300M');
@@ -415,6 +438,113 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     } else {
         echo json_encode(['success' => false, 'error' => 'Ficheiro não encontrado']);
     }
+    exit;
+}
+
+// ===== AJAX HANDLERS: NOTAS DE PROJETO =====
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'get_project_notes') {
+    while (ob_get_level()) ob_end_clean();
+    header('Content-Type: application/json');
+    $pid = (int)($_GET['project_id'] ?? 0);
+    if (!$pid) { echo json_encode(['success'=>false]); exit; }
+    $stmt = $pdo->prepare("SELECT pn.*, ut.username FROM project_notes pn LEFT JOIN user_tokens ut ON pn.user_id=ut.user_id WHERE pn.project_id=? ORDER BY pn.created_at DESC");
+    $stmt->execute([$pid]);
+    $notes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($notes as &$n) {
+        $si = $pdo->prepare("SELECT id, file_path, original_name FROM project_note_images WHERE note_id=?");
+        $si->execute([$n['id']]);
+        $n['images'] = $si->fetchAll(PDO::FETCH_ASSOC);
+    }
+    echo json_encode(['success'=>true,'notes'=>$notes,'current_user_id'=>$_SESSION['user_id']]);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_project_note') {
+    while (ob_get_level()) ob_end_clean();
+    header('Content-Type: application/json');
+    $pid  = (int)($_POST['project_id'] ?? 0);
+    $uid  = (int)$_SESSION['user_id'];
+    $text = trim($_POST['note_text'] ?? '');
+    if (!$pid) { echo json_encode(['success'=>false,'error'=>'Projeto inválido']); exit; }
+    $pdo->prepare("INSERT INTO project_notes (project_id,user_id,note_text) VALUES (?,?,?)")->execute([$pid,$uid,$text]);
+    $nid = (int)$pdo->lastInsertId();
+    $imgDir = __DIR__.'/../files/project_notes/';
+    if (!is_dir($imgDir)) mkdir($imgDir,0755,true);
+    $allowedImg = ['jpg','jpeg','png','gif','webp'];
+    if (!empty($_FILES['images']['name'][0])) {
+        foreach ($_FILES['images']['tmp_name'] as $i=>$tmp) {
+            if ($_FILES['images']['error'][$i]!==UPLOAD_ERR_OK) continue;
+            $ext=strtolower(pathinfo($_FILES['images']['name'][$i],PATHINFO_EXTENSION));
+            if (!in_array($ext,$allowedImg)) continue;
+            if ($_FILES['images']['size'][$i]>10*1024*1024) continue;
+            $fname="pjn_{$nid}_{$i}_".uniqid().".$ext";
+            if (move_uploaded_file($tmp,$imgDir.$fname)) {
+                $pdo->prepare("INSERT INTO project_note_images (note_id,file_path,original_name) VALUES (?,?,?)")->execute([$nid,'files/project_notes/'.$fname,$_FILES['images']['name'][$i]]);
+            }
+        }
+    }
+    echo json_encode(['success'=>true,'note_id'=>$nid]);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_project_note') {
+    while (ob_get_level()) ob_end_clean();
+    header('Content-Type: application/json');
+    $nid  = (int)($_POST['note_id'] ?? 0);
+    $uid  = (int)$_SESSION['user_id'];
+    $text = trim($_POST['note_text'] ?? '');
+    $pdo->prepare("UPDATE project_notes SET note_text=?,updated_at=NOW() WHERE id=? AND user_id=?")->execute([$text,$nid,$uid]);
+    $imgDir = __DIR__.'/../files/project_notes/';
+    if (!is_dir($imgDir)) mkdir($imgDir,0755,true);
+    $allowedImg=['jpg','jpeg','png','gif','webp'];
+    if (!empty($_FILES['images']['name'][0])) {
+        foreach ($_FILES['images']['tmp_name'] as $i=>$tmp) {
+            if ($_FILES['images']['error'][$i]!==UPLOAD_ERR_OK) continue;
+            $ext=strtolower(pathinfo($_FILES['images']['name'][$i],PATHINFO_EXTENSION));
+            if (!in_array($ext,$allowedImg)) continue;
+            if ($_FILES['images']['size'][$i]>10*1024*1024) continue;
+            $fname="pjn_{$nid}_e{$i}_".uniqid().".$ext";
+            if (move_uploaded_file($tmp,$imgDir.$fname)) {
+                $pdo->prepare("INSERT INTO project_note_images (note_id,file_path,original_name) VALUES (?,?,?)")->execute([$nid,'files/project_notes/'.$fname,$_FILES['images']['name'][$i]]);
+            }
+        }
+    }
+    echo json_encode(['success'=>true]);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_project_note') {
+    while (ob_get_level()) ob_end_clean();
+    header('Content-Type: application/json');
+    $nid = (int)($_POST['note_id'] ?? 0);
+    $uid = (int)$_SESSION['user_id'];
+    $row = $pdo->prepare("SELECT id FROM project_notes WHERE id=? AND user_id=?");
+    $row->execute([$nid,$uid]);
+    if (!$row->fetch()) { echo json_encode(['success'=>false,'error'=>'Não encontrado']); exit; }
+    $imgs = $pdo->prepare("SELECT file_path FROM project_note_images WHERE note_id=?");
+    $imgs->execute([$nid]);
+    foreach ($imgs->fetchAll(PDO::FETCH_COLUMN) as $fp) {
+        $full = __DIR__.'/../'.$fp;
+        if (file_exists($full)) unlink($full);
+    }
+    $pdo->prepare("DELETE FROM project_notes WHERE id=? AND user_id=?")->execute([$nid,$uid]);
+    echo json_encode(['success'=>true]);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_project_note_image') {
+    while (ob_get_level()) ob_end_clean();
+    header('Content-Type: application/json');
+    $iid = (int)($_POST['image_id'] ?? 0);
+    $uid = (int)$_SESSION['user_id'];
+    $r = $pdo->prepare("SELECT pni.file_path FROM project_note_images pni JOIN project_notes pn ON pni.note_id=pn.id WHERE pni.id=? AND pn.user_id=?");
+    $r->execute([$iid,$uid]);
+    $row = $r->fetch(PDO::FETCH_ASSOC);
+    if (!$row) { echo json_encode(['success'=>false]); exit; }
+    $full = __DIR__.'/../'.$row['file_path'];
+    if (file_exists($full)) unlink($full);
+    $pdo->prepare("DELETE FROM project_note_images WHERE id=?")->execute([$iid]);
+    echo json_encode(['success'=>true]);
     exit;
 }
 
@@ -998,6 +1128,29 @@ if (isset($_GET['project_id'])) {
     margin-bottom: 30px;
 }
 
+/* Notas de projeto */
+.pjn-user-block { margin-bottom:14px; }
+.pjn-user-header { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.pjn-avatar { width:30px; height:30px; border-radius:50%; background:#6c757d; color:#fff; display:flex; align-items:center; justify-content:center; font-size:.75rem; font-weight:600; flex-shrink:0; }
+.pjn-avatar-me { background:#0d6efd; }
+.pjn-note-item { background:#f8f9fa; border:1px solid #e9ecef; border-radius:8px; padding:10px 12px; font-size:.9rem; }
+.pjn-note-md-view { font-size:.9rem; line-height:1.6; }
+.pjn-note-md-view img { max-width:100%; border-radius:4px; cursor:pointer; }
+.pjn-note-md-view p:last-child { margin-bottom:0; }
+.pjn-md-toolbar { display:flex; flex-wrap:wrap; gap:3px; margin-bottom:4px; }
+.pjn-md-toolbar button { padding:2px 7px; font-size:.78rem; }
+.pjn-editor-tabs { display:flex; gap:4px; margin-bottom:6px; }
+.pjn-tab { padding:3px 12px; border-radius:4px; border:1px solid #dee2e6; background:#fff; font-size:.82rem; cursor:pointer; color:#495057; }
+.pjn-tab.active { background:#0d6efd; color:#fff; border-color:#0d6efd; }
+.pjn-md-live-preview { min-height:60px; border:1px solid #dee2e6; border-radius:6px; padding:8px 10px; background:#fff; font-size:.9rem; }
+.pjn-edit-img-gallery { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.pjn-edit-img-ref { position:relative; cursor:pointer; }
+.pjn-edit-img-ref img { width:60px; height:60px; object-fit:cover; border-radius:4px; border:2px solid #dee2e6; }
+.pjn-edit-img-ref-overlay { position:absolute; inset:0; background:rgba(0,0,0,.35); border-radius:4px; display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity .15s; }
+.pjn-edit-img-ref:hover .pjn-edit-img-ref-overlay { opacity:1; }
+#pjn-lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
+#pjn-lightbox img { max-width:92vw; max-height:92vh; border-radius:6px; }
+
 .section-title {
     font-size: 18px;
     font-weight: 600;
@@ -1386,6 +1539,47 @@ if (isset($_GET['project_id'])) {
                         </div>
                         <?php endif; ?>
                     </div>
+                </div>
+
+                <!-- Notas do Projeto -->
+                <div class="detail-section" id="pjn-section">
+                    <div class="section-title">
+                        <span><i class="bi bi-journal-text"></i> Notas</span>
+                        <button class="btn btn-sm btn-outline-primary" onclick="pjnToggleAdd()">
+                            <i class="bi bi-plus-lg"></i> Nova Nota
+                        </button>
+                    </div>
+
+                    <!-- Formulário de adição -->
+                    <div id="pjn-add-form" style="display:none;" class="mb-3">
+                        <div class="pjn-editor-tabs">
+                            <button class="pjn-tab active" onclick="pjnEditorTab(this,'write','add')">Escrever</button>
+                            <button class="pjn-tab" onclick="pjnEditorTab(this,'preview','add')">Pré-visualizar</button>
+                        </div>
+                        <div class="pjn-md-toolbar" id="pjn-add-toolbar">
+                            <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdWrap(this,'*','*')" title="Itálico"><i>I</i></button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsert(this,'`')" title="Código"><i class="bi bi-code"></i></button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdBlock(this,'```\n','\n```')" title="Bloco de código"><i class="bi bi-code-square"></i></button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsertLine(this,'- ')" title="Lista"><i class="bi bi-list-ul"></i></button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsertLine(this,'> ')" title="Citação"><i class="bi bi-blockquote-left"></i></button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdTable(this)" title="Tabela"><i class="bi bi-table"></i></button>
+                        </div>
+                        <textarea id="pjn-add-text" class="form-control mb-2" rows="4" placeholder="Escrever nota em Markdown..."></textarea>
+                        <div id="pjn-add-preview" class="pjn-md-live-preview mb-2" style="display:none;"></div>
+                        <div class="mb-2">
+                            <label class="form-label small text-muted">Imagens (opcional)</label>
+                            <input type="file" id="pjn-add-images" multiple accept="image/*" class="form-control form-control-sm" onchange="pjnPreviewImages(this,'pjn-add-img-preview')">
+                            <div id="pjn-add-img-preview" class="pjn-edit-img-gallery mt-1"></div>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-primary btn-sm" onclick="pjnAddNote()"><i class="bi bi-save"></i> Guardar</button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="pjnToggleAdd()">Cancelar</button>
+                        </div>
+                    </div>
+
+                    <!-- Lista de notas -->
+                    <div id="pjn-notes-list"></div>
                 </div>
 
                 <!-- Links/Recursos -->
@@ -2861,4 +3055,230 @@ function deleteProjectFile(fileId) {
         console.error('Erro:', err);
     });
 }
+</script>
+
+<!-- Lightbox notas -->
+<div id="pjn-lightbox" onclick="this.style.display='none'"><img src="" alt=""></div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+(function(){
+// ===== NOTAS DE PROJETO =====
+const _pjnBase = '<?= rtrim(dirname($_SERVER['PHP_SELF']),'/') ?>/';
+let _pjnProjectId = <?= $selectedProject ? (int)$selectedProject['id'] : 0 ?>;
+let _pjnCurrentUserId = <?= (int)$_SESSION['user_id'] ?>;
+
+function pjnEscH(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function pjnEscA(s){ return String(s).replace(/"/g,'&quot;'); }
+
+function pjnLightbox(src){
+    const lb=document.getElementById('pjn-lightbox');
+    lb.querySelector('img').src=src;
+    lb.style.display='flex';
+}
+window.pjnLightbox=pjnLightbox;
+
+function pjnLoadNotes(pid){
+    _pjnProjectId=pid;
+    if(!pid) return;
+    fetch('?tab=projectos&action=get_project_notes&project_id='+pid)
+        .then(r=>r.json()).then(data=>{
+            if(data.success) pjnRenderNotes(data.notes, data.current_user_id);
+        }).catch(()=>{});
+}
+window.pjnLoadNotes=pjnLoadNotes;
+
+function pjnRenderNotes(notes, uid){
+    const el=document.getElementById('pjn-notes-list');
+    if(!el) return;
+    if(!notes||!notes.length){ el.innerHTML='<p class="text-muted small">Sem notas ainda.</p>'; return; }
+    el.innerHTML=notes.map(n=>pjnNoteHtml(n, n.user_id==uid)).join('');
+    if(typeof marked!=='undefined') el.querySelectorAll('.pjn-note-md-view').forEach(d=>{
+        d.innerHTML=marked.parse(d.dataset.raw||'');
+        d.querySelectorAll('img').forEach(i=>i.onclick=()=>pjnLightbox(i.src));
+    });
+}
+
+function pjnNoteHtml(n, canEdit){
+    const me=canEdit;
+    const initials=(n.username||'?').substring(0,2).toUpperCase();
+    const date=n.created_at?n.created_at.substring(0,16).replace('T',' '):'';
+    const imgs=(n.images||[]).map(i=>`
+        <div class="pjn-edit-img-ref" onclick="pjnLightbox('${pjnEscA(_pjnBase+i.file_path)}')">
+            <img src="${pjnEscA(_pjnBase+i.file_path)}" alt="${pjnEscA(i.original_name||'')}">
+            <div class="pjn-edit-img-ref-overlay"><i class="bi bi-zoom-in text-white"></i></div>
+        </div>`).join('');
+    return `<div class="pjn-user-block" id="pjn-note-${n.id}">
+        <div class="pjn-user-header">
+            <div class="pjn-avatar ${me?'pjn-avatar-me':''}">${pjnEscH(initials)}</div>
+            <span class="small fw-semibold">${pjnEscH(n.username||'Desconhecido')}</span>
+            <span class="small text-muted">${pjnEscH(date)}</span>
+            ${me?`<div class="ms-auto d-flex gap-1">
+                <button class="btn btn-xs btn-outline-secondary" style="padding:1px 7px;font-size:.75rem" onclick="pjnStartEdit(${n.id})"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-xs btn-outline-danger" style="padding:1px 7px;font-size:.75rem" onclick="pjnDeleteNote(${n.id})"><i class="bi bi-trash"></i></button>
+            </div>`:''}
+        </div>
+        <div class="pjn-note-item">
+            <div class="pjn-note-md-view" data-raw="${pjnEscA(n.note_text||'')}">${pjnEscH(n.note_text||'')}</div>
+            ${imgs?`<div class="pjn-edit-img-gallery mt-2">${imgs}</div>`:''}
+            ${me?`<div class="pjn-note-edit-area mt-2" style="display:none;">
+                <div class="pjn-editor-tabs">
+                    <button class="pjn-tab active" onclick="pjnEditorTab(this,'write','edit-${n.id}')">Escrever</button>
+                    <button class="pjn-tab" onclick="pjnEditorTab(this,'preview','edit-${n.id}')">Pré-visualizar</button>
+                </div>
+                <div class="pjn-md-toolbar">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdWrap(this,'**','**')"><b>B</b></button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdWrap(this,'*','*')"><i>I</i></button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsert(this,'`')"><i class="bi bi-code"></i></button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdBlock(this,'```\n','\n```')"><i class="bi bi-code-square"></i></button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsertLine(this,'- ')"><i class="bi bi-list-ul"></i></button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsertLine(this,'> ')"><i class="bi bi-blockquote-left"></i></button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdTable(this)"><i class="bi bi-table"></i></button>
+                </div>
+                <textarea class="form-control mb-1" rows="3">${pjnEscH(n.note_text||'')}</textarea>
+                <div class="pjn-md-live-preview mb-1" style="display:none;"></div>
+                <div class="mb-1"><input type="file" multiple accept="image/*" class="form-control form-control-sm" onchange="pjnPreviewImages(this,'pjn-edit-img-new-${n.id}')"></div>
+                <div id="pjn-edit-img-new-${n.id}" class="pjn-edit-img-gallery mb-1"></div>
+                <div class="pjn-edit-img-gallery mb-1">${(n.images||[]).map(i=>`
+                    <div class="pjn-edit-img-ref" title="${pjnEscA(i.original_name||'')}">
+                        <img src="${pjnEscA(_pjnBase+i.file_path)}" alt="">
+                        <div class="pjn-edit-img-ref-overlay" onclick="pjnDelImg(${i.id},${n.id})"><i class="bi bi-trash text-white"></i></div>
+                    </div>`).join('')}</div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary btn-sm" onclick="pjnSaveEdit(${n.id})"><i class="bi bi-save"></i> Guardar</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnCancelEdit(${n.id})">Cancelar</button>
+                </div>
+            </div>`:''}
+        </div>
+    </div>`;
+}
+
+function pjnToggleAdd(){
+    const f=document.getElementById('pjn-add-form');
+    const visible=f.style.display!=='none';
+    f.style.display=visible?'none':'block';
+    if(!visible){
+        document.getElementById('pjn-add-text').value='';
+        document.getElementById('pjn-add-img-preview').innerHTML='';
+        const tabs=f.querySelectorAll('.pjn-tab');
+        tabs[0].classList.add('active'); tabs[1].classList.remove('active');
+        f.querySelector('textarea').style.display='';
+        f.querySelector('.pjn-md-live-preview').style.display='none';
+        f.querySelector('.pjn-md-toolbar').style.display='';
+    }
+}
+window.pjnToggleAdd=pjnToggleAdd;
+
+function pjnStartEdit(nid){
+    const block=document.getElementById('pjn-note-'+nid);
+    block.querySelector('.pjn-note-md-view').parentElement.querySelector('.pjn-note-edit-area').style.display='block';
+    block.querySelector('.pjn-note-md-view').style.display='none';
+    const editArea=block.querySelector('.pjn-note-edit-area');
+    const tabs=editArea.querySelectorAll('.pjn-tab');
+    tabs[0].classList.add('active'); tabs[1].classList.remove('active');
+    editArea.querySelector('textarea').style.display='';
+    editArea.querySelector('.pjn-md-live-preview').style.display='none';
+    editArea.querySelector('.pjn-md-toolbar').style.display='';
+}
+window.pjnStartEdit=pjnStartEdit;
+
+function pjnCancelEdit(nid){
+    const block=document.getElementById('pjn-note-'+nid);
+    block.querySelector('.pjn-note-edit-area').style.display='none';
+    block.querySelector('.pjn-note-md-view').style.display='';
+}
+window.pjnCancelEdit=pjnCancelEdit;
+
+function pjnAddNote(){
+    const text=document.getElementById('pjn-add-text').value.trim();
+    const fd=new FormData();
+    fd.append('action','add_project_note');
+    fd.append('project_id',_pjnProjectId);
+    fd.append('note_text',text);
+    const imgs=document.getElementById('pjn-add-images').files;
+    for(let i=0;i<imgs.length;i++) fd.append('images[]',imgs[i]);
+    fetch(location.pathname+'?tab=projectos',{method:'POST',body:fd})
+        .then(r=>r.json()).then(d=>{
+            if(d.success){ pjnToggleAdd(); pjnLoadNotes(_pjnProjectId); }
+        });
+}
+window.pjnAddNote=pjnAddNote;
+
+function pjnSaveEdit(nid){
+    const block=document.getElementById('pjn-note-'+nid);
+    const text=block.querySelector('.pjn-note-edit-area textarea').value;
+    const fd=new FormData();
+    fd.append('action','edit_project_note');
+    fd.append('note_id',nid);
+    fd.append('note_text',text);
+    const imgs=block.querySelector('input[type=file]').files;
+    for(let i=0;i<imgs.length;i++) fd.append('images[]',imgs[i]);
+    fetch(location.pathname+'?tab=projectos',{method:'POST',body:fd})
+        .then(r=>r.json()).then(d=>{ if(d.success) pjnLoadNotes(_pjnProjectId); });
+}
+window.pjnSaveEdit=pjnSaveEdit;
+
+function pjnDeleteNote(nid){
+    if(!confirm('Eliminar esta nota?')) return;
+    const fd=new FormData();
+    fd.append('action','delete_project_note');
+    fd.append('note_id',nid);
+    fetch(location.pathname+'?tab=projectos',{method:'POST',body:fd})
+        .then(r=>r.json()).then(d=>{ if(d.success) pjnLoadNotes(_pjnProjectId); });
+}
+window.pjnDeleteNote=pjnDeleteNote;
+
+function pjnDelImg(iid,nid){
+    if(!confirm('Remover esta imagem?')) return;
+    const fd=new FormData();
+    fd.append('action','delete_project_note_image');
+    fd.append('image_id',iid);
+    fetch(location.pathname+'?tab=projectos',{method:'POST',body:fd})
+        .then(r=>r.json()).then(d=>{ if(d.success) pjnLoadNotes(_pjnProjectId); });
+}
+window.pjnDelImg=pjnDelImg;
+
+function pjnEditorTab(btn,mode,ctx){
+    const wrap=btn.closest('.pjn-editor-tabs').parentElement;
+    wrap.querySelectorAll('.pjn-tab').forEach(t=>t.classList.remove('active'));
+    btn.classList.add('active');
+    const ta=wrap.querySelector('textarea');
+    const prev=wrap.querySelector('.pjn-md-live-preview');
+    const tb=wrap.querySelector('.pjn-md-toolbar');
+    if(mode==='preview'){
+        ta.style.display='none'; if(tb) tb.style.display='none';
+        prev.style.display=''; prev.innerHTML=typeof marked!=='undefined'?marked.parse(ta.value):'(sem preview)';
+    } else {
+        ta.style.display=''; if(tb) tb.style.display='';
+        prev.style.display='none';
+    }
+}
+window.pjnEditorTab=pjnEditorTab;
+
+function pjnPreviewImages(input,containerId){
+    const c=document.getElementById(containerId); if(!c) return;
+    c.innerHTML='';
+    Array.from(input.files).forEach(f=>{
+        const r=new FileReader();
+        r.onload=e=>{
+            c.innerHTML+=`<div class="pjn-edit-img-ref"><img src="${e.target.result}" style="width:60px;height:60px;object-fit:cover;border-radius:4px;"></div>`;
+        };
+        r.readAsDataURL(f);
+    });
+}
+window.pjnPreviewImages=pjnPreviewImages;
+
+// Toolbar helpers
+function _pjnTa(btn){ return btn.closest('.pjn-md-toolbar').nextElementSibling; }
+function pjnMdWrap(btn,o,c){ const ta=_pjnTa(btn);const s=ta.selectionStart,e=ta.selectionEnd,v=ta.value;ta.value=v.slice(0,s)+o+v.slice(s,e)+c+v.slice(e);ta.focus();ta.selectionStart=s+o.length;ta.selectionEnd=e+o.length; }
+function pjnMdInsert(btn,t){ pjnMdWrap(btn,t,t); }
+function pjnMdBlock(btn,o,c){ pjnMdWrap(btn,o,c); }
+function pjnMdInsertLine(btn,p){ const ta=_pjnTa(btn);const s=ta.selectionStart,v=ta.value;const nl=v.lastIndexOf('\n',s-1)+1;ta.value=v.slice(0,nl)+p+v.slice(nl);ta.focus();ta.selectionStart=ta.selectionEnd=s+p.length; }
+function pjnMdTable(btn){ pjnMdWrap(btn,'| Col1 | Col2 |\n|------|------|\n| val1 | val2 |',''); }
+window.pjnMdWrap=pjnMdWrap; window.pjnMdInsert=pjnMdInsert; window.pjnMdBlock=pjnMdBlock;
+window.pjnMdInsertLine=pjnMdInsertLine; window.pjnMdTable=pjnMdTable;
+
+// Carregar notas ao abrir projeto
+if(_pjnProjectId) pjnLoadNotes(_pjnProjectId);
+})();
 </script>

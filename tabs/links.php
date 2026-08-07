@@ -384,7 +384,8 @@ if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
             if ($pdo_s->query("SHOW TABLES LIKE 'project_notes'")->rowCount()) {
                 [$w, $p] = gsWhere(['pjn.note_text'], $gsTerms, $gsExcludes);
                 $s = $pdo_s->prepare("SELECT pjn.id, pjn.note_text, pjn.created_at,
-                                             pjn.project_id, COALESCE(p.name,'') as project_name,
+                                             pjn.project_id, COALESCE(p.short_name,'') as project_short_name,
+                                             COALESCE(p.title,'') as project_title,
                                              COALESCE(u.username,'') as username
                                       FROM project_notes pjn
                                       LEFT JOIN projects p ON pjn.project_id = p.id
@@ -616,7 +617,7 @@ $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
         <?php elseif ($key === 'project_notes'): ?>
             <div class="gs-title">
                 <a href="?tab=projectos&project_id=<?= (int)$r['project_id'] ?>">
-                    <?= hl($r['project_name'] ?: '(projeto #'.$r['project_id'].')', $q) ?>
+                    <?= hl($r['project_short_name'] ?: '(projeto #'.$r['project_id'].')', $q) ?><?php if ($r['project_title']): ?> — <?= hl($r['project_title'], $q) ?><?php endif; ?>
                 </a>
                 <span class="gs-badge ms-1" style="background:#e0e7ff;color:#3730a3;">nota</span>
             </div>

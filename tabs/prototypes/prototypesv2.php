@@ -1226,10 +1226,7 @@ if ($filterParticipate && $currentUserId) {
 $whereClause = !empty($whereConditions) ? 'WHERE ' . implode(' OR ', $whereConditions) : '';
 
 if ($filterType) {
-    // inclui pais que têm o tipo E todos os filhos directos desses pais
-    $typeCondition = '(p.prototype_type = ? OR p.parent_id IN (SELECT id FROM prototypes WHERE prototype_type = ?))';
-    $whereClause = $whereClause ? $whereClause . ' AND ' . $typeCondition : 'WHERE ' . $typeCondition;
-    $params[] = $filterType;
+    $whereClause = $whereClause ? $whereClause . ' AND p.prototype_type = ?' : 'WHERE p.prototype_type = ?';
     $params[] = $filterType;
 }
 

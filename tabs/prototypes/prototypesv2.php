@@ -2393,6 +2393,7 @@ if ($selectedPrototype && $checkTodos) {
                         <option value="Electronics" <?= $filterType==='Electronics'?'selected':'' ?>>⚡ Electronics</option>
                         <option value="Software" <?= $filterType==='Software'?'selected':'' ?>>💻 Software</option>
                         <option value="Mechanical" <?= $filterType==='Mechanical'?'selected':'' ?>>⚙️ Mechanical</option>
+                        <option value="System (HW+SW)" <?= $filterType==='System (HW+SW)'?'selected':'' ?>>🔧 System (HW+SW)</option>
                         <option value="Outro" <?= $filterType==='Outro'?'selected':'' ?>>📦 Outro</option>
                     </select>
                 </div>
@@ -2414,7 +2415,7 @@ if ($selectedPrototype && $checkTodos) {
             <?php else: ?>
                 <?php
                 // Função para renderizar árvore de prototypes
-                function renderPrototypeTree($prototypes, $selectedId, $filterMine, $filterParticipate, $level = 0) {
+                function renderPrototypeTree($prototypes, $selectedId, $filterMine, $filterParticipate, $level = 0, $filterType = '') {
                     $filterParams = ($filterMine ? '&filter_mine=true' : '') . ($filterParticipate ? '&filter_participate=true' : '') . ($filterType ? '&filter_type='.urlencode($filterType) : '');
                     
                     foreach ($prototypes as $proto) {
@@ -2445,7 +2446,7 @@ if ($selectedPrototype && $checkTodos) {
                             </div>
                             <?php if ($hasChildren): ?>
                                 <div class="prototype-children" id="children-<?= $proto['id'] ?>">
-                                    <?php renderPrototypeTree($proto['children'], $selectedId, $filterMine, $filterParticipate, $level + 1); ?>
+                                    <?php renderPrototypeTree($proto['children'], $selectedId, $filterMine, $filterParticipate, $level + 1, $filterType); ?>
                                 </div>
                             <?php endif; ?>
                         </div>
@@ -2454,7 +2455,7 @@ if ($selectedPrototype && $checkTodos) {
                 }
                 
                 // Renderizar árvore
-                renderPrototypeTree($prototypes, $selectedPrototypeId, $filterMine, $filterParticipate);
+                renderPrototypeTree($prototypes, $selectedPrototypeId, $filterMine, $filterParticipate, 0, $filterType);
                 ?>
             <?php endif; ?>
         </div>
@@ -2826,7 +2827,7 @@ if ($selectedPrototype && $checkTodos) {
                         <div class="info-label">Tipo</div>
                         <div class="info-value">
                             <?php
-                            $typeIcons = ['Electronics'=>'⚡','Software'=>'💻','Mechanical'=>'⚙️','Outro'=>'📦'];
+                            $typeIcons = ['Electronics'=>'⚡','Software'=>'💻','Mechanical'=>'⚙️','System (HW+SW)'=>'🔧','Outro'=>'📦'];
                             $pt = $selectedPrototype['prototype_type'];
                             echo ($typeIcons[$pt] ?? '📦') . ' ' . htmlspecialchars($pt);
                             ?>
@@ -4354,6 +4355,7 @@ if ($selectedPrototype && $checkTodos) {
                                 <option value="Electronics">⚡ Electronics</option>
                                 <option value="Software">💻 Software</option>
                                 <option value="Mechanical">⚙️ Mechanical</option>
+                                <option value="System (HW+SW)">🔧 System (HW+SW)</option>
                                 <option value="Outro">📦 Outro</option>
                             </select>
                         </div>
@@ -4959,7 +4961,7 @@ function simpleMarkdown(md) {
                             <label class="form-label">Tipo</label>
                             <select name="prototype_type" class="form-select">
                                 <option value="">— Não definido —</option>
-                                <?php foreach (['Electronics'=>'⚡','Software'=>'💻','Mechanical'=>'⚙️','Outro'=>'📦'] as $tv=>$ti): ?>
+                                <?php foreach (['Electronics'=>'⚡','Software'=>'💻','Mechanical'=>'⚙️','System (HW+SW)'=>'🔧','Outro'=>'📦'] as $tv=>$ti): ?>
                                 <option value="<?= $tv ?>" <?= ($selectedPrototype['prototype_type']??'')===$tv?'selected':'' ?>><?= $ti ?> <?= $tv ?></option>
                                 <?php endforeach; ?>
                             </select>

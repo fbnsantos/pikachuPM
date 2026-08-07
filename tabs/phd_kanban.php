@@ -69,7 +69,16 @@ try {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES user_tokens(user_id)
     )');
-    
+
+    $db->query('CREATE TABLE IF NOT EXISTS phd_notes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        phd_user_id INT NOT NULL,
+        author_user_id INT NOT NULL,
+        note_text TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_phd_user (phd_user_id)
+    )');
+
 } catch (Exception $e) {
     die("Erro ao conectar à base de dados: " . $e->getMessage());
 }
@@ -329,7 +338,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $tipo = $_POST['tipo_artigo_edit'];
     
     $stmt = $db->prepare('UPDATE phd_artigos SET titulo = ?, autores = ?, revista_conferencia = ?, ano = ?, link = ?, status = ?, tipo = ? WHERE id = ?');
-    $stmt->bind_param('ssssissi', $titulo, $autores, $revista, $ano, $link, $status, $tipo, $artigo_id);
+    $stmt->bind_param('sssssssi', $titulo, $autores, $revista, $ano, $link, $status, $tipo, $artigo_id);
     
     if ($stmt->execute()) {
         $stmt->close();
@@ -370,6 +379,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Adicionar nota
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_phd_note') {
+    $phd_uid = intval($_POST['phd_user_id']);
+    $note_text = trim($_POST['note_text']);
+    if ($phd_uid && $note_text) {
+        $stmt = $db->prepare('INSERT INTO phd_notes (phd_user_id, author_user_id, note_text) VALUES (?, ?, ?)');
+        $stmt->bind_param('iis', $phd_uid, $user_id, $note_text);
+        $stmt->execute();
+        $stmt->close();
+    }
+    $redirect_url = $_SERVER['PHP_SELF'] . '?tab=phd_kanban';
+    if (isset($_GET['user'])) $redirect_url .= '&user=' . intval($_GET['user']);
+    header('Location: ' . $redirect_url . '#phd-notes');
+    exit;
+}
+
+// Eliminar nota
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_phd_note') {
+    $note_id = intval($_POST['note_id']);
+    $stmt = $db->prepare('DELETE FROM phd_notes WHERE id = ? AND author_user_id = ?');
+    $stmt->bind_param('ii', $note_id, $user_id);
+    $stmt->execute();
+    $stmt->close();
+    $redirect_url = $_SERVER['PHP_SELF'] . '?tab=phd_kanban';
+    if (isset($_GET['user'])) $redirect_url .= '&user=' . intval($_GET['user']);
+    header('Location: ' . $redirect_url . '#phd-notes');
+    exit;
+}
+
 // Buscar todos os utilizadores com prioridade para quem tem info de doutoramento
 $all_users = [];
 $stmt = $db->query('
@@ -401,6 +439,27 @@ if ($result->num_rows > 0) {
     $phd_info = $result->fetch_assoc();
 }
 $stmt->close();
+
+// Buscar notas do doutoramento
+$phd_notes = [];
+$stmt = $db->prepare('SELECT pn.*, ut.username as author_name FROM phd_notes pn LEFT JOIN user_tokens ut ON pn.author_user_id = ut.user_id WHERE pn.phd_user_id = ? ORDER BY pn.created_at ASC');
+$stmt->bind_param('i', $selected_user);
+$stmt->execute();
+$result = $stmt->get_result();
+while ($row = $result->fetch_assoc()) {
+    $phd_notes[] = $row;
+}
+$stmt->close();
+
+// Agrupar notas por autor
+$phd_notes_by_author = [];
+foreach ($phd_notes as $n) {
+    $aid = $n['author_user_id'];
+    if (!isset($phd_notes_by_author[$aid])) {
+        $phd_notes_by_author[$aid] = ['username' => $n['author_name'], 'notes' => []];
+    }
+    $phd_notes_by_author[$aid]['notes'][] = $n;
+}
 
 // Buscar artigos
 $artigos = [];
@@ -582,6 +641,16 @@ $total_artigos = count($artigos);
         grid-template-columns: 1fr;
     }
 }
+.pjn-user-block { border:1px solid #e9ecef; border-radius:8px; overflow:hidden; }
+.pjn-ub-header { display:flex; align-items:center; gap:8px; padding:8px 12px; cursor:pointer; background:#f8f9fa; user-select:none; transition:background .15s; }
+.pjn-ub-header:hover { background:#e9ecef; }
+.pjn-ub-header.pjn-collapsed .pjn-chevron { transform:rotate(-90deg); }
+.pjn-chevron { transition:transform .2s; font-size:13px; color:#6c757d; }
+.pjn-user-notes { padding:6px 8px 8px; }
+.pjn-note-item { background:#fff; border:1px solid #e9ecef; border-radius:6px; padding:8px 10px; font-size:.9rem; margin-top:6px; }
+.pjn-note-meta { display:flex; align-items:center; margin-bottom:4px; }
+.pjn-avatar { width:28px; height:28px; border-radius:50%; background:#6c757d; color:#fff; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
+.pjn-avatar-me { background:#0d6efd; }
 </style>
 
 <div class="container-fluid mt-4">
@@ -730,6 +799,65 @@ $total_artigos = count($artigos);
         <?php endforeach; ?>
     </div>
     
+    <!-- Notas do Doutoramento -->
+    <div class="card mt-4" id="phd-notes">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="bi bi-chat-left-text"></i> Notas</h4>
+            <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#phdNotesAdd" aria-expanded="false">
+                <i class="bi bi-plus"></i> Adicionar Nota
+            </button>
+        </div>
+        <div class="card-body">
+            <!-- Formulário de nova nota (colapsável) -->
+            <div class="collapse mb-3" id="phdNotesAdd">
+                <form method="POST">
+                    <input type="hidden" name="action" value="add_phd_note">
+                    <input type="hidden" name="phd_user_id" value="<?= $selected_user ?>">
+                    <textarea name="note_text" class="form-control mb-2" rows="3" placeholder="Escreve uma nota..." required></textarea>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+                        <button type="button" class="btn btn-sm btn-secondary" data-bs-toggle="collapse" data-bs-target="#phdNotesAdd">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Lista de notas agrupadas por autor -->
+            <?php if (empty($phd_notes_by_author)): ?>
+                <p class="text-muted small mb-0">Sem notas ainda.</p>
+            <?php else: ?>
+                <?php foreach ($phd_notes_by_author as $aid => $udata): ?>
+                <?php $isMe = ($aid == $user_id); $ini = strtoupper(substr($udata['username'] ?? '?', 0, 2)); ?>
+                <div class="pjn-user-block mb-2">
+                    <div class="pjn-ub-header <?= $isMe ? '' : 'pjn-collapsed' ?>" onclick="this.classList.toggle('pjn-collapsed'); var nb=this.nextElementSibling; nb.classList.toggle('d-none', this.classList.contains('pjn-collapsed'));">
+                        <div class="pjn-avatar <?= $isMe ? 'pjn-avatar-me' : '' ?>"><?= htmlspecialchars($ini) ?></div>
+                        <span class="fw-semibold" style="font-size:14px;"><?= htmlspecialchars($udata['username'] ?? 'Desconhecido') ?><?= $isMe ? ' <span class="badge bg-secondary ms-1" style="font-size:10px;font-weight:400;">Eu</span>' : '' ?></span>
+                        <span class="text-muted ms-1" style="font-size:12px;">(<?= count($udata['notes']) ?>)</span>
+                        <i class="bi bi-chevron-down pjn-chevron ms-auto"></i>
+                    </div>
+                    <div class="pjn-user-notes <?= $isMe ? '' : 'd-none' ?>">
+                        <?php foreach ($udata['notes'] as $note): ?>
+                        <div class="pjn-note-item">
+                            <div class="pjn-note-meta">
+                                <small class="text-muted"><?= date('d/m/Y H:i', strtotime($note['created_at'])) ?></small>
+                                <?php if ($note['author_user_id'] == $user_id): ?>
+                                <form method="POST" class="ms-auto" onsubmit="return confirm('Eliminar nota?')">
+                                    <input type="hidden" name="action" value="delete_phd_note">
+                                    <input type="hidden" name="note_id" value="<?= $note['id'] ?>">
+                                    <?php if (isset($_GET['user'])): ?><input type="hidden" name="phd_user_id" value="<?= $selected_user ?>"><?php endif; ?>
+                                    <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Eliminar"><i class="bi bi-trash" style="font-size:12px;"></i></button>
+                                </form>
+                                <?php endif; ?>
+                            </div>
+                            <div style="white-space:pre-wrap;font-size:.9rem;"><?= htmlspecialchars($note['note_text']) ?></div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
+    </div>
+
     <div class="card mt-4">
         <div class="card-header d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="bi bi-journal-code"></i> Produção Científica</h4>

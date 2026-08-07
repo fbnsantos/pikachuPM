@@ -129,10 +129,12 @@ try {
     // Ignorar erros de migração já aplicada
 }
 
-// Estado (ativo/fechado) nos protótipos
+// Estado (ativo/fechado) e tipo nos protótipos
 try {
     if (!$pdo->query("SHOW COLUMNS FROM prototypes LIKE 'estado'")->fetch())
         $pdo->exec("ALTER TABLE prototypes ADD COLUMN estado ENUM('ativo','fechado') NOT NULL DEFAULT 'ativo'");
+    if (!$pdo->query("SHOW COLUMNS FROM prototypes LIKE 'prototype_type'")->fetch())
+        $pdo->exec("ALTER TABLE prototypes ADD COLUMN prototype_type VARCHAR(50) NULL DEFAULT NULL");
 } catch (PDOException $e) {}
 
 // Tabela de media dos protótipos (links / ficheiros / imagens)
@@ -410,6 +412,7 @@ function glEncrypt(string $token, string $key): string {
 $filterMine = isset($_GET['filter_mine']) ? $_GET['filter_mine'] === 'true' : false;
 $filterParticipate = isset($_GET['filter_participate']) ? $_GET['filter_participate'] === 'true' : false;
 $showClosedStories = isset($_GET['show_closed']) ? $_GET['show_closed'] === 'true' : false;
+$filterType = isset($_GET['filter_type']) ? trim($_GET['filter_type']) : '';
 $selectedPrototypeId = $_GET['prototype_id'] ?? null;
 
 // Processar ações
@@ -472,10 +475,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             case 'create_prototype':
                 $stmt = $pdo->prepare("
-                    INSERT INTO prototypes (parent_id, short_name, title, vision, target_group, needs, 
-                                          product_description, business_goals, sentence, 
-                                          repo_links, documentation_links, name, responsavel_id, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                    INSERT INTO prototypes (parent_id, short_name, title, vision, target_group, needs,
+                                          product_description, business_goals, sentence,
+                                          repo_links, documentation_links, name, responsavel_id, prototype_type, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
                 ");
                 $stmt->execute([
                     $_POST['parent_id'] ?: null,
@@ -490,7 +493,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_POST['repo_links'] ?? '',
                     $_POST['documentation_links'] ?? '',
                     $_POST['name'] ?? '',
-                    $_POST['responsavel_id'] ?: null
+                    $_POST['responsavel_id'] ?: null,
+                    $_POST['prototype_type'] ?: null
                 ]);
                 $message = "Protótipo criado com sucesso!";
                 $messageType = 'success';
@@ -498,11 +502,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
             case 'update_prototype':
                 $stmt = $pdo->prepare("
-                    UPDATE prototypes SET 
+                    UPDATE prototypes SET
                         short_name=?, title=?, vision=?, target_group=?, needs=?,
                         product_description=?, business_goals=?, sentence=?,
                         repo_links=?, documentation_links=?, name=?, responsavel_id=?,
-                        updated_at=NOW()
+                        prototype_type=?, updated_at=NOW()
                     WHERE id=?
                 ");
                 $stmt->execute([
@@ -518,6 +522,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_POST['documentation_links'] ?? '',
                     $_POST['name'] ?? '',
                     $_POST['responsavel_id'] ?: null,
+                    $_POST['prototype_type'] ?: null,
                     $_POST['prototype_id']
                 ]);
                 $message = "Protótipo atualizado com sucesso!";
@@ -607,6 +612,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $_POST['prototype_id'];
                 if ($filterMine) $redirectUrl .= "&filter_mine=true";
                 if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($filterType) $redirectUrl .= "&filter_type=" . urlencode($filterType);
                 if ($showClosedStories) $redirectUrl .= "&show_closed=true";
                 header("Location: " . $redirectUrl);
                 exit;
@@ -632,6 +638,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
                 if ($filterMine) $redirectUrl .= "&filter_mine=true";
                 if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($filterType) $redirectUrl .= "&filter_type=" . urlencode($filterType);
                 if ($showClosedStories) $redirectUrl .= "&show_closed=true";
                 header("Location: " . $redirectUrl);
                 exit;
@@ -652,6 +659,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
                 if ($filterMine) $redirectUrl .= "&filter_mine=true";
                 if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($filterType) $redirectUrl .= "&filter_type=" . urlencode($filterType);
                 if ($showClosedStories) $redirectUrl .= "&show_closed=true";
                 header("Location: " . $redirectUrl);
                 exit;
@@ -680,6 +688,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
                 if ($filterMine) $redirectUrl .= "&filter_mine=true";
                 if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($filterType) $redirectUrl .= "&filter_type=" . urlencode($filterType);
                 if ($showClosedStories) $redirectUrl .= "&show_closed=true";
                 header("Location: " . $redirectUrl);
                 exit;
@@ -696,6 +705,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $prototypeIdForRedirect;
                 if ($filterMine) $redirectUrl .= "&filter_mine=true";
                 if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($filterType) $redirectUrl .= "&filter_type=" . urlencode($filterType);
                 if ($showClosedStories) $redirectUrl .= "&show_closed=true";
                 header("Location: " . $redirectUrl);
                 exit;
@@ -849,6 +859,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $prototypeIdForRedirect;
                 if ($filterMine) $redirectUrl .= "&filter_mine=true";
                 if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($filterType) $redirectUrl .= "&filter_type=" . urlencode($filterType);
                 if ($showClosedStories) $redirectUrl .= "&show_closed=true";
                 header("Location: " . $redirectUrl . "&message=" . urlencode($message) . "&type=" . ($messageType ?? 'success'));
                 exit;
@@ -1047,6 +1058,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=$protoId";
                 if ($filterMine) $redirectUrl .= "&filter_mine=true";
                 if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
+                if ($filterType) $redirectUrl .= "&filter_type=" . urlencode($filterType);
                 if ($showClosedStories) $redirectUrl .= "&show_closed=true";
                 header("Location: " . $redirectUrl);
                 exit;
@@ -1212,6 +1224,11 @@ if ($filterParticipate && $currentUserId) {
 }
 
 $whereClause = !empty($whereConditions) ? 'WHERE ' . implode(' OR ', $whereConditions) : '';
+
+if ($filterType) {
+    $whereClause = $whereClause ? $whereClause . ' AND p.prototype_type = ?' : 'WHERE p.prototype_type = ?';
+    $params[] = $filterType;
+}
 
 $sql = "
     SELECT p.*, u.username as responsavel_nome
@@ -2363,12 +2380,21 @@ if ($selectedPrototype && $checkTodos) {
                     </label>
                 </div>
                 <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="showClosedStories" 
+                    <input class="form-check-input" type="checkbox" id="showClosedStories"
                            <?= $showClosedStories ? 'checked' : '' ?>
                            onchange="updateFilters()">
                     <label class="form-check-label" for="showClosedStories">
                         Mostrar Stories Fechadas
                     </label>
+                </div>
+                <div class="mt-2">
+                    <select id="filterType" class="form-select form-select-sm" onchange="updateFilters()">
+                        <option value="" <?= $filterType===''?'selected':'' ?>>Todos os tipos</option>
+                        <option value="Electronics" <?= $filterType==='Electronics'?'selected':'' ?>>⚡ Electronics</option>
+                        <option value="Software" <?= $filterType==='Software'?'selected':'' ?>>💻 Software</option>
+                        <option value="Mechanical" <?= $filterType==='Mechanical'?'selected':'' ?>>⚙️ Mechanical</option>
+                        <option value="Outro" <?= $filterType==='Outro'?'selected':'' ?>>📦 Outro</option>
+                    </select>
                 </div>
             </div>
             
@@ -2389,7 +2415,7 @@ if ($selectedPrototype && $checkTodos) {
                 <?php
                 // Função para renderizar árvore de prototypes
                 function renderPrototypeTree($prototypes, $selectedId, $filterMine, $filterParticipate, $level = 0) {
-                    $filterParams = ($filterMine ? '&filter_mine=true' : '') . ($filterParticipate ? '&filter_participate=true' : '');
+                    $filterParams = ($filterMine ? '&filter_mine=true' : '') . ($filterParticipate ? '&filter_participate=true' : '') . ($filterType ? '&filter_type='.urlencode($filterType) : '');
                     
                     foreach ($prototypes as $proto) {
                         $hasChildren = !empty($proto['children']);
@@ -2443,7 +2469,7 @@ if ($selectedPrototype && $checkTodos) {
                 <p>Clique no <strong>+</strong> para criar o primeiro protótipo</p>
             </div>
             <?php else:
-            $filterParams = ($filterMine ? '&filter_mine=true' : '') . ($filterParticipate ? '&filter_participate=true' : '');
+            $filterParams = ($filterMine ? '&filter_mine=true' : '') . ($filterParticipate ? '&filter_participate=true' : '') . ($filterType ? '&filter_type='.urlencode($filterType) : '');
 
             function relativeTime($datetime) {
                 if (!$datetime) return ['Nenhuma fechada', 'secondary'];
@@ -2795,6 +2821,18 @@ if ($selectedPrototype && $checkTodos) {
                             <?= $selectedPrototype['responsavel_nome'] ? '👤 ' . htmlspecialchars($selectedPrototype['responsavel_nome']) : 'Não atribuído' ?>
                         </div>
                     </div>
+                    <?php if (!empty($selectedPrototype['prototype_type'])): ?>
+                    <div class="info-card">
+                        <div class="info-label">Tipo</div>
+                        <div class="info-value">
+                            <?php
+                            $typeIcons = ['Electronics'=>'⚡','Software'=>'💻','Mechanical'=>'⚙️','Outro'=>'📦'];
+                            $pt = $selectedPrototype['prototype_type'];
+                            echo ($typeIcons[$pt] ?? '📦') . ' ' . htmlspecialchars($pt);
+                            ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </div>
 
                 <!-- Botão Mais Informação -->
@@ -4303,17 +4341,29 @@ if ($selectedPrototype && $checkTodos) {
                             </select>
                         </div>
                     </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Título *</label>
-                        <input type="text" name="title" class="form-control" required>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Título *</label>
+                            <input type="text" name="title" class="form-control" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Tipo</label>
+                            <select name="prototype_type" class="form-select">
+                                <option value="">— Não definido —</option>
+                                <option value="Electronics">⚡ Electronics</option>
+                                <option value="Software">💻 Software</option>
+                                <option value="Mechanical">⚙️ Mechanical</option>
+                                <option value="Outro">📦 Outro</option>
+                            </select>
+                        </div>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label class="form-label">Visão</label>
                         <textarea name="vision" class="form-control" rows="3"></textarea>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label class="form-label">Grupo Alvo</label>
                         <textarea name="target_group" class="form-control" rows="2"></textarea>
@@ -4899,12 +4949,23 @@ function simpleMarkdown(md) {
                         </div>
                     </div>
                     
-                    <div class="mb-3">
-                        <label class="form-label">Título *</label>
-                        <input type="text" name="title" class="form-control" 
-                               value="<?= htmlspecialchars($selectedPrototype['title']) ?>" required>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Título *</label>
+                            <input type="text" name="title" class="form-control"
+                                   value="<?= htmlspecialchars($selectedPrototype['title']) ?>" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Tipo</label>
+                            <select name="prototype_type" class="form-select">
+                                <option value="">— Não definido —</option>
+                                <?php foreach (['Electronics'=>'⚡','Software'=>'💻','Mechanical'=>'⚙️','Outro'=>'📦'] as $tv=>$ti): ?>
+                                <option value="<?= $tv ?>" <?= ($selectedPrototype['prototype_type']??'')===$tv?'selected':'' ?>><?= $ti ?> <?= $tv ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label class="form-label">Visão</label>
                         <textarea name="vision" class="form-control" rows="3"><?= htmlspecialchars($selectedPrototype['vision']) ?></textarea>
@@ -5887,14 +5948,16 @@ function updateFilters() {
     const filterMine = document.getElementById('filterMine').checked;
     const filterParticipate = document.getElementById('filterParticipate').checked;
     const showClosedStories = document.getElementById('showClosedStories').checked;
+    const filterType = document.getElementById('filterType').value;
     const prototypeId = <?= $selectedPrototypeId ?? 'null' ?>;
-    
+
     let url = '?tab=prototypes/prototypesv2';
     if (prototypeId) url += '&prototype_id=' + prototypeId;
     if (filterMine) url += '&filter_mine=true';
     if (filterParticipate) url += '&filter_participate=true';
+    if (filterType) url += '&filter_type=' + encodeURIComponent(filterType);
     if (showClosedStories) url += '&show_closed=true';
-    
+
     window.location.href = url;
 }
 

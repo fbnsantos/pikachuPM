@@ -1129,11 +1129,16 @@ if (isset($_GET['project_id'])) {
 }
 
 /* Notas de projeto */
-.pjn-user-block { margin-bottom:14px; }
-.pjn-user-header { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
-.pjn-avatar { width:30px; height:30px; border-radius:50%; background:#6c757d; color:#fff; display:flex; align-items:center; justify-content:center; font-size:.75rem; font-weight:600; flex-shrink:0; }
+.pjn-user-block { border:1px solid #e9ecef; border-radius:8px; overflow:hidden; }
+.pjn-ub-header { display:flex; align-items:center; gap:8px; padding:8px 12px; cursor:pointer; background:#f8f9fa; user-select:none; transition:background .15s; }
+.pjn-ub-header:hover { background:#e9ecef; }
+.pjn-ub-header.pjn-collapsed .pjn-chevron { transform:rotate(-90deg); }
+.pjn-chevron { transition:transform .2s; font-size:13px; color:#6c757d; }
+.pjn-user-notes { padding:6px 8px 8px; }
+.pjn-avatar { width:28px; height:28px; border-radius:50%; background:#6c757d; color:#fff; display:flex; align-items:center; justify-content:center; font-size:.75rem; font-weight:600; flex-shrink:0; }
 .pjn-avatar-me { background:#0d6efd; }
-.pjn-note-item { background:#f8f9fa; border:1px solid #e9ecef; border-radius:8px; padding:10px 12px; font-size:.9rem; }
+.pjn-note-item { background:#fff; border:1px solid #e9ecef; border-radius:6px; padding:8px 10px; font-size:.9rem; margin-top:6px; }
+.pjn-note-meta { display:flex; align-items:center; margin-bottom:4px; }
 .pjn-note-md-view { font-size:.9rem; line-height:1.6; }
 .pjn-note-md-view img { max-width:100%; border-radius:4px; cursor:pointer; }
 .pjn-note-md-view p:last-child { margin-bottom:0; }
@@ -3096,64 +3101,86 @@ function pjnRenderNotes(notes, uid){
     const el=document.getElementById('pjn-notes-list');
     if(!el) return;
     if(!notes||!notes.length){ el.innerHTML='<p class="text-muted small">Sem notas ainda.</p>'; return; }
-    el.innerHTML=notes.map(n=>pjnNoteHtml(n, n.user_id==uid)).join('');
-    if(typeof marked!=='undefined') el.querySelectorAll('.pjn-note-md-view').forEach(d=>{
-        d.innerHTML=marked.parse(d.dataset.raw||'');
-        d.querySelectorAll('img').forEach(i=>i.onclick=()=>pjnLightbox(i.src));
+    // Group by user
+    const byUser={};
+    notes.forEach(n=>{
+        if(!byUser[n.user_id]) byUser[n.user_id]={username:n.username,user_id:n.user_id,notes:[]};
+        byUser[n.user_id].notes.push(n);
+    });
+    let html='';
+    Object.values(byUser).forEach(udata=>{
+        const isMe=udata.user_id==uid;
+        const ini=(udata.username||'?').substring(0,2).toUpperCase();
+        html+=`<div class="pjn-user-block mb-2">
+            <div class="pjn-ub-header pjn-collapsed" onclick="pjnToggleUser(this)">
+                <div class="pjn-avatar ${isMe?'pjn-avatar-me':''}">${pjnEscH(ini)}</div>
+                <span class="fw-semibold" style="font-size:14px;">${pjnEscH(udata.username||'Desconhecido')}${isMe?' <span class="badge bg-secondary ms-1" style="font-size:10px;font-weight:400;">Eu</span>':''}</span>
+                <span class="text-muted ms-1" style="font-size:12px;">(${udata.notes.length})</span>
+                <i class="bi bi-chevron-down pjn-chevron ms-auto"></i>
+            </div>
+            <div class="pjn-user-notes d-none">
+                ${udata.notes.map(n=>pjnNoteHtml(n,isMe)).join('')}
+            </div>
+        </div>`;
+    });
+    el.innerHTML=html;
+    el.querySelectorAll('.pjn-note-md-view').forEach(d=>{
+        if(typeof marked!=='undefined'){ d.innerHTML=marked.parse(d.dataset.raw||''); d.querySelectorAll('img').forEach(i=>i.onclick=()=>pjnLightbox(i.src)); }
     });
 }
+function pjnToggleUser(header){
+    var notes=header.nextElementSibling;
+    var collapsed=header.classList.toggle('pjn-collapsed');
+    notes.classList.toggle('d-none',collapsed);
+}
+window.pjnToggleUser=pjnToggleUser;
 
 function pjnNoteHtml(n, canEdit){
     const me=canEdit;
-    const initials=(n.username||'?').substring(0,2).toUpperCase();
     const date=n.created_at?n.created_at.substring(0,16).replace('T',' '):'';
     const imgs=(n.images||[]).map(i=>{
         const isImg=/\.(jpe?g|png|gif|webp|svg)$/i.test(i.original_name||i.file_path);
         if(isImg) return `<div class="pjn-edit-img-ref" onclick="pjnLightbox('${pjnEscA(_pjnBase+i.file_path)}')"><img src="${pjnEscA(_pjnBase+i.file_path)}" alt="${pjnEscA(i.original_name||'')}"><div class="pjn-edit-img-ref-overlay"><i class="bi bi-zoom-in text-white"></i></div></div>`;
         return `<div class="note-file-chip"><i class="bi ${pjnFileIcon(i.original_name||i.file_path)}"></i><a href="${pjnEscA(_pjnBase+i.file_path)}" target="_blank" title="${pjnEscA(i.original_name||'')}">${pjnEscH(i.original_name||i.file_path)}</a></div>`;
     }).join('');
-    return `<div class="pjn-user-block" id="pjn-note-${n.id}">
-        <div class="pjn-user-header">
-            <div class="pjn-avatar ${me?'pjn-avatar-me':''}">${pjnEscH(initials)}</div>
-            <span class="small fw-semibold">${pjnEscH(n.username||'Desconhecido')}</span>
-            <span class="small text-muted">${pjnEscH(date)}</span>
-            ${me?`<div class="ms-auto d-flex gap-1">
+    return `<div class="pjn-note-item" id="pjn-note-${n.id}">
+        <div class="pjn-note-meta">
+            <small class="text-muted">${pjnEscH(date)}</small>
+            ${me?`<div class="d-flex gap-1 ms-auto">
                 <button class="btn btn-xs btn-outline-secondary" style="padding:1px 7px;font-size:.75rem" onclick="pjnStartEdit(${n.id})"><i class="bi bi-pencil"></i></button>
                 <button class="btn btn-xs btn-outline-danger" style="padding:1px 7px;font-size:.75rem" onclick="pjnDeleteNote(${n.id})"><i class="bi bi-trash"></i></button>
             </div>`:''}
         </div>
-        <div class="pjn-note-item">
-            <div class="pjn-note-md-view" data-raw="${pjnEscA(n.note_text||'')}">${pjnEscH(n.note_text||'')}</div>
-            ${imgs?`<div class="pjn-edit-img-gallery mt-2">${imgs}</div>`:''}
-            ${me?`<div class="pjn-note-edit-area mt-2" style="display:none;">
-                <div class="pjn-editor-tabs">
-                    <button class="pjn-tab active" onclick="pjnEditorTab(this,'write','edit-${n.id}')">Escrever</button>
-                    <button class="pjn-tab" onclick="pjnEditorTab(this,'preview','edit-${n.id}')">Pré-visualizar</button>
-                </div>
-                <div class="pjn-md-toolbar">
-                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdWrap(this,'**','**')"><b>B</b></button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdWrap(this,'*','*')"><i>I</i></button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsert(this,'\x60')"><i class="bi bi-code"></i></button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdCodeFence(this)"><i class="bi bi-code-square"></i></button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsertLine(this,'- ')"><i class="bi bi-list-ul"></i></button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsertLine(this,'> ')"><i class="bi bi-blockquote-left"></i></button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdTable(this)"><i class="bi bi-table"></i></button>
-                </div>
-                <textarea class="form-control mb-1" rows="3">${pjnEscH(n.note_text||'')}</textarea>
-                <div class="pjn-md-live-preview mb-1" style="display:none;"></div>
-                <div class="mb-1"><input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" class="form-control form-control-sm" onchange="pjnPreviewImages(this,'pjn-edit-img-new-${n.id}')"></div>
-                <div id="pjn-edit-img-new-${n.id}" class="pjn-edit-img-gallery mb-1"></div>
-                <div class="pjn-edit-img-gallery mb-1">${(n.images||[]).map(i=>{
-                    const isImg=/\.(jpe?g|png|gif|webp|svg)$/i.test(i.original_name||i.file_path);
-                    if(isImg) return `<div class="pjn-edit-img-ref" title="${pjnEscA(i.original_name||'')}"><img src="${pjnEscA(_pjnBase+i.file_path)}" alt=""><div class="pjn-edit-img-ref-overlay" onclick="pjnDelImg(${i.id},${n.id})"><i class="bi bi-trash text-white"></i></div></div>`;
-                    return `<div class="note-file-chip" style="margin-bottom:2px;"><i class="bi ${pjnFileIcon(i.original_name||i.file_path)}"></i><a href="${pjnEscA(_pjnBase+i.file_path)}" target="_blank" style="max-width:130px;">${pjnEscH(i.original_name||i.file_path)}</a><button type="button" class="note-chip-del" onclick="pjnDelImg(${i.id},${n.id})" title="Remover">×</button></div>`;
-                }).join('')}</div>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-primary btn-sm" onclick="pjnSaveEdit(${n.id})"><i class="bi bi-save"></i> Guardar</button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="pjnCancelEdit(${n.id})">Cancelar</button>
-                </div>
-            </div>`:''}
-        </div>
+        <div class="pjn-note-md-view" data-raw="${pjnEscA(n.note_text||'')}">${pjnEscH(n.note_text||'')}</div>
+        ${imgs?`<div class="pjn-edit-img-gallery mt-2">${imgs}</div>`:''}
+        ${me?`<div class="pjn-note-edit-area mt-2" style="display:none;">
+            <div class="pjn-editor-tabs">
+                <button class="pjn-tab active" onclick="pjnEditorTab(this,'write','edit-${n.id}')">Escrever</button>
+                <button class="pjn-tab" onclick="pjnEditorTab(this,'preview','edit-${n.id}')">Pré-visualizar</button>
+            </div>
+            <div class="pjn-md-toolbar">
+                <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdWrap(this,'**','**')"><b>B</b></button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdWrap(this,'*','*')"><i>I</i></button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsert(this,'\x60')"><i class="bi bi-code"></i></button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdCodeFence(this)"><i class="bi bi-code-square"></i></button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsertLine(this,'- ')"><i class="bi bi-list-ul"></i></button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdInsertLine(this,'> ')"><i class="bi bi-blockquote-left"></i></button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="pjnMdTable(this)"><i class="bi bi-table"></i></button>
+            </div>
+            <textarea class="form-control mb-1" rows="3">${pjnEscH(n.note_text||'')}</textarea>
+            <div class="pjn-md-live-preview mb-1" style="display:none;"></div>
+            <div class="mb-1"><input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" class="form-control form-control-sm" onchange="pjnPreviewImages(this,'pjn-edit-img-new-${n.id}')"></div>
+            <div id="pjn-edit-img-new-${n.id}" class="pjn-edit-img-gallery mb-1"></div>
+            <div class="pjn-edit-img-gallery mb-1">${(n.images||[]).map(i=>{
+                const isImg=/\.(jpe?g|png|gif|webp|svg)$/i.test(i.original_name||i.file_path);
+                if(isImg) return `<div class="pjn-edit-img-ref" title="${pjnEscA(i.original_name||'')}"><img src="${pjnEscA(_pjnBase+i.file_path)}" alt=""><div class="pjn-edit-img-ref-overlay" onclick="pjnDelImg(${i.id},${n.id})"><i class="bi bi-trash text-white"></i></div></div>`;
+                return `<div class="note-file-chip" style="margin-bottom:2px;"><i class="bi ${pjnFileIcon(i.original_name||i.file_path)}"></i><a href="${pjnEscA(_pjnBase+i.file_path)}" target="_blank" style="max-width:130px;">${pjnEscH(i.original_name||i.file_path)}</a><button type="button" class="note-chip-del" onclick="pjnDelImg(${i.id},${n.id})" title="Remover">×</button></div>`;
+            }).join('')}</div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary btn-sm" onclick="pjnSaveEdit(${n.id})"><i class="bi bi-save"></i> Guardar</button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="pjnCancelEdit(${n.id})">Cancelar</button>
+            </div>
+        </div>`:''}
     </div>`;
 }
 

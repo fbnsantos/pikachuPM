@@ -380,6 +380,20 @@ if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
                 $search_results['proto_notes'] = $s->fetchAll(PDO::FETCH_ASSOC);
             }
 
+            // 12. Notas de Projetos
+            if ($pdo_s->query("SHOW TABLES LIKE 'project_notes'")->rowCount()) {
+                [$w, $p] = gsWhere(['pjn.note_text'], $gsTerms, $gsExcludes);
+                $s = $pdo_s->prepare("SELECT pjn.id, pjn.note_text, pjn.created_at,
+                                             pjn.project_id, COALESCE(p.name,'') as project_name,
+                                             COALESCE(u.username,'') as username
+                                      FROM project_notes pjn
+                                      LEFT JOIN projects p ON pjn.project_id = p.id
+                                      LEFT JOIN user_tokens u ON pjn.user_id = u.user_id
+                                      WHERE $w ORDER BY pjn.created_at DESC LIMIT 15");
+                $s->execute($p);
+                $search_results['project_notes'] = $s->fetchAll(PDO::FETCH_ASSOC);
+            }
+
         } catch (PDOException $e) { /* ignorar */ }
     }
 }
@@ -451,10 +465,11 @@ $sections = [
     'projects'   => ['📁', 'Projetos'],
     'leads'      => ['🎯', 'Leads'],
     'research'   => ['💡', 'Research Ideas'],
-    'task_notes' => ['💬', 'Notas de Tasks'],
-    'lead_notes' => ['💬', 'Notas de Leads'],
-    'proto_notes'=> ['💬', 'Notas de Protótipos'],
-    'links'      => ['🔗', 'Links'],
+    'task_notes'    => ['💬', 'Notas de Tasks'],
+    'lead_notes'    => ['💬', 'Notas de Leads'],
+    'proto_notes'   => ['💬', 'Notas de Protótipos'],
+    'project_notes' => ['💬', 'Notas de Projetos'],
+    'links'         => ['🔗', 'Links'],
 ];
 $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
 ?>
@@ -592,6 +607,16 @@ $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
             <div class="gs-title">
                 <a href="?tab=prototypes/prototypesv2&prototype_id=<?= (int)$r['prototype_id'] ?>">
                     <?= hl($r['proto_short_name'], $q) ?><?php if ($r['proto_title']): ?> — <?= hl($r['proto_title'], $q) ?><?php endif; ?>
+                </a>
+                <span class="gs-badge ms-1" style="background:#e0e7ff;color:#3730a3;">nota</span>
+            </div>
+            <div class="gs-meta">👤 <?= htmlspecialchars($r['username']) ?> · <?= date('d/m/Y', strtotime($r['created_at'])) ?></div>
+            <div class="gs-snippet"><?= hl(snippet($r['note_text'], $q), $q) ?></div>
+
+        <?php elseif ($key === 'project_notes'): ?>
+            <div class="gs-title">
+                <a href="?tab=projectos&project_id=<?= (int)$r['project_id'] ?>">
+                    <?= hl($r['project_name'] ?: '(projeto #'.$r['project_id'].')', $q) ?>
                 </a>
                 <span class="gs-badge ms-1" style="background:#e0e7ff;color:#3730a3;">nota</span>
             </div>

@@ -496,13 +496,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
     $pdo->prepare("UPDATE project_notes SET note_text=?,updated_at=NOW() WHERE id=? AND user_id=?")->execute([$text,$nid,$uid]);
     $imgDir = __DIR__.'/../files/project_notes/';
     if (!is_dir($imgDir)) mkdir($imgDir,0755,true);
-    $allowedImg=['jpg','jpeg','png','gif','webp'];
+    $allowedImg=['jpg','jpeg','png','gif','webp','svg','pdf','doc','docx','xls','xlsx','ppt','pptx','txt','csv','zip','rar','7z'];
     if (!empty($_FILES['images']['name'][0])) {
         foreach ($_FILES['images']['tmp_name'] as $i=>$tmp) {
             if ($_FILES['images']['error'][$i]!==UPLOAD_ERR_OK) continue;
             $ext=strtolower(pathinfo($_FILES['images']['name'][$i],PATHINFO_EXTENSION));
             if (!in_array($ext,$allowedImg)) continue;
-            if ($_FILES['images']['size'][$i]>10*1024*1024) continue;
+            if ($_FILES['images']['size'][$i]>20*1024*1024) continue;
             $fname="pjn_{$nid}_e{$i}_".uniqid().".$ext";
             if (move_uploaded_file($tmp,$imgDir.$fname)) {
                 $pdo->prepare("INSERT INTO project_note_images (note_id,file_path,original_name) VALUES (?,?,?)")->execute([$nid,'files/project_notes/'.$fname,$_FILES['images']['name'][$i]]);
@@ -3112,13 +3112,13 @@ function pjnRenderNotes(notes, uid){
         const isMe=udata.user_id==uid;
         const ini=(udata.username||'?').substring(0,2).toUpperCase();
         html+=`<div class="pjn-user-block mb-2">
-            <div class="pjn-ub-header pjn-collapsed" onclick="pjnToggleUser(this)">
+            <div class="pjn-ub-header ${isMe?'':'pjn-collapsed'}" onclick="pjnToggleUser(this)">
                 <div class="pjn-avatar ${isMe?'pjn-avatar-me':''}">${pjnEscH(ini)}</div>
                 <span class="fw-semibold" style="font-size:14px;">${pjnEscH(udata.username||'Desconhecido')}${isMe?' <span class="badge bg-secondary ms-1" style="font-size:10px;font-weight:400;">Eu</span>':''}</span>
                 <span class="text-muted ms-1" style="font-size:12px;">(${udata.notes.length})</span>
                 <i class="bi bi-chevron-down pjn-chevron ms-auto"></i>
             </div>
-            <div class="pjn-user-notes d-none">
+            <div class="pjn-user-notes ${isMe?'':'d-none'}">
                 ${udata.notes.map(n=>pjnNoteHtml(n,isMe)).join('')}
             </div>
         </div>`;

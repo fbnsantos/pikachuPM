@@ -311,7 +311,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             foreach ($_FILES['note_images']['tmp_name'] as $i => $tmp) {
                 if ($_FILES['note_images']['error'][$i] !== UPLOAD_ERR_OK) continue;
                 $mime = mime_content_type($tmp);
-                if (!str_starts_with($mime, 'image/')) continue;
+                $allowedMimes = ['image/jpeg','image/png','image/gif','image/webp','image/svg+xml','application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation','text/plain','text/csv','application/zip','application/x-zip-compressed'];
+                if (!in_array($mime, $allowedMimes)) continue;
                 $ext = strtolower(pathinfo($_FILES['note_images']['name'][$i], PATHINFO_EXTENSION));
                 $filename = "tn_{$note_id}_{$i}_" . uniqid() . ".$ext";
                 $dest = $upload_dir . $filename;
@@ -347,7 +348,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             foreach ($_FILES['note_images']['tmp_name'] as $i => $tmp) {
                 if ($_FILES['note_images']['error'][$i] !== UPLOAD_ERR_OK) continue;
                 $mime = mime_content_type($tmp);
-                if (!str_starts_with($mime, 'image/')) continue;
+                $allowedMimes = ['image/jpeg','image/png','image/gif','image/webp','image/svg+xml','application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation','text/plain','text/csv','application/zip','application/x-zip-compressed'];
+                if (!in_array($mime, $allowedMimes)) continue;
                 $ext = strtolower(pathinfo($_FILES['note_images']['name'][$i], PATHINFO_EXTENSION));
                 $filename = "tn_{$note_id}_e{$i}_" . uniqid() . ".$ext";
                 $dest = $upload_dir . $filename;
@@ -817,6 +819,13 @@ textarea.form-control {
 .tn-edit-img-ref img { width:100%; height:100%; object-fit:cover; }
 .tn-edit-img-ref-overlay { position:absolute; inset:0; background:rgba(13,110,253,.4); display:flex; align-items:center; justify-content:center; color:#fff; font-size:16px; opacity:0; transition:opacity .15s; }
 .tn-edit-img-ref:hover .tn-edit-img-ref-overlay { opacity:1; }
+.note-file-chip { display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border:1px solid #dee2e6; border-radius:6px; background:#f8f9fa; font-size:13px; max-width:240px; }
+.note-file-chip a { text-overflow:ellipsis; overflow:hidden; white-space:nowrap; color:#0d6efd; text-decoration:none; }
+.note-file-chip a:hover { text-decoration:underline; }
+.note-chip-del { background:none; border:none; color:#dc3545; cursor:pointer; padding:0 2px; font-size:14px; line-height:1; }
+.tn-edit-file-ref { position:relative; display:inline-flex; flex-direction:column; align-items:center; justify-content:center; width:64px; height:64px; border:1px solid #dee2e6; border-radius:4px; background:#f8f9fa; cursor:pointer; overflow:hidden; gap:2px; }
+.tn-edit-file-ref:hover { border-color:#0d6efd; background:#e9f0ff; }
+.ln-file-ref-name { font-size:9px; color:#6c757d; text-align:center; max-width:60px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 #tn-lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:99999; align-items:center; justify-content:center; cursor:zoom-out; }
 #tn-lightbox img { max-width:90vw; max-height:90vh; border-radius:6px; }
 </style>
@@ -982,8 +991,8 @@ textarea.form-control {
                         <div class="tn-md-live-preview" style="display:none;"></div>
                     </div>
                     <div style="margin-top:8px;">
-                        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Imagens (opcional)</label>
-                        <input type="file" id="tn-add-images" accept="image/*" multiple style="font-size:12px;"
+                        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Ficheiros (opcional)</label>
+                        <input type="file" id="tn-add-images" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" multiple style="font-size:12px;"
                                onchange="tnPreviewImages(this,'tn-add-preview')">
                         <div id="tn-add-preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;"></div>
                     </div>
@@ -1404,7 +1413,11 @@ function tnNoteHtml(note, canEdit) {
     if (note.images && note.images.length) {
         html += '<div class="tn-note-images">';
         note.images.forEach(function(img) {
-            html += '<div class="tn-img-wrap"><img src="' + tnH(img.file_path) + '" onclick="tnLightbox(this.src)" title="' + tnA(img.original_name) + '"></div>';
+            if (/\.(jpe?g|png|gif|webp|svg)$/i.test(img.original_name || img.file_path)) {
+                html += '<div class="tn-img-wrap"><img src="' + tnH(img.file_path) + '" onclick="tnLightbox(this.src)" title="' + tnA(img.original_name) + '"></div>';
+            } else {
+                html += '<div class="note-file-chip"><i class="bi ' + tnFileIcon(img.original_name || img.file_path) + '"></i><a href="' + tnH(img.file_path) + '" target="_blank" title="' + tnA(img.original_name) + '">' + tnH(img.original_name || img.file_path) + '</a></div>';
+            }
         });
         html += '</div>';
     }
@@ -1417,15 +1430,20 @@ function tnNoteHtml(note, canEdit) {
         html += '<div class="tn-md-live-preview" style="display:none;"></div>';
         html += '</div>';
         if (note.images && note.images.length) {
-            html += '<div class="tn-edit-img-gallery"><div style="font-size:12px;color:#6c757d;margin-bottom:4px;">Clica numa imagem para inserir no texto:</div><div style="display:flex;flex-wrap:wrap;gap:6px;">';
+            html += '<div class="tn-edit-img-gallery"><div style="font-size:12px;color:#6c757d;margin-bottom:4px;">Clica num ficheiro para o inserir no texto:</div><div style="display:flex;flex-wrap:wrap;gap:6px;">';
             note.images.forEach(function(img) {
-                html += '<div class="tn-edit-img-ref" onclick="tnInsertImgRef(' + note.id + ',\'' + tnJ(img.file_path) + '\',\'' + tnJ(img.original_name) + '\')" title="' + tnA(img.original_name) + '">';
-                html += '<img src="' + tnH(img.file_path) + '" alt=""><div class="tn-edit-img-ref-overlay"><i class="bi bi-plus-circle-fill"></i></div></div>';
+                if (/\.(jpe?g|png|gif|webp|svg)$/i.test(img.original_name || img.file_path)) {
+                    html += '<div class="tn-edit-img-ref" onclick="tnInsertImgRef(' + note.id + ',\'' + tnJ(img.file_path) + '\',\'' + tnJ(img.original_name) + '\')" title="' + tnA(img.original_name) + '">';
+                    html += '<img src="' + tnH(img.file_path) + '" alt=""><div class="tn-edit-img-ref-overlay"><i class="bi bi-plus-circle-fill"></i></div></div>';
+                } else {
+                    html += '<div class="tn-edit-file-ref" onclick="tnInsertFileRef(' + note.id + ',\'' + tnJ(img.file_path) + '\',\'' + tnJ(img.original_name) + '\')" title="' + tnA(img.original_name) + '">';
+                    html += '<i class="bi ' + tnFileIcon(img.original_name || img.file_path) + ' fs-4"></i><div class="ln-file-ref-name">' + tnH(img.original_name || img.file_path) + '</div></div>';
+                }
             });
             html += '</div></div>';
         }
-        html += '<div style="margin-top:8px;"><label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Adicionar imagens</label>';
-        html += '<input type="file" accept="image/*" multiple style="font-size:12px;" onchange="tnPreviewImages(this,\'tn-edit-preview-' + note.id + '\')">';
+        html += '<div style="margin-top:8px;"><label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Adicionar ficheiros</label>';
+        html += '<input type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" multiple style="font-size:12px;" onchange="tnPreviewImages(this,\'tn-edit-preview-' + note.id + '\')">';
         html += '<div id="tn-edit-preview-' + note.id + '" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;"></div></div>';
         html += '<div style="display:flex;gap:8px;margin-top:10px;">';
         html += '<button type="button" class="btn btn-sm btn-primary" onclick="tnSaveEdit(' + note.id + ')" style="padding:4px 12px;font-size:12px;">Guardar</button>';
@@ -1514,19 +1532,36 @@ function tnEditorTab(btn, mode) {
     }
 }
 
+function tnFileIcon(n) { if(/\.pdf$/i.test(n)) return 'bi-file-earmark-pdf text-danger'; if(/\.docx?$/i.test(n)) return 'bi-file-earmark-word text-primary'; if(/\.xlsx?$/i.test(n)) return 'bi-file-earmark-excel text-success'; if(/\.pptx?$/i.test(n)) return 'bi-file-earmark-ppt text-warning'; if(/\.(zip|rar|7z)$/i.test(n)) return 'bi-file-earmark-zip text-secondary'; if(/\.(txt|csv)$/i.test(n)) return 'bi-file-earmark-text text-muted'; return 'bi-file-earmark text-muted'; }
+function tnInsertFileRef(noteId, path, name) {
+    var ta = document.querySelector('#tn-note-' + noteId + ' .tn-note-edit-area .tn-md-textarea');
+    if (!ta) return;
+    var text = '[' + name + '](' + path + ')';
+    var s = ta.selectionStart, e = ta.selectionEnd;
+    ta.value = ta.value.substring(0, s) + text + ta.value.substring(e);
+    ta.selectionStart = ta.selectionEnd = s + text.length;
+    ta.focus();
+}
 function tnPreviewImages(input, previewId) {
     var preview = document.getElementById(previewId);
     if (!preview) return;
     preview.innerHTML = '';
     Array.from(input.files).forEach(function(f) {
-        var reader = new FileReader();
-        reader.onload = function(e) {
-            var img = document.createElement('img');
-            img.src = e.target.result;
-            img.style.cssText = 'width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid #dee2e6;';
-            preview.appendChild(img);
-        };
-        reader.readAsDataURL(f);
+        if (/\.(jpe?g|png|gif|webp|svg)$/i.test(f.name)) {
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                var img = document.createElement('img');
+                img.src = e.target.result;
+                img.style.cssText = 'width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid #dee2e6;';
+                preview.appendChild(img);
+            };
+            reader.readAsDataURL(f);
+        } else {
+            var chip = document.createElement('div');
+            chip.className = 'note-file-chip';
+            chip.innerHTML = '<i class="bi ' + tnFileIcon(f.name) + '"></i><span style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + f.name + '</span>';
+            preview.appendChild(chip);
+        }
     });
 }
 

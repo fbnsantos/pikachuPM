@@ -470,7 +470,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_p
     $nid = (int)$pdo->lastInsertId();
     $imgDir = __DIR__.'/../files/project_notes/';
     if (!is_dir($imgDir)) mkdir($imgDir,0755,true);
-    $allowedImg = ['jpg','jpeg','png','gif','webp'];
+    $allowedImg = ['jpg','jpeg','png','gif','webp','svg','pdf','doc','docx','xls','xlsx','ppt','pptx','txt','csv','zip','rar','7z'];
     if (!empty($_FILES['images']['name'][0])) {
         foreach ($_FILES['images']['tmp_name'] as $i=>$tmp) {
             if ($_FILES['images']['error'][$i]!==UPLOAD_ERR_OK) continue;
@@ -1148,6 +1148,10 @@ if (isset($_GET['project_id'])) {
 .pjn-edit-img-ref img { width:60px; height:60px; object-fit:cover; border-radius:4px; border:2px solid #dee2e6; }
 .pjn-edit-img-ref-overlay { position:absolute; inset:0; background:rgba(0,0,0,.35); border-radius:4px; display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity .15s; }
 .pjn-edit-img-ref:hover .pjn-edit-img-ref-overlay { opacity:1; }
+.note-file-chip { display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border:1px solid #dee2e6; border-radius:6px; background:#f8f9fa; font-size:13px; max-width:240px; }
+.note-file-chip a { text-overflow:ellipsis; overflow:hidden; white-space:nowrap; color:#0d6efd; text-decoration:none; }
+.note-file-chip a:hover { text-decoration:underline; }
+.note-chip-del { background:none; border:none; color:#dc3545; cursor:pointer; padding:0 2px; font-size:14px; line-height:1; }
 #pjn-lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
 #pjn-lightbox img { max-width:92vw; max-height:92vh; border-radius:6px; }
 
@@ -1568,8 +1572,8 @@ if (isset($_GET['project_id'])) {
                         <textarea id="pjn-add-text" class="form-control mb-2" rows="4" placeholder="Escrever nota em Markdown..."></textarea>
                         <div id="pjn-add-preview" class="pjn-md-live-preview mb-2" style="display:none;"></div>
                         <div class="mb-2">
-                            <label class="form-label small text-muted">Imagens (opcional)</label>
-                            <input type="file" id="pjn-add-images" multiple accept="image/*" class="form-control form-control-sm" onchange="pjnPreviewImages(this,'pjn-add-img-preview')">
+                            <label class="form-label small text-muted">Ficheiros (opcional)</label>
+                            <input type="file" id="pjn-add-images" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" class="form-control form-control-sm" onchange="pjnPreviewImages(this,'pjn-add-img-preview')">
                             <div id="pjn-add-img-preview" class="pjn-edit-img-gallery mt-1"></div>
                         </div>
                         <div class="d-flex gap-2">
@@ -3103,11 +3107,11 @@ function pjnNoteHtml(n, canEdit){
     const me=canEdit;
     const initials=(n.username||'?').substring(0,2).toUpperCase();
     const date=n.created_at?n.created_at.substring(0,16).replace('T',' '):'';
-    const imgs=(n.images||[]).map(i=>`
-        <div class="pjn-edit-img-ref" onclick="pjnLightbox('${pjnEscA(_pjnBase+i.file_path)}')">
-            <img src="${pjnEscA(_pjnBase+i.file_path)}" alt="${pjnEscA(i.original_name||'')}">
-            <div class="pjn-edit-img-ref-overlay"><i class="bi bi-zoom-in text-white"></i></div>
-        </div>`).join('');
+    const imgs=(n.images||[]).map(i=>{
+        const isImg=/\.(jpe?g|png|gif|webp|svg)$/i.test(i.original_name||i.file_path);
+        if(isImg) return `<div class="pjn-edit-img-ref" onclick="pjnLightbox('${pjnEscA(_pjnBase+i.file_path)}')"><img src="${pjnEscA(_pjnBase+i.file_path)}" alt="${pjnEscA(i.original_name||'')}"><div class="pjn-edit-img-ref-overlay"><i class="bi bi-zoom-in text-white"></i></div></div>`;
+        return `<div class="note-file-chip"><i class="bi ${pjnFileIcon(i.original_name||i.file_path)}"></i><a href="${pjnEscA(_pjnBase+i.file_path)}" target="_blank" title="${pjnEscA(i.original_name||'')}">${pjnEscH(i.original_name||i.file_path)}</a></div>`;
+    }).join('');
     return `<div class="pjn-user-block" id="pjn-note-${n.id}">
         <div class="pjn-user-header">
             <div class="pjn-avatar ${me?'pjn-avatar-me':''}">${pjnEscH(initials)}</div>
@@ -3137,13 +3141,13 @@ function pjnNoteHtml(n, canEdit){
                 </div>
                 <textarea class="form-control mb-1" rows="3">${pjnEscH(n.note_text||'')}</textarea>
                 <div class="pjn-md-live-preview mb-1" style="display:none;"></div>
-                <div class="mb-1"><input type="file" multiple accept="image/*" class="form-control form-control-sm" onchange="pjnPreviewImages(this,'pjn-edit-img-new-${n.id}')"></div>
+                <div class="mb-1"><input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" class="form-control form-control-sm" onchange="pjnPreviewImages(this,'pjn-edit-img-new-${n.id}')"></div>
                 <div id="pjn-edit-img-new-${n.id}" class="pjn-edit-img-gallery mb-1"></div>
-                <div class="pjn-edit-img-gallery mb-1">${(n.images||[]).map(i=>`
-                    <div class="pjn-edit-img-ref" title="${pjnEscA(i.original_name||'')}">
-                        <img src="${pjnEscA(_pjnBase+i.file_path)}" alt="">
-                        <div class="pjn-edit-img-ref-overlay" onclick="pjnDelImg(${i.id},${n.id})"><i class="bi bi-trash text-white"></i></div>
-                    </div>`).join('')}</div>
+                <div class="pjn-edit-img-gallery mb-1">${(n.images||[]).map(i=>{
+                    const isImg=/\.(jpe?g|png|gif|webp|svg)$/i.test(i.original_name||i.file_path);
+                    if(isImg) return `<div class="pjn-edit-img-ref" title="${pjnEscA(i.original_name||'')}"><img src="${pjnEscA(_pjnBase+i.file_path)}" alt=""><div class="pjn-edit-img-ref-overlay" onclick="pjnDelImg(${i.id},${n.id})"><i class="bi bi-trash text-white"></i></div></div>`;
+                    return `<div class="note-file-chip" style="margin-bottom:2px;"><i class="bi ${pjnFileIcon(i.original_name||i.file_path)}"></i><a href="${pjnEscA(_pjnBase+i.file_path)}" target="_blank" style="max-width:130px;">${pjnEscH(i.original_name||i.file_path)}</a><button type="button" class="note-chip-del" onclick="pjnDelImg(${i.id},${n.id})" title="Remover">×</button></div>`;
+                }).join('')}</div>
                 <div class="d-flex gap-2">
                     <button class="btn btn-primary btn-sm" onclick="pjnSaveEdit(${n.id})"><i class="bi bi-save"></i> Guardar</button>
                     <button class="btn btn-outline-secondary btn-sm" onclick="pjnCancelEdit(${n.id})">Cancelar</button>
@@ -3255,15 +3259,21 @@ function pjnEditorTab(btn,mode,ctx){
 }
 window.pjnEditorTab=pjnEditorTab;
 
+function pjnFileIcon(n){ if(/\.pdf$/i.test(n)) return 'bi-file-earmark-pdf text-danger'; if(/\.docx?$/i.test(n)) return 'bi-file-earmark-word text-primary'; if(/\.xlsx?$/i.test(n)) return 'bi-file-earmark-excel text-success'; if(/\.pptx?$/i.test(n)) return 'bi-file-earmark-ppt text-warning'; if(/\.(zip|rar|7z)$/i.test(n)) return 'bi-file-earmark-zip text-secondary'; if(/\.(txt|csv)$/i.test(n)) return 'bi-file-earmark-text text-muted'; return 'bi-file-earmark text-muted'; }
+window.pjnFileIcon=pjnFileIcon;
 function pjnPreviewImages(input,containerId){
     const c=document.getElementById(containerId); if(!c) return;
     c.innerHTML='';
     Array.from(input.files).forEach(f=>{
-        const r=new FileReader();
-        r.onload=e=>{
-            c.innerHTML+=`<div class="pjn-edit-img-ref"><img src="${e.target.result}" style="width:60px;height:60px;object-fit:cover;border-radius:4px;"></div>`;
-        };
-        r.readAsDataURL(f);
+        if(/\.(jpe?g|png|gif|webp|svg)$/i.test(f.name)){
+            const r=new FileReader();
+            r.onload=e=>{ c.innerHTML+=`<div class="pjn-edit-img-ref"><img src="${e.target.result}" style="width:60px;height:60px;object-fit:cover;border-radius:4px;"></div>`; };
+            r.readAsDataURL(f);
+        } else {
+            const chip=document.createElement('div'); chip.className='note-file-chip';
+            chip.innerHTML=`<i class="bi ${pjnFileIcon(f.name)}"></i><span style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.name}</span>`;
+            c.appendChild(chip);
+        }
     });
 }
 window.pjnPreviewImages=pjnPreviewImages;

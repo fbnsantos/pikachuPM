@@ -58,6 +58,11 @@ if ($tables_check == 0) {
     ");
 }
 
+function lnFileIconClass($ext) {
+    $map = ['pdf'=>'bi-file-earmark-pdf text-danger','doc'=>'bi-file-earmark-word text-primary','docx'=>'bi-file-earmark-word text-primary','xls'=>'bi-file-earmark-excel text-success','xlsx'=>'bi-file-earmark-excel text-success','ppt'=>'bi-file-earmark-ppt text-warning','pptx'=>'bi-file-earmark-ppt text-warning','zip'=>'bi-file-earmark-zip text-secondary','rar'=>'bi-file-earmark-zip text-secondary','txt'=>'bi-file-earmark-text text-muted','csv'=>'bi-file-earmark-text text-muted'];
+    return $map[$ext] ?? 'bi-file-earmark text-muted';
+}
+
 // Criar tabelas de notas
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS lead_notes (
@@ -393,7 +398,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!empty($_FILES['note_images']['name'][0])) {
                         $uploadDir = __DIR__ . '/../files/lead_notes/';
                         if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
-                        $allowed = ['image/jpeg','image/png','image/gif','image/webp'];
+                        $allowed = ['image/jpeg','image/png','image/gif','image/webp','image/svg+xml',
+                            'application/pdf','application/msword',
+                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                            'application/vnd.ms-excel',
+                            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                            'application/vnd.ms-powerpoint',
+                            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                            'text/plain','text/csv','application/zip','application/x-zip-compressed'];
                         foreach ($_FILES['note_images']['tmp_name'] as $i => $tmp) {
                             if ($_FILES['note_images']['error'][$i] !== UPLOAD_ERR_OK) continue;
                             $mime = mime_content_type($tmp);
@@ -443,7 +455,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!empty($_FILES['note_images']['name'][0])) {
                     $uploadDir = __DIR__ . '/../files/lead_notes/';
                     if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
-                    $allowed = ['image/jpeg','image/png','image/gif','image/webp'];
+                    $allowed = ['image/jpeg','image/png','image/gif','image/webp','image/svg+xml','application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation','text/plain','text/csv','application/zip','application/x-zip-compressed'];
                     foreach ($_FILES['note_images']['tmp_name'] as $i => $tmp) {
                         if ($_FILES['note_images']['error'][$i] !== UPLOAD_ERR_OK) continue;
                         $mime = mime_content_type($tmp);
@@ -1015,9 +1027,9 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                     </div>
                                 </div>
                                 <div class="mb-2">
-                                    <label class="form-label small text-muted mb-1">Imagens (opcional)</label>
+                                    <label class="form-label small text-muted mb-1">Ficheiros (opcional)</label>
                                     <input type="file" name="note_images[]" class="form-control form-control-sm"
-                                           accept="image/*" multiple id="ln-file-input"
+                                           accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" multiple id="ln-file-input"
                                            onchange="lnPreviewImages(this,'ln-img-preview')">
                                     <div id="ln-img-preview" class="d-flex flex-wrap gap-2 mt-2"></div>
                                 </div>
@@ -1123,23 +1135,36 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                                 </div>
                                                 <?php if (!empty($note['images'])): ?>
                                                 <div class="ln-edit-img-gallery mt-2">
-                                                    <div class="small text-muted mb-1">Clica numa imagem para a inserir no texto:</div>
+                                                    <div class="small text-muted mb-1">Clica num ficheiro para o inserir no texto:</div>
                                                     <div class="d-flex flex-wrap gap-2">
-                                                        <?php foreach ($note['images'] as $img): ?>
+                                                        <?php foreach ($note['images'] as $img):
+                                                            $_lnExt = strtolower(pathinfo($img['original_name'], PATHINFO_EXTENSION));
+                                                            $_lnIsImg = in_array($_lnExt, ['jpg','jpeg','png','gif','webp','svg']);
+                                                        ?>
+                                                        <?php if ($_lnIsImg): ?>
                                                         <div class="ln-edit-img-ref"
                                                              onclick="lnInsertImgRef(<?= $note['id'] ?>, '<?= addslashes($img['file_path']) ?>', '<?= addslashes($img['original_name']) ?>')"
-                                                             title="Inserir: <?= htmlspecialchars($img['original_name']) ?>">
+                                                             title="Inserir imagem: <?= htmlspecialchars($img['original_name']) ?>">
                                                             <img src="<?= htmlspecialchars($img['file_path']) ?>" alt="">
                                                             <div class="ln-edit-img-ref-overlay"><i class="bi bi-plus-circle-fill"></i></div>
                                                         </div>
+                                                        <?php else: ?>
+                                                        <div class="ln-edit-file-ref"
+                                                             onclick="lnInsertFileRef(<?= $note['id'] ?>, '<?= addslashes($img['file_path']) ?>', '<?= addslashes($img['original_name']) ?>')"
+                                                             title="Inserir link: <?= htmlspecialchars($img['original_name']) ?>">
+                                                            <i class="bi <?= lnFileIconClass($_lnExt) ?> fs-4"></i>
+                                                            <div class="ln-file-ref-name"><?= htmlspecialchars($img['original_name']) ?></div>
+                                                            <div class="pn-edit-img-ref-overlay"><i class="bi bi-plus-circle-fill"></i></div>
+                                                        </div>
+                                                        <?php endif; ?>
                                                         <?php endforeach; ?>
                                                     </div>
                                                 </div>
                                                 <?php endif; ?>
                                                 <div class="mt-2 mb-1">
-                                                    <label class="form-label small text-muted mb-1">Adicionar imagens</label>
+                                                    <label class="form-label small text-muted mb-1">Adicionar ficheiros</label>
                                                     <input type="file" name="note_images[]" class="form-control form-control-sm"
-                                                           accept="image/*" multiple
+                                                           accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" multiple
                                                            onchange="lnPreviewImages(this,'ln-edit-preview-<?= $note['id'] ?>')">
                                                     <div id="ln-edit-preview-<?= $note['id'] ?>" class="d-flex flex-wrap gap-2 mt-1"></div>
                                                 </div>
@@ -1158,7 +1183,11 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
 
                                         <?php if (!empty($note['images'])): ?>
                                         <div class="ln-note-images mt-2">
-                                            <?php foreach ($note['images'] as $img): ?>
+                                            <?php foreach ($note['images'] as $img):
+                                                $_lnExt = strtolower(pathinfo($img['original_name'], PATHINFO_EXTENSION));
+                                                $_lnIsImg = in_array($_lnExt, ['jpg','jpeg','png','gif','webp','svg']);
+                                            ?>
+                                            <?php if ($_lnIsImg): ?>
                                             <div class="ln-img-wrap">
                                                 <img src="<?= htmlspecialchars($img['file_path']) ?>"
                                                      alt="<?= htmlspecialchars($img['original_name']) ?>"
@@ -1169,10 +1198,24 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                                                     <input type="hidden" name="action" value="delete_lead_note_image">
                                                     <input type="hidden" name="image_id" value="<?= $img['id'] ?>">
                                                     <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
-                                                    <button type="submit" class="ln-del-img" title="Remover imagem" onclick="return confirm('Remover imagem?')">×</button>
+                                                    <button type="submit" class="ln-del-img" title="Remover" onclick="return confirm('Remover ficheiro?')">×</button>
                                                 </form>
                                                 <?php endif; ?>
                                             </div>
+                                            <?php else: ?>
+                                            <div class="note-file-chip">
+                                                <i class="bi <?= lnFileIconClass($_lnExt) ?>"></i>
+                                                <a href="<?= htmlspecialchars($img['file_path']) ?>" target="_blank"><?= htmlspecialchars($img['original_name']) ?></a>
+                                                <?php if ($note['user_id'] == $current_user_id): ?>
+                                                <form method="POST" style="display:inline;margin:0;">
+                                                    <input type="hidden" name="action" value="delete_lead_note_image">
+                                                    <input type="hidden" name="image_id" value="<?= $img['id'] ?>">
+                                                    <input type="hidden" name="lead_id" value="<?= $selected_lead['id'] ?>">
+                                                    <button type="submit" class="note-chip-del" title="Remover" onclick="return confirm('Remover ficheiro?')">×</button>
+                                                </form>
+                                                <?php endif; ?>
+                                            </div>
+                                            <?php endif; ?>
                                             <?php endforeach; ?>
                                         </div>
                                         <?php endif; ?>
@@ -1712,6 +1755,13 @@ include __DIR__ . '/../edit_task.php';
 .ln-img-del { margin: 0; }
 [id^="ln-img-preview"] img,
 [id^="ln-edit-preview"] img { width: 72px; height: 72px; object-fit: cover; border-radius: 4px; border: 1px solid #dee2e6; }
+.note-file-chip { display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border:1px solid #dee2e6; border-radius:6px; background:#f8f9fa; font-size:13px; max-width:220px; }
+.note-file-chip a { text-overflow:ellipsis; overflow:hidden; white-space:nowrap; color:#0d6efd; text-decoration:none; }
+.note-file-chip a:hover { text-decoration:underline; }
+.note-chip-del { background:none; border:none; color:#dc3545; cursor:pointer; padding:0 2px; font-size:14px; line-height:1; }
+.ln-edit-file-ref { position:relative; display:inline-flex; flex-direction:column; align-items:center; justify-content:center; width:72px; height:72px; border:1px solid #dee2e6; border-radius:4px; background:#f8f9fa; cursor:pointer; overflow:hidden; gap:2px; }
+.ln-edit-file-ref:hover { border-color:#0d6efd; background:#e9f0ff; }
+.ln-file-ref-name { font-size:9px; color:#6c757d; text-align:center; max-width:68px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 </style>
 
 <script>
@@ -1847,20 +1897,48 @@ function lnMdTable(btn) {
     ta.selectionStart = ta.selectionEnd = s + before.length + tpl.length;
 }
 
+function lnIsImage(name) { return /\.(jpe?g|png|gif|webp|svg)$/i.test(name); }
+function lnFileIcon(name) {
+    if (/\.pdf$/i.test(name)) return 'bi-file-earmark-pdf text-danger';
+    if (/\.docx?$/i.test(name)) return 'bi-file-earmark-word text-primary';
+    if (/\.xlsx?$/i.test(name)) return 'bi-file-earmark-excel text-success';
+    if (/\.pptx?$/i.test(name)) return 'bi-file-earmark-ppt text-warning';
+    if (/\.(zip|rar|7z)$/i.test(name)) return 'bi-file-earmark-zip text-secondary';
+    if (/\.(txt|csv)$/i.test(name)) return 'bi-file-earmark-text text-muted';
+    return 'bi-file-earmark text-muted';
+}
 function lnPreviewImages(input, previewId) {
     var preview = document.getElementById(previewId || 'ln-img-preview');
     if (!preview) return;
     preview.innerHTML = '';
     Array.from(input.files).forEach(function(f) {
-        var reader = new FileReader();
-        reader.onload = function(e) {
-            var img = document.createElement('img');
-            img.src = e.target.result;
-            img.style.cssText = 'width:72px;height:72px;object-fit:cover;border-radius:4px;border:1px solid #dee2e6;';
-            preview.appendChild(img);
-        };
-        reader.readAsDataURL(f);
+        if (lnIsImage(f.name)) {
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                var img = document.createElement('img');
+                img.src = e.target.result;
+                img.style.cssText = 'width:72px;height:72px;object-fit:cover;border-radius:4px;border:1px solid #dee2e6;';
+                preview.appendChild(img);
+            };
+            reader.readAsDataURL(f);
+        } else {
+            var chip = document.createElement('div');
+            chip.className = 'note-file-chip';
+            chip.innerHTML = '<i class="bi ' + lnFileIcon(f.name) + '"></i><span style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + f.name + '</span>';
+            preview.appendChild(chip);
+        }
     });
+}
+function lnInsertFileRef(noteId, path, name) {
+    var item = document.getElementById('ln-note-' + noteId);
+    if (!item) return;
+    var ta = item.querySelector('.ln-note-edit-area textarea');
+    if (!ta) return;
+    var s = ta.selectionStart;
+    var ins = '[' + name + '](' + path + ')';
+    ta.value = ta.value.substring(0, s) + ins + ta.value.substring(s);
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = s + ins.length;
 }
 
 function lnInsertImgRef(noteId, path, alt) {

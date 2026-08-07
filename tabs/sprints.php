@@ -161,6 +161,32 @@ if ($checkTodos) {
     }
 }
 
+// Criar tabelas de notas de sprint
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS sprint_notes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        sprint_id INT NOT NULL,
+        user_id INT NOT NULL,
+        note_text TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_sprint (sprint_id),
+        INDEX idx_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS sprint_note_images (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        note_id INT NOT NULL,
+        file_path VARCHAR(500) NOT NULL,
+        original_name VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (note_id) REFERENCES sprint_notes(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (PDOException $e) { /* não crítico */ }
+
+function spnFileIconClass(string $ext): string {
+    $map = ['pdf'=>'bi-file-earmark-pdf text-danger','doc'=>'bi-file-earmark-word text-primary','docx'=>'bi-file-earmark-word text-primary','xls'=>'bi-file-earmark-excel text-success','xlsx'=>'bi-file-earmark-excel text-success','ppt'=>'bi-file-earmark-ppt text-warning','pptx'=>'bi-file-earmark-ppt text-warning','txt'=>'bi-file-earmark-text','csv'=>'bi-file-earmark-spreadsheet text-success','zip'=>'bi-file-earmark-zip','rar'=>'bi-file-earmark-zip','7z'=>'bi-file-earmark-zip'];
+    return $map[$ext] ?? 'bi-file-earmark text-muted';
+}
+
 // Sincronização com calendário: apaga eventos anteriores desta sprint e insere novos
 function sprintSyncCalendar(PDO $pdo, int $id, string $nome, ?string $dataInicio, ?string $dataFim, string $criador): void {
     try {
@@ -619,6 +645,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $messageType = 'warning';
                 }
                 break;
+
+            case 'add_sprint_note': {
+                $spnSid = (int)($_POST['sprint_id'] ?? 0);
+                $spnTxt = trim($_POST['note_text'] ?? '');
+                $_spnAllowed = ['image/jpeg','image/png','image/gif','image/webp','image/svg+xml','application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation','text/plain','text/csv','application/zip','application/x-zip-compressed'];
+                if ($spnSid && $current_user_id && ($spnTxt !== '' || !empty($_FILES['note_images']['name'][0]))) {
+                    $pdo->prepare("INSERT INTO sprint_notes (sprint_id, user_id, note_text) VALUES (?,?,?)")->execute([$spnSid, $current_user_id, $spnTxt]);
+                    $nid = (int)$pdo->lastInsertId();
+                    if (!empty($_FILES['note_images']['name'][0])) {
+                        $dir = __DIR__.'/../files/sprint_notes/';
+                        if (!is_dir($dir)) mkdir($dir, 0755, true);
+                        foreach ($_FILES['note_images']['tmp_name'] as $i => $tmp) {
+                            if ($_FILES['note_images']['error'][$i] !== UPLOAD_ERR_OK) continue;
+                            $mime = mime_content_type($tmp);
+                            if (!in_array($mime, $_spnAllowed)) continue;
+                            $ext = pathinfo($_FILES['note_images']['name'][$i], PATHINFO_EXTENSION);
+                            $fname = 'spn_'.$nid.'_'.$i.'_'.uniqid().'.'.$ext;
+                            if (move_uploaded_file($tmp, $dir.$fname))
+                                $pdo->prepare("INSERT INTO sprint_note_images (note_id, file_path, original_name) VALUES (?,?,?)")->execute([$nid, 'files/sprint_notes/'.$fname, $_FILES['note_images']['name'][$i]]);
+                        }
+                    }
+                    $message = "Nota adicionada!";
+                }
+                break;
+            }
+            case 'edit_sprint_note': {
+                $spnNid = (int)($_POST['note_id'] ?? 0);
+                $spnTxt = trim($_POST['note_text'] ?? '');
+                $_spnAllowed = ['image/jpeg','image/png','image/gif','image/webp','image/svg+xml','application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation','text/plain','text/csv','application/zip','application/x-zip-compressed'];
+                if ($spnNid && $current_user_id) {
+                    $pdo->prepare("UPDATE sprint_notes SET note_text=? WHERE id=? AND user_id=?")->execute([$spnTxt, $spnNid, $current_user_id]);
+                    if (!empty($_FILES['note_images']['name'][0])) {
+                        $dir = __DIR__.'/../files/sprint_notes/';
+                        if (!is_dir($dir)) mkdir($dir, 0755, true);
+                        foreach ($_FILES['note_images']['tmp_name'] as $i => $tmp) {
+                            if ($_FILES['note_images']['error'][$i] !== UPLOAD_ERR_OK) continue;
+                            $mime = mime_content_type($tmp);
+                            if (!in_array($mime, $_spnAllowed)) continue;
+                            $ext = pathinfo($_FILES['note_images']['name'][$i], PATHINFO_EXTENSION);
+                            $fname = 'spn_'.$spnNid.'_e'.$i.'_'.uniqid().'.'.$ext;
+                            if (move_uploaded_file($tmp, $dir.$fname))
+                                $pdo->prepare("INSERT INTO sprint_note_images (note_id, file_path, original_name) VALUES (?,?,?)")->execute([$spnNid, 'files/sprint_notes/'.$fname, $_FILES['note_images']['name'][$i]]);
+                        }
+                    }
+                    $message = "Nota atualizada!";
+                }
+                break;
+            }
+            case 'delete_sprint_note': {
+                $spnNid = (int)($_POST['note_id'] ?? 0);
+                if ($spnNid && $current_user_id) {
+                    $imgs = $pdo->prepare("SELECT file_path FROM sprint_note_images WHERE note_id=?");
+                    $imgs->execute([$spnNid]);
+                    foreach ($imgs->fetchAll(PDO::FETCH_COLUMN) as $fp) @unlink(__DIR__.'/../'.$fp);
+                    $pdo->prepare("DELETE FROM sprint_notes WHERE id=? AND user_id=?")->execute([$spnNid, $current_user_id]);
+                    $message = "Nota eliminada!";
+                }
+                break;
+            }
+            case 'delete_sprint_note_image': {
+                $spnIid = (int)($_POST['image_id'] ?? 0);
+                if ($spnIid && $current_user_id) {
+                    $r = $pdo->prepare("SELECT sni.file_path, sn.user_id FROM sprint_note_images sni JOIN sprint_notes sn ON sni.note_id=sn.id WHERE sni.id=?");
+                    $r->execute([$spnIid]); $img = $r->fetch(PDO::FETCH_ASSOC);
+                    if ($img && $img['user_id'] == $current_user_id) {
+                        @unlink(__DIR__.'/../'.$img['file_path']);
+                        $pdo->prepare("DELETE FROM sprint_note_images WHERE id=?")->execute([$spnIid]);
+                        $message = "Ficheiro removido!";
+                    }
+                }
+                break;
+            }
 
             case 'change_task_status':
                 if ($checkTodos) {
@@ -1164,6 +1262,23 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
         $messageType = 'danger';
     }
 }
+
+// Fetch sprint notes (agrupadas por autor)
+$spn_notes_by_author = [];
+if ($selectedSprint) {
+    try {
+        $nst = $pdo->prepare("SELECT sn.*, ut.username as author_name FROM sprint_notes sn LEFT JOIN user_tokens ut ON sn.user_id = ut.user_id WHERE sn.sprint_id = ? ORDER BY sn.created_at DESC");
+        $nst->execute([$selectedSprint['id']]);
+        foreach ($nst->fetchAll(PDO::FETCH_ASSOC) as $n) {
+            $ist = $pdo->prepare("SELECT id, file_path, original_name FROM sprint_note_images WHERE note_id=? ORDER BY created_at ASC");
+            $ist->execute([$n['id']]);
+            $n['images'] = $ist->fetchAll(PDO::FETCH_ASSOC);
+            $aid = $n['user_id'];
+            if (!isset($spn_notes_by_author[$aid])) $spn_notes_by_author[$aid] = ['username'=>$n['author_name'], 'notes'=>[]];
+            $spn_notes_by_author[$aid]['notes'][] = $n;
+        }
+    } catch (PDOException $e) { /* ignorar */ }
+}
 ?>
 
 <style>
@@ -1440,6 +1555,56 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
     margin-top: 8px;
 }
 
+/* Sprint Notes (ln-* shared styles) */
+.ln-user-block { border:1px solid #e9ecef; border-radius:8px; overflow:hidden; margin-bottom:6px; }
+.ln-user-header { display:flex; align-items:center; gap:8px; padding:8px 12px; cursor:pointer; background:#f8f9fa; user-select:none; transition:background .15s; }
+.ln-user-header:hover { background:#e9ecef; }
+.ln-user-header.ln-collapsed .ln-chevron { transform:rotate(-90deg); }
+.ln-chevron { transition:transform .2s; font-size:13px; color:#6c757d; }
+.ln-user-notes { padding:4px 8px 8px; }
+.ln-note-item { background:#fff; border:1px solid #e9ecef; border-radius:6px; padding:8px 10px; font-size:.9rem; margin-top:6px; }
+.ln-note-meta { display:flex; align-items:center; gap:4px; margin-bottom:6px; flex-wrap:wrap; }
+.ln-avatar { width:28px; height:28px; border-radius:50%; background:#6c757d; color:#fff; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
+.ln-avatar-me { background:#0d6efd; }
+.ln-editor-wrap { border:1px solid #dee2e6; border-radius:6px; overflow:hidden; margin-bottom:4px; }
+.ln-editor-tabs { display:flex; gap:0; border-bottom:1px solid #dee2e6; background:#f8f9fa; }
+.ln-tab { border:none; background:none; padding:4px 14px; font-size:13px; cursor:pointer; color:#6c757d; border-bottom:2px solid transparent; }
+.ln-tab.active { color:#0d6efd; border-bottom-color:#0d6efd; font-weight:600; }
+.ln-md-toolbar { display:flex; flex-wrap:wrap; gap:2px; padding:4px 6px; background:#f8f9fa; border-bottom:1px solid #dee2e6; }
+.ln-md-toolbar button { border:1px solid #dee2e6; background:#fff; border-radius:3px; padding:1px 6px; font-size:12px; cursor:pointer; line-height:1.5; }
+.ln-md-toolbar button:hover { background:#e9ecef; }
+.ln-sep { width:1px; background:#dee2e6; margin:2px 2px; }
+.ln-md-hint { font-size:11px; color:#adb5bd; margin-left:auto; align-self:center; }
+.ln-md-textarea { border:0; border-radius:0; resize:vertical; }
+.ln-md-live-preview { padding:8px 12px; min-height:80px; font-size:.9rem; }
+.ln-note-md-view { font-size:.9rem; line-height:1.55; }
+.ln-note-md-view h1,.ln-note-md-view h2,.ln-note-md-view h3 { font-size:1rem; font-weight:700; margin:.6em 0 .3em; }
+.ln-note-md-view p { margin:0 0 .5em; }
+.ln-note-md-view ul,.ln-note-md-view ol { padding-left:1.4em; margin:0 0 .5em; }
+.ln-note-md-view code { background:#f0f0f0; padding:1px 4px; border-radius:3px; font-size:.85em; }
+.ln-note-md-view pre { background:#f0f0f0; padding:8px; border-radius:4px; overflow-x:auto; font-size:.85em; }
+.ln-note-md-view blockquote { border-left:3px solid #dee2e6; padding-left:10px; color:#6c757d; margin:0 0 .5em; }
+.ln-note-md-view input[type=checkbox] { pointer-events:none; }
+.ln-note-md-view table { border-collapse:collapse; width:100%; font-size:.85em; margin:.4em 0; }
+.ln-note-md-view th,.ln-note-md-view td { border:1px solid #dee2e6; padding:3px 8px; }
+.ln-note-md-view th { background:#f8f9fa; }
+.ln-note-images { display:flex; flex-wrap:wrap; gap:6px; }
+.ln-img-wrap { position:relative; display:inline-block; }
+.ln-img-wrap img { max-width:90px; max-height:80px; border-radius:4px; cursor:pointer; border:1px solid #dee2e6; object-fit:cover; }
+.ln-img-del { position:absolute; top:-4px; right:-4px; margin:0; padding:0; }
+.ln-del-img { background:#dc3545; color:#fff; border:none; border-radius:50%; width:16px; height:16px; font-size:12px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.note-file-chip { display:inline-flex; align-items:center; gap:4px; background:#f0f4ff; border:1px solid #c7d2fe; border-radius:4px; padding:2px 8px; font-size:12px; }
+.note-chip-del { background:none; border:none; color:#dc3545; font-size:14px; cursor:pointer; line-height:1; padding:0 0 0 4px; }
+.ln-edit-img-ref { position:relative; width:60px; height:60px; border:1px solid #dee2e6; border-radius:4px; overflow:hidden; cursor:pointer; }
+.ln-edit-img-ref img { width:100%; height:100%; object-fit:cover; }
+.ln-edit-img-ref-overlay { position:absolute; inset:0; background:rgba(0,0,0,.4); display:none; align-items:center; justify-content:center; color:#fff; font-size:20px; }
+.ln-edit-img-ref:hover .ln-edit-img-ref-overlay { display:flex; }
+.ln-edit-file-ref { display:flex; flex-direction:column; align-items:center; gap:2px; padding:6px 8px; border:1px solid #dee2e6; border-radius:4px; cursor:pointer; font-size:11px; text-align:center; width:70px; overflow:hidden; }
+.ln-edit-file-ref:hover { background:#f8f9fa; }
+.ln-file-ref-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:64px; }
+#ln-lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
+#ln-lightbox img { max-width:90vw; max-height:90vh; border-radius:4px; }
+.btn-xs { font-size:.7rem; padding:.1rem .3rem; }
 .btn-edit-task {
     padding: 4px 8px;
     font-size: 12px;
@@ -1825,6 +1990,222 @@ if (isset($_GET['sprint_id']) && !empty($_GET['sprint_id'])) {
             <?php endif; ?>
             <?php endif; ?>
             
+            <!-- Notas da Sprint -->
+            <div class="section-header mt-3">
+                <h5><i class="bi bi-chat-left-text"></i> Notas</h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="spnToggleAdd()" id="spn-add-btn">
+                    <i class="bi bi-plus"></i> Adicionar nota
+                </button>
+            </div>
+            <div id="spn-add-form" style="display:none;" class="mb-3 p-3 bg-light rounded border">
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="action" value="add_sprint_note">
+                    <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
+                    <div class="mb-2">
+                        <div class="ln-editor-wrap">
+                        <div class="ln-editor-tabs">
+                            <button type="button" class="ln-tab active" onclick="lnEditorTab(this,'write')">Escrever</button>
+                            <button type="button" class="ln-tab" onclick="lnEditorTab(this,'preview')">Pré-visualizar</button>
+                        </div>
+                        <div class="ln-md-toolbar">
+                            <button type="button" onclick="lnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
+                            <button type="button" onclick="lnMdWrap(this,'*','*')" title="Itálico"><em>I</em></button>
+                            <button type="button" onclick="lnMdWrap(this,'***','***')" title="Negrito+Itálico"><b><em>BI</em></b></button>
+                            <button type="button" onclick="lnMdWrap(this,'~~','~~')" title="Riscado"><s>S</s></button>
+                            <span class="ln-sep"></span>
+                            <button type="button" onclick="lnMdWrap(this,'`','`')" title="Código inline"><code>c</code></button>
+                            <button type="button" onclick="lnMdBlock(this,'```\n','\n```')" title="Bloco de código"><code>```</code></button>
+                            <span class="ln-sep"></span>
+                            <button type="button" onclick="lnMdInsert(this,'# ')" title="H1" style="font-weight:700;">H1</button>
+                            <button type="button" onclick="lnMdInsert(this,'## ')" title="H2" style="font-weight:700;">H2</button>
+                            <button type="button" onclick="lnMdInsert(this,'### ')" title="H3" style="font-weight:700;">H3</button>
+                            <span class="ln-sep"></span>
+                            <button type="button" onclick="lnMdInsert(this,'- ')" title="Lista">• ≡</button>
+                            <button type="button" onclick="lnMdInsert(this,'1. ')" title="Lista numerada">1.</button>
+                            <button type="button" onclick="lnMdInsert(this,'- [ ] ')" title="Checklist">☐</button>
+                            <span class="ln-sep"></span>
+                            <button type="button" onclick="lnMdInsert(this,'> ')" title="Citação">❝</button>
+                            <button type="button" onclick="lnMdWrap(this,'[','](url)')" title="Link">🔗</button>
+                            <button type="button" onclick="lnMdInsertLine(this,'---')" title="Linha">—</button>
+                            <button type="button" onclick="lnMdTable(this)" title="Tabela">⊞</button>
+                            <span class="ln-md-hint">Markdown</span>
+                        </div>
+                        <textarea name="note_text" class="form-control ln-md-textarea" rows="4"
+                                  placeholder="Suporta **Markdown**…" style="font-size:13px;font-family:monospace;"></textarea>
+                        <div class="ln-md-live-preview" style="display:none;"></div>
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small text-muted mb-1">Ficheiros (opcional)</label>
+                        <input type="file" name="note_images[]" class="form-control form-control-sm"
+                               accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" multiple
+                               onchange="lnPreviewImages(this,'spn-img-preview')">
+                        <div id="spn-img-preview" class="d-flex flex-wrap gap-2 mt-2"></div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> Guardar</button>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="spnToggleAdd()">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+
+            <?php if (empty($spn_notes_by_author)): ?>
+                <p class="text-muted text-center small py-2">Nenhuma nota ainda.</p>
+            <?php else: ?>
+                <?php foreach ($spn_notes_by_author as $aid => $udata): ?>
+                <?php $isMe = ($aid == $current_user_id); ?>
+                <div class="ln-user-block mb-2">
+                    <div class="ln-user-header <?= $isMe ? '' : 'ln-collapsed' ?>" onclick="lnToggleUser(this)">
+                        <span class="ln-avatar <?= $isMe ? 'ln-avatar-me' : '' ?>"><?= strtoupper(substr($udata['username']??'?',0,1)) ?></span>
+                        <span class="fw-semibold" style="font-size:14px;"><?= htmlspecialchars($udata['username']??'Desconhecido') ?><?= $isMe?' <span class="badge bg-secondary ms-1" style="font-size:10px;font-weight:400;">Eu</span>':'' ?></span>
+                        <span class="text-muted ms-1" style="font-size:12px;">(<?= count($udata['notes']) ?>)</span>
+                        <i class="bi bi-chevron-down ln-chevron ms-auto"></i>
+                    </div>
+                    <div class="ln-user-notes <?= $isMe?'':'d-none' ?>">
+                        <?php foreach ($udata['notes'] as $note): ?>
+                        <div class="ln-note-item" id="spn-note-<?= $note['id'] ?>">
+                            <div class="ln-note-meta">
+                                <small class="text-muted"><?= date('d/m/Y H:i', strtotime($note['created_at'])) ?></small>
+                                <?php if ($note['user_id'] == $current_user_id): ?>
+                                <div class="d-flex gap-1">
+                                    <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1"
+                                            onclick="spnStartEdit(<?= $note['id'] ?>)" title="Editar">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    <form method="POST" style="display:inline;" onsubmit="return confirm('Eliminar esta nota?')">
+                                        <input type="hidden" name="action" value="delete_sprint_note">
+                                        <input type="hidden" name="note_id" value="<?= $note['id'] ?>">
+                                        <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
+                                        <button type="submit" class="btn btn-xs btn-outline-danger py-0 px-1" title="Eliminar"><i class="bi bi-trash"></i></button>
+                                    </form>
+                                </div>
+                                <?php endif; ?>
+                            </div>
+
+                            <div class="ln-note-md-view" data-raw="<?= htmlspecialchars($note['note_text'], ENT_QUOTES) ?>"></div>
+
+                            <?php if (!empty($note['images'])): ?>
+                            <div class="ln-note-images mt-2">
+                                <?php foreach ($note['images'] as $img):
+                                    $_ext = strtolower(pathinfo($img['original_name'], PATHINFO_EXTENSION));
+                                    $_isImg = in_array($_ext, ['jpg','jpeg','png','gif','webp','svg']);
+                                ?>
+                                <?php if ($_isImg): ?>
+                                <div class="ln-img-wrap">
+                                    <img src="<?= htmlspecialchars($img['file_path']) ?>" alt="<?= htmlspecialchars($img['original_name']) ?>" onclick="lnLightbox(this.src)" title="<?= htmlspecialchars($img['original_name']) ?>">
+                                    <?php if ($note['user_id'] == $current_user_id): ?>
+                                    <form method="POST" class="ln-img-del">
+                                        <input type="hidden" name="action" value="delete_sprint_note_image">
+                                        <input type="hidden" name="image_id" value="<?= $img['id'] ?>">
+                                        <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
+                                        <button type="submit" class="ln-del-img" title="Remover" onclick="return confirm('Remover ficheiro?')">×</button>
+                                    </form>
+                                    <?php endif; ?>
+                                </div>
+                                <?php else: ?>
+                                <div class="note-file-chip">
+                                    <i class="bi <?= spnFileIconClass($_ext) ?>"></i>
+                                    <a href="<?= htmlspecialchars($img['file_path']) ?>" target="_blank"><?= htmlspecialchars($img['original_name']) ?></a>
+                                    <?php if ($note['user_id'] == $current_user_id): ?>
+                                    <form method="POST" style="display:inline;margin:0;">
+                                        <input type="hidden" name="action" value="delete_sprint_note_image">
+                                        <input type="hidden" name="image_id" value="<?= $img['id'] ?>">
+                                        <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
+                                        <button type="submit" class="note-chip-del" title="Remover" onclick="return confirm('Remover ficheiro?')">×</button>
+                                    </form>
+                                    <?php endif; ?>
+                                </div>
+                                <?php endif; ?>
+                                <?php endforeach; ?>
+                            </div>
+                            <?php endif; ?>
+
+                            <?php if ($note['user_id'] == $current_user_id): ?>
+                            <div class="ln-note-edit-area" style="display:none;">
+                                <form method="POST" enctype="multipart/form-data">
+                                    <input type="hidden" name="action" value="edit_sprint_note">
+                                    <input type="hidden" name="note_id" value="<?= $note['id'] ?>">
+                                    <input type="hidden" name="sprint_id" value="<?= $selectedSprint['id'] ?>">
+                                    <div class="ln-editor-wrap">
+                                    <div class="ln-editor-tabs">
+                                        <button type="button" class="ln-tab active" onclick="lnEditorTab(this,'write')">Escrever</button>
+                                        <button type="button" class="ln-tab" onclick="lnEditorTab(this,'preview')">Pré-visualizar</button>
+                                    </div>
+                                    <div class="ln-md-toolbar mb-1">
+                                        <button type="button" onclick="lnMdWrap(this,'**','**')" title="Negrito"><b>B</b></button>
+                                        <button type="button" onclick="lnMdWrap(this,'*','*')" title="Itálico"><em>I</em></button>
+                                        <button type="button" onclick="lnMdWrap(this,'***','***')" title="Negrito+Itálico"><b><em>BI</em></b></button>
+                                        <button type="button" onclick="lnMdWrap(this,'~~','~~')" title="Riscado"><s>S</s></button>
+                                        <span class="ln-sep"></span>
+                                        <button type="button" onclick="lnMdWrap(this,'`','`')" title="Código inline"><code>c</code></button>
+                                        <button type="button" onclick="lnMdBlock(this,'```\n','\n```')" title="Bloco de código"><code>```</code></button>
+                                        <span class="ln-sep"></span>
+                                        <button type="button" onclick="lnMdInsert(this,'# ')" style="font-weight:700;">H1</button>
+                                        <button type="button" onclick="lnMdInsert(this,'## ')" style="font-weight:700;">H2</button>
+                                        <button type="button" onclick="lnMdInsert(this,'### ')" style="font-weight:700;">H3</button>
+                                        <span class="ln-sep"></span>
+                                        <button type="button" onclick="lnMdInsert(this,'- ')">• ≡</button>
+                                        <button type="button" onclick="lnMdInsert(this,'1. ')">1.</button>
+                                        <button type="button" onclick="lnMdInsert(this,'- [ ] ')">☐</button>
+                                        <span class="ln-sep"></span>
+                                        <button type="button" onclick="lnMdInsert(this,'> ')">❝</button>
+                                        <button type="button" onclick="lnMdWrap(this,'[','](url)')">🔗</button>
+                                        <button type="button" onclick="lnMdInsertLine(this,'---')">—</button>
+                                        <button type="button" onclick="lnMdTable(this)">⊞</button>
+                                        <span class="ln-md-hint">Markdown</span>
+                                    </div>
+                                    <textarea name="note_text" class="form-control ln-md-textarea" rows="4"
+                                              style="font-size:13px;font-family:monospace;"><?= htmlspecialchars($note['note_text'], ENT_QUOTES) ?></textarea>
+                                    <div class="ln-md-live-preview" style="display:none;"></div>
+                                    </div>
+                                    <?php if (!empty($note['images'])): ?>
+                                    <div class="ln-edit-img-gallery mt-2">
+                                        <div class="small text-muted mb-1">Clica num ficheiro para o inserir:</div>
+                                        <div class="d-flex flex-wrap gap-2">
+                                            <?php foreach ($note['images'] as $img):
+                                                $_ext = strtolower(pathinfo($img['original_name'], PATHINFO_EXTENSION));
+                                                $_isImg = in_array($_ext, ['jpg','jpeg','png','gif','webp','svg']);
+                                            ?>
+                                            <?php if ($_isImg): ?>
+                                            <div class="ln-edit-img-ref"
+                                                 onclick="lnInsertImgRef('spn-note-<?= $note['id'] ?>', '<?= addslashes($img['file_path']) ?>', '<?= addslashes($img['original_name']) ?>')"
+                                                 title="Inserir imagem">
+                                                <img src="<?= htmlspecialchars($img['file_path']) ?>" alt="">
+                                                <div class="ln-edit-img-ref-overlay"><i class="bi bi-plus-circle-fill"></i></div>
+                                            </div>
+                                            <?php else: ?>
+                                            <div class="ln-edit-file-ref"
+                                                 onclick="lnInsertFileRef('spn-note-<?= $note['id'] ?>', '<?= addslashes($img['file_path']) ?>', '<?= addslashes($img['original_name']) ?>')"
+                                                 title="Inserir link">
+                                                <i class="bi <?= spnFileIconClass($_ext) ?> fs-4"></i>
+                                                <div class="ln-file-ref-name"><?= htmlspecialchars($img['original_name']) ?></div>
+                                            </div>
+                                            <?php endif; ?>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </div>
+                                    <?php endif; ?>
+                                    <div class="mt-2 mb-1">
+                                        <label class="form-label small text-muted mb-1">Adicionar ficheiros</label>
+                                        <input type="file" name="note_images[]" class="form-control form-control-sm"
+                                               accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" multiple
+                                               onchange="lnPreviewImages(this,'spn-edit-preview-<?= $note['id'] ?>')">
+                                        <div id="spn-edit-preview-<?= $note['id'] ?>" class="d-flex flex-wrap gap-2 mt-1"></div>
+                                    </div>
+                                    <div class="d-flex gap-2 mt-2">
+                                        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> Guardar</button>
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="spnCancelEdit(<?= $note['id'] ?>)">Cancelar</button>
+                                    </div>
+                                </form>
+                            </div>
+                            <?php endif; ?>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+
             <!-- Kanban Board -->
             <?php if ($checkTodos): ?>
             <div class="section-header">
@@ -2893,12 +3274,160 @@ document.addEventListener('DOMContentLoaded', function() {
             if (confirm(`Mover task para "${newStatus}"?`)) {
                 changeTaskStatus(taskId, newStatus);
             }
-            
+
             return false;
         });
     });
 });
+
+/* ===== SPRINT NOTES JS ===== */
+function spnToggleAdd() {
+    const f = document.getElementById('spn-add-form');
+    f.style.display = f.style.display === 'none' ? '' : 'none';
+}
+function spnStartEdit(noteId) {
+    const item = document.getElementById('spn-note-' + noteId);
+    item.querySelector('.ln-note-md-view').style.display = 'none';
+    const imgs = item.querySelector('.ln-note-images');
+    if (imgs) imgs.style.display = 'none';
+    item.querySelector('.ln-note-edit-area').style.display = '';
+    const btns = item.querySelector('.ln-note-meta .d-flex');
+    if (btns) btns.style.display = 'none';
+}
+function spnCancelEdit(noteId) {
+    const item = document.getElementById('spn-note-' + noteId);
+    item.querySelector('.ln-note-md-view').style.display = '';
+    const imgs = item.querySelector('.ln-note-images');
+    if (imgs) imgs.style.display = '';
+    item.querySelector('.ln-note-edit-area').style.display = 'none';
+    const btns = item.querySelector('.ln-note-meta .d-flex');
+    if (btns) btns.style.display = '';
+}
+function lnToggleUser(header) {
+    header.classList.toggle('ln-collapsed');
+    const notes = header.nextElementSibling;
+    notes.classList.toggle('d-none', header.classList.contains('ln-collapsed'));
+}
+function lnEditorTab(btn, mode) {
+    const wrap = btn.closest('.ln-editor-wrap');
+    const ta = wrap.querySelector('.ln-md-textarea');
+    const preview = wrap.querySelector('.ln-md-live-preview');
+    wrap.querySelectorAll('.ln-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    if (mode === 'preview') {
+        preview.style.display = '';
+        ta.style.display = 'none';
+        preview.innerHTML = typeof marked !== 'undefined' ? marked.parse(ta.value || '') : ta.value;
+    } else {
+        preview.style.display = 'none';
+        ta.style.display = '';
+        ta.focus();
+    }
+}
+function lnGetTa(btn) {
+    return btn.closest('.ln-editor-wrap').querySelector('.ln-md-textarea');
+}
+function lnMdWrap(btn, before, after) {
+    const ta = lnGetTa(btn); ta.focus();
+    const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+    const sel = v.slice(s, e) || 'texto';
+    ta.value = v.slice(0, s) + before + sel + after + v.slice(e);
+    ta.selectionStart = s + before.length;
+    ta.selectionEnd = s + before.length + sel.length;
+}
+function lnMdBlock(btn, before, after) {
+    const ta = lnGetTa(btn); ta.focus();
+    const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+    const sel = v.slice(s, e) || 'código';
+    ta.value = v.slice(0, s) + before + sel + after + v.slice(e);
+    ta.selectionStart = s + before.length;
+    ta.selectionEnd = s + before.length + sel.length;
+}
+function lnMdInsert(btn, prefix) {
+    const ta = lnGetTa(btn); ta.focus();
+    const s = ta.selectionStart, v = ta.value;
+    const lineStart = v.lastIndexOf('\n', s - 1) + 1;
+    ta.value = v.slice(0, lineStart) + prefix + v.slice(lineStart);
+    ta.selectionStart = ta.selectionEnd = lineStart + prefix.length;
+}
+function lnMdInsertLine(btn, text) {
+    const ta = lnGetTa(btn); ta.focus();
+    const s = ta.selectionStart, v = ta.value;
+    ta.value = v.slice(0, s) + '\n' + text + '\n' + v.slice(s);
+    ta.selectionStart = ta.selectionEnd = s + text.length + 2;
+}
+function lnMdTable(btn) {
+    const ta = lnGetTa(btn); ta.focus();
+    const tbl = '\n| Col1 | Col2 | Col3 |\n|------|------|------|\n| A    | B    | C    |\n';
+    const s = ta.selectionStart;
+    ta.value = ta.value.slice(0, s) + tbl + ta.value.slice(s);
+    ta.selectionStart = ta.selectionEnd = s + tbl.length;
+}
+function lnPreviewImages(input, containerId) {
+    const cont = document.getElementById(containerId);
+    if (!cont) return;
+    cont.innerHTML = '';
+    Array.from(input.files).forEach(f => {
+        if (f.type.startsWith('image/')) {
+            const img = document.createElement('img');
+            img.style.cssText = 'max-width:80px;max-height:70px;border-radius:4px;border:1px solid #dee2e6;object-fit:cover;';
+            img.src = URL.createObjectURL(f);
+            cont.appendChild(img);
+        } else {
+            const chip = document.createElement('div');
+            chip.className = 'note-file-chip';
+            chip.innerHTML = '<i class="bi bi-file-earmark"></i> ' + f.name;
+            cont.appendChild(chip);
+        }
+    });
+}
+function lnLightbox(src) {
+    let lb = document.getElementById('ln-lightbox');
+    if (!lb) {
+        lb = document.createElement('div');
+        lb.id = 'ln-lightbox';
+        lb.innerHTML = '<img>';
+        lb.onclick = () => lb.style.display = 'none';
+        document.body.appendChild(lb);
+    }
+    lb.querySelector('img').src = src;
+    lb.style.display = 'flex';
+}
+function lnInsertImgRef(noteElemId, path, name) {
+    const ta = document.querySelector('#' + noteElemId + ' .ln-note-edit-area .ln-md-textarea');
+    if (!ta) return;
+    const md = '![' + name + '](' + path + ')';
+    const s = ta.selectionStart;
+    ta.value = ta.value.slice(0, s) + md + ta.value.slice(s);
+    ta.selectionStart = ta.selectionEnd = s + md.length;
+    ta.focus();
+}
+function lnInsertFileRef(noteElemId, path, name) {
+    const ta = document.querySelector('#' + noteElemId + ' .ln-note-edit-area .ln-md-textarea');
+    if (!ta) return;
+    const md = '[' + name + '](' + path + ')';
+    const s = ta.selectionStart;
+    ta.value = ta.value.slice(0, s) + md + ta.value.slice(s);
+    ta.selectionStart = ta.selectionEnd = s + md.length;
+    ta.focus();
+}
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof marked === 'undefined') return;
+    marked.setOptions({ breaks: true });
+    document.querySelectorAll('.ln-note-md-view').forEach(function(el) {
+        el.innerHTML = marked.parse(el.getAttribute('data-raw') || '');
+    });
+});
 </script>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" onload="
+  if(typeof marked!=='undefined'){
+    marked.setOptions({breaks:true});
+    document.querySelectorAll('.ln-note-md-view').forEach(function(el){
+      el.innerHTML=marked.parse(el.getAttribute('data-raw')||'');
+    });
+  }
+"></script>
 
 <?php
 // Incluir editor universal de tasks

@@ -697,6 +697,35 @@ tr:hover .inv-actions{opacity:1}
   </div>
 </div>
 
+<!-- Review Import Modal -->
+<div class="modal fade" id="invReviewModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title mb-0">📋 Validar Importação</h6>
+        <button type="button" class="btn-close" id="inv-rev-cancel-btn"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <small class="text-muted" id="inv-rev-progress">Alteração 1 de N</small>
+          <small class="text-muted" id="inv-rev-accepted-count">0 aceites</small>
+        </div>
+        <div id="inv-rev-card" class="border rounded p-3 bg-light"></div>
+        <div class="progress mt-3" style="height:4px">
+          <div class="progress-bar" id="inv-rev-bar" style="width:0%"></div>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between py-2">
+        <button class="btn btn-sm btn-outline-secondary" id="inv-rev-skip">Saltar →</button>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-warning" id="inv-rev-skip-all">Saltar todos</button>
+          <button class="btn btn-sm btn-success" id="inv-rev-accept">✅ Aceitar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
 'use strict';
@@ -704,7 +733,7 @@ tr:hover .inv-actions{opacity:1}
 let currentArm = '';
 let allItems   = [];
 let searchQ    = '';
-let _modal, _importModal, _newArmModal, _histModal;
+let _modal, _importModal, _newArmModal, _histModal, _reviewModal;
 
 // ── Init ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -712,6 +741,11 @@ document.addEventListener('DOMContentLoaded', () => {
   _importModal = new bootstrap.Modal(document.getElementById('invImportModal'));
   _newArmModal = new bootstrap.Modal(document.getElementById('invNewArmModal'));
   _histModal   = new bootstrap.Modal(document.getElementById('invHistModal'));
+  _reviewModal = new bootstrap.Modal(document.getElementById('invReviewModal'));
+  document.getElementById('inv-rev-accept')  .addEventListener('click', () => advanceReview(true));
+  document.getElementById('inv-rev-skip')    .addEventListener('click', () => advanceReview(false));
+  document.getElementById('inv-rev-skip-all').addEventListener('click', () => finishReview());
+  document.getElementById('inv-rev-cancel-btn').addEventListener('click', () => { _reviewModal.hide(); resetImportBtn(); });
 
   // Qty +/− (event delegation)
   document.getElementById('inv-tbody').addEventListener('click', e => {
@@ -1006,24 +1040,107 @@ function setImportFile(file) {
   document.getElementById('inv-btn-do-import').disabled = false;
 }
 
+function resetImportBtn() {
+  const btn = document.getElementById('inv-btn-do-import');
+  if (btn) { btn.disabled = false; btn.textContent = '📥 Importar'; }
+}
+
 async function doImport() {
   if (!_invFile) return;
   const btn = document.getElementById('inv-btn-do-import');
-  btn.disabled = true; btn.textContent = '⏳ A importar...';
+  btn.disabled = true; btn.textContent = '⏳ A analisar...';
   const fd = new FormData();
   fd.append('file', _invFile);
-  const r = await fetch('api/inventario.php?action=import', {method:'POST', body:fd});
+  const r = await fetch('api/inventario.php?action=import&dry_run=1', {method:'POST', body:fd});
   const d = await r.json();
   const res = document.getElementById('inv-import-result');
-  res.style.display = 'block';
   if (d.error) {
+    res.style.display = 'block';
     res.innerHTML = `<span class="text-danger">❌ ${d.error}</span>`;
-  } else {
-    res.innerHTML = `<span class="text-success">✅ ${d.imported} novos importados, ${d.updated} actualizados, ${d.skipped} ignorados.</span>`
-      + (d.errors?.length ? `<br><span class="text-warning">⚠️ ${d.errors.join('; ')}</span>` : '');
-    loadItems();
+    resetImportBtn(); return;
   }
-  btn.disabled = false; btn.textContent = '📥 Importar';
+  res.style.display = 'none';
+  if (!d.changes || d.changes.length === 0) {
+    res.style.display = 'block';
+    res.innerHTML = `<span class="text-info">ℹ️ Sem alterações. ${d.unchanged||0} itens já actualizados.</span>`;
+    resetImportBtn(); return;
+  }
+  // Fechar modal de import e abrir review
+  _importModal.hide();
+  startReview(d.changes, d.unchanged || 0);
+}
+
+// ── Review one-by-one ─────────────────────────────────────────
+let _revChanges = [], _revIdx = 0, _revAccepted = [], _revUnchanged = 0;
+
+function startReview(changes, unchanged) {
+  _revChanges  = changes;
+  _revIdx      = 0;
+  _revAccepted = [];
+  _revUnchanged = unchanged;
+  showRevItem();
+  _reviewModal.show();
+}
+
+function showRevItem() {
+  const ch   = _revChanges[_revIdx];
+  const prog = document.getElementById('inv-rev-progress');
+  const acc  = document.getElementById('inv-rev-accepted-count');
+  const card = document.getElementById('inv-rev-card');
+  const bar  = document.getElementById('inv-rev-bar');
+  prog.textContent = `Alteração ${_revIdx + 1} de ${_revChanges.length}`;
+  acc.textContent  = `${_revAccepted.length} aceite${_revAccepted.length !== 1 ? 's' : ''}`;
+  bar.style.width  = `${(_revIdx / _revChanges.length) * 100}%`;
+
+  const isNew = ch.type === 'new';
+  let html = `<div class="mb-2"><span class="badge ${isNew ? 'bg-success' : 'bg-warning text-dark'}">${isNew ? '➕ Novo' : '✏️ Atualizado'}</span></div>`;
+  html += `<div class="fw-semibold">${ch.armario} — ${esc(ch.descricao)}</div>`;
+  if (isNew) {
+    html += `<div class="mt-2 small">Quantidade: <strong>${esc(ch.quantidade||'—')}</strong></div>`;
+  } else {
+    const qA = ch.qty_antes || '—', qD = ch.quantidade || '—';
+    html += `<div class="mt-2 small">Quantidade: <span class="text-danger text-decoration-line-through">${esc(qA)}</span> → <span class="text-success fw-bold">${esc(qD)}</span></div>`;
+  }
+  if (ch.prateleira) html += `<div class="small text-muted">Prateleira: ${esc(ch.prateleira)}</div>`;
+  if (ch.projeto)    html += `<div class="small text-muted">Projeto: ${esc(ch.projeto)}</div>`;
+  card.innerHTML = html;
+}
+
+function advanceReview(accept) {
+  if (accept) _revAccepted.push(_revChanges[_revIdx]);
+  _revIdx++;
+  if (_revIdx >= _revChanges.length) { finishReview(); return; }
+  showRevItem();
+}
+
+async function finishReview() {
+  _reviewModal.hide();
+  const res = document.getElementById('inv-import-result');
+  res.style.display = 'block';
+  if (_revAccepted.length === 0) {
+    res.innerHTML = `<span class="text-info">ℹ️ Nenhuma alteração aceite. ${_revUnchanged} itens sem mudanças.</span>`;
+    resetImportBtn(); return;
+  }
+  resetImportBtn();
+  const btn = document.getElementById('inv-btn-do-import');
+  btn.disabled = true; btn.textContent = '⏳ A guardar...';
+  try {
+    const r = await fetch('api/inventario.php?action=commit_import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(_revAccepted)
+    });
+    const d = await r.json();
+    if (d.error) {
+      res.innerHTML = `<span class="text-danger">❌ ${d.error}</span>`;
+    } else {
+      res.innerHTML = `<span class="text-success">✅ ${d.imported} novos, ${d.updated} actualizados. ${_revChanges.length - _revAccepted.length} saltados. ${_revUnchanged} sem mudanças.</span>`;
+      loadItems();
+    }
+  } catch(e) {
+    res.innerHTML = `<span class="text-danger">❌ Erro de rede</span>`;
+  }
+  resetImportBtn();
 }
 
 })();

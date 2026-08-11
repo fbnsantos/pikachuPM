@@ -213,64 +213,53 @@ if ($action === 'delete' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 
-// ── import ────────────────────────────────────────────────────
-if ($action === 'import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    set_time_limit(120);
-    ini_set('memory_limit', '256M');
-
-    if (empty($_FILES['file']['tmp_name'])) { echo json_encode(['error'=>'Nenhum ficheiro recebido']); exit; }
-
-    function inv_read_ss(string $raw): array {
-        $strings = []; $xr = new XMLReader(); $xr->XML($raw); unset($raw);
-        $cur = ''; $inT = false;
-        while ($xr->read()) {
-            if ($xr->nodeType === XMLReader::ELEMENT) {
-                if ($xr->localName === 'si') $cur = '';
-                elseif ($xr->localName === 't') $inT = true;
-            } elseif ($xr->nodeType === XMLReader::TEXT && $inT) { $cur .= $xr->value; }
-            elseif ($xr->nodeType === XMLReader::END_ELEMENT) {
-                if ($xr->localName === 'si') { $strings[] = $cur; $cur = ''; }
-                elseif ($xr->localName === 't') $inT = false;
-            }
+// ── helpers de parsing XLSX ──────────────────────────────────
+function inv_read_ss(string $raw): array {
+    $strings = []; $xr = new XMLReader(); $xr->XML($raw); unset($raw);
+    $cur = ''; $inT = false;
+    while ($xr->read()) {
+        if ($xr->nodeType === XMLReader::ELEMENT) {
+            if ($xr->localName === 'si') $cur = '';
+            elseif ($xr->localName === 't') $inT = true;
+        } elseif ($xr->nodeType === XMLReader::TEXT && $inT) { $cur .= $xr->value; }
+        elseif ($xr->nodeType === XMLReader::END_ELEMENT) {
+            if ($xr->localName === 'si') { $strings[] = $cur; $cur = ''; }
+            elseif ($xr->localName === 't') $inT = false;
         }
-        $xr->close(); return $strings;
     }
-
-    function inv_read_ws(string $raw, array $strings): array {
-        $rows=[]; $cells=[]; $rn=0; $cc=0; $ct=''; $cv=''; $iv=false;
-        $xr = new XMLReader(); $xr->XML($raw); unset($raw);
-        while ($xr->read()) {
-            if ($xr->nodeType === XMLReader::ELEMENT) {
-                $ln = $xr->localName;
-                if ($ln==='row') { $cells=[]; $rn++; }
-                elseif ($ln==='c') {
-                    $ref=$xr->getAttribute('r')??''; preg_match('/^([A-Z]+)/',$ref,$cm);
-                    $col=$cm[1]??'A'; $cc=0;
-                    for ($i=0;$i<strlen($col);$i++) $cc=$cc*26+(ord($col[$i])-64);
-                    $cc--; $ct=$xr->getAttribute('t')??''; $cv=''; $iv=false;
-                } elseif ($ln==='v') { $iv=true; $cv=''; }
-            } elseif (($xr->nodeType===XMLReader::TEXT||$xr->nodeType===XMLReader::CDATA) && $iv) {
-                $cv.=$xr->value;
-            } elseif ($xr->nodeType===XMLReader::END_ELEMENT) {
-                $ln=$xr->localName;
-                if ($ln==='v') { $iv=false; $v=$cv; if($ct==='s')$v=$strings[(int)$v]??''; $cells[$cc]=$v; }
-                elseif ($ln==='row') { if($rn>1) $rows[]=$cells; }
-            }
+    $xr->close(); return $strings;
+}
+function inv_read_ws(string $raw, array $strings): array {
+    $rows=[]; $cells=[]; $rn=0; $cc=0; $ct=''; $cv=''; $iv=false;
+    $xr = new XMLReader(); $xr->XML($raw); unset($raw);
+    while ($xr->read()) {
+        if ($xr->nodeType === XMLReader::ELEMENT) {
+            $ln = $xr->localName;
+            if ($ln==='row') { $cells=[]; $rn++; }
+            elseif ($ln==='c') {
+                $ref=$xr->getAttribute('r')??''; preg_match('/^([A-Z]+)/',$ref,$cm);
+                $col=$cm[1]??'A'; $cc=0;
+                for ($i=0;$i<strlen($col);$i++) $cc=$cc*26+(ord($col[$i])-64);
+                $cc--; $ct=$xr->getAttribute('t')??''; $cv=''; $iv=false;
+            } elseif ($ln==='v') { $iv=true; $cv=''; }
+        } elseif (($xr->nodeType===XMLReader::TEXT||$xr->nodeType===XMLReader::CDATA) && $iv) {
+            $cv.=$xr->value;
+        } elseif ($xr->nodeType===XMLReader::END_ELEMENT) {
+            $ln=$xr->localName;
+            if ($ln==='v') { $iv=false; $v=$cv; if($ct==='s')$v=$strings[(int)$v]??''; $cells[$cc]=$v; }
+            elseif ($ln==='row') { if($rn>1) $rows[]=$cells; }
         }
-        $xr->close(); return $rows;
     }
-
+    $xr->close(); return $rows;
+}
+function inv_parse_xlsx(string $tmpFile, array $ARMARIOS): array {
     $zip = new ZipArchive();
-    if ($zip->open($_FILES['file']['tmp_name']) !== true) { echo json_encode(['error'=>'Não foi possível abrir o ficheiro']); exit; }
-
-    $ssRaw = $zip->getFromName('xl/sharedStrings.xml') ?: '';
-    $strings = $ssRaw ? inv_read_ss($ssRaw) : [];
-    unset($ssRaw);
-
+    if ($zip->open($tmpFile) !== true) return ['error'=>'Não foi possível abrir o ficheiro'];
+    $ssRaw  = $zip->getFromName('xl/sharedStrings.xml') ?: '';
+    $strings = $ssRaw ? inv_read_ss($ssRaw) : []; unset($ssRaw);
     $wbRaw  = $zip->getFromName('xl/workbook.xml') ?? '';
     $wbRRaw = $zip->getFromName('xl/_rels/workbook.xml.rels') ?? '';
-    $rId=[];
-    preg_match_all('/Id="([^"]+)"[^>]+Target="([^"]+)"/', $wbRRaw, $rm, PREG_SET_ORDER);
+    $rId=[]; preg_match_all('/Id="([^"]+)"[^>]+Target="([^"]+)"/', $wbRRaw, $rm, PREG_SET_ORDER);
     foreach ($rm as $m) $rId[$m[1]] = $m[2];
     $sf=[];
     preg_match_all('/<sheet\b[^>]+>/i', $wbRaw, $sm);
@@ -280,41 +269,96 @@ if ($action === 'import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $f=$rId[$ri[1]]??'';
         if ($f) $sf[$nm[1]]=(strpos($f,'/')===0)?ltrim($f,'/') : 'xl/'.$f;
     }
+    $sheets=[]; $errors=[];
+    foreach ($ARMARIOS as $arm) {
+        if (!isset($sf[$arm])) { $errors[]="Folha '$arm' não encontrada"; $sheets[$arm]=[]; continue; }
+        $wsRaw=$zip->getFromName($sf[$arm]);
+        if (!$wsRaw) { $errors[]="Erro ao ler '$arm'"; $sheets[$arm]=[]; continue; }
+        $sheets[$arm] = inv_read_ws($wsRaw, $strings); unset($wsRaw);
+    }
+    $zip->close();
+    return ['sheets'=>$sheets,'errors'=>$errors];
+}
+
+// ── import — dry_run ou commit total ─────────────────────────
+if ($action === 'import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    set_time_limit(120); ini_set('memory_limit', '256M');
+    if (empty($_FILES['file']['tmp_name'])) { echo json_encode(['error'=>'Nenhum ficheiro recebido']); exit; }
+    $dry_run = !empty($_GET['dry_run']);
+
+    $parsed = inv_parse_xlsx($_FILES['file']['tmp_name'], $ARMARIOS);
+    if (isset($parsed['error'])) { echo json_encode($parsed); exit; }
 
     $existing=[];
-    foreach ($pdo->query("SELECT id,armario,descricao FROM inventario_items")->fetchAll(PDO::FETCH_ASSOC) as $r)
-        $existing[$r['armario'].'||'.$r['descricao']]=(int)$r['id'];
+    foreach ($pdo->query("SELECT id,armario,descricao,quantidade,prateleira,caixa,projeto FROM inventario_items")->fetchAll(PDO::FETCH_ASSOC) as $r)
+        $existing[$r['armario'].'||'.$r['descricao']] = $r;
 
-    $stUpd = $pdo->prepare('UPDATE inventario_items SET quantidade=?,prateleira=?,caixa=?,projeto=?,last_edited=?,updated_at=NOW() WHERE id=?');
-    $stIns = $pdo->prepare('INSERT INTO inventario_items (armario,descricao,quantidade,prateleira,caixa,projeto,last_edited,created_by) VALUES (?,?,?,?,?,?,?,?)');
-    $imported=$updated=$skipped=0; $errors=[];
+    $changes=[]; $unchanged=0; $skipped=0;
+    foreach ($ARMARIOS as $arm) {
+        foreach ($parsed['sheets'][$arm] ?? [] as $cells) {
+            $desc=trim($cells[1]??''); if(!$desc){$skipped++;continue;}
+            $qty=trim($cells[2]??''); $prat=trim($cells[3]??'');
+            $cx=trim($cells[4]??''); $proj=trim($cells[5]??'');
+            $led=null; $lr=$cells[6]??'';
+            if ($lr!==''&&is_numeric($lr)&&(float)$lr>40000)
+                $led=date('Y-m-d',(int)(((float)$lr-25569)*86400));
+            $key=$arm.'||'.$desc;
+            if (isset($existing[$key])) {
+                $ex=$existing[$key];
+                if ($qty!==$ex['quantidade']||$prat!==$ex['prateleira']||$cx!==$ex['caixa']||$proj!==$ex['projeto'])
+                    $changes[]=['type'=>'update','id'=>(int)$ex['id'],'armario'=>$arm,'descricao'=>$desc,
+                        'quantidade'=>$qty,'qty_antes'=>$ex['quantidade'],
+                        'prateleira'=>$prat,'caixa'=>$cx,'projeto'=>$proj,'led'=>$led];
+                else $unchanged++;
+            } else {
+                $changes[]=['type'=>'new','armario'=>$arm,'descricao'=>$desc,
+                    'quantidade'=>$qty,'prateleira'=>$prat,'caixa'=>$cx,'projeto'=>$proj,'led'=>$led];
+            }
+        }
+    }
 
+    if ($dry_run) {
+        echo json_encode(['dry_run'=>true,'changes'=>$changes,'unchanged'=>$unchanged,'skipped'=>$skipped,'errors'=>$parsed['errors']]);
+        exit;
+    }
+
+    // commit all
+    $stUpd=$pdo->prepare('UPDATE inventario_items SET quantidade=?,prateleira=?,caixa=?,projeto=?,last_edited=?,updated_at=NOW() WHERE id=?');
+    $stIns=$pdo->prepare('INSERT INTO inventario_items (armario,descricao,quantidade,prateleira,caixa,projeto,last_edited,created_by) VALUES (?,?,?,?,?,?,?,?)');
+    $imported=$updated=0;
     $pdo->beginTransaction();
     try {
-        foreach ($ARMARIOS as $arm) {
-            if (!isset($sf[$arm])) { $errors[]="Folha '$arm' não encontrada"; continue; }
-            $wsRaw=$zip->getFromName($sf[$arm]);
-            if (!$wsRaw) { $errors[]="Erro ao ler '$arm'"; continue; }
-            $rows=inv_read_ws($wsRaw,$strings); unset($wsRaw);
-            foreach ($rows as $cells) {
-                $desc=trim($cells[1]??''); if(!$desc){$skipped++;continue;}
-                $qty=trim($cells[2]??''); $prat=trim($cells[3]??'');
-                $cx=trim($cells[4]??''); $proj=trim($cells[5]??'');
-                $led=null; $lr=$cells[6]??'';
-                if ($lr!==''&&is_numeric($lr)&&(float)$lr>40000)
-                    $led=date('Y-m-d',(int)(((float)$lr-25569)*86400));
-                $key=$arm.'||'.$desc;
-                if (isset($existing[$key])) { $stUpd->execute([$qty,$prat,$cx,$proj,$led,$existing[$key]]); $updated++; }
-                else { $stIns->execute([$arm,$desc,$qty,$prat,$cx,$proj,$led,$cur_uid]); $existing[$key]=(int)$pdo->lastInsertId(); $imported++; }
+        foreach ($changes as $ch) {
+            if ($ch['type']==='update') { $stUpd->execute([$ch['quantidade'],$ch['prateleira'],$ch['caixa'],$ch['projeto'],$ch['led'],$ch['id']]); $updated++; }
+            else { $stIns->execute([$ch['armario'],$ch['descricao'],$ch['quantidade'],$ch['prateleira'],$ch['caixa'],$ch['projeto'],$ch['led'],$cur_uid]); $imported++; }
+        }
+        $pdo->commit();
+    } catch (Exception $e) { $pdo->rollBack(); echo json_encode(['error'=>'Erro no import: '.$e->getMessage()]); exit; }
+    echo json_encode(['ok'=>true,'imported'=>$imported,'updated'=>$updated,'skipped'=>$skipped,'unchanged'=>$unchanged,'errors'=>$parsed['errors']]);
+    exit;
+}
+
+// ── commit_import — gravar apenas as alterações aceites ──────
+if ($action === 'commit_import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $accepted = json_decode(file_get_contents('php://input'), true) ?? [];
+    if (!is_array($accepted) || !$accepted) { echo json_encode(['ok'=>true,'imported'=>0,'updated'=>0]); exit; }
+    $stUpd=$pdo->prepare('UPDATE inventario_items SET quantidade=?,prateleira=?,caixa=?,projeto=?,last_edited=?,updated_at=NOW() WHERE id=?');
+    $stIns=$pdo->prepare('INSERT INTO inventario_items (armario,descricao,quantidade,prateleira,caixa,projeto,last_edited,created_by) VALUES (?,?,?,?,?,?,?,?)');
+    $imported=$updated=0;
+    $pdo->beginTransaction();
+    try {
+        foreach ($accepted as $ch) {
+            if (($ch['type']??'') === 'update' && !empty($ch['id'])) {
+                $stUpd->execute([$ch['quantidade']??'',$ch['prateleira']??'',$ch['caixa']??'',$ch['projeto']??'',$ch['led']??null,(int)$ch['id']]);
+                $updated++;
+            } elseif (($ch['type']??'') === 'new' && !empty($ch['armario']) && !empty($ch['descricao'])) {
+                $stIns->execute([$ch['armario'],$ch['descricao'],$ch['quantidade']??'',$ch['prateleira']??'',$ch['caixa']??'',$ch['projeto']??'',$ch['led']??null,$cur_uid]);
+                $imported++;
             }
         }
         $pdo->commit();
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        echo json_encode(['error'=>'Erro no import: '.$e->getMessage()]); exit;
-    }
-    $zip->close();
-    echo json_encode(['ok'=>true,'imported'=>$imported,'updated'=>$updated,'skipped'=>$skipped,'errors'=>$errors]);
+    } catch (Exception $e) { $pdo->rollBack(); echo json_encode(['error'=>$e->getMessage()]); exit; }
+    echo json_encode(['ok'=>true,'imported'=>$imported,'updated'=>$updated]);
     exit;
 }
 

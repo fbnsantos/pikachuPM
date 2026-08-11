@@ -109,11 +109,15 @@ if ($action === 'export') {
 
 // ── AJAX: import xlsx ────────────────────────────────────────
 if ($action === 'import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    set_time_limit(0);
+    set_time_limit(120);
     ini_set('memory_limit', '256M');
     header('Content-Type: application/json');
     if (empty($_FILES['file']['tmp_name'])) { echo json_encode(['error'=>'Nenhum ficheiro recebido']); exit; }
-    echo json_encode(inv_import_xlsx($_FILES['file']['tmp_name'], $pdo, $cur_uid, $ARMARIOS));
+    $importFile = $_FILES['file']['tmp_name'];
+    error_log("[inv_import] start file=$importFile size=" . filesize($importFile));
+    $result = inv_import_xlsx($importFile, $pdo, $cur_uid, $ARMARIOS);
+    error_log("[inv_import] done: " . json_encode($result));
+    echo json_encode($result);
     exit;
 }
 
@@ -213,12 +217,9 @@ function inv_stream_xlsx(array $sheets, string $filename): void {
 // Lê shared strings com XMLReader (streaming — não carrega DOM em memória)
 function inv_read_shared_strings(string $raw): array {
     $strings = [];
-    $tmp = tempnam(sys_get_temp_dir(), 'inv_ss_');
-    file_put_contents($tmp, $raw);
-    unset($raw);
-
     $xr = new XMLReader();
-    $xr->open($tmp);
+    $xr->XML($raw);
+    unset($raw);
     $current = ''; $inT = false;
     while ($xr->read()) {
         if ($xr->nodeType === XMLReader::ELEMENT) {
@@ -232,21 +233,16 @@ function inv_read_shared_strings(string $raw): array {
         }
     }
     $xr->close();
-    unlink($tmp);
     return $strings;
 }
 
-// Lê linhas de um worksheet com XMLReader (streaming)
 function inv_read_worksheet_rows(string $raw, array $strings): array {
-    $tmp = tempnam(sys_get_temp_dir(), 'inv_ws_');
-    file_put_contents($tmp, $raw);
-    unset($raw);
-
     $rows = []; $cells = []; $rowNum = 0;
     $curCol = 0; $curType = ''; $curVal = ''; $inV = false;
 
     $xr = new XMLReader();
-    $xr->open($tmp);
+    $xr->XML($raw);
+    unset($raw);
     while ($xr->read()) {
         if ($xr->nodeType === XMLReader::ELEMENT) {
             $ln = $xr->localName;
@@ -279,22 +275,24 @@ function inv_read_worksheet_rows(string $raw, array $strings): array {
         }
     }
     $xr->close();
-    unlink($tmp);
     return $rows;
 }
 
 function inv_import_xlsx(string $filepath, PDO $pdo, int $uid, array $armarios): array {
     $zip = new ZipArchive();
-    if ($zip->open($filepath) !== true) return ['error'=>'Não foi possível abrir o ficheiro XLSX'];
+    $opened = $zip->open($filepath);
+    error_log("[inv_import] zip->open=$opened numFiles={$zip->numFiles}");
+    if ($opened !== true) return ['error'=>'Não foi possível abrir o ficheiro XLSX (código '.$opened.')'];
 
-    // Shared strings — stream com XMLReader
     $ssRaw   = $zip->getFromName('xl/sharedStrings.xml') ?: '';
+    error_log("[inv_import] sharedStrings len=" . strlen($ssRaw));
     $strings = $ssRaw ? inv_read_shared_strings($ssRaw) : [];
+    error_log("[inv_import] strings count=" . count($strings));
     unset($ssRaw);
 
-    // Sheet name → arquivo (regex, evita problemas de namespace)
     $wbRaw  = $zip->getFromName('xl/workbook.xml')           ?? '';
     $wbRRaw = $zip->getFromName('xl/_rels/workbook.xml.rels') ?? '';
+    error_log("[inv_import] workbook len=" . strlen($wbRaw) . " wbRels len=" . strlen($wbRRaw));
     $rIdToFile = [];
     preg_match_all('/Id="([^"]+)"[^>]+Target="([^"]+)"/', $wbRRaw, $rm, PREG_SET_ORDER);
     foreach ($rm as $m) $rIdToFile[$m[1]] = $m[2];

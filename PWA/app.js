@@ -1761,10 +1761,10 @@ function attachEvents() {
       btn.classList.add('active');
       filterState = btn.dataset.state;
       if (filterState === 'personal') {
+        showInventoryView(false);  // hide inv first (restores todo els), then personal hides them
         showPersonalView(true);
-        showInventoryView(false);
       } else if (filterState === 'inventario') {
-        showPersonalView(false);
+        showPersonalView(false);   // hide personal first (restores todo els), then inv hides them
         showInventoryView(true);
       } else {
         showPersonalView(false);

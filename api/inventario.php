@@ -10,16 +10,26 @@ $cur_uid  = 0;
 $cur_user = 'desconhecido';
 $authed   = false;
 
-$hdrs = getallheaders();
-$bearer = $hdrs['Authorization'] ?? $hdrs['authorization'] ?? '';
-if (preg_match('/Bearer\s+(.+)/i', $bearer, $m)) {
-    // Token auth
+// Bearer token auth (same pattern as todos.php)
+$hdrs   = getallheaders();
+$bearer = '';
+if (isset($hdrs['Authorization'])) {
+    if (preg_match('/Bearer\s(\S+)/', $hdrs['Authorization'], $bm)) $bearer = $bm[1];
+} elseif (isset($hdrs['authorization'])) {
+    if (preg_match('/Bearer\s(\S+)/', $hdrs['authorization'], $bm)) $bearer = $bm[1];
+}
+if ($bearer) {
     include_once __DIR__ . '/../config.php';
-    $tmpPdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
-    $st = $tmpPdo->prepare("SELECT ut.user_id, u.username FROM user_tokens ut JOIN users u ON u.id=ut.user_id WHERE ut.token=? AND ut.is_approved=1 LIMIT 1");
-    $st->execute([trim($m[1])]);
-    $row = $st->fetch(PDO::FETCH_ASSOC);
-    if ($row) { $cur_uid = (int)$row['user_id']; $cur_user = $row['username']; $authed = true; }
+    $tmpDb = new mysqli($db_host, $db_user, $db_pass, $db_name);
+    if (!$tmpDb->connect_error) {
+        $tmpDb->set_charset('utf8mb4');
+        $st = $tmpDb->prepare('SELECT user_id, username FROM user_tokens WHERE token = ?');
+        $st->bind_param('s', $bearer);
+        $st->execute();
+        $row = $st->get_result()->fetch_assoc();
+        $st->close(); $tmpDb->close();
+        if ($row) { $cur_uid = (int)$row['user_id']; $cur_user = $row['username']; $authed = true; }
+    }
 } else {
     // Session auth
     session_start();

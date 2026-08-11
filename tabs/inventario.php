@@ -29,8 +29,22 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS inventario_items (
     INDEX idx_descricao (descricao(100))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+$pdo->exec("CREATE TABLE IF NOT EXISTS inventario_armarios (
+    id        INT AUTO_INCREMENT PRIMARY KEY,
+    nome      VARCHAR(20) NOT NULL UNIQUE,
+    ordem     INT DEFAULT 0,
+    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+// Seed armários por defeito se a tabela estiver vazia
+$cnt = (int)$pdo->query("SELECT COUNT(*) FROM inventario_armarios")->fetchColumn();
+if ($cnt === 0) {
+    $ins = $pdo->prepare("INSERT IGNORE INTO inventario_armarios (nome, ordem) VALUES (?,?)");
+    foreach (['A1','A2','A3','A4','A5','A6','A7','A8'] as $i => $a) $ins->execute([$a, $i]);
+}
+
 $cur_uid  = (int)($_SESSION['user_id'] ?? 0);
-$ARMARIOS = ['A1','A2','A3','A4','A5','A6','A7','A8'];
+$ARMARIOS = $pdo->query("SELECT nome FROM inventario_armarios ORDER BY ordem, nome")->fetchAll(PDO::FETCH_COLUMN);
 $action   = $_GET['action'] ?? '';
 
 // ── AJAX: list ──────────────────────────────────────────────
@@ -372,35 +386,52 @@ function inv_import_xlsx(string $filepath, PDO $pdo, int $uid, array $armarios, 
 }
 
 // ── Stats para UI ────────────────────────────────────────────
-$armCounts = [];
-foreach ($ARMARIOS as $arm)
-    $armCounts[$arm] = (int)$pdo->query("SELECT COUNT(*) FROM inventario_items WHERE armario='$arm'")->fetchColumn();
-$totalItems = array_sum($armCounts);
+$armCounts = array_fill_keys($ARMARIOS, 0);
+foreach ($pdo->query("SELECT armario, COUNT(*) AS c FROM inventario_items GROUP BY armario")->fetchAll(PDO::FETCH_ASSOC) as $r)
+    $armCounts[$r['armario']] = (int)$r['c'];
+$totalItems   = array_sum($armCounts);
+$totalArmarios = count($ARMARIOS);
+$totalProjects = (int)$pdo->query("SELECT COUNT(DISTINCT projeto) FROM inventario_items WHERE projeto IS NOT NULL AND projeto <> ''")->fetchColumn();
 ?>
 
 <style>
+/* ── Layout ─────────────────────────────────────────────────── */
 .inv-wrap{display:flex;flex-direction:column;gap:0;height:calc(100vh - 120px);min-height:400px}
-.inv-toolbar{display:flex;align-items:center;gap:8px;padding:10px 0;flex-wrap:wrap;flex-shrink:0}
-.inv-toolbar-right{display:flex;align-items:center;gap:6px;margin-left:auto}
-.inv-search{flex:1;min-width:180px;max-width:320px;position:relative}
-.inv-search input{width:100%;padding:7px 10px 7px 34px;border:1px solid #dee2e6;border-radius:8px;font-size:13px;outline:none;transition:border-color .15s}
-.inv-search input:focus{border-color:#0d6efd}
-.inv-search .inv-s-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#6c757d;font-size:14px}
 
-.inv-armtabs{display:flex;gap:4px;flex-wrap:wrap;flex-shrink:0;padding-bottom:8px;border-bottom:2px solid #dee2e6;margin-bottom:0}
-.inv-atab{padding:5px 14px;border:1px solid #dee2e6;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:#fff;color:#495057;transition:all .15s;display:flex;align-items:center;gap:5px}
-.inv-atab:hover{border-color:#0d6efd;color:#0d6efd}
+/* ── Stats header ────────────────────────────────────────────── */
+.inv-stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;flex-shrink:0}
+.inv-stat-card{flex:1;min-width:120px;background:#fff;border:1px solid #e9ecef;border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:12px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.inv-stat-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.inv-stat-icon.blue{background:#e8f0fe}.inv-stat-icon.green{background:#e6f4ea}.inv-stat-icon.purple{background:#f3e8fd}.inv-stat-icon.orange{background:#fff3e0}
+.inv-stat-val{font-size:22px;font-weight:700;color:#212529;line-height:1}
+.inv-stat-lbl{font-size:11px;color:#6c757d;font-weight:500;margin-top:2px}
+
+/* ── Toolbar ─────────────────────────────────────────────────── */
+.inv-toolbar{display:flex;align-items:center;gap:8px;padding:0 0 10px;flex-wrap:wrap;flex-shrink:0}
+.inv-toolbar-right{display:flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap}
+.inv-search{flex:1;min-width:200px;max-width:360px;position:relative}
+.inv-search input{width:100%;padding:8px 12px 8px 36px;border:1px solid #dee2e6;border-radius:8px;font-size:13px;outline:none;transition:border-color .15s;background:#fff}
+.inv-search input:focus{border-color:#0d6efd;box-shadow:0 0 0 3px rgba(13,110,253,.08)}
+.inv-search .inv-s-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#adb5bd;font-size:14px}
+
+/* ── Armário tabs ─────────────────────────────────────────────── */
+.inv-armtabs{display:flex;gap:4px;flex-wrap:wrap;flex-shrink:0;padding-bottom:10px;border-bottom:2px solid #e9ecef;margin-bottom:0;align-items:center}
+.inv-atab{padding:5px 14px;border:1px solid #dee2e6;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:#fff;color:#495057;transition:all .15s;display:flex;align-items:center;gap:5px;white-space:nowrap}
+.inv-atab:hover{border-color:#0d6efd;color:#0d6efd;background:#f0f4ff}
 .inv-atab.active{background:#0d6efd;border-color:#0d6efd;color:#fff}
 .inv-atab .inv-cnt{background:rgba(0,0,0,.12);border-radius:10px;padding:1px 6px;font-size:10px}
 .inv-atab.active .inv-cnt{background:rgba(255,255,255,.25)}
+.inv-atab-add{padding:5px 10px;border:1px dashed #ced4da;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:#6c757d;transition:all .15s}
+.inv-atab-add:hover{border-color:#0d6efd;color:#0d6efd;border-style:solid}
 
-.inv-table-wrap{flex:1;overflow:auto;border:1px solid #dee2e6;border-radius:10px;margin-top:10px}
+/* ── Table ────────────────────────────────────────────────────── */
+.inv-table-wrap{flex:1;overflow:auto;border:1px solid #e9ecef;border-radius:10px;margin-top:10px}
 .inv-table-wrap table{width:100%;border-collapse:collapse;font-size:13px}
-.inv-table-wrap thead th{background:#f8f9fa;padding:9px 12px;text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#6c757d;border-bottom:2px solid #dee2e6;white-space:nowrap;position:sticky;top:0;z-index:2}
-.inv-table-wrap tbody td{padding:8px 12px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+.inv-table-wrap thead th{background:#f8f9fa;padding:9px 12px;text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#6c757d;border-bottom:2px solid #e9ecef;white-space:nowrap;position:sticky;top:0;z-index:2}
+.inv-table-wrap tbody td{padding:8px 12px;border-bottom:1px solid #f5f5f5;vertical-align:middle}
 .inv-table-wrap tbody tr:last-child td{border-bottom:none}
-.inv-table-wrap tbody tr:hover{background:#f8f9fa}
-.inv-desc{font-weight:500;color:#212529;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inv-table-wrap tbody tr:hover{background:#fafbff}
+.inv-desc{font-weight:500;color:#212529;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .inv-arm-badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;background:#e8f0fe;color:#1a56db}
 .inv-qty{font-weight:700;color:#212529}
 .inv-meta{color:#6c757d;font-size:12px}
@@ -408,53 +439,76 @@ $totalItems = array_sum($armCounts);
 tr:hover .inv-actions{opacity:1}
 .inv-empty{text-align:center;padding:60px 20px;color:#6c757d}
 .inv-empty-icon{font-size:48px;opacity:.35;margin-bottom:8px}
-.inv-loading{text-align:center;padding:40px;color:#6c757d}
+.inv-loading{text-align:center;padding:40px;color:#adb5bd}
 
-/* Modal */
+/* ── Modals ───────────────────────────────────────────────────── */
 .inv-modal .modal-dialog{max-width:600px}
 .inv-modal .form-label{font-size:12px;font-weight:600;color:#6c757d;text-transform:uppercase;letter-spacing:.4px}
-.inv-modal .form-control{font-size:13px}
+.inv-modal .form-control,.inv-modal .form-select{font-size:13px}
 .inv-form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-
-/* Import modal */
 .inv-drop{border:2px dashed #dee2e6;border-radius:10px;padding:32px;text-align:center;cursor:pointer;transition:all .2s;background:#fafafa}
 .inv-drop:hover,.inv-drop.over{border-color:#0d6efd;background:#f0f4ff}
 .inv-drop-icon{font-size:40px;margin-bottom:8px;opacity:.5}
 .inv-import-result{background:#f8f9fa;border-radius:8px;padding:12px;font-size:13px;margin-top:12px;display:none}
 
-@media(max-width:600px){.inv-form-row{grid-template-columns:1fr}.inv-toolbar-right{width:100%}}
+@media(max-width:600px){.inv-form-row{grid-template-columns:1fr}.inv-toolbar-right{width:100%}.inv-stat-card{min-width:calc(50% - 6px)}}
 </style>
 
-<!-- Toolbar -->
+<!-- Stats -->
 <div class="inv-wrap">
-  <div class="inv-toolbar">
-    <div class="inv-search">
-      <span class="inv-s-icon">🔍</span>
-      <input type="text" id="inv-search-inp" placeholder="Pesquisar itens...">
+  <div class="inv-stats">
+    <div class="inv-stat-card">
+      <div class="inv-stat-icon blue">📦</div>
+      <div>
+        <div class="inv-stat-val" id="inv-stat-total"><?= $totalItems ?></div>
+        <div class="inv-stat-lbl">Itens totais</div>
+      </div>
     </div>
-    <div class="inv-toolbar-right">
-      <button class="btn btn-sm btn-outline-secondary" id="inv-btn-import" title="Importar XLSX">
-        📥 Importar
-      </button>
-      <button class="btn btn-sm btn-outline-secondary" id="inv-btn-export" title="Exportar XLSX">
-        📤 Exportar
-      </button>
-      <button class="btn btn-sm btn-primary" id="inv-btn-add">
-        + Adicionar Item
-      </button>
+    <div class="inv-stat-card">
+      <div class="inv-stat-icon green">🗄️</div>
+      <div>
+        <div class="inv-stat-val"><?= $totalArmarios ?></div>
+        <div class="inv-stat-lbl">Armários</div>
+      </div>
+    </div>
+    <div class="inv-stat-card">
+      <div class="inv-stat-icon purple">🔬</div>
+      <div>
+        <div class="inv-stat-val"><?= $totalProjects ?></div>
+        <div class="inv-stat-lbl">Projetos</div>
+      </div>
+    </div>
+    <div class="inv-stat-card" style="flex:2;min-width:220px">
+      <div class="inv-stat-icon orange">🔍</div>
+      <div style="flex:1">
+        <div class="inv-search" style="max-width:100%;margin:0">
+          <span class="inv-s-icon">🔍</span>
+          <input type="text" id="inv-search-inp" placeholder="Pesquisar em todos os armários...">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="inv-toolbar">
+    <div class="inv-toolbar-right" style="margin-left:0;width:100%;justify-content:flex-end">
+      <button class="btn btn-sm btn-outline-secondary" id="inv-btn-import">📥 Importar</button>
+      <button class="btn btn-sm btn-outline-secondary" id="inv-btn-export">📤 Exportar</button>
+      <button class="btn btn-sm btn-primary" id="inv-btn-add">+ Adicionar Item</button>
     </div>
   </div>
 
   <!-- Armário tabs -->
-  <div class="inv-armtabs">
+  <div class="inv-armtabs" id="inv-armtabs">
     <button class="inv-atab active" data-arm="">
-      Todos <span class="inv-cnt"><?= $totalItems ?></span>
+      Todos <span class="inv-cnt" id="inv-cnt-all"><?= $totalItems ?></span>
     </button>
     <?php foreach ($ARMARIOS as $arm): ?>
     <button class="inv-atab" data-arm="<?= $arm ?>">
-      <?= $arm ?> <span class="inv-cnt"><?= $armCounts[$arm] ?></span>
+      <?= htmlspecialchars($arm) ?> <span class="inv-cnt"><?= $armCounts[$arm] ?? 0 ?></span>
     </button>
     <?php endforeach; ?>
+    <button class="inv-atab-add" id="inv-btn-new-arm" title="Adicionar novo armário">＋</button>
   </div>
 
   <!-- Table -->
@@ -538,6 +592,27 @@ tr:hover .inv-actions{opacity:1}
   </div>
 </div>
 
+<!-- ── Modal: Novo Armário ── -->
+<div class="modal fade" id="invNewArmModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Novo Armário</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label" style="font-size:12px;font-weight:600;color:#6c757d;text-transform:uppercase;letter-spacing:.4px">Nome (ex: A9, A10, B1)</label>
+        <input type="text" class="form-control" id="inv-new-arm-nome" placeholder="Axxx" maxlength="10" style="text-transform:uppercase;font-size:15px;font-weight:700;letter-spacing:1px">
+        <div class="text-danger mt-2" id="inv-new-arm-err" style="font-size:12px;display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-sm btn-primary" id="inv-btn-create-arm">Criar Armário</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Modal: Import ── -->
 <div class="modal fade" id="invImportModal" tabindex="-1">
   <div class="modal-dialog">
@@ -574,22 +649,33 @@ tr:hover .inv-actions{opacity:1}
 let currentArm = '';
 let allItems   = [];
 let searchQ    = '';
-let _modal, _importModal;
+let _modal, _importModal, _newArmModal;
 
 // ── Init ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   _modal       = new bootstrap.Modal(document.getElementById('invModal'));
   _importModal = new bootstrap.Modal(document.getElementById('invImportModal'));
+  _newArmModal = new bootstrap.Modal(document.getElementById('invNewArmModal'));
 
-  // Armário tabs
-  document.querySelectorAll('.inv-atab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.inv-atab').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      currentArm = btn.dataset.arm;
-      loadItems();
-    });
+  // Armário tabs (delegated — tabs can be added dynamically)
+  document.getElementById('inv-armtabs').addEventListener('click', e => {
+    const btn = e.target.closest('.inv-atab');
+    if (!btn) return;
+    document.querySelectorAll('.inv-atab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentArm = btn.dataset.arm;
+    loadItems();
   });
+
+  // Novo armário
+  document.getElementById('inv-btn-new-arm').addEventListener('click', () => {
+    document.getElementById('inv-new-arm-nome').value = '';
+    document.getElementById('inv-new-arm-err').style.display = 'none';
+    _newArmModal.show();
+    setTimeout(() => document.getElementById('inv-new-arm-nome').focus(), 300);
+  });
+  document.getElementById('inv-btn-create-arm').addEventListener('click', createArmario);
+  document.getElementById('inv-new-arm-nome').addEventListener('keydown', e => { if (e.key === 'Enter') createArmario(); });
 
   // Search
   let sTimer;
@@ -734,12 +820,57 @@ async function saveItem() {
 
 function updateCount() {
   const tot = allItems.length;
-  document.querySelector('.inv-atab[data-arm=""]>.inv-cnt').textContent = tot;
+  const allCnt = document.querySelector('.inv-atab[data-arm=""] .inv-cnt');
+  if (allCnt) allCnt.textContent = tot;
+  const stat = document.getElementById('inv-stat-total');
+  if (stat) stat.textContent = tot;
+}
+
+// ── Novo Armário ──────────────────────────────────────────────
+async function createArmario() {
+  const inp  = document.getElementById('inv-new-arm-nome');
+  const err  = document.getElementById('inv-new-arm-err');
+  const nome = inp.value.trim().toUpperCase();
+  err.style.display = 'none';
+  if (!nome) { err.textContent = 'Introduz um nome.'; err.style.display = ''; return; }
+  if (!/^[A-Z]\d+$/.test(nome)) { err.textContent = 'Formato inválido. Usa letra + número (ex: A9, B1, A10).'; err.style.display = ''; return; }
+
+  const btn = document.getElementById('inv-btn-create-arm');
+  btn.disabled = true; btn.textContent = 'A criar...';
+  try {
+    const r = await fetch('api/inventario.php?action=add_armario', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({nome})
+    });
+    const d = await r.json();
+    if (d.error) { err.textContent = d.error; err.style.display = ''; return; }
+
+    // Adicionar tab ao DOM
+    const tabs = document.getElementById('inv-armtabs');
+    const addBtn = document.getElementById('inv-btn-new-arm');
+    const tab = document.createElement('button');
+    tab.className = 'inv-atab';
+    tab.dataset.arm = nome;
+    tab.innerHTML = `${nome} <span class="inv-cnt">0</span>`;
+    tabs.insertBefore(tab, addBtn);
+
+    // Adicionar ao select do modal
+    const sel = document.getElementById('inv-armario');
+    const opt = document.createElement('option');
+    opt.value = nome; opt.textContent = nome;
+    sel.appendChild(opt);
+
+    _newArmModal.hide();
+  } catch(e) {
+    err.textContent = 'Erro de ligação.'; err.style.display = '';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Criar Armário';
+  }
 }
 
 // ── Export ────────────────────────────────────────────────────
 function doExport() {
-  const url = `?action=export${currentArm ? '&armario='+currentArm : ''}`;
+  const url = `api/inventario.php?action=export${currentArm ? '&armario='+encodeURIComponent(currentArm) : ''}`;
   window.location = url;
 }
 

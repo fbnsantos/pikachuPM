@@ -14,8 +14,108 @@ try {
 }
 
 $cur_uid  = (int)($_SESSION['user_id'] ?? 0);
-$ARMARIOS = ['A1','A2','A3','A4','A5','A6','A7','A8'];
 $action   = $_GET['action'] ?? '';
+
+// Carregar armários dinâmicos
+try {
+    $ARMARIOS = $pdo->query("SELECT nome FROM inventario_armarios ORDER BY ordem, nome")->fetchAll(PDO::FETCH_COLUMN);
+} catch (Exception $e) {
+    $ARMARIOS = ['A1','A2','A3','A4','A5','A6','A7','A8'];
+}
+
+// ── export (download — sem JSON header) ───────────────────────
+if ($action === 'export') {
+    $arm  = $_GET['armario'] ?? '';
+    $arms = ($arm && in_array($arm, $ARMARIOS, true)) ? [$arm] : $ARMARIOS;
+    $sheets = [];
+    foreach ($arms as $a) {
+        $rows = $pdo->query("SELECT descricao,quantidade,prateleira,caixa,projeto,link,notas,last_edited FROM inventario_items WHERE armario='".addslashes($a)."' ORDER BY descricao")->fetchAll(PDO::FETCH_ASSOC);
+        $data = [['Descrição','Quantidade','Prateleira','Caixa','Projeto','Link','Notas','Última edição']];
+        foreach ($rows as $r) $data[] = array_values($r);
+        $sheets[$a] = $data;
+    }
+    // ── XLSX helpers ────────────────────────────────────────────
+    function api_col_letter(int $col): string {
+        $s = '';
+        for ($c = $col; $c >= 0; $c = intval($c / 26) - 1)
+            $s = chr(65 + ($c % 26)) . $s;
+        return $s;
+    }
+    function api_stream_xlsx(array $sheets, string $filename): void {
+        $strings = [];
+        $strIdx = function(string $s) use (&$strings): int {
+            $k = array_search($s, $strings, true);
+            if ($k === false) { $strings[] = $s; return count($strings) - 1; }
+            return $k;
+        };
+        $names = array_keys($sheets); $sheetXmls = [];
+        foreach ($names as $si => $sname) {
+            $x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+               . '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+            foreach ($sheets[$sname] as $ri => $row) {
+                $x .= '<row r="'.($ri+1).'">';
+                foreach ($row as $ci => $val) {
+                    $ref = api_col_letter($ci).($ri+1);
+                    if ($val === null || $val === '') { $x .= '<c r="'.$ref.'"/>'; continue; }
+                    if (is_numeric($val) && !preg_match('/^0\d/', (string)$val))
+                        $x .= '<c r="'.$ref.'"><v>'.htmlspecialchars((string)$val,ENT_XML1).'</v></c>';
+                    else
+                        $x .= '<c r="'.$ref.'" t="s"><v>'.$strIdx((string)$val).'</v></c>';
+                }
+                $x .= '</row>';
+            }
+            $x .= '</sheetData></worksheet>';
+            $sheetXmls[] = $x;
+        }
+        $n = count($names);
+        $ss = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="'.count($strings).'" uniqueCount="'.count($strings).'">';
+        foreach ($strings as $s) $ss .= '<si><t>'.htmlspecialchars($s,ENT_XML1).'</t></si>';
+        $ss .= '</sst>';
+        $ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            . '<Default Extension="xml" ContentType="application/xml"/>'
+            . '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            . '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>';
+        for ($i=0;$i<$n;$i++) $ct .= '<Override PartName="/xl/worksheets/sheet'.($i+1).'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>';
+        $ct .= '</Types>';
+        $rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+              . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+              . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+              . '</Relationships>';
+        $wb = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>';
+        foreach ($names as $si => $sname)
+            $wb .= '<sheet name="'.htmlspecialchars($sname,ENT_XML1).'" sheetId="'.($si+1).'" r:id="rId'.($si+2).'"/>';
+        $wb .= '</sheets></workbook>';
+        $wbr = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+             . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+             . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>';
+        for ($i=0;$i<$n;$i++)
+            $wbr .= '<Relationship Id="rId'.($i+2).'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'.($i+1).'.xml"/>';
+        $wbr .= '</Relationships>';
+        $tmp = tempnam(sys_get_temp_dir(), 'inv_');
+        $zip = new ZipArchive();
+        $zip->open($tmp, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+        $zip->addFromString('[Content_Types].xml', $ct);
+        $zip->addFromString('_rels/.rels', $rels);
+        $zip->addFromString('xl/workbook.xml', $wb);
+        $zip->addFromString('xl/_rels/workbook.xml.rels', $wbr);
+        $zip->addFromString('xl/sharedStrings.xml', $ss);
+        for ($i=0;$i<$n;$i++) $zip->addFromString('xl/worksheets/sheet'.($i+1).'.xml', $sheetXmls[$i]);
+        $zip->close();
+        while (ob_get_level()) ob_end_clean();
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="'.$filename.'"');
+        header('Content-Length: '.filesize($tmp));
+        readfile($tmp);
+        unlink($tmp);
+        exit;
+    }
+    api_stream_xlsx($sheets, 'Inventario_' . date('Ymd') . '.xlsx');
+    exit;
+}
 
 header('Content-Type: application/json');
 
@@ -75,11 +175,6 @@ if ($action === 'delete' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// ── export ────────────────────────────────────────────────────
-if ($action === 'export') {
-    include_once __DIR__ . '/../tabs/inventario.php';
-    exit;
-}
 
 // ── import ────────────────────────────────────────────────────
 if ($action === 'import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -183,6 +278,25 @@ if ($action === 'import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $zip->close();
     echo json_encode(['ok'=>true,'imported'=>$imported,'updated'=>$updated,'skipped'=>$skipped,'errors'=>$errors]);
+    exit;
+}
+
+// ── add_armario ───────────────────────────────────────────────
+if ($action === 'add_armario' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $d    = json_decode(file_get_contents('php://input'), true) ?? [];
+    $nome = strtoupper(trim($d['nome'] ?? ''));
+    if (!$nome || !preg_match('/^[A-Z]\d+$/', $nome)) { echo json_encode(['error'=>'Nome inválido. Usa letra + número (ex: A9, B1).']); exit; }
+    if (strlen($nome) > 10) { echo json_encode(['error'=>'Nome demasiado longo.']); exit; }
+    try {
+        $ord = (int)$pdo->query("SELECT COALESCE(MAX(ordem),0)+1 FROM inventario_armarios")->fetchColumn();
+        $pdo->prepare("INSERT INTO inventario_armarios (nome, ordem) VALUES (?,?)")->execute([$nome, $ord]);
+        echo json_encode(['ok'=>true,'nome'=>$nome]);
+    } catch (Exception $e) {
+        if (str_contains($e->getMessage(), 'Duplicate') || str_contains($e->getMessage(), 'unique'))
+            echo json_encode(['error'=>"O armário '$nome' já existe."]);
+        else
+            echo json_encode(['error'=>'Erro ao criar: '.$e->getMessage()]);
+    }
     exit;
 }
 

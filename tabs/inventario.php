@@ -29,6 +29,19 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS inventario_items (
     INDEX idx_descricao (descricao(100))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+$pdo->exec("CREATE TABLE IF NOT EXISTS inventario_movimentos (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    item_id    INT NOT NULL,
+    user_id    INT DEFAULT NULL,
+    username   VARCHAR(100) DEFAULT NULL,
+    delta      INT NOT NULL,
+    qty_antes  VARCHAR(50) DEFAULT NULL,
+    qty_depois VARCHAR(50) DEFAULT NULL,
+    notas      VARCHAR(200) DEFAULT NULL,
+    criado_em  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_item (item_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
 $pdo->exec("CREATE TABLE IF NOT EXISTS inventario_armarios (
     id        INT AUTO_INCREMENT PRIMARY KEY,
     nome      VARCHAR(20) NOT NULL UNIQUE,
@@ -451,6 +464,27 @@ tr:hover .inv-actions{opacity:1}
 .inv-drop-icon{font-size:40px;margin-bottom:8px;opacity:.5}
 .inv-import-result{background:#f8f9fa;border-radius:8px;padding:12px;font-size:13px;margin-top:12px;display:none}
 
+/* ── Qty buttons ─────────────────────────────────────────────── */
+.inv-qty-btn{width:22px;height:22px;border:1px solid #dee2e6;border-radius:6px;background:#fff;color:#495057;font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all .12s;flex-shrink:0}
+.inv-qty-btn:hover{background:#f0f4ff;border-color:#0d6efd;color:#0d6efd}
+.inv-qty-plus:hover{background:#e6f4ea;border-color:#198754;color:#198754}
+.inv-qty-minus:hover{background:#fdecea;border-color:#dc3545;color:#dc3545}
+.inv-qty-btn:active{transform:scale(.88)}
+.inv-qty-val{min-width:28px;text-align:center;font-weight:700;font-size:13px}
+
+/* ── History modal ───────────────────────────────────────────── */
+.inv-hist-list{max-height:380px;overflow-y:auto}
+.inv-hist-item{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0}
+.inv-hist-item:last-child{border-bottom:none}
+.inv-hist-badge{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex-shrink:0}
+.inv-hist-badge.plus{background:#e6f4ea;color:#198754}
+.inv-hist-badge.minus{background:#fdecea;color:#dc3545}
+.inv-hist-meta{font-size:11px;color:#6c757d;margin-top:2px}
+.inv-hist-delta{font-weight:700;font-size:13px}
+.inv-hist-delta.plus{color:#198754}.inv-hist-delta.minus{color:#dc3545}
+.inv-hist-qty{font-size:12px;color:#6c757d;margin-top:1px}
+.inv-hist-empty{text-align:center;padding:32px;color:#adb5bd;font-size:13px}
+
 @media(max-width:600px){.inv-form-row{grid-template-columns:1fr}.inv-toolbar-right{width:100%}.inv-stat-card{min-width:calc(50% - 6px)}}
 </style>
 
@@ -642,6 +676,27 @@ tr:hover .inv-actions{opacity:1}
   </div>
 </div>
 
+<!-- ── Modal: Histórico ── -->
+<div class="modal fade" id="invHistModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="invHistTitle">Histórico</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div id="inv-hist-body" class="inv-hist-list px-3 py-2">
+          <div class="inv-hist-empty">A carregar...</div>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-start">
+        <small class="text-muted" id="inv-hist-note">Últimos 50 movimentos</small>
+        <button class="btn btn-sm btn-secondary ms-auto" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
 'use strict';
@@ -649,13 +704,23 @@ tr:hover .inv-actions{opacity:1}
 let currentArm = '';
 let allItems   = [];
 let searchQ    = '';
-let _modal, _importModal, _newArmModal;
+let _modal, _importModal, _newArmModal, _histModal;
 
 // ── Init ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   _modal       = new bootstrap.Modal(document.getElementById('invModal'));
   _importModal = new bootstrap.Modal(document.getElementById('invImportModal'));
   _newArmModal = new bootstrap.Modal(document.getElementById('invNewArmModal'));
+  _histModal   = new bootstrap.Modal(document.getElementById('invHistModal'));
+
+  // Qty +/− (event delegation)
+  document.getElementById('inv-tbody').addEventListener('click', e => {
+    const btn = e.target.closest('.inv-qty-btn');
+    if (!btn) return;
+    const id    = parseInt(btn.dataset.id);
+    const delta = btn.classList.contains('inv-qty-plus') ? 1 : -1;
+    qtyChange(id, delta);
+  });
 
   // Armário tabs (delegated — tabs can be added dynamically)
   document.getElementById('inv-armtabs').addEventListener('click', e => {
@@ -740,13 +805,20 @@ function renderTable() {
     <tr data-id="${it.id}">
       <td><span class="inv-arm-badge">${esc(it.armario)}</span></td>
       <td class="inv-desc" title="${esc(it.descricao)}">${esc(it.descricao)}${it.link?` <a href="${esc(it.link)}" target="_blank" title="Link" style="font-size:11px">↗</a>`:''}</td>
-      <td class="inv-qty">${it.quantidade||'—'}</td>
+      <td class="inv-qty">
+        <div style="display:flex;align-items:center;gap:4px">
+          <button class="inv-qty-btn inv-qty-minus" data-id="${it.id}" title="Remover 1">−</button>
+          <span class="inv-qty-val" id="qty-${it.id}">${esc(it.quantidade||'0')}</span>
+          <button class="inv-qty-btn inv-qty-plus"  data-id="${it.id}" title="Adicionar 1">＋</button>
+        </div>
+      </td>
       <td class="inv-meta">${it.prateleira||'—'}</td>
       <td class="inv-meta">${it.caixa||'—'}</td>
       <td class="inv-meta">${it.projeto?`<span style="background:#e8f4ea;color:#155724;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600">${esc(it.projeto)}</span>`:'—'}</td>
       <td class="inv-meta">${it.last_edited||'—'}</td>
       <td>
         <div class="inv-actions">
+          <button class="btn btn-xs btn-outline-info"      onclick="invHistory(${it.id},'${esc(it.descricao)}')" title="Histórico de movimentos">👁</button>
           <button class="btn btn-xs btn-outline-secondary" onclick="invEdit(${it.id})" title="Editar">✏️</button>
           <button class="btn btn-xs btn-outline-danger"    onclick="invDelete(${it.id},'${esc(it.descricao)}')" title="Eliminar">🗑</button>
         </div>
@@ -817,6 +889,57 @@ async function saveItem() {
     btn.disabled = false; btn.textContent = 'Guardar';
   }
 }
+
+// ── Qty change ────────────────────────────────────────────────
+async function qtyChange(id, delta) {
+  const valEl = document.getElementById('qty-' + id);
+  if (!valEl) return;
+  const btns = document.querySelectorAll(`.inv-qty-btn[data-id="${id}"]`);
+  btns.forEach(b => b.disabled = true);
+  try {
+    const r = await fetch('api/inventario.php?action=qty_change', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id, delta})
+    });
+    const d = await r.json();
+    if (d.error) { console.error(d.error); return; }
+    valEl.textContent = d.qty_depois;
+    valEl.style.transition = 'color .25s';
+    valEl.style.color = delta > 0 ? '#198754' : '#dc3545';
+    setTimeout(() => { valEl.style.color = ''; }, 600);
+    const it = allItems.find(i => i.id == id);
+    if (it) it.quantidade = d.qty_depois;
+  } finally {
+    btns.forEach(b => b.disabled = false);
+  }
+}
+
+// ── History ───────────────────────────────────────────────────
+window.invHistory = async function(id, desc) {
+  document.getElementById('invHistTitle').textContent = '📋 ' + desc;
+  document.getElementById('inv-hist-body').innerHTML = '<div class="inv-hist-empty">A carregar...</div>';
+  _histModal.show();
+  const r = await fetch(`api/inventario.php?action=history&id=${id}`);
+  const d = await r.json();
+  const body = document.getElementById('inv-hist-body');
+  if (!d.length) { body.innerHTML = '<div class="inv-hist-empty">Sem movimentos registados.</div>'; return; }
+  body.innerHTML = d.map(m => {
+    const plus = m.delta > 0;
+    const sign = plus ? '+' : '';
+    const dt   = new Date(m.criado_em).toLocaleString('pt-PT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    return `<div class="inv-hist-item">
+      <div class="inv-hist-badge ${plus?'plus':'minus'}">${plus?'＋':'−'}</div>
+      <div style="flex:1">
+        <div><span class="inv-hist-delta ${plus?'plus':'minus'}">${sign}${m.delta}</span>
+          <span style="font-size:12px;color:#495057;margin-left:6px">por <strong>${esc(m.username||'?')}</strong></span>
+        </div>
+        <div class="inv-hist-qty">${m.qty_antes} → ${m.qty_depois}</div>
+        ${m.notas ? `<div style="font-size:12px;color:#6c757d;margin-top:2px">📝 ${esc(m.notas)}</div>` : ''}
+        <div class="inv-hist-meta">${dt}</div>
+      </div>
+    </div>`;
+  }).join('');
+};
 
 function updateCount() {
   const tot = allItems.length;

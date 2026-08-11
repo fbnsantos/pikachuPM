@@ -281,6 +281,41 @@ if ($action === 'import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// ── qty_change ────────────────────────────────────────────────
+if ($action === 'qty_change' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $d     = json_decode(file_get_contents('php://input'), true) ?? [];
+    $id    = (int)($d['id']    ?? 0);
+    $delta = (int)($d['delta'] ?? 0);
+    if (!$id || $delta === 0) { echo json_encode(['error'=>'Parâmetros inválidos']); exit; }
+
+    $item = $pdo->query("SELECT id, quantidade FROM inventario_items WHERE id=$id")->fetch(PDO::FETCH_ASSOC);
+    if (!$item) { echo json_encode(['error'=>'Item não encontrado']); exit; }
+
+    $qAntes  = $item['quantidade'] ?? '0';
+    $numAntes = (int) preg_replace('/[^0-9\-]/', '', $qAntes);
+    $numDepois = max(0, $numAntes + $delta);
+    $qDepois  = (string)$numDepois;
+
+    $pdo->prepare("UPDATE inventario_items SET quantidade=?, updated_at=NOW() WHERE id=?")->execute([$qDepois, $id]);
+    $user = $_SESSION['username'] ?? 'desconhecido';
+    $uid  = (int)($_SESSION['user_id'] ?? 0);
+    $pdo->prepare("INSERT INTO inventario_movimentos (item_id, user_id, username, delta, qty_antes, qty_depois) VALUES (?,?,?,?,?,?)")
+        ->execute([$id, $uid, $user, $delta, $qAntes, $qDepois]);
+
+    echo json_encode(['ok'=>true, 'qty_depois'=>$qDepois]);
+    exit;
+}
+
+// ── history ───────────────────────────────────────────────────
+if ($action === 'history') {
+    $id = (int)($_GET['id'] ?? 0);
+    if (!$id) { echo json_encode([]); exit; }
+    $rows = $pdo->prepare("SELECT delta, qty_antes, qty_depois, username, notas, criado_em FROM inventario_movimentos WHERE item_id=? ORDER BY criado_em DESC LIMIT 50");
+    $rows->execute([$id]);
+    echo json_encode($rows->fetchAll(PDO::FETCH_ASSOC));
+    exit;
+}
+
 // ── add_armario ───────────────────────────────────────────────
 if ($action === 'add_armario' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $d    = json_decode(file_get_contents('php://input'), true) ?? [];

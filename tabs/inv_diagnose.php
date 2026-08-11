@@ -200,6 +200,104 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['xlsx']['tmp_name'])
                 $pdo->commit();
                 ok("Limpeza feita");
 
+                // ── 8. Import real ──────────────────────────
+                if (!empty($_POST['do_import'])) {
+                    echo "<h2>8. Import real</h2>";
+                    $armarios = ['A1','A2','A3','A4','A5','A6','A7','A8'];
+                    $uid = (int)($_SESSION['user_id'] ?? 0);
+
+                    // re-abrir zip (foi fechado acima)
+                    $zip2 = new ZipArchive();
+                    $zip2->open($_FILES['xlsx']['tmp_name']);
+                    $ssRaw2 = $zip2->getFromName('xl/sharedStrings.xml') ?: '';
+                    $strings2 = [];
+                    if ($ssRaw2) {
+                        $xrS = new XMLReader(); $xrS->XML($ssRaw2); unset($ssRaw2);
+                        $cur = ''; $inT = false;
+                        while ($xrS->read()) {
+                            if ($xrS->nodeType===XMLReader::ELEMENT) {
+                                if ($xrS->localName==='si') $cur='';
+                                elseif ($xrS->localName==='t') $inT=true;
+                            } elseif ($xrS->nodeType===XMLReader::TEXT && $inT) { $cur.=$xrS->value; }
+                            elseif ($xrS->nodeType===XMLReader::END_ELEMENT) {
+                                if ($xrS->localName==='si') { $strings2[]=$cur; $cur=''; }
+                                elseif ($xrS->localName==='t') $inT=false;
+                            }
+                        }
+                        $xrS->close();
+                    }
+                    ok(count($strings2) . " shared strings carregadas");
+
+                    $wbR2  = $zip2->getFromName('xl/workbook.xml') ?? '';
+                    $wbRR2 = $zip2->getFromName('xl/_rels/workbook.xml.rels') ?? '';
+                    $rId2=[]; preg_match_all('/Id="([^"]+)"[^>]+Target="([^"]+)"/',$wbRR2,$rm2,PREG_SET_ORDER);
+                    foreach($rm2 as $m) $rId2[$m[1]]=$m[2];
+                    $sf2=[]; preg_match_all('/<sheet\b[^>]+>/i',$wbR2,$sm2);
+                    foreach($sm2[0] as $tag) {
+                        if(!preg_match('/name="([^"]+)"/',$tag,$nm)) continue;
+                        if(!preg_match('/r:id="([^"]+)"/',$tag,$ri)) continue;
+                        $f=$rId2[$ri[1]]??'';
+                        if($f) $sf2[$nm[1]]=(strpos($f,'/')===0)?ltrim($f,'/') : 'xl/'.$f;
+                    }
+
+                    $existing2=[];
+                    foreach($pdo->query("SELECT id,armario,descricao FROM inventario_items")->fetchAll(PDO::FETCH_ASSOC) as $r)
+                        $existing2[$r['armario'].'||'.$r['descricao']]=(int)$r['id'];
+
+                    $stUpd = $pdo->prepare('UPDATE inventario_items SET quantidade=?,prateleira=?,caixa=?,projeto=?,last_edited=?,updated_at=NOW() WHERE id=?');
+                    $stIns3= $pdo->prepare('INSERT INTO inventario_items (armario,descricao,quantidade,prateleira,caixa,projeto,last_edited,created_by) VALUES (?,?,?,?,?,?,?,?)');
+                    $imported2=$updated2=$skipped2=0;
+
+                    $pdo->beginTransaction();
+                    try {
+                        foreach($armarios as $arm) {
+                            if(!isset($sf2[$arm])) { warn("Folha '$arm' não encontrada"); continue; }
+                            $wsR=$zip2->getFromName($sf2[$arm]);
+                            if(!$wsR) { warn("Erro ao ler '$arm'"); continue; }
+                            // parse worksheet
+                            $rows2=[]; $cells2=[]; $rn=0; $cc=0; $ct=''; $cv=''; $iv=false;
+                            $xrW=new XMLReader(); $xrW->XML($wsR); unset($wsR);
+                            while($xrW->read()) {
+                                if($xrW->nodeType===XMLReader::ELEMENT) {
+                                    $ln=$xrW->localName;
+                                    if($ln==='row'){$cells2=[];$rn++;}
+                                    elseif($ln==='c'){
+                                        $ref=$xrW->getAttribute('r')??''; preg_match('/^([A-Z]+)/',$ref,$cm3);
+                                        $col=$cm3[1]??'A'; $cc=0;
+                                        for($i=0;$i<strlen($col);$i++) $cc=$cc*26+(ord($col[$i])-64);
+                                        $cc--; $ct=$xrW->getAttribute('t')??''; $cv=''; $iv=false;
+                                    } elseif($ln==='v'){$iv=true;$cv='';}
+                                } elseif(($xrW->nodeType===XMLReader::TEXT||$xrW->nodeType===XMLReader::CDATA)&&$iv){
+                                    $cv.=$xrW->value;
+                                } elseif($xrW->nodeType===XMLReader::END_ELEMENT) {
+                                    $ln=$xrW->localName;
+                                    if($ln==='v'){$iv=false;$v=$cv;if($ct==='s')$v=$strings2[(int)$v]??'';$cells2[$cc]=$v;}
+                                    elseif($ln==='row'){if($rn>1)$rows2[]=$cells2;}
+                                }
+                            }
+                            $xrW->close();
+                            foreach($rows2 as $cells2r) {
+                                $desc=trim($cells2r[1]??''); if(!$desc){$skipped2++;continue;}
+                                $qty=trim($cells2r[2]??''); $prat=trim($cells2r[3]??'');
+                                $cx=trim($cells2r[4]??''); $proj=trim($cells2r[5]??'');
+                                $led=null; $lr=$cells2r[6]??'';
+                                if($lr!==''&&is_numeric($lr)&&(float)$lr>40000)
+                                    $led=date('Y-m-d',(int)(((float)$lr-25569)*86400));
+                                $key=$arm.'||'.$desc;
+                                if(isset($existing2[$key])){$stUpd->execute([$qty,$prat,$cx,$proj,$led,$existing2[$key]]);$updated2++;}
+                                else{$stIns3->execute([$arm,$desc,$qty,$prat,$cx,$proj,$led,$uid]);$existing2[$key]=(int)$pdo->lastInsertId();$imported2++;}
+                            }
+                            ok("$arm: " . count($rows2) . " linhas processadas");
+                        }
+                        $pdo->commit();
+                        echo "<div class='step' style='border-color:#7dd3fc;font-size:16px'><b style='color:#7dd3fc'>Import concluído!</b> Importados: $imported2 &nbsp; Actualizados: $updated2 &nbsp; Ignorados: $skipped2</div>";
+                    } catch(Exception $e) {
+                        $pdo->rollBack();
+                        err("Erro no import: " . $e->getMessage());
+                    }
+                    $zip2->close();
+                }
+
             } catch (Exception $e) {
                 err("Erro BD: " . $e->getMessage());
             }
@@ -209,7 +307,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['xlsx']['tmp_name'])
     echo "<form method='post' enctype='multipart/form-data'>
         <label>Selecciona o ficheiro xlsx:</label><br><br>
         <input type='file' name='xlsx' accept='.xlsx'><br><br>
-        <input type='submit' value='Testar Import'>
+        <label style='display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer'>
+            <input type='checkbox' name='do_import' value='1'>
+            <span>Fazer import real para a base de dados</span>
+        </label>
+        <input type='submit' value='Testar / Importar'>
     </form>";
 }
 

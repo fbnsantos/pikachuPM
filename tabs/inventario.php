@@ -210,107 +210,149 @@ function inv_stream_xlsx(array $sheets, string $filename): void {
     exit;
 }
 
+// Lê shared strings com XMLReader (streaming — não carrega DOM em memória)
+function inv_read_shared_strings(string $raw): array {
+    $strings = [];
+    $tmp = tempnam(sys_get_temp_dir(), 'inv_ss_');
+    file_put_contents($tmp, $raw);
+    unset($raw);
+
+    $xr = new XMLReader();
+    $xr->open($tmp);
+    $current = ''; $inT = false;
+    while ($xr->read()) {
+        if ($xr->nodeType === XMLReader::ELEMENT) {
+            if ($xr->localName === 'si')  $current = '';
+            elseif ($xr->localName === 't') $inT = true;
+        } elseif ($xr->nodeType === XMLReader::TEXT && $inT) {
+            $current .= $xr->value;
+        } elseif ($xr->nodeType === XMLReader::END_ELEMENT) {
+            if ($xr->localName === 'si') { $strings[] = $current; $current = ''; }
+            elseif ($xr->localName === 't') $inT = false;
+        }
+    }
+    $xr->close();
+    unlink($tmp);
+    return $strings;
+}
+
+// Lê linhas de um worksheet com XMLReader (streaming)
+function inv_read_worksheet_rows(string $raw, array $strings): array {
+    $tmp = tempnam(sys_get_temp_dir(), 'inv_ws_');
+    file_put_contents($tmp, $raw);
+    unset($raw);
+
+    $rows = []; $cells = []; $rowNum = 0;
+    $curCol = 0; $curType = ''; $curVal = ''; $inV = false;
+
+    $xr = new XMLReader();
+    $xr->open($tmp);
+    while ($xr->read()) {
+        if ($xr->nodeType === XMLReader::ELEMENT) {
+            $ln = $xr->localName;
+            if ($ln === 'row') {
+                $cells = []; $rowNum++;
+            } elseif ($ln === 'c') {
+                $ref = $xr->getAttribute('r') ?? '';
+                preg_match('/^([A-Z]+)/', $ref, $cm);
+                $col = $cm[1] ?? 'A'; $curCol = 0;
+                for ($i = 0; $i < strlen($col); $i++)
+                    $curCol = $curCol * 26 + (ord($col[$i]) - 64);
+                $curCol--;
+                $curType = $xr->getAttribute('t') ?? '';
+                $curVal = ''; $inV = false;
+            } elseif ($ln === 'v') {
+                $inV = true; $curVal = '';
+            }
+        } elseif (($xr->nodeType === XMLReader::TEXT || $xr->nodeType === XMLReader::CDATA) && $inV) {
+            $curVal .= $xr->value;
+        } elseif ($xr->nodeType === XMLReader::END_ELEMENT) {
+            $ln = $xr->localName;
+            if ($ln === 'v') {
+                $inV = false;
+                $v = $curVal;
+                if ($curType === 's') $v = $strings[(int)$v] ?? '';
+                $cells[$curCol] = $v;
+            } elseif ($ln === 'row') {
+                if ($rowNum > 1) $rows[] = $cells; // skip header row
+            }
+        }
+    }
+    $xr->close();
+    unlink($tmp);
+    return $rows;
+}
+
 function inv_import_xlsx(string $filepath, PDO $pdo, int $uid, array $armarios): array {
     $zip = new ZipArchive();
     if ($zip->open($filepath) !== true) return ['error'=>'Não foi possível abrir o ficheiro XLSX'];
 
-    // Shared strings
-    $strings = [];
-    $ssRaw   = $zip->getFromName('xl/sharedStrings.xml');
-    if ($ssRaw) {
-        $ss = @simplexml_load_string($ssRaw);
-        if ($ss) foreach ($ss->si as $si) {
-            if (count($si->r)) { $t=''; foreach ($si->r as $r) $t .= (string)($r->t??''); $strings[] = $t; }
-            else $strings[] = (string)($si->t ?? '');
-        }
-    }
+    // Shared strings — stream com XMLReader
+    $ssRaw   = $zip->getFromName('xl/sharedStrings.xml') ?: '';
+    $strings = $ssRaw ? inv_read_shared_strings($ssRaw) : [];
+    unset($ssRaw);
 
-    // Sheet name → file path (via regex — avoids namespace issues)
-    $wbRaw   = $zip->getFromName('xl/workbook.xml')          ?? '';
-    $wbRRaw  = $zip->getFromName('xl/_rels/workbook.xml.rels') ?? '';
+    // Sheet name → arquivo (regex, evita problemas de namespace)
+    $wbRaw  = $zip->getFromName('xl/workbook.xml')           ?? '';
+    $wbRRaw = $zip->getFromName('xl/_rels/workbook.xml.rels') ?? '';
     $rIdToFile = [];
     preg_match_all('/Id="([^"]+)"[^>]+Target="([^"]+)"/', $wbRRaw, $rm, PREG_SET_ORDER);
     foreach ($rm as $m) $rIdToFile[$m[1]] = $m[2];
-
     $sheetFile = [];
     preg_match_all('/<sheet\b[^>]+>/i', $wbRaw, $sm);
     foreach ($sm[0] as $tag) {
         if (!preg_match('/name="([^"]+)"/', $tag, $nm)) continue;
         if (!preg_match('/r:id="([^"]+)"/', $tag, $ri)) continue;
-        $file = $rIdToFile[$ri[1]] ?? '';
-        if ($file) {
-            $sheetFile[$nm[1]] = (strpos($file,'/') === 0) ? ltrim($file,'/') : 'xl/'.$file;
-        }
+        $f = $rIdToFile[$ri[1]] ?? '';
+        if ($f) $sheetFile[$nm[1]] = (strpos($f,'/') === 0) ? ltrim($f,'/') : 'xl/'.$f;
     }
+    unset($wbRaw, $wbRRaw);
 
-    $imported = 0; $updated = 0; $skipped = 0; $errors = [];
-
-    // Pre-load existing items (armario+descricao→id) — evita N queries por item
+    // Pre-carregar existentes (1 query total)
     $existing = [];
-    $rows = $pdo->query("SELECT id, armario, descricao FROM inventario_items")->fetchAll(PDO::FETCH_ASSOC);
-    foreach ($rows as $r) $existing[$r['armario'].'||'.$r['descricao']] = (int)$r['id'];
+    foreach ($pdo->query("SELECT id, armario, descricao FROM inventario_items")->fetchAll(PDO::FETCH_ASSOC) as $r)
+        $existing[$r['armario'].'||'.$r['descricao']] = (int)$r['id'];
 
     $stUpdate = $pdo->prepare('UPDATE inventario_items SET quantidade=?,prateleira=?,caixa=?,projeto=?,last_edited=?,updated_at=NOW() WHERE id=?');
     $stInsert = $pdo->prepare('INSERT INTO inventario_items (armario,descricao,quantidade,prateleira,caixa,projeto,last_edited,created_by) VALUES (?,?,?,?,?,?,?,?)');
 
+    $imported = 0; $updated = 0; $skipped = 0; $errors = [];
+
     $pdo->beginTransaction();
     try {
-    foreach ($armarios as $arm) {
-        if (!isset($sheetFile[$arm])) { $errors[] = "Folha '$arm' não encontrada"; continue; }
-        $wsRaw = $zip->getFromName($sheetFile[$arm]);
-        if (!$wsRaw) { $errors[] = "Erro ao ler folha '$arm'"; continue; }
-        $ws = @simplexml_load_string($wsRaw);
-        if (!$ws) { $errors[] = "Erro ao parsear folha '$arm'"; continue; }
+        foreach ($armarios as $arm) {
+            if (!isset($sheetFile[$arm])) { $errors[] = "Folha '$arm' não encontrada"; continue; }
+            $wsRaw = $zip->getFromName($sheetFile[$arm]);
+            if (!$wsRaw) { $errors[] = "Erro ao ler '$arm'"; continue; }
 
-        $firstRow = true;
-        foreach ($ws->sheetData->row as $row) {
-            if ($firstRow) { $firstRow = false; continue; }
+            $rows = inv_read_worksheet_rows($wsRaw, $strings);
+            unset($wsRaw);
 
-            $cells = [];
-            foreach ($row->c as $c) {
-                $ref = (string)$c['r'];
-                preg_match('/^([A-Z]+)/', $ref, $cm);
-                $colStr = $cm[1] ?? 'A';
-                $colIdx = 0;
-                for ($i = 0; $i < strlen($colStr); $i++)
-                    $colIdx = $colIdx * 26 + (ord($colStr[$i]) - 64);
-                $colIdx--;
+            foreach ($rows as $cells) {
+                $desc = trim($cells[1] ?? '');
+                if (!$desc) { $skipped++; continue; }
 
-                $type = (string)($c['t'] ?? '');
-                $val  = isset($c->v) ? (string)$c->v : '';
-                if ($type === 's')        $val = $strings[(int)$val] ?? '';
-                elseif ($type === 'str') $val = (string)($c->v ?? '');
-                $cells[$colIdx] = $val;
-            }
+                $qty  = trim($cells[2] ?? '');
+                $prat = trim($cells[3] ?? '');
+                $cx   = trim($cells[4] ?? '');
+                $proj = trim($cells[5] ?? '');
+                $led  = null;
+                $lr   = $cells[6] ?? '';
+                if ($lr !== '' && is_numeric($lr) && (float)$lr > 40000)
+                    $led = date('Y-m-d', (int)(((float)$lr - 25569) * 86400));
 
-            $desc = trim($cells[1] ?? '');
-            if (!$desc) { $skipped++; continue; }
-
-            $qty    = trim($cells[2] ?? '');
-            $prat   = trim($cells[3] ?? '');
-            $cx     = trim($cells[4] ?? '');
-            $proj   = trim($cells[5] ?? '');
-            $ledRaw = $cells[6] ?? '';
-            $led    = null;
-            if ($ledRaw !== '' && is_numeric($ledRaw) && (float)$ledRaw > 40000) {
-                $ts  = ((float)$ledRaw - 25569) * 86400;
-                $led = date('Y-m-d', (int)$ts);
-            }
-
-            $key     = $arm . '||' . $desc;
-            $existId = $existing[$key] ?? null;
-
-            if ($existId) {
-                $stUpdate->execute([$qty, $prat, $cx, $proj, $led, $existId]);
-                $updated++;
-            } else {
-                $stInsert->execute([$arm, $desc, $qty, $prat, $cx, $proj, $led, $uid]);
-                $existing[$key] = (int)$pdo->lastInsertId();
-                $imported++;
+                $key = $arm.'||'.$desc;
+                if (isset($existing[$key])) {
+                    $stUpdate->execute([$qty,$prat,$cx,$proj,$led,$existing[$key]]);
+                    $updated++;
+                } else {
+                    $stInsert->execute([$arm,$desc,$qty,$prat,$cx,$proj,$led,$uid]);
+                    $existing[$key] = (int)$pdo->lastInsertId();
+                    $imported++;
+                }
             }
         }
-    }
-    $pdo->commit();
+        $pdo->commit();
     } catch (Exception $e) {
         $pdo->rollBack();
         return ['error' => 'Erro durante import: ' . $e->getMessage()];

@@ -623,7 +623,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ── Load + render ─────────────────────────────────────────────
 async function loadItems() {
   document.getElementById('inv-tbody').innerHTML = '<tr><td colspan="8" class="inv-loading">↻ A carregar...</td></tr>';
-  const url = `?action=list${currentArm ? '&armario='+currentArm : ''}`;
+  const url = `?tab=inventario&action=list${currentArm ? '&armario='+currentArm : ''}`;
   const res = await fetch(url);
   allItems  = await res.json();
   renderTable();
@@ -688,7 +688,7 @@ window.invEdit = function(id) {
 
 window.invDelete = async function(id, desc) {
   if (!confirm(`Eliminar "${desc}"?`)) return;
-  await fetch('?action=delete', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+  await fetch('?tab=inventario&action=delete', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
   allItems = allItems.filter(i => i.id != id);
   renderTable();
   updateCount();
@@ -710,7 +710,7 @@ async function saveItem() {
   if (!payload.descricao) { alert('Descrição obrigatória'); return; }
   btn.disabled = true; btn.textContent = 'A guardar...';
   try {
-    const r = await fetch('?action=save', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const r = await fetch('?tab=inventario&action=save', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d = await r.json();
     if (d.error) { alert(d.error); return; }
     _modal.hide();
@@ -753,7 +753,7 @@ async function doImport() {
   btn.disabled = true; btn.textContent = '⏳ A importar...';
   const fd = new FormData();
   fd.append('file', _invFile);
-  const r = await fetch('?action=import', {method:'POST', body:fd});
+  const r = await fetch('?tab=inventario&action=import', {method:'POST', body:fd});
   const d = await r.json();
   const res = document.getElementById('inv-import-result');
   res.style.display = 'block';

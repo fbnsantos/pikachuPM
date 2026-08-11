@@ -109,6 +109,8 @@ if ($action === 'export') {
 
 // ── AJAX: import xlsx ────────────────────────────────────────
 if ($action === 'import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    set_time_limit(0);
+    ini_set('memory_limit', '256M');
     header('Content-Type: application/json');
     if (empty($_FILES['file']['tmp_name'])) { echo json_encode(['error'=>'Nenhum ficheiro recebido']); exit; }
     echo json_encode(inv_import_xlsx($_FILES['file']['tmp_name'], $pdo, $cur_uid, $ARMARIOS));
@@ -243,6 +245,16 @@ function inv_import_xlsx(string $filepath, PDO $pdo, int $uid, array $armarios):
 
     $imported = 0; $updated = 0; $skipped = 0; $errors = [];
 
+    // Pre-load existing items (armario+descricao→id) — evita N queries por item
+    $existing = [];
+    $rows = $pdo->query("SELECT id, armario, descricao FROM inventario_items")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as $r) $existing[$r['armario'].'||'.$r['descricao']] = (int)$r['id'];
+
+    $stUpdate = $pdo->prepare('UPDATE inventario_items SET quantidade=?,prateleira=?,caixa=?,projeto=?,last_edited=?,updated_at=NOW() WHERE id=?');
+    $stInsert = $pdo->prepare('INSERT INTO inventario_items (armario,descricao,quantidade,prateleira,caixa,projeto,last_edited,created_by) VALUES (?,?,?,?,?,?,?,?)');
+
+    $pdo->beginTransaction();
+    try {
     foreach ($armarios as $arm) {
         if (!isset($sheetFile[$arm])) { $errors[] = "Folha '$arm' não encontrada"; continue; }
         $wsRaw = $zip->getFromName($sheetFile[$arm]);
@@ -266,7 +278,7 @@ function inv_import_xlsx(string $filepath, PDO $pdo, int $uid, array $armarios):
 
                 $type = (string)($c['t'] ?? '');
                 $val  = isset($c->v) ? (string)$c->v : '';
-                if ($type === 's')   $val = $strings[(int)$val] ?? '';
+                if ($type === 's')        $val = $strings[(int)$val] ?? '';
                 elseif ($type === 'str') $val = (string)($c->v ?? '');
                 $cells[$colIdx] = $val;
             }
@@ -274,31 +286,34 @@ function inv_import_xlsx(string $filepath, PDO $pdo, int $uid, array $armarios):
             $desc = trim($cells[1] ?? '');
             if (!$desc) { $skipped++; continue; }
 
-            $qty  = trim($cells[2] ?? '');
-            $prat = trim($cells[3] ?? '');
-            $cx   = trim($cells[4] ?? '');
-            $proj = trim($cells[5] ?? '');
+            $qty    = trim($cells[2] ?? '');
+            $prat   = trim($cells[3] ?? '');
+            $cx     = trim($cells[4] ?? '');
+            $proj   = trim($cells[5] ?? '');
             $ledRaw = $cells[6] ?? '';
-            $led  = null;
+            $led    = null;
             if ($ledRaw !== '' && is_numeric($ledRaw) && (float)$ledRaw > 40000) {
                 $ts  = ((float)$ledRaw - 25569) * 86400;
                 $led = date('Y-m-d', (int)$ts);
             }
 
-            $st = $pdo->prepare('SELECT id FROM inventario_items WHERE armario=? AND descricao=?');
-            $st->execute([$arm, $desc]);
-            $existId = $st->fetchColumn();
+            $key     = $arm . '||' . $desc;
+            $existId = $existing[$key] ?? null;
 
             if ($existId) {
-                $pdo->prepare('UPDATE inventario_items SET quantidade=?,prateleira=?,caixa=?,projeto=?,last_edited=?,updated_at=NOW() WHERE id=?')
-                    ->execute([$qty,$prat,$cx,$proj,$led,$existId]);
+                $stUpdate->execute([$qty, $prat, $cx, $proj, $led, $existId]);
                 $updated++;
             } else {
-                $pdo->prepare('INSERT INTO inventario_items (armario,descricao,quantidade,prateleira,caixa,projeto,last_edited,created_by) VALUES (?,?,?,?,?,?,?,?)')
-                    ->execute([$arm,$desc,$qty,$prat,$cx,$proj,$led,$uid]);
+                $stInsert->execute([$arm, $desc, $qty, $prat, $cx, $proj, $led, $uid]);
+                $existing[$key] = (int)$pdo->lastInsertId();
                 $imported++;
             }
         }
+    }
+    $pdo->commit();
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        return ['error' => 'Erro durante import: ' . $e->getMessage()];
     }
 
     $zip->close();

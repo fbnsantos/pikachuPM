@@ -35,6 +35,7 @@ $action   = $_GET['action'] ?? '';
 
 // ── AJAX: list ──────────────────────────────────────────────
 if ($action === 'list') {
+    while (ob_get_level()) ob_end_clean();
     header('Content-Type: application/json');
     $arm  = $_GET['armario'] ?? '';
     $q    = trim($_GET['q'] ?? '');
@@ -54,6 +55,7 @@ if ($action === 'list') {
 
 // ── AJAX: save ──────────────────────────────────────────────
 if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    while (ob_get_level()) ob_end_clean();
     header('Content-Type: application/json');
     $d   = json_decode(file_get_contents('php://input'), true) ?? [];
     $id  = (int)($d['id'] ?? 0);
@@ -84,6 +86,7 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ── AJAX: delete ────────────────────────────────────────────
 if ($action === 'delete' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    while (ob_get_level()) ob_end_clean();
     header('Content-Type: application/json');
     $d  = json_decode(file_get_contents('php://input'), true) ?? [];
     $id = (int)($d['id'] ?? 0);
@@ -94,6 +97,7 @@ if ($action === 'delete' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ── AJAX: export xlsx ────────────────────────────────────────
 if ($action === 'export') {
+    while (ob_get_level()) ob_end_clean();
     $arm  = $_GET['armario'] ?? '';
     $arms = ($arm && in_array($arm, $ARMARIOS, true)) ? [$arm] : $ARMARIOS;
     $sheets = [];
@@ -109,6 +113,7 @@ if ($action === 'export') {
 
 // ── AJAX: import xlsx ────────────────────────────────────────
 if ($action === 'import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    while (ob_get_level()) ob_end_clean();
     set_time_limit(120);
     ini_set('memory_limit', '256M');
     $dbg = __DIR__ . '/inv_debug.log';

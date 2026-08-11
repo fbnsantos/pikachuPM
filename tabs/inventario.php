@@ -111,12 +111,14 @@ if ($action === 'export') {
 if ($action === 'import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     set_time_limit(120);
     ini_set('memory_limit', '256M');
+    $dbg = __DIR__ . '/inv_debug.log';
+    $lg = function(string $msg) use ($dbg) { file_put_contents($dbg, date('H:i:s')." $msg\n", FILE_APPEND); };
     header('Content-Type: application/json');
     if (empty($_FILES['file']['tmp_name'])) { echo json_encode(['error'=>'Nenhum ficheiro recebido']); exit; }
     $importFile = $_FILES['file']['tmp_name'];
-    error_log("[inv_import] start file=$importFile size=" . filesize($importFile));
-    $result = inv_import_xlsx($importFile, $pdo, $cur_uid, $ARMARIOS);
-    error_log("[inv_import] done: " . json_encode($result));
+    $lg("start file=$importFile size=" . filesize($importFile));
+    $result = inv_import_xlsx($importFile, $pdo, $cur_uid, $ARMARIOS, $lg);
+    $lg("done: " . json_encode($result));
     echo json_encode($result);
     exit;
 }
@@ -278,21 +280,22 @@ function inv_read_worksheet_rows(string $raw, array $strings): array {
     return $rows;
 }
 
-function inv_import_xlsx(string $filepath, PDO $pdo, int $uid, array $armarios): array {
+function inv_import_xlsx(string $filepath, PDO $pdo, int $uid, array $armarios, callable $lg = null): array {
+    $lg = $lg ?? function(string $s) {};
     $zip = new ZipArchive();
     $opened = $zip->open($filepath);
-    error_log("[inv_import] zip->open=$opened numFiles={$zip->numFiles}");
+    $lg("zip->open=$opened numFiles={$zip->numFiles}");
     if ($opened !== true) return ['error'=>'Não foi possível abrir o ficheiro XLSX (código '.$opened.')'];
 
     $ssRaw   = $zip->getFromName('xl/sharedStrings.xml') ?: '';
-    error_log("[inv_import] sharedStrings len=" . strlen($ssRaw));
+    $lg("sharedStrings len=" . strlen($ssRaw));
     $strings = $ssRaw ? inv_read_shared_strings($ssRaw) : [];
-    error_log("[inv_import] strings count=" . count($strings));
+    $lg("strings count=" . count($strings));
     unset($ssRaw);
 
     $wbRaw  = $zip->getFromName('xl/workbook.xml')           ?? '';
     $wbRRaw = $zip->getFromName('xl/_rels/workbook.xml.rels') ?? '';
-    error_log("[inv_import] workbook len=" . strlen($wbRaw) . " wbRels len=" . strlen($wbRRaw));
+    $lg("workbook len=" . strlen($wbRaw) . " wbRels len=" . strlen($wbRRaw));
     $rIdToFile = [];
     preg_match_all('/Id="([^"]+)"[^>]+Target="([^"]+)"/', $wbRRaw, $rm, PREG_SET_ORDER);
     foreach ($rm as $m) $rIdToFile[$m[1]] = $m[2];
@@ -316,14 +319,17 @@ function inv_import_xlsx(string $filepath, PDO $pdo, int $uid, array $armarios):
 
     $imported = 0; $updated = 0; $skipped = 0; $errors = [];
 
+    $lg("sheetFile map: " . json_encode($sheetFile));
     $pdo->beginTransaction();
     try {
         foreach ($armarios as $arm) {
-            if (!isset($sheetFile[$arm])) { $errors[] = "Folha '$arm' não encontrada"; continue; }
+            if (!isset($sheetFile[$arm])) { $errors[] = "Folha '$arm' não encontrada"; $lg("arm=$arm NOT in sheetFile"); continue; }
+            $lg("reading arm=$arm path={$sheetFile[$arm]}");
             $wsRaw = $zip->getFromName($sheetFile[$arm]);
-            if (!$wsRaw) { $errors[] = "Erro ao ler '$arm'"; continue; }
-
+            if (!$wsRaw) { $errors[] = "Erro ao ler '$arm'"; $lg("arm=$arm getFromName failed"); continue; }
+            $lg("arm=$arm wsRaw len=" . strlen($wsRaw));
             $rows = inv_read_worksheet_rows($wsRaw, $strings);
+            $lg("arm=$arm rows=" . count($rows));
             unset($wsRaw);
 
             foreach ($rows as $cells) {

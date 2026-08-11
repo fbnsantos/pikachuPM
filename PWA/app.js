@@ -1552,6 +1552,186 @@ function showPersonalView(show) {
 }
 
 // ══════════════════════════════════════════════════════
+// INVENTORY
+// ══════════════════════════════════════════════════════
+let invItems    = [];
+let invArmarios = [];
+let invArm      = '';   // active armário filter
+let invQuery    = '';
+let invEditId   = null;
+
+function showInventoryView(show) {
+  const els = ['search-bar','todos-list','loading','error-msg','empty-state','btn-add-todo'].map(id => document.getElementById(id));
+  const invEl = document.getElementById('inv-panel');
+  const perEl = document.getElementById('personal-panel');
+  els.forEach(el => { if (el) el.style.display = show ? 'none' : ''; });
+  if (invEl) invEl.style.display = show ? '' : 'none';
+  if (perEl && show) perEl.style.display = 'none';
+  if (show) invInit();
+}
+
+async function invInit() {
+  if (invArmarios.length === 0) await invLoadArmarios();
+  await invLoad();
+}
+
+async function invLoadArmarios() {
+  try {
+    const d = await apiFetch('inventario.php?action=list');
+    const names = [...new Set(d.map(i => i.armario).filter(Boolean))].sort();
+    invArmarios = names;
+    invBuildPills();
+    // Also populate add sheet select
+    const sel = document.getElementById('inv-s-armario');
+    if (sel) { sel.innerHTML = names.map(n => `<option value="${n}">${n}</option>`).join(''); }
+  } catch(e) { console.error('invLoadArmarios', e); }
+}
+
+function invBuildPills() {
+  const wrap = document.getElementById('inv-arm-pills');
+  if (!wrap) return;
+  wrap.innerHTML = `<button class="inv-arm-pill${invArm===''?' active':''}" data-arm="">Todos</button>`
+    + invArmarios.map(a => `<button class="inv-arm-pill${invArm===a?' active':''}" data-arm="${a}">${a}</button>`).join('');
+  wrap.querySelectorAll('.inv-arm-pill').forEach(btn => {
+    btn.addEventListener('click', () => { invArm = btn.dataset.arm; invBuildPills(); invRender(); });
+  });
+}
+
+async function invLoad() {
+  const listEl = document.getElementById('inv-list');
+  if (listEl) listEl.innerHTML = '<div class="inv-loading-msg">↻ A carregar…</div>';
+  try {
+    invItems = await apiFetch('inventario.php?action=list');
+    invRender();
+  } catch(e) {
+    if (listEl) listEl.innerHTML = `<div class="inv-loading-msg">Erro: ${e.message}</div>`;
+  }
+}
+
+function invRender() {
+  const listEl = document.getElementById('inv-list');
+  if (!listEl) return;
+  let list = invItems;
+  if (invArm) list = list.filter(i => i.armario === invArm);
+  if (invQuery) {
+    const q = invQuery.toLowerCase();
+    list = list.filter(i => (i.descricao||'').toLowerCase().includes(q) || (i.projeto||'').toLowerCase().includes(q) || (i.armario||'').toLowerCase().includes(q));
+  }
+  if (!list.length) { listEl.innerHTML = '<div class="inv-loading-msg">Sem itens encontrados.</div>'; return; }
+  listEl.innerHTML = list.map(it => `
+    <div class="inv-card" data-id="${it.id}">
+      <div class="inv-card-info">
+        <div class="inv-card-name"><span class="inv-card-arm">${it.armario}</span>${escInv(it.descricao)}</div>
+        ${it.projeto || it.prateleira ? `<div class="inv-card-meta">${[it.projeto,it.prateleira].filter(Boolean).join(' · ')}</div>` : ''}
+      </div>
+      <div class="inv-qty-ctrl">
+        <button class="inv-qbtn minus" data-id="${it.id}">−</button>
+        <span class="inv-qty-num" id="invq-${it.id}">${it.quantidade||'0'}</span>
+        <button class="inv-qbtn plus"  data-id="${it.id}">＋</button>
+      </div>
+      <button class="inv-hist-btn" data-id="${it.id}" data-desc="${escInv(it.descricao)}">👁</button>
+    </div>`).join('');
+
+  // +/- events
+  listEl.querySelectorAll('.inv-qbtn').forEach(btn => {
+    btn.addEventListener('click', () => invQtyChange(parseInt(btn.dataset.id), btn.classList.contains('plus') ? 1 : -1, btn));
+  });
+  // history events
+  listEl.querySelectorAll('.inv-hist-btn').forEach(btn => {
+    btn.addEventListener('click', () => invShowHistory(parseInt(btn.dataset.id), btn.dataset.desc));
+  });
+}
+
+async function invQtyChange(id, delta, btn) {
+  btn.disabled = true;
+  const qEl = document.getElementById('invq-' + id);
+  try {
+    const d = await apiFetch('inventario.php?action=qty_change', { method:'POST', body: JSON.stringify({id, delta}) });
+    if (d.qty_depois !== undefined) {
+      if (qEl) { qEl.textContent = d.qty_depois; qEl.style.color = delta>0?'#22c55e':'#ef4444'; setTimeout(()=>qEl.style.color='',600); }
+      const it = invItems.find(i => i.id == id);
+      if (it) it.quantidade = d.qty_depois;
+    }
+  } catch(e) { showToast('Erro ao actualizar qty', 'error'); }
+  finally { btn.disabled = false; }
+}
+
+async function invShowHistory(id, desc) {
+  const sheet = document.getElementById('inv-hist-sheet');
+  const listEl = document.getElementById('inv-hist-list');
+  const titleEl = document.getElementById('inv-hist-title');
+  if (!sheet) return;
+  if (titleEl) titleEl.textContent = desc;
+  if (listEl) listEl.innerHTML = '<div class="inv-loading-msg">↻ A carregar…</div>';
+  sheet.style.display = 'flex';
+  try {
+    const d = await apiFetch(`inventario.php?action=history&id=${id}`);
+    if (!listEl) return;
+    if (!d.length) { listEl.innerHTML = '<div class="inv-loading-msg">Sem movimentos registados.</div>'; return; }
+    listEl.innerHTML = d.map(m => {
+      const plus = m.delta > 0;
+      const dt = new Date(m.criado_em).toLocaleString('pt-PT',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+      return `<div class="inv-hitem">
+        <div class="inv-hbadge ${plus?'p':'m'}">${plus?'＋':'−'}</div>
+        <div>
+          <div><span class="inv-hdelta ${plus?'p':'m'}">${plus?'+':''}${m.delta}</span> <span style="font-size:12px;color:var(--text-muted)">por <b style="color:var(--text)">${escInv(m.username||'?')}</b></span></div>
+          <div style="font-size:11px;color:var(--text-muted)">${m.qty_antes} → ${m.qty_depois}</div>
+          <div class="inv-hmeta">${dt}</div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { if (listEl) listEl.innerHTML = '<div class="inv-loading-msg">Erro ao carregar.</div>'; }
+}
+
+function invOpenAdd() {
+  invEditId = null;
+  document.getElementById('inv-sheet-title').textContent = 'Novo Item';
+  document.getElementById('inv-s-desc').value = '';
+  document.getElementById('inv-s-qty').value  = '';
+  document.getElementById('inv-s-prat').value = '';
+  document.getElementById('inv-s-proj').value = '';
+  if (invArm) document.getElementById('inv-s-armario').value = invArm;
+  document.getElementById('inv-sheet').style.display = 'flex';
+  setTimeout(() => document.getElementById('inv-s-desc').focus(), 100);
+}
+
+async function invSave() {
+  const btn   = document.getElementById('inv-sheet-save');
+  const arm   = document.getElementById('inv-s-armario').value;
+  const desc  = document.getElementById('inv-s-desc').value.trim();
+  const qty   = document.getElementById('inv-s-qty').value.trim();
+  const prat  = document.getElementById('inv-s-prat').value.trim();
+  const proj  = document.getElementById('inv-s-proj').value.trim();
+  if (!desc) { showToast('Descrição obrigatória', 'error'); return; }
+  btn.disabled = true; btn.textContent = 'A guardar…';
+  try {
+    await apiFetch('inventario.php?action=save', { method:'POST', body: JSON.stringify({id: invEditId||null, armario:arm, descricao:desc, quantidade:qty, prateleira:prat, projeto:proj}) });
+    document.getElementById('inv-sheet').style.display = 'none';
+    if (!invArmarios.includes(arm)) { invArmarios.push(arm); invBuildPills(); }
+    await invLoad();
+    showToast('Guardado ✓', 'success');
+  } catch(e) { showToast('Erro ao guardar', 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Guardar'; }
+}
+
+function invAttachEvents() {
+  document.getElementById('inv-add-btn').addEventListener('click', invOpenAdd);
+  document.getElementById('inv-sheet-close').addEventListener('click', () => document.getElementById('inv-sheet').style.display = 'none');
+  document.getElementById('inv-sheet-save').addEventListener('click', invSave);
+  document.getElementById('inv-hist-close').addEventListener('click', () => document.getElementById('inv-hist-sheet').style.display = 'none');
+  document.getElementById('inv-search').addEventListener('input', e => {
+    invQuery = e.target.value.trim();
+    invRender();
+  });
+  // Close sheets on backdrop click
+  ['inv-sheet','inv-hist-sheet'].forEach(id => {
+    document.getElementById(id).addEventListener('click', e => { if (e.target.id === id) e.target.style.display = 'none'; });
+  });
+}
+
+function escInv(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ══════════════════════════════════════════════════════
 // PULL-TO-REFRESH
 // ══════════════════════════════════════════════════════
 function setupPullToRefresh() {
@@ -1613,6 +1793,9 @@ function attachEvents() {
     if (activePanel === 'deliverables') { deliverables_loaded = true; loadDeliverables(); }
     if (activePanel === 'leads')        { leads_loaded        = true; loadLeads(); }
   });
+
+  // Inventory
+  invAttachEvents();
 
   // Update app
   document.getElementById('btn-update-app').addEventListener('click', checkForUpdate);
@@ -1887,7 +2070,15 @@ function registerSW() {
     } catch {}
   }).catch(e => console.warn('SW registration failed:', e));
 
-  // Quando o novo SW assume o controlo, recarrega a página automaticamente
+  // Quando o novo SW envia SW_UPDATED, mostra toast e recarrega
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data?.type === 'SW_UPDATED') {
+      showToast('✨ App actualizada — a recarregar…', 'success');
+      setTimeout(() => window.location.reload(), 1200);
+    }
+  });
+
+  // Fallback: controllerchange também força reload
   let _reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (_reloading) return;

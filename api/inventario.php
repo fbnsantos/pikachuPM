@@ -1,7 +1,35 @@
 <?php
 // api/inventario.php — AJAX endpoint para o módulo de inventário
-session_start();
-if (!isset($_SESSION['username'])) { http_response_code(401); echo json_encode(['error'=>'Não autenticado']); exit; }
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit; }
+
+// Auth: Bearer token (PWA) ou sessão PHP (web)
+$cur_uid  = 0;
+$cur_user = 'desconhecido';
+$authed   = false;
+
+$hdrs = getallheaders();
+$bearer = $hdrs['Authorization'] ?? $hdrs['authorization'] ?? '';
+if (preg_match('/Bearer\s+(.+)/i', $bearer, $m)) {
+    // Token auth
+    include_once __DIR__ . '/../config.php';
+    $tmpPdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+    $st = $tmpPdo->prepare("SELECT ut.user_id, u.username FROM user_tokens ut JOIN users u ON u.id=ut.user_id WHERE ut.token=? AND ut.is_approved=1 LIMIT 1");
+    $st->execute([trim($m[1])]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    if ($row) { $cur_uid = (int)$row['user_id']; $cur_user = $row['username']; $authed = true; }
+} else {
+    // Session auth
+    session_start();
+    if (isset($_SESSION['username'])) {
+        $cur_uid  = (int)($_SESSION['user_id'] ?? 0);
+        $cur_user = $_SESSION['username'];
+        $authed   = true;
+    }
+}
+if (!$authed) { http_response_code(401); echo json_encode(['error'=>'Não autenticado']); exit; }
 
 include_once __DIR__ . '/../config.php';
 
@@ -13,8 +41,7 @@ try {
     echo json_encode(['error' => 'Erro de ligação BD']); exit;
 }
 
-$cur_uid  = (int)($_SESSION['user_id'] ?? 0);
-$action   = $_GET['action'] ?? '';
+$action = $_GET['action'] ?? '';
 
 // Carregar armários dinâmicos
 try {
@@ -297,10 +324,8 @@ if ($action === 'qty_change' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $qDepois  = (string)$numDepois;
 
     $pdo->prepare("UPDATE inventario_items SET quantidade=?, updated_at=NOW() WHERE id=?")->execute([$qDepois, $id]);
-    $user = $_SESSION['username'] ?? 'desconhecido';
-    $uid  = (int)($_SESSION['user_id'] ?? 0);
     $pdo->prepare("INSERT INTO inventario_movimentos (item_id, user_id, username, delta, qty_antes, qty_depois) VALUES (?,?,?,?,?,?)")
-        ->execute([$id, $uid, $user, $delta, $qAntes, $qDepois]);
+        ->execute([$id, $cur_uid, $cur_user, $delta, $qAntes, $qDepois]);
 
     echo json_encode(['ok'=>true, 'qty_depois'=>$qDepois]);
     exit;

@@ -44,7 +44,7 @@ function isConfigured() {
 // STATE
 // ══════════════════════════════════════════════════════
 let allTodos      = [];
-let filterState   = 'all';
+let filterState   = 'aberta';
 let searchQuery   = '';
 let editingTodoId = null;
 let mqttClient       = null;
@@ -1582,8 +1582,13 @@ function attachEvents() {
       filterState = btn.dataset.state;
       if (filterState === 'personal') {
         showPersonalView(true);
+        showInventoryView(false);
+      } else if (filterState === 'inventario') {
+        showPersonalView(false);
+        showInventoryView(true);
       } else {
         showPersonalView(false);
+        showInventoryView(false);
         loadTodos();
       }
     });

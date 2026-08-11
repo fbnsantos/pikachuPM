@@ -74,11 +74,11 @@
 
     <!-- Filter tabs -->
     <div class="tabs" id="filter-tabs">
-      <button class="tab active" data-state="all">Todas</button>
-      <button class="tab" data-state="aberta">Abertas</button>
+      <button class="tab active" data-state="aberta">Abertas</button>
       <button class="tab" data-state="em execução">A fazer</button>
       <button class="tab" data-state="suspensa">Pausadas</button>
       <button class="tab tab-personal" data-state="personal">✅ Pessoal</button>
+      <button class="tab tab-inv" data-state="inventario">📦 Inventário</button>
     </div>
 
     <!-- Search -->
@@ -101,6 +101,56 @@
 
     <!-- Todos list -->
     <div class="todos-list" id="todos-list"></div>
+
+    <!-- Inventory panel -->
+    <div class="inv-panel" id="inv-panel" style="display:none">
+      <div class="inv-search-row">
+        <input type="text" id="inv-search" placeholder="Pesquisar inventário…" autocomplete="off">
+        <button id="inv-add-btn" title="Adicionar item">＋</button>
+      </div>
+      <div class="inv-arm-pills" id="inv-arm-pills"></div>
+      <div class="inv-list" id="inv-list">
+        <div class="inv-loading-msg">↻ A carregar…</div>
+      </div>
+    </div>
+
+    <!-- Inventory add/edit modal -->
+    <div class="inv-sheet" id="inv-sheet" style="display:none">
+      <div class="inv-sheet-inner">
+        <div class="inv-sheet-header">
+          <span id="inv-sheet-title">Novo Item</span>
+          <button id="inv-sheet-close">✕</button>
+        </div>
+        <div class="inv-sheet-body">
+          <label class="inv-lbl">Armário</label>
+          <select id="inv-s-armario" class="inv-inp"></select>
+          <label class="inv-lbl">Descrição *</label>
+          <input type="text" id="inv-s-desc" class="inv-inp" placeholder="Nome do item">
+          <label class="inv-lbl">Quantidade</label>
+          <input type="number" id="inv-s-qty" class="inv-inp" placeholder="0" min="0">
+          <label class="inv-lbl">Prateleira</label>
+          <input type="text" id="inv-s-prat" class="inv-inp" placeholder="ex: 1">
+          <label class="inv-lbl">Projeto</label>
+          <input type="text" id="inv-s-proj" class="inv-inp" placeholder="ex: CRIIS">
+        </div>
+        <div class="inv-sheet-footer">
+          <button id="inv-sheet-save" class="inv-save-btn">Guardar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Inventory history modal -->
+    <div class="inv-sheet" id="inv-hist-sheet" style="display:none">
+      <div class="inv-sheet-inner">
+        <div class="inv-sheet-header">
+          <span id="inv-hist-title">Histórico</span>
+          <button id="inv-hist-close">✕</button>
+        </div>
+        <div class="inv-hist-list" id="inv-hist-list">
+          <div class="inv-loading-msg">↻ A carregar…</div>
+        </div>
+      </div>
+    </div>
 
     <!-- Personal checklist (visível só quando personal tab activa) -->
     <div class="personal-panel" id="personal-panel" style="display:none">

@@ -156,6 +156,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['xlsx']['tmp_name'])
                 ok("$arm: $rowCount linhas em " . round(microtime(true)-$t1,3) . "s");
             }
             $zip->close();
+
+            // ── 7. Teste BD ────────────────────────────────
+            echo "<h2>7. Teste base de dados</h2>";
+            include_once __DIR__ . '/../config.php';
+            try {
+                $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass,
+                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+                ok("PDO ligado a $db_host / $db_name");
+
+                $t2 = microtime(true);
+                $cnt2 = (int)$pdo->query("SELECT COUNT(*) FROM inventario_items")->fetchColumn();
+                ok("inventario_items tem $cnt2 registos — query em " . round(microtime(true)-$t2,3) . "s");
+
+                // simula INSERT + UPDATE com transaction
+                $t3 = microtime(true);
+                $pdo->beginTransaction();
+                $stIns = $pdo->prepare('INSERT INTO inventario_items (armario,descricao,quantidade,created_by) VALUES (?,?,?,?)');
+                $stDel = $pdo->prepare('DELETE FROM inventario_items WHERE id=?');
+                $stIns->execute(['A1','__inv_diag_test__','0',0]);
+                $testId = (int)$pdo->lastInsertId();
+                $stDel->execute([$testId]);
+                $pdo->commit();
+                ok("INSERT+DELETE de teste em " . round(microtime(true)-$t3,3) . "s — id foi $testId");
+
+                // simula 100 inserts em transação
+                $t4 = microtime(true);
+                $ids = [];
+                $pdo->beginTransaction();
+                $stIns2 = $pdo->prepare('INSERT INTO inventario_items (armario,descricao,quantidade,created_by) VALUES (?,?,?,?)');
+                $stDel2 = $pdo->prepare('DELETE FROM inventario_items WHERE id=?');
+                for ($i = 0; $i < 100; $i++) {
+                    $stIns2->execute(['A1',"__diag_bulk_$i",'0',0]);
+                    $ids[] = (int)$pdo->lastInsertId();
+                }
+                $pdo->commit();
+                $elapsed4 = round(microtime(true)-$t4,3);
+                ok("100 INSERTs em transação: {$elapsed4}s → estimativa 6300 rows: " . round($elapsed4/100*6300,1) . "s");
+
+                // limpeza
+                $pdo->beginTransaction();
+                foreach ($ids as $id) $stDel2->execute([$id]);
+                $pdo->commit();
+                ok("Limpeza feita");
+
+            } catch (Exception $e) {
+                err("Erro BD: " . $e->getMessage());
+            }
         }
     }
 } else {

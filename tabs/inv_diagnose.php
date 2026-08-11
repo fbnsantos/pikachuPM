@@ -1,0 +1,171 @@
+<?php
+// Diagnóstico do import de inventário — APAGAR após uso
+session_start();
+if (!isset($_SESSION['username'])) { header('Location: ../login.php'); exit; }
+?><!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>inv diagnose</title>
+<style>
+body{font-family:monospace;padding:20px;background:#1a1a1a;color:#eee}
+h2{color:#7dd3fc}
+.ok{color:#4ade80}.err{color:#f87171}.warn{color:#fbbf24}
+pre{background:#111;padding:12px;border-radius:6px;overflow:auto}
+.step{border-left:3px solid #4ade80;padding:6px 12px;margin:8px 0;background:#111}
+.step.fail{border-color:#f87171}
+form{margin:20px 0;padding:16px;background:#222;border-radius:8px}
+input[type=file]{color:#eee}
+input[type=submit]{background:#0d6efd;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer}
+</style></head><body>
+<h2>Diagnóstico Import XLSX</h2>
+
+<?php
+function ok(string $s)   { echo "<div class='step'><span class='ok'>✓</span> $s</div>"; }
+function err(string $s)  { echo "<div class='step fail'><span class='err'>✗</span> $s</div>"; }
+function warn(string $s) { echo "<div class='step'><span class='warn'>⚠</span> $s</div>"; }
+
+// ── 1. Extensões PHP ─────────────────────────────────────────
+echo "<h2>1. Extensões PHP</h2>";
+extension_loaded('zip')       ? ok("ZipArchive disponível")     : err("ZipArchive NÃO disponível");
+extension_loaded('xmlreader') ? ok("XMLReader disponível")       : err("XMLReader NÃO disponível");
+class_exists('ZipArchive')    ? ok("ZipArchive instanciável")    : err("ZipArchive não instanciável");
+
+// ── 2. Upload config ─────────────────────────────────────────
+echo "<h2>2. Configuração de Upload</h2>";
+ok("upload_max_filesize = " . ini_get('upload_max_filesize'));
+ok("post_max_size = " . ini_get('post_max_size'));
+ok("max_execution_time = " . ini_get('max_execution_time') . "s");
+ok("memory_limit = " . ini_get('memory_limit'));
+
+// ── 3. Temp dir ──────────────────────────────────────────────
+echo "<h2>3. Directório temporário</h2>";
+$td = sys_get_temp_dir();
+ok("sys_get_temp_dir = $td");
+is_writable($td) ? ok("Directório temp é writable") : err("Directório temp NÃO é writable: $td");
+
+// ── 4. XMLReader::XML() test ─────────────────────────────────
+echo "<h2>4. XMLReader::XML() directo</h2>";
+$testXml = '<?xml version="1.0"?><root><item>hello</item><item>world</item></root>';
+$xr = new XMLReader();
+if ($xr->XML($testXml)) {
+    $vals = [];
+    while ($xr->read()) {
+        if ($xr->nodeType === XMLReader::TEXT) $vals[] = $xr->value;
+    }
+    $xr->close();
+    count($vals) === 2 && $vals[0] === 'hello'
+        ? ok("XMLReader::XML() funciona — leu: " . implode(', ', $vals))
+        : err("XMLReader::XML() leu mas valores errados: " . implode(', ', $vals));
+} else {
+    err("XMLReader::XML() retornou false");
+}
+
+// ── 5. ZipArchive test ───────────────────────────────────────
+echo "<h2>5. ZipArchive test</h2>";
+$tmpZip = tempnam(sys_get_temp_dir(), 'inv_diag_');
+$z = new ZipArchive();
+if ($z->open($tmpZip, ZipArchive::CREATE | ZipArchive::OVERWRITE) === true) {
+    $z->addFromString('test.txt', 'hello zip');
+    $z->close();
+    $z2 = new ZipArchive();
+    if ($z2->open($tmpZip) === true) {
+        $content = $z2->getFromName('test.txt');
+        $z2->close();
+        $content === 'hello zip' ? ok("ZipArchive create+read funciona") : err("ZipArchive leu conteúdo errado: $content");
+    } else { err("ZipArchive não conseguiu re-abrir ficheiro temp"); }
+    unlink($tmpZip);
+} else { err("ZipArchive não conseguiu criar ficheiro temp em: $td"); }
+
+// ── 6. Testar ficheiro xlsx real ─────────────────────────────
+echo "<h2>6. Teste com ficheiro xlsx</h2>";
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['xlsx']['tmp_name'])) {
+    $fp = $_FILES['xlsx']['tmp_name'];
+    $sz = $_FILES['xlsx']['size'];
+    $er = $_FILES['xlsx']['error'];
+    ok("Ficheiro recebido: size={$sz}B error=$er");
+
+    if ($er !== UPLOAD_ERR_OK) {
+        $errs = [1=>'MAX_FILE_SIZE',2=>'MAX_FILE_SIZE_form',3=>'PARTIAL',4=>'NO_FILE',6=>'NO_TMP_DIR',7=>'CANT_WRITE',8=>'EXTENSION'];
+        err("Erro de upload: " . ($errs[$er] ?? $er));
+    } else {
+        $zip = new ZipArchive();
+        $opened = $zip->open($fp);
+        if ($opened !== true) {
+            err("ZipArchive::open() falhou com código: $opened");
+        } else {
+            ok("ZipArchive abriu — {$zip->numFiles} ficheiros no zip");
+            echo "<pre>";
+            for ($i = 0; $i < $zip->numFiles; $i++)
+                echo htmlspecialchars($zip->getNameIndex($i)) . "\n";
+            echo "</pre>";
+
+            $ssRaw = $zip->getFromName('xl/sharedStrings.xml') ?: '';
+            ok("sharedStrings.xml len=" . strlen($ssRaw) . " bytes");
+
+            if ($ssRaw) {
+                // parse com XMLReader::XML()
+                $xr = new XMLReader();
+                $ok = $xr->XML($ssRaw);
+                unset($ssRaw);
+                ok("XMLReader::XML(sharedStrings) opened=" . ($ok ? 'true' : 'false'));
+                $cnt = 0; $t0 = microtime(true);
+                while ($xr->read()) {
+                    if ($xr->nodeType === XMLReader::END_ELEMENT && $xr->localName === 'si') $cnt++;
+                    if ($cnt > 0 && microtime(true) - $t0 > 10) { warn("XMLReader demorou >10s a ler strings — abortado aos $cnt strings"); break; }
+                }
+                $xr->close();
+                ok("sharedStrings: $cnt strings lidas em " . round(microtime(true)-$t0,2) . "s");
+            }
+
+            // workbook sheet map
+            $wbRaw  = $zip->getFromName('xl/workbook.xml') ?? '';
+            $wbRRaw = $zip->getFromName('xl/_rels/workbook.xml.rels') ?? '';
+            ok("workbook.xml len=" . strlen($wbRaw) . " wbRels len=" . strlen($wbRRaw));
+
+            $rIdToFile = [];
+            preg_match_all('/Id="([^"]+)"[^>]+Target="([^"]+)"/', $wbRRaw, $rm, PREG_SET_ORDER);
+            foreach ($rm as $m) $rIdToFile[$m[1]] = $m[2];
+
+            $sheetFile = [];
+            preg_match_all('/<sheet\b[^>]+>/i', $wbRaw, $sm);
+            foreach ($sm[0] as $tag) {
+                if (!preg_match('/name="([^"]+)"/', $tag, $nm)) continue;
+                if (!preg_match('/r:id="([^"]+)"/', $tag, $ri)) continue;
+                $f = $rIdToFile[$ri[1]] ?? '';
+                if ($f) $sheetFile[$nm[1]] = (strpos($f,'/') === 0) ? ltrim($f,'/') : 'xl/'.$f;
+            }
+            ok("Folhas encontradas: " . implode(', ', array_keys($sheetFile)));
+            echo "<pre>" . htmlspecialchars(json_encode($sheetFile, JSON_PRETTY_PRINT)) . "</pre>";
+
+            // testar leitura de cada folha A1-A8
+            $armarios = ['A1','A2','A3','A4','A5','A6','A7','A8'];
+            foreach ($armarios as $arm) {
+                if (!isset($sheetFile[$arm])) { warn("Folha '$arm' não existe no ficheiro"); continue; }
+                $wsRaw = $zip->getFromName($sheetFile[$arm]);
+                if (!$wsRaw) { err("getFromName('{$sheetFile[$arm]}') falhou para $arm"); continue; }
+                ok("$arm: worksheet len=" . strlen($wsRaw) . " bytes");
+
+                // conta linhas com XMLReader::XML()
+                $xr2 = new XMLReader();
+                $xr2->XML($wsRaw);
+                unset($wsRaw);
+                $rowCount = 0; $t1 = microtime(true);
+                while ($xr2->read()) {
+                    if ($xr2->nodeType === XMLReader::END_ELEMENT && $xr2->localName === 'row') $rowCount++;
+                }
+                $xr2->close();
+                ok("$arm: $rowCount linhas em " . round(microtime(true)-$t1,3) . "s");
+            }
+            $zip->close();
+        }
+    }
+} else {
+    echo "<form method='post' enctype='multipart/form-data'>
+        <label>Selecciona o ficheiro xlsx:</label><br><br>
+        <input type='file' name='xlsx' accept='.xlsx'><br><br>
+        <input type='submit' value='Testar Import'>
+    </form>";
+}
+
+echo "<p style='color:#6c757d;margin-top:30px;font-size:11px'>Apaga este ficheiro depois de usar.</p>";
+?>
+</body></html>

@@ -122,7 +122,13 @@ $HORA_TRANSICAO_CALENDARIO = "12:00"; // formato HH:MM - Hora para transição p
 $tabs = [
     'dashboard' => 'Painel Principal',
     'research_ideas' => 'Research Ideas',
-    'equipment'        => 'Infraestrutura',
+    'Infraestrutura' => [
+        'label'   => 'Infraestrutura',
+        'submenu' => [
+            'equipment'   => 'Equipamentos',
+            'inventario'  => 'Inventário',
+        ]
+    ],
     'prototypes/prototypesv2' => 'Prototypes',
     'projectos' => 'Projects',
     'sprints' => 'Sprints',

@@ -212,6 +212,112 @@ foreach ($SECTIONS as $sk => $sec) {
         $all_fields[$fk] = ['label'=>$fl,'section'=>$sk,'scale'=>$sec['scale'],'sec_title'=>$sec['title']];
     }
 }
+
+// ── Estatísticas globais (médias por campo + ranking) ─────────────────────
+// Calculadas sempre que há campanha ativa, usadas tanto pelo admin como pelo avaliado
+$pe_all_responses  = [];  // [evaluatee_id][field_key][] = value
+$pe_field_num_avg  = [];  // [field_key] => float (média numérica global do campo)
+$pe_ranking        = [];  // [user_id] => int (posição, 1 = melhor)
+$pe_evaluatee_avg  = [];  // [user_id] => float (média numérica global do avaliado)
+$pe_total_evaluatees = 0;
+if ($campaign) {
+    $_gradeN = ['A'=>4,'B'=>3,'C'=>2,'D'=>1];
+    $s = $pdo->prepare("SELECT evaluatee_id,field_key,field_value FROM peer_eval_responses WHERE campaign_id=? AND is_skip=0 AND field_value IS NOT NULL AND field_value!=''");
+    $s->execute([$cid]);
+    $_fieldNums = []; // [field_key][] = numeric
+    foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $_r) {
+        $pe_all_responses[$_r['evaluatee_id']][$_r['field_key']][] = $_r['field_value'];
+        $_base = $_r['field_value'][0] ?? '';
+        if (isset($_gradeN[$_base])) $_fieldNums[$_r['field_key']][] = $_gradeN[$_base];
+    }
+    foreach ($_fieldNums as $_fk => $_nums) {
+        $pe_field_num_avg[$_fk] = array_sum($_nums) / count($_nums);
+    }
+    // overall numeric avg per evaluatee
+    foreach ($evaluatees as $_ee) {
+        $_eid = $_ee['user_id']; $_s = 0; $_n = 0;
+        foreach ($all_fields as $_fk => $_fi) {
+            foreach ($pe_all_responses[$_eid][$_fk] ?? [] as $_v) {
+                $_b = $_v[0] ?? '';
+                if (isset($_gradeN[$_b])) { $_s += $_gradeN[$_b]; $_n++; }
+            }
+        }
+        $pe_evaluatee_avg[$_eid] = $_n ? round($_s / $_n, 4) : 0;
+    }
+    $pe_total_evaluatees = count($evaluatees);
+    // ranking (1 = best, ties share rank)
+    $_sorted = $pe_evaluatee_avg; arsort($_sorted);
+    $_pos = 1; $_prev = null; $_prevPos = 1;
+    foreach ($_sorted as $_eid => $_avg) {
+        if ($_prev !== null && $_avg === $_prev) { $pe_ranking[$_eid] = $_prevPos; }
+        else { $pe_ranking[$_eid] = $_pos; $_prevPos = $_pos; }
+        $_prev = $_avg; $_pos++;
+    }
+}
+
+// helper: numeric avg of an array of letter grades
+function peNumAvg(array $vals): ?float {
+    $_m = ['A'=>4,'B'=>3,'C'=>2,'D'=>1]; $_s = 0; $_n = 0;
+    foreach ($vals as $v) { $_b = $v[0] ?? ''; if (isset($_m[$_b])) { $_s += $_m[$_b]; $_n++; } }
+    return $_n ? $_s / $_n : null;
+}
+
+// helper: render a result row for a single evaluatee (shared between admin preview and published view)
+function peResultRow(array $all_fields, array $field_vals, array $field_avg, string $username, ?string $mean, ?int $rank, int $total): string {
+    $gradeN = ['A'=>4,'B'=>3,'C'=>2,'D'=>1];
+    $html = '<div class="pe-res-header">';
+    $html .= '<div>';
+    $html .= '<span class="fw-bold">' . htmlspecialchars($username) . '</span>';
+    if ($mean !== null) {
+        $cls = 'pe-mean pe-mean-'.str_replace('+','p',$mean);
+        $lbl = str_replace('+','⁺',$mean);
+        $html .= ' &nbsp;<span class="'.$cls.'" style="font-size:13px;padding:3px 12px">'.$lbl.'</span>';
+        $html .= '<span class="text-muted ms-2" style="font-size:12px">média global</span>';
+    }
+    $html .= '</div>';
+    if ($rank !== null)
+        $html .= '<div class="pe-rank-badge">🏅 '.$rank.'º / '.$total.'</div>';
+    $html .= '</div>';
+    $html .= '<div class="table-responsive"><table class="table table-sm table-bordered mb-0" style="font-size:12px"><thead class="table-dark">';
+    $html .= '<tr><th>Secção</th><th>Parâmetro</th><th style="text-align:center;width:80px">Valor</th><th style="text-align:center;width:90px">Média grupo</th><th style="text-align:center;width:70px">Nº aval.</th></tr>';
+    $html .= '</thead><tbody>';
+    $last_sec = '';
+    foreach ($all_fields as $fk => $fi) {
+        $vals = $field_vals[$fk] ?? [];
+        if (empty($vals)) continue;
+        $numMe = peNumAvg($vals);
+        $numGlob = $field_avg[$fk] ?? null;
+        $mean_me = peCalcMean($vals);
+        $lbl_me  = $mean_me ? str_replace('+','⁺',$mean_me) : '—';
+        $cls_me  = $mean_me ? 'pe-mean pe-mean-'.str_replace('+','p',$mean_me) : '';
+        // color coding vs global avg
+        $bg = '';
+        if ($numMe !== null && $numGlob !== null) {
+            if ($numMe > $numGlob + 0.001) $bg = 'background:#d1e7dd'; // above → green
+            elseif ($numMe < $numGlob - 0.001) $bg = 'background:#ffe5cc'; // below → orange
+            // equal → white (no bg)
+        }
+        // global avg grade for this field
+        $glob_mean_lbl = '—';
+        if ($numGlob !== null) {
+            $ga = $numGlob;
+            $ggrade = $ga>=3.75?'A+':($ga>=3.25?'A':($ga>=2.75?'B+':($ga>=2.25?'B':($ga>=1.75?'C+':($ga>=1.25?'C':($ga>=0.75?'D+':'D'))))));
+            $gcls = 'pe-mean pe-mean-'.str_replace('+','p',$ggrade);
+            $glob_mean_lbl = '<span class="'.$gcls.'" style="font-size:10px;opacity:.75">'.str_replace('+','⁺',$ggrade).'</span>';
+        }
+        $sec_label = ($last_sec !== $fi['sec_title']) ? htmlspecialchars($fi['sec_title']) : '';
+        $last_sec = $fi['sec_title'];
+        $html .= '<tr>';
+        $html .= '<td class="text-muted" style="font-size:11px;white-space:nowrap">'.$sec_label.'</td>';
+        $html .= '<td>'.htmlspecialchars($fi['label']).'</td>';
+        $html .= '<td style="text-align:center;'.$bg.'"><span class="'.$cls_me.'">'.$lbl_me.'</span></td>';
+        $html .= '<td style="text-align:center">'.$glob_mean_lbl.'</td>';
+        $html .= '<td style="text-align:center;color:#6c757d">'.count($vals).'</td>';
+        $html .= '</tr>';
+    }
+    $html .= '</tbody></table></div>';
+    return $html;
+}
 ?>
 
 <style>
@@ -290,6 +396,10 @@ td.pe-clickable:hover .pe-mean{opacity:.8}
 .pe-mean-Bp::after{content:'+';font-size:9px;vertical-align:super}
 .pe-mean-Cp::after{content:'+';font-size:9px;vertical-align:super}
 .pe-mean-Dp::after{content:'+';font-size:9px;vertical-align:super}
+/* Published results view */
+.pe-res-wrap{border:1px solid #dee2e6;border-radius:10px;overflow:hidden}
+.pe-res-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #dee2e6}
+.pe-rank-badge{background:#0d6efd;color:#fff;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px}
 </style>
 
 <div class="pe-wrap">
@@ -484,36 +594,18 @@ td.pe-clickable:hover .pe-mean{opacity:.8}
 <!-- ── Resultados publicados (avaliado) ── -->
 <?php if ($can_see_results && !$is_admin): ?>
 <?php
-$s = $pdo->prepare("SELECT field_key,field_value FROM peer_eval_responses WHERE campaign_id=? AND evaluatee_id=? AND is_skip=0 AND field_value IS NOT NULL AND field_value!=''");
-$s->execute([$cid,$cur_uid]);
-$by_field = [];
-foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $by_field[$r['field_key']][] = $r['field_value'];
+$_my_field_vals = $pe_all_responses[$cur_uid] ?? [];
+$_my_all_vals   = [];
+foreach ($_my_field_vals as $_fk => $_vs) foreach ($_vs as $_v) $_my_all_vals[] = $_v;
+$_my_mean  = $_my_all_vals ? peCalcMean($_my_all_vals) : null;
+$_my_rank  = $pe_ranking[$cur_uid] ?? null;
+$_my_uname = $my_role['username'] ?? '';
 ?>
 <div class="mt-4">
   <h6 class="fw-bold">📊 Os meus resultados</h6>
-  <p class="text-muted" style="font-size:12px">Valor médio das avaliações recebidas por parâmetro. A identidade dos avaliadores é anónima.</p>
-  <div class="table-responsive">
-  <table class="table table-sm table-bordered" style="font-size:12px">
-    <thead class="table-dark"><tr><th>Secção</th><th>Parâmetro</th><th style="text-align:center">Valor médio</th><th style="text-align:center">Nº avaliações</th></tr></thead>
-    <tbody>
-    <?php
-    $last_sec = '';
-    foreach ($all_fields as $fk=>$fi):
-      $vals  = $by_field[$fk] ?? [];
-      if (empty($vals)) continue;
-      $mean  = peCalcMean($vals);
-      $cls   = 'pe-mean pe-mean-'.str_replace('+','p',$mean);
-      $label = str_replace('+','⁺', $mean);
-    ?>
-    <tr>
-      <td class="text-muted" style="font-size:11px;white-space:nowrap"><?php if ($last_sec !== $fi['sec_title']) { $last_sec = $fi['sec_title']; echo htmlspecialchars($fi['sec_title']); } ?></td>
-      <td><?= htmlspecialchars($fi['label']) ?></td>
-      <td style="text-align:center"><span class="<?= $cls ?>"><?= $label ?></span></td>
-      <td style="text-align:center"><?= count($vals) ?></td>
-    </tr>
-    <?php endforeach; ?>
-    </tbody>
-  </table>
+  <p class="text-muted" style="font-size:12px">A identidade dos avaliadores é anónima. 🟢 acima da média do grupo · 🟠 abaixo da média do grupo</p>
+  <div class="pe-res-wrap">
+    <?= peResultRow($all_fields, $_my_field_vals, $pe_field_num_avg, $_my_uname, $_my_mean, $_my_rank, $pe_total_evaluatees) ?>
   </div>
 </div>
 <?php endif; ?>
@@ -656,6 +748,42 @@ const pePdfData = <?= json_encode([
   </div>
   <?php endif; ?>
 </div>
+
+<!-- Prévia: o que cada avaliado vê -->
+<?php if ($pe_all_responses): ?>
+<div class="mt-4">
+  <h6 class="fw-bold">👤 Prévia — o que cada avaliado vê</h6>
+  <p class="text-muted" style="font-size:12px">Equivalente à vista publicada para cada avaliado. 🟢 acima da média · 🟠 abaixo da média</p>
+  <div class="mb-2">
+    <select class="form-select form-select-sm" style="max-width:260px" id="pe-preview-sel" onchange="peShowPreview(this.value)">
+      <option value="">— Seleciona um avaliado —</option>
+      <?php foreach ($evaluatees as $_ee): ?>
+      <?php $_eid = $_ee['user_id']; if (empty($pe_all_responses[$_eid])) continue; ?>
+      <option value="<?= $_eid ?>"><?= htmlspecialchars($_ee['username']) ?></option>
+      <?php endforeach; ?>
+    </select>
+  </div>
+  <?php foreach ($evaluatees as $_ee): ?>
+  <?php
+    $_eid = $_ee['user_id'];
+    $_fv = $pe_all_responses[$_eid] ?? [];
+    if (empty($_fv)) continue;
+    $_allv = []; foreach ($_fv as $_vs) foreach ($_vs as $_v) $_allv[] = $_v;
+    $_m = $_allv ? peCalcMean($_allv) : null;
+    $_r = $pe_ranking[$_eid] ?? null;
+  ?>
+  <div class="pe-res-wrap mt-2" id="pe-preview-<?= $_eid ?>" style="display:none">
+    <?= peResultRow($all_fields, $_fv, $pe_field_num_avg, $_ee['username'], $_m, $_r, $pe_total_evaluatees) ?>
+  </div>
+  <?php endforeach; ?>
+</div>
+<script>
+function peShowPreview(uid) {
+    document.querySelectorAll('[id^="pe-preview-"]').forEach(el => el.style.display = 'none');
+    if (uid) { const el = document.getElementById('pe-preview-' + uid); if (el) el.style.display = ''; }
+}
+</script>
+<?php endif; ?>
 
 <?php endif; ?>
 

@@ -609,7 +609,7 @@ const pePdfData = <?= json_encode([
     <h6 class="fw-bold mb-0">📊 Resultados agregados</h6>
     <?php if ($admin_results): ?>
     <button class="btn btn-sm btn-outline-danger" onclick="pePdfRanking()">
-      <i class="bi bi-file-earmark-pdf"></i> Exportar ranking PDF
+      <i class="bi bi-file-earmark-pdf"></i> Exportar PDF
     </button>
     <?php endif; ?>
   </div>
@@ -900,16 +900,15 @@ function pePdfRanking() {
     // Title
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
-    doc.text('Ranking — ' + data.campaign, 14, 14);
+    doc.text('Resultados agregados — ' + data.campaign, 14, 14);
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(120);
-    doc.text('Gerado em ' + now + '  ·  Ordenado por média global (melhor → pior)', 14, 20);
+    doc.text('Gerado em ' + now, 14, 20);
     doc.setTextColor(0);
 
-    // Build columns: Rank | Avaliado | Média | <fields...>
+    // Build columns: Avaliado | Média | <fields...>
     const fixedCols = [
-        { header: '#',       dataKey: '__rank' },
         { header: 'Avaliado', dataKey: '__name' },
         { header: 'Média',   dataKey: '__grade' },
     ];
@@ -922,7 +921,6 @@ function pePdfRanking() {
     // Build body rows
     const bodyRows = rows.map(r => {
         const row = {
-            __rank:  r.rank,
             __name:  r.name,
             __grade: gradeLabel(r.grade),
         };
@@ -931,13 +929,12 @@ function pePdfRanking() {
     });
 
     // Column widths
-    const rankW   = 8;
     const nameW   = 36;
     const gradeW  = 14;
-    const usable  = pageW - 14 - 14 - rankW - nameW - gradeW;
+    const usable  = pageW - 14 - 14 - nameW - gradeW;
     const fieldW  = Math.max(8, usable / data.fields.length);
 
-    const columnStyles = { __rank: { cellWidth: rankW }, __name: { cellWidth: nameW }, __grade: { cellWidth: gradeW } };
+    const columnStyles = { __name: { cellWidth: nameW }, __grade: { cellWidth: gradeW } };
     data.fields.forEach(f => { columnStyles[f.key] = { cellWidth: fieldW }; });
 
     // Section sub-headers: build a "head" with 2 rows
@@ -987,15 +984,7 @@ function pePdfRanking() {
             const { row, column, cell } = hookData;
             if (row.section === 'body') {
                 const key = column.dataKey;
-                if (key === '__rank') {
-                    cell.styles.fontStyle = 'bold';
-                    cell.styles.fontSize = 8;
-                    // gold/silver/bronze tint
-                    const rankVal = hookData.row.raw.__rank;
-                    if (rankVal === 1) cell.styles.fillColor = [255, 215, 0];
-                    else if (rankVal === 2) cell.styles.fillColor = [220, 220, 220];
-                    else if (rankVal === 3) cell.styles.fillColor = [205, 127, 50];
-                } else if (key === '__name') {
+                if (key === '__name') {
                     cell.styles.halign = 'left';
                     cell.styles.fontStyle = 'bold';
                 } else if (key === '__grade') {

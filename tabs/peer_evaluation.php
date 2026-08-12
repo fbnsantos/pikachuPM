@@ -563,9 +563,56 @@ $s = $pdo->prepare("SELECT evaluatee_id,field_key,field_value FROM peer_eval_res
 $s->execute([$cid]);
 $admin_results = [];
 foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $admin_results[$r['evaluatee_id']][$r['field_key']][] = $r['field_value'];
+
+// Preparar dados para PDF (ranking)
+$_pdfGradeMap = ['A'=>4,'B'=>3,'C'=>2,'D'=>1];
+$_pdfRows = [];
+foreach ($evaluatees as $_ee) {
+    $_eid = $_ee['user_id'];
+    $_row = ['name'=>$_ee['username'], 'fields'=>[], 'avg'=>0];
+    $_s = 0; $_n = 0;
+    foreach ($all_fields as $_fk=>$_fi) {
+        $_vals = $admin_results[$_eid][$_fk] ?? [];
+        $_mean = $_vals ? peCalcMean($_vals) : null;
+        $_row['fields'][$_fk] = $_mean;
+        foreach ($_vals as $_v) { $_base = $_v[0] ?? ''; if (isset($_pdfGradeMap[$_base])) { $_s += $_pdfGradeMap[$_base]; $_n++; } }
+    }
+    $_row['avg'] = $_n ? round($_s / $_n, 4) : 0;
+    // letter grade for avg
+    if ($_n) {
+        $_a = $_s / $_n;
+        $_row['grade'] = $_a>=3.75?'A+':($_a>=3.25?'A':($_a>=2.75?'B+':($_a>=2.25?'B':($_a>=1.75?'C+':($_a>=1.25?'C':($_a>=0.75?'D+':'D'))))));
+    } else { $_row['grade'] = null; }
+    $_pdfRows[] = $_row;
+}
+$_pdfSections = [];
+foreach ($SECTIONS as $_sk=>$_sec) {
+    $_pdfSections[] = ['title'=>$_sec['title'], 'count'=>count($_sec['fields'])];
+}
+$_pdfFields = [];
+foreach ($all_fields as $_fk=>$_fi) {
+    $_pdfFields[] = ['key'=>$_fk, 'label'=>$_fi['label']];
+}
+$_pdfCampaignTitle = ($campaign['title']??'Avaliação entre Pares').' '.($campaign['year_label']??'');
 ?>
+<script>
+const pePdfData = <?= json_encode([
+    'campaign' => $_pdfCampaignTitle,
+    'rows'     => $_pdfRows,
+    'fields'   => $_pdfFields,
+    'sections' => $_pdfSections,
+], JSON_UNESCAPED_UNICODE) ?>;
+</script>
+
 <div class="mt-3">
-  <h6 class="fw-bold">📊 Resultados agregados</h6>
+  <div class="d-flex align-items-center justify-content-between mb-1">
+    <h6 class="fw-bold mb-0">📊 Resultados agregados</h6>
+    <?php if ($admin_results): ?>
+    <button class="btn btn-sm btn-outline-danger" onclick="pePdfRanking()">
+      <i class="bi bi-file-earmark-pdf"></i> Exportar ranking PDF
+    </button>
+    <?php endif; ?>
+  </div>
   <p class="text-muted" style="font-size:12px">Visível só ao administrador. Clica em «Publicar resultados» para que cada avaliado veja os seus valores.</p>
   <?php if (!$admin_results): ?>
   <p class="text-muted" style="font-size:12px"><em>Ainda não existem respostas submetidas.</em></p>
@@ -804,4 +851,226 @@ function pePost(data, cb) {
         .then(r => r.json()).then(d => cb && cb(d))
         .catch(e => { console.error('pe error',e); peStatus('err','Erro de rede'); });
 }
+
+// ── PDF Ranking ────────────────────────────────────────────────────────────
+function pePdfRanking() {
+    if (typeof window.jspdf === 'undefined') {
+        alert('A carregar bibliotecas PDF, tenta novamente em 2 segundos…');
+        return;
+    }
+    const { jsPDF } = window.jspdf;
+    const data = pePdfData;
+
+    // sort rows by avg descending
+    const rows = [...data.rows].sort((a, b) => b.avg - a.avg);
+
+    // assign rank (ties share same rank)
+    let rank = 1;
+    rows.forEach((r, i) => {
+        if (i > 0 && rows[i - 1].avg === r.avg) r.rank = rows[i - 1].rank;
+        else { r.rank = rank; }
+        rank++;
+    });
+
+    // grade → display label
+    const gradeLabel = g => g ? g.replace('+', '⁺') : '—';
+
+    // grade → cell fill color [r,g,b]
+    const gradeColor = g => {
+        if (!g) return [240, 240, 240];
+        const base = g[0];
+        if (base === 'A') return [209, 231, 221];
+        if (base === 'B') return [207, 226, 255];
+        if (base === 'C') return [255, 243, 205];
+        return [248, 215, 218];
+    };
+    const gradeText = g => {
+        if (!g) return [180, 180, 180];
+        const base = g[0];
+        if (base === 'A') return [10, 54, 34];
+        if (base === 'B') return [3, 22, 51];
+        if (base === 'C') return [102, 77, 3];
+        return [88, 21, 28];
+    };
+
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const now = new Date().toLocaleDateString('pt-PT');
+
+    // Title
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Ranking — ' + data.campaign, 14, 14);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(120);
+    doc.text('Gerado em ' + now + '  ·  Ordenado por média global (melhor → pior)', 14, 20);
+    doc.setTextColor(0);
+
+    // Build columns: Rank | Avaliado | Média | <fields...>
+    const fixedCols = [
+        { header: '#',       dataKey: '__rank' },
+        { header: 'Avaliado', dataKey: '__name' },
+        { header: 'Média',   dataKey: '__grade' },
+    ];
+    const fieldCols = data.fields.map(f => ({
+        header: f.label.length > 22 ? f.label.slice(0, 21) + '…' : f.label,
+        dataKey: f.key,
+    }));
+    const allCols = [...fixedCols, ...fieldCols];
+
+    // Build body rows
+    const bodyRows = rows.map(r => {
+        const row = {
+            __rank:  r.rank,
+            __name:  r.name,
+            __grade: gradeLabel(r.grade),
+        };
+        data.fields.forEach(f => { row[f.key] = gradeLabel(r.fields[f.key]); });
+        return row;
+    });
+
+    // Column widths
+    const rankW   = 8;
+    const nameW   = 36;
+    const gradeW  = 14;
+    const usable  = pageW - 14 - 14 - rankW - nameW - gradeW;
+    const fieldW  = Math.max(8, usable / data.fields.length);
+
+    const columnStyles = { __rank: { cellWidth: rankW }, __name: { cellWidth: nameW }, __grade: { cellWidth: gradeW } };
+    data.fields.forEach(f => { columnStyles[f.key] = { cellWidth: fieldW }; });
+
+    // Section sub-headers: build a "head" with 2 rows
+    // row0: # | Avaliado | Média | <section spans>
+    // row1: (empty) | (empty) | (empty) | <field labels>
+    const secRow = ['', '', ''];
+    data.sections.forEach(sec => {
+        secRow.push({ content: sec.title, colSpan: sec.count });
+        for (let i = 1; i < sec.count; i++) secRow.push('__skip__');
+    });
+
+    const fieldRow = ['#', 'Avaliado', 'Média', ...data.fields.map(f =>
+        f.label.length > 18 ? f.label.slice(0, 17) + '…' : f.label
+    )];
+
+    doc.autoTable({
+        columns: allCols,
+        body: bodyRows,
+        startY: 24,
+        margin: { left: 14, right: 14 },
+        columnStyles,
+        theme: 'grid',
+        headStyles: {
+            fillColor: [33, 37, 41],
+            textColor: 255,
+            fontSize: 6.5,
+            fontStyle: 'bold',
+            halign: 'center',
+            valign: 'middle',
+            cellPadding: 2,
+        },
+        bodyStyles: {
+            fontSize: 7.5,
+            cellPadding: { top: 2, bottom: 2, left: 2, right: 2 },
+            halign: 'center',
+            valign: 'middle',
+            lineColor: [220, 220, 220],
+        },
+        alternateRowStyles: { fillColor: [250, 250, 252] },
+        // section header before field header
+        didDrawPage: (hookData) => {
+            if (hookData.pageNumber === 1) {
+                // already drawn — nothing extra needed
+            }
+        },
+        willDrawCell: (hookData) => {
+            const { row, column, cell } = hookData;
+            if (row.section === 'body') {
+                const key = column.dataKey;
+                if (key === '__rank') {
+                    cell.styles.fontStyle = 'bold';
+                    cell.styles.fontSize = 8;
+                    // gold/silver/bronze tint
+                    const rankVal = hookData.row.raw.__rank;
+                    if (rankVal === 1) cell.styles.fillColor = [255, 215, 0];
+                    else if (rankVal === 2) cell.styles.fillColor = [220, 220, 220];
+                    else if (rankVal === 3) cell.styles.fillColor = [205, 127, 50];
+                } else if (key === '__name') {
+                    cell.styles.halign = 'left';
+                    cell.styles.fontStyle = 'bold';
+                } else if (key === '__grade') {
+                    const g = hookData.row.raw.__grade.replace('⁺', '+');
+                    if (g && g !== '—') {
+                        const base = g[0];
+                        cell.styles.fillColor = gradeColor(base === 'A' ? 'A' : base === 'B' ? 'B' : base === 'C' ? 'C' : 'D');
+                        cell.styles.textColor = gradeText(base === 'A' ? 'A' : base === 'B' ? 'B' : base === 'C' ? 'C' : 'D');
+                        cell.styles.fontStyle = 'bold';
+                        cell.styles.fontSize = 8;
+                    }
+                } else if (key && key !== '__skip__') {
+                    const raw = hookData.row.raw[key];
+                    if (raw && raw !== '—') {
+                        const g = raw.replace('⁺', '+');
+                        cell.styles.fillColor = gradeColor(g);
+                        cell.styles.textColor = gradeText(g);
+                    }
+                }
+            }
+        },
+        // draw section group header above field headers on page 1
+        didParseCell: (hookData) => {
+            if (hookData.row.section === 'head') {
+                hookData.cell.styles.halign = 'center';
+            }
+        },
+    });
+
+    // Draw section header band above the auto-table header
+    // jsPDF-autoTable doesn't natively support 2-row headers via the columns API,
+    // so we draw a custom section band manually after the table, but before it.
+    // Simpler: add it as a "before table" draw using startY.
+    // Instead, we use "didDrawCell" on head row to overlay section colours — not needed.
+    // The single-row header with abbreviated labels is sufficient.
+    // Add a legend below the table
+    const finalY = doc.lastAutoTable.finalY + 6;
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Legenda:', 14, finalY);
+    const legendItems = [
+        { label: 'A+ / A', fill: [209,231,221], text: [10,54,34],    desc: 'Excecional / Muito Bom' },
+        { label: 'B+ / B', fill: [207,226,255], text: [3,22,51],     desc: 'Bom / Satisfatório' },
+        { label: 'C+ / C', fill: [255,243,205], text: [102,77,3],    desc: 'Suficiente' },
+        { label: 'D+ / D', fill: [248,215,218], text: [88,21,28],    desc: 'A Desenvolver' },
+    ];
+    let lx = 30;
+    legendItems.forEach(item => {
+        doc.setFillColor(...item.fill);
+        doc.roundedRect(lx, finalY - 3.5, 12, 5, 1, 1, 'F');
+        doc.setTextColor(...item.text);
+        doc.setFont('helvetica', 'bold');
+        doc.text(item.label, lx + 6, finalY, { align: 'center' });
+        doc.setTextColor(80);
+        doc.setFont('helvetica', 'normal');
+        doc.text(item.desc, lx + 14, finalY);
+        lx += 14 + doc.getTextWidth(item.desc) + 6;
+    });
+    doc.setTextColor(0);
+
+    // Footer on each page
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setTextColor(150);
+        doc.text('Página ' + i + ' / ' + pageCount, pageW - 14, doc.internal.pageSize.getHeight() - 5, { align: 'right' });
+        doc.text(data.campaign, 14, doc.internal.pageSize.getHeight() - 5);
+        doc.setTextColor(0);
+    }
+
+    const safeName = data.campaign.replace(/[^a-zA-Z0-9_-]/g, '_');
+    doc.save('ranking_' + safeName + '.pdf');
+}
 </script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>

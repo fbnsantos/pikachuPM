@@ -262,57 +262,191 @@ function peNumAvg(array $vals): ?float {
     return $_n ? $_s / $_n : null;
 }
 
-// helper: render a result row for a single evaluatee (shared between admin preview and published view)
-function peResultRow(array $all_fields, array $field_vals, array $field_avg, string $username, ?string $mean, ?int $rank, int $total): string {
+// helper: numeric → letter grade
+function peNumToGrade(float $n): string {
+    if ($n>=3.75) return 'A+'; if ($n>=3.25) return 'A';
+    if ($n>=2.75) return 'B+'; if ($n>=2.25) return 'B';
+    if ($n>=1.75) return 'C+'; if ($n>=1.25) return 'C';
+    if ($n>=0.75) return 'D+'; return 'D';
+}
+
+// helper: render full results card for a single evaluatee
+function peResultRow(array $all_fields, array $field_vals, array $field_avg, string $username, ?string $mean, ?int $rank, int $total, array $SECTIONS = []): string {
     $gradeN = ['A'=>4,'B'=>3,'C'=>2,'D'=>1];
-    $html = '<div class="pe-res-header">';
-    $html .= '<div>';
+
+    // ── collect per-field data ────────────────────────────────────────────
+    $fields_data = [];
+    foreach ($all_fields as $fk => $fi) {
+        $vals = $field_vals[$fk] ?? [];
+        if (empty($vals)) continue;
+        $numMe   = peNumAvg($vals);
+        $numGlob = $field_avg[$fk] ?? null;
+        $mean_me = peCalcMean($vals);
+        $diff    = ($numMe !== null && $numGlob !== null) ? $numMe - $numGlob : 0;
+        // dispersão: desvio padrão das respostas individuais
+        $dispN = []; foreach ($vals as $v) { $b=$v[0]??''; if (isset($gradeN[$b])) $dispN[]=$gradeN[$b]; }
+        $dispAvg = count($dispN) ? array_sum($dispN)/count($dispN) : null;
+        $dispStd = 0;
+        if ($dispAvg !== null && count($dispN) > 1) {
+            $sq = 0; foreach ($dispN as $d) $sq += ($d-$dispAvg)**2;
+            $dispStd = round(sqrt($sq/count($dispN)),2);
+        }
+        $fields_data[$fk] = [
+            'fi'      => $fi,
+            'vals'    => $vals,
+            'numMe'   => $numMe,
+            'numGlob' => $numGlob,
+            'mean_me' => $mean_me,
+            'diff'    => $diff,
+            'dispStd' => $dispStd,
+            'count'   => count($vals),
+        ];
+    }
+
+    // ── destaques: top-3 forças e top-3 a desenvolver ────────────────────
+    $sorted_diff = $fields_data;
+    uasort($sorted_diff, fn($a,$b) => $b['diff'] <=> $a['diff']);
+    $strengths = array_slice(array_filter($sorted_diff, fn($d) => $d['diff'] > 0.001), 0, 3, true);
+    $develops  = array_slice(array_filter(array_reverse($sorted_diff, true), fn($d) => $d['diff'] < -0.001), 0, 3, true);
+
+    // ── resumo por secção ─────────────────────────────────────────────────
+    $sec_nums_me   = []; // sec_title => [numeric values me]
+    $sec_nums_glob = []; // sec_title => [global field avgs]
+    foreach ($fields_data as $fk => $fd) {
+        $sec = $fd['fi']['sec_title'];
+        if ($fd['numMe']   !== null) $sec_nums_me[$sec][]   = $fd['numMe'];
+        if ($fd['numGlob'] !== null) $sec_nums_glob[$sec][] = $fd['numGlob'];
+    }
+
+    // ── HTML ──────────────────────────────────────────────────────────────
+    $html = '';
+
+    // Mensagem contextual
+    $html .= '<div class="pe-context-msg">';
+    $html .= '<strong>ℹ️ Como interpretar estes resultados</strong><br>';
+    $html .= 'Esta avaliação é feita em termos relativos dentro da equipa — por isso há sempre um primeiro e um último lugar. ';
+    $html .= 'Estar numa posição mais baixa <strong>não significa ser medíocre</strong>, tal como estar no topo <strong>não significa ser excecional</strong>. ';
+    $html .= 'O objetivo é identificar onde podes melhorar e onde já te destacas <em>em comparação com os teus pares</em>.';
+    $html .= '</div>';
+
+    // Cabeçalho: nome + média + ranking
+    $html .= '<div class="pe-res-header">';
+    $html .= '<div class="d-flex align-items-center gap-2 flex-wrap">';
     $html .= '<span class="fw-bold">' . htmlspecialchars($username) . '</span>';
     if ($mean !== null) {
         $cls = 'pe-mean pe-mean-'.str_replace('+','p',$mean);
         $lbl = str_replace('+','⁺',$mean);
-        $html .= ' &nbsp;<span class="'.$cls.'" style="font-size:13px;padding:3px 12px">'.$lbl.'</span>';
-        $html .= '<span class="text-muted ms-2" style="font-size:12px">média global</span>';
+        $html .= '<span class="'.$cls.'" style="font-size:13px;padding:3px 12px">'.$lbl.'</span>';
+        $html .= '<span class="text-muted" style="font-size:12px">média global</span>';
     }
     $html .= '</div>';
-    if ($rank !== null)
-        $html .= '<div class="pe-rank-badge">🏅 '.$rank.'º / '.$total.'</div>';
+    if ($rank !== null) {
+        $html .= '<div class="d-flex align-items-center gap-2">';
+        $html .= '<div class="pe-rank-badge">🏅 '.$rank.'º de '.$total.'</div>';
+        $html .= '</div>';
+    }
     $html .= '</div>';
+
+    // Destaques
+    if ($strengths || $develops) {
+        $html .= '<div class="pe-highlights">';
+        if ($strengths) {
+            $html .= '<div class="pe-hl-col pe-hl-green"><div class="pe-hl-title">✅ Pontos fortes</div>';
+            foreach ($strengths as $fk => $fd) {
+                $lbl = str_replace('+','⁺',$fd['mean_me']);
+                $html .= '<div class="pe-hl-item"><span class="pe-hl-grade pe-hl-grade-g">'.$lbl.'</span>'.htmlspecialchars($fd['fi']['label']).'</div>';
+            }
+            $html .= '</div>';
+        }
+        if ($develops) {
+            $html .= '<div class="pe-hl-col pe-hl-orange"><div class="pe-hl-title">🎯 Áreas a desenvolver</div>';
+            foreach ($develops as $fk => $fd) {
+                $lbl = $fd['mean_me'] ? str_replace('+','⁺',$fd['mean_me']) : '—';
+                $html .= '<div class="pe-hl-item"><span class="pe-hl-grade pe-hl-grade-o">'.$lbl.'</span>'.htmlspecialchars($fd['fi']['label']).'</div>';
+            }
+            $html .= '</div>';
+        }
+        $html .= '</div>';
+    }
+
+    // Resumo por secção
+    if ($sec_nums_me) {
+        $html .= '<div class="pe-sec-summary">';
+        $html .= '<div class="pe-sec-sum-title">Resumo por secção</div>';
+        $html .= '<div class="pe-sec-sum-grid">';
+        foreach ($sec_nums_me as $secTitle => $myNums) {
+            $myAvg   = array_sum($myNums) / count($myNums);
+            $myGrade = peNumToGrade($myAvg);
+            $myCls   = 'pe-mean pe-mean-'.str_replace('+','p',$myGrade);
+            $globNums = $sec_nums_glob[$secTitle] ?? [];
+            $globAvg  = $globNums ? array_sum($globNums) / count($globNums) : null;
+            $diff = $globAvg !== null ? $myAvg - $globAvg : 0;
+            $arrow = $diff > 0.05 ? '↑' : ($diff < -0.05 ? '↓' : '=');
+            $arrowCls = $diff > 0.05 ? 'pe-arr-up' : ($diff < -0.05 ? 'pe-arr-dn' : 'pe-arr-eq');
+            $html .= '<div class="pe-sec-sum-item">';
+            $html .= '<span class="'.$myCls.'" style="font-size:11px">'.str_replace('+','⁺',$myGrade).'</span>';
+            $html .= '<span class="'.$arrowCls.'">'.$arrow.'</span>';
+            $html .= '<span class="pe-sec-sum-lbl">'.htmlspecialchars($secTitle).'</span>';
+            $html .= '</div>';
+        }
+        $html .= '</div></div>';
+    }
+
+    // Tabela detalhada por campo
     $html .= '<div class="table-responsive"><table class="table table-sm table-bordered mb-0" style="font-size:12px"><thead class="table-dark">';
-    $html .= '<tr><th>Secção</th><th>Parâmetro</th><th style="text-align:center;width:80px">Valor</th><th style="text-align:center;width:90px">Média grupo</th><th style="text-align:center;width:70px">Nº aval.</th></tr>';
-    $html .= '</thead><tbody>';
+    $html .= '<tr>';
+    $html .= '<th>Secção</th><th>Parâmetro</th>';
+    $html .= '<th style="text-align:center;width:80px">O meu valor</th>';
+    $html .= '<th style="text-align:center;width:90px">Média grupo</th>';
+    $html .= '<th style="text-align:center;width:90px" title="Dispersão: 0=todos iguais, alto=opiniões divididas">Consenso</th>';
+    $html .= '<th style="text-align:center;width:100px">Nº avaliações</th>';
+    $html .= '</tr></thead><tbody>';
+
     $last_sec = '';
-    foreach ($all_fields as $fk => $fi) {
-        $vals = $field_vals[$fk] ?? [];
-        if (empty($vals)) continue;
-        $numMe = peNumAvg($vals);
-        $numGlob = $field_avg[$fk] ?? null;
-        $mean_me = peCalcMean($vals);
+    foreach ($fields_data as $fk => $fd) {
+        $mean_me = $fd['mean_me'];
         $lbl_me  = $mean_me ? str_replace('+','⁺',$mean_me) : '—';
         $cls_me  = $mean_me ? 'pe-mean pe-mean-'.str_replace('+','p',$mean_me) : '';
-        // color coding vs global avg
+        $diff = $fd['diff'];
         $bg = '';
-        if ($numMe !== null && $numGlob !== null) {
-            if ($numMe > $numGlob + 0.001) $bg = 'background:#d1e7dd'; // above → green
-            elseif ($numMe < $numGlob - 0.001) $bg = 'background:#ffe5cc'; // below → orange
-            // equal → white (no bg)
-        }
-        // global avg grade for this field
+        if ($diff > 0.001)       $bg = 'background:#d1e7dd';
+        elseif ($diff < -0.001)  $bg = 'background:#ffe5cc';
+
+        // global avg label
         $glob_mean_lbl = '—';
-        if ($numGlob !== null) {
-            $ga = $numGlob;
-            $ggrade = $ga>=3.75?'A+':($ga>=3.25?'A':($ga>=2.75?'B+':($ga>=2.25?'B':($ga>=1.75?'C+':($ga>=1.25?'C':($ga>=0.75?'D+':'D'))))));
+        if ($fd['numGlob'] !== null) {
+            $ggrade = peNumToGrade($fd['numGlob']);
             $gcls = 'pe-mean pe-mean-'.str_replace('+','p',$ggrade);
-            $glob_mean_lbl = '<span class="'.$gcls.'" style="font-size:10px;opacity:.75">'.str_replace('+','⁺',$ggrade).'</span>';
+            $glob_mean_lbl = '<span class="'.$gcls.'" style="font-size:10px;opacity:.8">'.str_replace('+','⁺',$ggrade).'</span>';
         }
-        $sec_label = ($last_sec !== $fi['sec_title']) ? htmlspecialchars($fi['sec_title']) : '';
-        $last_sec = $fi['sec_title'];
+
+        // consenso: desvio padrão → barra visual
+        $std = $fd['dispStd'];
+        $consenso_html = '';
+        if ($fd['count'] > 1) {
+            // std 0 = consenso total, std ~1.5 = máx divergência
+            $pct_div = min(100, round($std / 1.5 * 100));
+            $pct_con = 100 - $pct_div;
+            $c_color = $pct_con >= 75 ? '#198754' : ($pct_con >= 45 ? '#fd7e14' : '#dc3545');
+            $consenso_html = '<div title="Desvio padrão: '.$std.'" style="display:flex;align-items:center;gap:4px;justify-content:center">';
+            $consenso_html .= '<div style="width:48px;height:7px;background:#e9ecef;border-radius:4px;overflow:hidden">';
+            $consenso_html .= '<div style="width:'.$pct_con.'%;height:100%;background:'.$c_color.';border-radius:4px;"></div></div>';
+            $consenso_html .= '<span style="font-size:10px;color:#6c757d">'.($pct_con >= 75 ? 'Alto' : ($pct_con >= 45 ? 'Médio' : 'Baixo')).'</span>';
+            $consenso_html .= '</div>';
+        } else {
+            $consenso_html = '<span class="text-muted" style="font-size:10px">—</span>';
+        }
+
+        $sec_label = ($last_sec !== $fd['fi']['sec_title']) ? htmlspecialchars($fd['fi']['sec_title']) : '';
+        $last_sec = $fd['fi']['sec_title'];
+
         $html .= '<tr>';
         $html .= '<td class="text-muted" style="font-size:11px;white-space:nowrap">'.$sec_label.'</td>';
-        $html .= '<td>'.htmlspecialchars($fi['label']).'</td>';
+        $html .= '<td>'.htmlspecialchars($fd['fi']['label']).'</td>';
         $html .= '<td style="text-align:center;'.$bg.'"><span class="'.$cls_me.'">'.$lbl_me.'</span></td>';
         $html .= '<td style="text-align:center">'.$glob_mean_lbl.'</td>';
-        $html .= '<td style="text-align:center;color:#6c757d">'.count($vals).'</td>';
+        $html .= '<td style="text-align:center">'.$consenso_html.'</td>';
+        $html .= '<td style="text-align:center;color:#6c757d">'.$fd['count'].'</td>';
         $html .= '</tr>';
     }
     $html .= '</tbody></table></div>';
@@ -400,6 +534,24 @@ td.pe-clickable:hover .pe-mean{opacity:.8}
 .pe-res-wrap{border:1px solid #dee2e6;border-radius:10px;overflow:hidden}
 .pe-res-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #dee2e6}
 .pe-rank-badge{background:#0d6efd;color:#fff;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px}
+.pe-context-msg{background:#e8f4fd;border-left:4px solid #0d6efd;padding:10px 14px;font-size:12px;color:#444;line-height:1.5;border-bottom:1px solid #dee2e6}
+.pe-highlights{display:flex;gap:0;border-bottom:1px solid #dee2e6}
+.pe-hl-col{flex:1;padding:10px 14px}
+.pe-hl-green{background:#f0faf4}
+.pe-hl-orange{background:#fff8f2;border-left:1px solid #dee2e6}
+.pe-hl-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6c757d;margin-bottom:6px}
+.pe-hl-item{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:3px}
+.pe-hl-grade{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;min-width:22px;text-align:center}
+.pe-hl-grade-g{background:#198754;color:#fff}
+.pe-hl-grade-o{background:#fd7e14;color:#fff}
+.pe-sec-summary{background:#f8f9fa;border-bottom:1px solid #dee2e6;padding:8px 14px}
+.pe-sec-sum-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6c757d;margin-bottom:6px}
+.pe-sec-sum-grid{display:flex;flex-wrap:wrap;gap:8px}
+.pe-sec-sum-item{display:flex;align-items:center;gap:4px;background:#fff;border:1px solid #dee2e6;border-radius:8px;padding:4px 10px;font-size:11px}
+.pe-sec-sum-lbl{color:#495057;font-weight:500}
+.pe-arr-up{color:#198754;font-weight:700;font-size:13px}
+.pe-arr-dn{color:#fd7e14;font-weight:700;font-size:13px}
+.pe-arr-eq{color:#adb5bd;font-size:13px}
 </style>
 
 <div class="pe-wrap">

@@ -405,22 +405,22 @@ if ($action && $is_json) {
             ksort($allMonths);
             $months = array_keys($allMonths);
 
-            // Allocations grouped by project+person+month
+            // All projects (including those with no allocations)
             $rows = $pdo->query("
                 SELECT pr.id as proj_id, pr.short_name, pr.title, pr.data_inicio, pr.data_fim,
                        p.id as person_id, p.full_name, p.rh_code,
                        ut.username as linked_username,
                        a.year, a.month, SUM(a.percentage) as pct
-                FROM rh_monthly_alloc a
-                JOIN rh_person_projects pp ON a.person_project_id = pp.id
-                JOIN rh_persons p ON pp.person_id = p.id
-                JOIN projects pr ON pp.project_id = pr.id
+                FROM projects pr
+                LEFT JOIN rh_person_projects pp ON pp.project_id = pr.id
+                LEFT JOIN rh_persons p ON pp.person_id = p.id
                 LEFT JOIN user_tokens ut ON p.user_token_id = ut.id
+                LEFT JOIN rh_monthly_alloc a ON a.person_project_id = pp.id
                 GROUP BY pr.id, p.id, a.year, a.month
                 ORDER BY pr.short_name, p.full_name, a.year, a.month
             ")->fetchAll(PDO::FETCH_ASSOC);
 
-            // ppid + pm_orc per (person, project) — first row found
+            // ppid + pm_orc per (person, project)
             $ppMeta = [];
             foreach ($pdo->query("
                 SELECT MIN(pp.id) as ppid, p.id as person_id, pp.project_id,
@@ -435,11 +435,13 @@ if ($action && $is_json) {
 
             $projects = [];
             foreach ($rows as $r) {
-                $pid = $r['proj_id']; $persId = $r['person_id'];
+                $pid = $r['proj_id'];
                 if (!isset($projects[$pid])) $projects[$pid] = [
                     'proj_id'=>$pid,'short_name'=>$r['short_name'],'title'=>$r['title'],
                     'data_inicio'=>$r['data_inicio'],'data_fim'=>$r['data_fim'],'persons'=>[]
                 ];
+                if ($r['person_id'] === null) continue; // project with no persons
+                $persId = $r['person_id'];
                 if (!isset($projects[$pid]['persons'][$persId])) {
                     $meta = $ppMeta[$pid][$persId] ?? ['ppid'=>null,'pm_orc'=>null];
                     $projects[$pid]['persons'][$persId] = [
@@ -448,25 +450,9 @@ if ($action && $is_json) {
                         'ppid'=>$meta['ppid'],'pm_orc'=>$meta['pm_orc'],'allocs'=>[]
                     ];
                 }
-                $ym = sprintf('%04d-%02d', $r['year'], $r['month']);
-                $projects[$pid]['persons'][$persId]['allocs'][$ym] = (float)$r['pct'];
-            }
-
-            // Also include persons with pm_orc but zero allocations
-            foreach ($ppMeta as $projId => $persMap) {
-                if (!isset($projects[$projId])) continue;
-                foreach ($persMap as $persId => $meta) {
-                    if (!isset($projects[$projId]['persons'][$persId])) {
-                        $p = $pdo->prepare("SELECT p.id,p.full_name,p.rh_code,ut.username as linked_username FROM rh_persons p LEFT JOIN user_tokens ut ON p.user_token_id=ut.id WHERE p.id=?");
-                        $p->execute([$persId]);
-                        if ($row = $p->fetch(PDO::FETCH_ASSOC)) {
-                            $projects[$projId]['persons'][$persId] = [
-                                'person_id'=>$persId,'full_name'=>$row['full_name'],'rh_code'=>$row['rh_code'],
-                                'linked_username'=>$row['linked_username'],
-                                'ppid'=>$meta['ppid'],'pm_orc'=>$meta['pm_orc'],'allocs'=>[]
-                            ];
-                        }
-                    }
+                if ($r['year'] !== null) {
+                    $ym = sprintf('%04d-%02d', $r['year'], $r['month']);
+                    $projects[$pid]['persons'][$persId]['allocs'][$ym] = (float)$r['pct'];
                 }
             }
 
@@ -658,6 +644,7 @@ $rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY 
 .rh-person-hdr .rh-ph-meta { font-size:11px; font-weight:400; color:#6c757d; margin-left:8px; }
 .rh-person-hdr .rh-ph-tipo { font-size:11px; font-weight:400; color:#0d6efd; margin-left:6px; }
 
+body.rh-selecting, body.rh-selecting * { user-select: none !important; }
 /* Project rows */
 .rh-proj-row td { padding:2px 4px; vertical-align:middle; }
 .rh-proj-row:hover td { background:#f8f9fa; }
@@ -1533,67 +1520,63 @@ function rhTogglePerson(pid) {
 }
 
 // ── Inline cell editing ───────────────────────────────────────────────────────
-// Multi-cell selection state
-let rhMultiSel = { active: false, row: null, startIdx: -1, endIdx: -1, cells: [] };
+let rhMultiSel = { dragging: false, row: null, startIdx: -1, endIdx: -1, cells: [] };
 
 function rhMultiClearSelection() {
     rhMultiSel.cells.forEach(c => c.classList.remove('rh-cell-selected'));
-    rhMultiSel = { active: false, row: null, startIdx: -1, endIdx: -1, cells: [] };
+    rhMultiSel = { dragging: false, row: null, startIdx: -1, endIdx: -1, cells: [] };
+    document.body.classList.remove('rh-selecting');
 }
 
 function rhMultiGetRowCells(row) {
-    return Array.from(row.querySelectorAll('.rh-cell.rh-editable:not(.rh-cell-locked)'));
+    return Array.from(row.querySelectorAll('.rh-cell.rh-editable'));
 }
 
 document.addEventListener('mousedown', function(e) {
     const cell = e.target.closest('.rh-cell.rh-editable');
-    if (!cell || cell.classList.contains('rh-cell-locked')) return;
+    if (!cell) return;
     const row = cell.closest('tr.rh-proj-row');
     if (!row) return;
     const rowCells = rhMultiGetRowCells(row);
     const idx = rowCells.indexOf(cell);
     if (idx < 0) return;
     rhMultiClearSelection();
-    rhMultiSel = { active: true, row, startIdx: idx, endIdx: idx, cells: rowCells };
+    rhMultiSel = { dragging: true, row, startIdx: idx, endIdx: idx, cells: rowCells };
     cell.classList.add('rh-cell-selected');
-    e.preventDefault(); // prevent text selection drag
+    document.body.classList.add('rh-selecting');
+    // Don't preventDefault — allows focus to move properly
 });
 
-document.addEventListener('mousemove', function(e) {
-    if (!rhMultiSel.active) return;
-    const cell = e.target.closest('.rh-cell');
+document.addEventListener('mouseover', function(e) {
+    if (!rhMultiSel.dragging) return;
+    const cell = e.target.closest('.rh-cell.rh-editable');
     if (!cell) return;
-    const row = cell.closest('tr.rh-proj-row');
-    if (row !== rhMultiSel.row) return;
+    if (cell.closest('tr.rh-proj-row') !== rhMultiSel.row) return;
     const idx = rhMultiSel.cells.indexOf(cell);
     if (idx < 0 || idx === rhMultiSel.endIdx) return;
     rhMultiSel.endIdx = idx;
     const lo = Math.min(rhMultiSel.startIdx, rhMultiSel.endIdx);
     const hi = Math.max(rhMultiSel.startIdx, rhMultiSel.endIdx);
-    rhMultiSel.cells.forEach((c, i) => {
-        if (i >= lo && i <= hi) c.classList.add('rh-cell-selected');
-        else c.classList.remove('rh-cell-selected');
-    });
+    rhMultiSel.cells.forEach((c, i) => c.classList.toggle('rh-cell-selected', i >= lo && i <= hi));
 });
 
 document.addEventListener('mouseup', function(e) {
-    if (!rhMultiSel.active) return;
-    rhMultiSel.active = false;
+    if (!rhMultiSel.dragging) return;
+    rhMultiSel.dragging = false;
+    document.body.classList.remove('rh-selecting');
     const lo = Math.min(rhMultiSel.startIdx, rhMultiSel.endIdx);
     const hi = Math.max(rhMultiSel.startIdx, rhMultiSel.endIdx);
     const selected = rhMultiSel.cells.slice(lo, hi + 1);
     if (selected.length <= 1) {
-        // Single cell — normal edit
         rhMultiClearSelection();
         if (selected.length === 1) rhOpenCellEdit(selected[0]);
         return;
     }
-    // Multiple cells — prompt for value
     rhMultiPromptFill(selected);
 });
 
 function rhMultiPromptFill(cells) {
-    // Position a floating input near the first cell
+    rhCommitEdit(); // commit any previous edit first
     const first = cells[0];
     const rect = first.getBoundingClientRect();
     const inp = document.getElementById('rh-edit-input');
@@ -1604,18 +1587,19 @@ function rhMultiPromptFill(cells) {
     inp.style.height = rect.height + 'px';
     inp.style.display = 'block';
     inp.focus(); inp.select();
-
-    // Override commit to apply to all selected cells
     rhEditTarget = { multiCells: cells, orig: null, el: null, ppid: null, year: null, month: null, field: null };
 }
 
 document.addEventListener('click', function(e) {
-    if (rhMultiSel.active) return;
+    if (rhMultiSel.dragging) return;
     const cell = e.target.closest('.rh-cell.rh-editable');
-    if (cell) return; // handled by mouseup
+    if (cell) {
+        // Only open edit here if mousedown didn't start a selection
+        // (mousedown always starts one, mouseup handles it — so we skip here)
+        return;
+    }
     const pm = e.target.closest('.rh-pm-cell.rh-editable');
     if (pm) { rhOpenPmEdit(pm); return; }
-    // click outside — commit and clear multi-selection
     if (!e.target.closest('#rh-edit-input')) {
         rhCommitEdit();
         rhMultiClearSelection();

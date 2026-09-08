@@ -1056,15 +1056,23 @@ function rhRenderResumoProj(data, el) {
     const yearGroups = {};
     months.forEach(ym => { const y = ym.split('-')[0]; yearGroups[y] = (yearGroups[y]||0)+1; });
 
-    // Sticky widths: Projeto/Pessoa=200, PK User=130, PM ORC=64
-    const L1=0, L2=200, L3=330;
+    // Sticky widths: Projeto/Pessoa=200, PK User=130, PM ORC=64, PM EXE=64
+    const L1=0, L2=200, L3=330, L4=394;
+
+    function personPmExe(person, ps, pe) {
+        return months.reduce((s, ym) => {
+            const locked = (ps && ym < ps) || (pe && ym > pe);
+            return locked ? s : s + (person.allocs[ym] || 0);
+        }, 0) / 100;
+    }
 
     let html = '<div class="rh-grid-inner"><table class="rh-table">';
 
     html += '<tr>'
           + '<th class="rh-sticky" style="left:'+L1+'px;min-width:200px;text-align:left;padding-left:8px">Projeto / Pessoa</th>'
           + '<th class="rh-sticky" style="left:'+L2+'px;min-width:130px;text-align:left">Utilizador PK</th>'
-          + '<th class="rh-sticky" style="left:'+L3+'px;min-width:64px;text-align:center">PM ORC</th>';
+          + '<th class="rh-sticky" style="left:'+L3+'px;min-width:64px;text-align:center">PM ORC</th>'
+          + '<th class="rh-sticky" style="left:'+L4+'px;min-width:64px;text-align:center;background:#1e3a1e;color:#86efac" title="Calculado: Σ imputações / 100">PM EXE</th>';
     Object.entries(yearGroups).forEach(([y, cnt]) => {
         html += '<th colspan="'+cnt+'" style="text-align:center;border-left:2px solid #555">'+y+'</th>';
     });
@@ -1073,7 +1081,8 @@ function rhRenderResumoProj(data, el) {
     html += '<tr>'
           + '<th class="rh-sticky" style="left:'+L1+'px;background:#343a40"></th>'
           + '<th class="rh-sticky" style="left:'+L2+'px;background:#343a40"></th>'
-          + '<th class="rh-sticky" style="left:'+L3+'px;background:#343a40"></th>';
+          + '<th class="rh-sticky" style="left:'+L3+'px;background:#343a40"></th>'
+          + '<th class="rh-sticky" style="left:'+L4+'px;background:#1e3a1e"></th>';
     months.forEach(ym => {
         const m = ym.split('-')[1];
         html += '<th style="min-width:44px;'+(m==='01'?'border-left:2px solid #555':'')+'">'
@@ -1087,6 +1096,7 @@ function rhRenderResumoProj(data, el) {
 
         const projTotals = {};
         const projPmOrcTotal = proj.persons.reduce((s,p) => s + (parseFloat(p.pm_orc)||0), 0);
+        const projPmExeTotal = proj.persons.reduce((s,p) => s + personPmExe(p, ps, pe), 0);
         months.forEach(ym => projTotals[ym] = proj.persons.reduce((s,p) => s+(p.allocs[ym]||0), 0));
 
         // Project header row
@@ -1104,6 +1114,8 @@ function rhRenderResumoProj(data, el) {
               + proj.persons.length + ' pessoa'+(proj.persons.length!==1?'s':'')+'</td>';
         html += '<td class="rh-sticky" style="left:'+L3+'px;background:#dbeafe;font-size:11px;font-weight:700;text-align:center;color:#1e40af">'
               + (projPmOrcTotal > 0 ? (Math.round(projPmOrcTotal*100)/100) : '—') + '</td>';
+        html += '<td class="rh-sticky" style="left:'+L4+'px;background:#d1fae5;font-size:11px;font-weight:700;text-align:center;color:#065f46">'
+              + (projPmExeTotal > 0 ? (Math.round(projPmExeTotal*100)/100) : '—') + '</td>';
         months.forEach(ym => {
             const v = projTotals[ym];
             const m = ym.split('-')[1];
@@ -1117,6 +1129,7 @@ function rhRenderResumoProj(data, el) {
         // Person rows
         proj.persons.forEach(person => {
             const ppid = person.ppid;
+            const pmExeV = personPmExe(person, ps, pe);
             html += '<tr>';
             html += '<td class="rh-sticky" style="left:'+L1+'px;padding:2px 8px 2px 20px;background:#fff;font-size:11px">'
                   + rhEsc((person.rh_code ? person.rh_code+' | ' : '')+person.full_name)+'</td>';
@@ -1132,6 +1145,9 @@ function rhRenderResumoProj(data, el) {
                 html += '<td class="rh-sticky" style="left:'+L3+'px;background:#fff;text-align:center;font-size:11px;color:#6c757d">'
                       + (pmOrcV != null ? pmOrcV : '—')+'</td>';
             }
+            // PM EXE — read-only, calculated
+            html += '<td class="rh-sticky rh-pm-auto" style="left:'+L4+'px" title="Calculado: Σ imputações / 100">'
+                  + (pmExeV > 0 ? (Math.round(pmExeV*100)/100) : '<span style="color:#ced4da">—</span>') + '</td>';
             months.forEach(ym => {
                 const locked = (ps && ym < ps) || (pe && ym > pe);
                 const v = person.allocs[ym] ?? 0;

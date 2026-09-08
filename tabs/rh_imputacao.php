@@ -285,14 +285,54 @@ if ($action && $is_json) {
             $name  = trim($b['full_name'] ?? '');
             $code  = trim($b['rh_code'] ?? '');
             $tipo  = trim($b['tipo_ligacao'] ?? '');
+            $utid = isset($b['user_token_id']) ? ($b['user_token_id'] === null ? null : (int)$b['user_token_id']) : null;
             if (!$cid || !$name) { echo json_encode(['error'=>'Dados incompletos']); exit; }
             $maxS = $pdo->prepare("SELECT COALESCE(MAX(sort_order),0)+1 FROM rh_persons WHERE campaign_id=?");
             $maxS->execute([$cid]);
             $sort = (int)$maxS->fetchColumn();
-            $pdo->prepare("INSERT INTO rh_persons (campaign_id,rh_code,full_name,tipo_ligacao,sort_order) VALUES (?,?,?,?,?)")
-                ->execute([$cid, $code, $name, $tipo ?: null, $sort]);
+            $pdo->prepare("INSERT INTO rh_persons (campaign_id,rh_code,full_name,tipo_ligacao,user_token_id,sort_order) VALUES (?,?,?,?,?,?)")
+                ->execute([$cid, $code, $name, $tipo ?: null, $utid, $sort]);
             $pid = (int)$pdo->lastInsertId();
             echo json_encode(['ok'=>true,'person_id'=>$pid]);
+            exit;
+        }
+
+        // ── Adjust campaign months (add/remove a year) ───────────────────
+        case 'adjust_months': {
+            if (!$is_admin) { echo json_encode(['error'=>'Sem permissão']); exit; }
+            $b   = json_decode(file_get_contents('php://input'), true);
+            $plan = trim($b['plan_name'] ?? '');
+            $dir  = $b['direction'] ?? '+';
+            if (!$plan) { echo json_encode(['error'=>'Plano requerido']); exit; }
+
+            $camps = $pdo->prepare("SELECT id, months_json FROM rh_campaigns WHERE plan_name=?");
+            $camps->execute([$plan]);
+            foreach ($camps->fetchAll(PDO::FETCH_ASSOC) as $camp) {
+                $months = json_decode($camp['months_json'], true);
+                sort($months);
+                if ($dir === '+') {
+                    [$y, $m] = explode('-', end($months));
+                    $y = (int)$y; $m = (int)$m;
+                    for ($i = 0; $i < 12; $i++) {
+                        if (++$m > 12) { $m = 1; $y++; }
+                        $months[] = sprintf('%04d-%02d', $y, $m);
+                    }
+                } else {
+                    if (count($months) <= 12) { echo json_encode(['error'=>'Mínimo de 12 meses']); exit; }
+                    foreach (array_slice($months, -12) as $ym) {
+                        [$y, $mo] = explode('-', $ym);
+                        $chk = $pdo->prepare("SELECT COUNT(*) FROM rh_monthly_alloc a
+                            JOIN rh_person_projects pp ON a.person_project_id=pp.id
+                            JOIN rh_persons p ON pp.person_id=p.id
+                            WHERE p.campaign_id=? AND a.year=? AND a.month=? AND a.percentage>0");
+                        $chk->execute([$camp['id'], (int)$y, (int)$mo]);
+                        if ($chk->fetchColumn() > 0) { echo json_encode(['error'=>'Existem imputações no último ano, não é possível remover']); exit; }
+                    }
+                    $months = array_slice($months, 0, -12);
+                }
+                $pdo->prepare("UPDATE rh_campaigns SET months_json=? WHERE id=?")->execute([json_encode($months), $camp['id']]);
+            }
+            echo json_encode(['ok'=>true]);
             exit;
         }
 
@@ -446,9 +486,26 @@ if ($action && $is_json) {
             $code   = trim($b['project_code'] ?? '');
             $name   = trim($b['project_name'] ?? '');
             if (!$ppid || $projId === false) { echo json_encode(['error'=>'Dados incompletos']); exit; }
+
+            // Read original name before update (used as propagation key)
+            $origName = $pdo->prepare("SELECT project_name FROM rh_person_projects WHERE id=?");
+            $origName->execute([$ppid]);
+            $origName = (string)$origName->fetchColumn();
+
+            // Update the target row
             $pdo->prepare("UPDATE rh_person_projects SET project_id=?, project_code=?, project_name=? WHERE id=?")
                 ->execute([$projId, $code, $name, $ppid]);
-            echo json_encode(['ok'=>true]);
+
+            // Propagate project_id to all rows with the same project_name (case-insensitive)
+            $propagated = 0;
+            if ($origName !== '') {
+                $stmt = $pdo->prepare(
+                    "UPDATE rh_person_projects SET project_id=? WHERE LOWER(TRIM(project_name))=LOWER(TRIM(?)) AND id!=?"
+                );
+                $stmt->execute([$projId, $origName, $ppid]);
+                $propagated = $stmt->rowCount();
+            }
+            echo json_encode(['ok'=>true, 'propagated'=>$propagated]);
             exit;
         }
     }
@@ -539,6 +596,7 @@ $rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY 
 .rh-cell-full   { background:#d1e7dd; font-weight:700; color:#0f5132; }
 .rh-cell-over   { background:#f8d7da; color:#721c24; font-weight:700; }
 .rh-cell-locked { background:repeating-linear-gradient(45deg,#f1f3f5,#f1f3f5 3px,#e9ecef 3px,#e9ecef 6px); cursor:not-allowed!important; }
+.rh-pm-auto { background:#f0fdf4; color:#166534; font-weight:600; cursor:default!important; font-size:11px; text-align:center; }
 .rh-cell-locked:hover { outline:none!important; }
 .rh-sum-empty   { color:#adb5bd; }
 .rh-sum-ok      { background:#d1e7dd; color:#0f5132; }
@@ -622,6 +680,11 @@ $rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY 
     <i class="bi bi-plus-circle"></i> Novo plano
   </button>
 
+  <div class="btn-group" id="rh-year-btns" style="display:none">
+    <button class="btn btn-sm btn-outline-secondary" onclick="rhAdjustMonths('-')" title="Remover último ano (se vazio)">− ano</button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="rhAdjustMonths('+')" title="Adicionar mais um ano">+ ano</button>
+  </div>
+
   <button class="btn btn-sm btn-outline-danger" onclick="rhDeletePlan()" id="rh-delete-btn" disabled>
     <i class="bi bi-trash3"></i> Eliminar plano
   </button>
@@ -700,6 +763,43 @@ $rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY 
       <div class="modal-footer">
         <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
         <button class="btn btn-primary btn-sm" onclick="rhCreateEmptyPlan()">Criar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add person modal -->
+<div class="modal fade" id="rh-add-person-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title mb-0">➕ Adicionar pessoa</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="rh-ap-campaign-id">
+        <div class="row g-2 mb-2">
+          <div class="col-8">
+            <label class="form-label fw-bold mb-0" style="font-size:11px">Nome completo *</label>
+            <input type="text" class="form-control form-control-sm" id="rh-ap-name"
+                   placeholder="Nome da pessoa" oninput="rhUpdateApUserSuggestions(this.value)">
+          </div>
+          <div class="col-4">
+            <label class="form-label fw-bold mb-0" style="font-size:11px">Código RH</label>
+            <input type="text" class="form-control form-control-sm" id="rh-ap-code" placeholder="R12345">
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-bold mb-0" style="font-size:11px">Tipo de ligação</label>
+          <input type="text" class="form-control form-control-sm" id="rh-ap-tipo" placeholder="ex: Colaborador, Bolseiro…">
+        </div>
+        <label class="form-label fw-bold mb-1" style="font-size:11px">Utilizador pikachuPM</label>
+        <select class="form-select form-select-sm" id="rh-ap-user-sel"></select>
+        <p class="text-muted mt-1 mb-0" style="font-size:11px">★ = sugestão por nome. Opcional.</p>
+      </div>
+      <div class="modal-footer py-2">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-success btn-sm" onclick="rhSaveAddPerson()">Adicionar</button>
       </div>
     </div>
   </div>
@@ -965,6 +1065,8 @@ function rhSelectPlan(planName) {
     const delBtn = document.getElementById('rh-delete-btn');
     if (expBtn) expBtn.disabled = !planName;
     if (delBtn) delBtn.disabled = !planName;
+    const yearBtns = document.getElementById('rh-year-btns');
+    if (yearBtns) yearBtns.style.display = planName ? '' : 'none';
 
     if (!planName) {
         ['contratados','bolseiros'].forEach(t => {
@@ -1041,7 +1143,16 @@ function rhRenderGrid(data, container, type) {
         const projects = person.projects || [];
 
         // Person header row
-        const pmExeTotal = projects.reduce((s,pp) => s + (parseFloat(pp.pm_exe)||0), 0);
+        // PM EXE computed from allocations (Σ% / 100), locked months excluded
+        function ppComputedPmExe(pp) {
+            return months.reduce((s, ym) => {
+                const ps = pp.data_inicio ? pp.data_inicio.substring(0,7) : null;
+                const pe = pp.data_fim    ? pp.data_fim.substring(0,7)    : null;
+                if ((ps && ym < ps) || (pe && ym > pe)) return s;
+                return s + parseFloat(pp.allocations?.[ym] || 0);
+            }, 0) / 100;
+        }
+        const pmExeTotal = projects.reduce((s,pp) => s + ppComputedPmExe(pp), 0);
         const linkedUser = person.linked_username;
         html += '<tr class="rh-person-hdr" onclick="rhTogglePerson('+pid+')">';
         html += '<td colspan="'+totalCols+'">';
@@ -1101,11 +1212,12 @@ function rhRenderGrid(data, container, type) {
                   + 'data-ppid="'+ppid+'" data-field="pm_orc">'
                   + (pmOrcVal != null ? pmOrcVal : '<span style="color:#ced4da">—</span>')+'</td>';
 
-            // PM EXE
-            const pmExeVal = pp.pm_exe != null ? parseFloat(pp.pm_exe) : null;
-            html += '<td class="rh-sticky rh-col-pmexe rh-sticky-border rh-pm-cell'+(RH_IS_ADMIN?' rh-editable':'')+'" '
-                  + 'data-ppid="'+ppid+'" data-field="pm_exe">'
-                  + (pmExeVal != null ? pmExeVal : '<span style="color:#ced4da">—</span>')+'</td>';
+            // PM EXE — auto-computed from monthly allocations (Σ% / 100)
+            const pmExeComputed = ppComputedPmExe(pp);
+            const pmExeDisplay  = pmExeComputed > 0 ? (Math.round(pmExeComputed * 100) / 100) : null;
+            html += '<td class="rh-sticky rh-col-pmexe rh-sticky-border rh-pm-cell rh-pm-auto" '
+                  + 'data-ppid="'+ppid+'" title="Calculado: Σ imputações / 100">'
+                  + (pmExeDisplay != null ? pmExeDisplay : '<span style="color:#ced4da">—</span>')+'</td>';
 
             // Monthly cells — lock months outside linked project's date range
             const projStart = pp.data_inicio ? pp.data_inicio.substring(0,7) : null;
@@ -1299,9 +1411,10 @@ function rhCommitEdit() {
         // Update cell visuals
         rhUpdateCellVisual(t.el, numVal);
 
-        // Update sum row
+        // Update monthly sum row and PM EXE
         const pid = t.el.closest('tr').dataset.pid;
         if (pid) rhRecomputeSum(parseInt(pid), ym);
+        rhRecomputePmExe(t.ppid);
 
         // Update in-memory data
         if (rhCampaignData[rhCurrentType]) {
@@ -1336,6 +1449,34 @@ function rhUpdateCellVisual(cell, pct) {
     }
 }
 
+function rhRecomputePmExe(ppid) {
+    // Sum all non-locked monthly cells for this project row
+    const cells = document.querySelectorAll('tr.rh-proj-row[data-ppid="'+ppid+'"] .rh-cell[data-ppid="'+ppid+'"]:not(.rh-cell-locked)');
+    let total = 0;
+    cells.forEach(c => { const v = parseFloat(c.textContent); if (!isNaN(v)) total += v; });
+    const pmExe = Math.round(total * 100) / 10000; // total/100, 2 dp
+
+    // Update PM EXE cell
+    const pmExeCell = document.querySelector('.rh-col-pmexe[data-ppid="'+ppid+'"]');
+    if (pmExeCell) pmExeCell.textContent = pmExe > 0 ? pmExe : '';
+
+    // Update person SUM row PM EXE
+    const tr = document.querySelector('tr.rh-proj-row[data-ppid="'+ppid+'"]');
+    if (tr) rhRecomputeSumPmExe(parseInt(tr.dataset.pid));
+
+    // Persist to DB silently
+    rhAjax('save_pm', { pp_id: ppid, field: 'pm_exe', value: pmExe > 0 ? pmExe : null });
+}
+
+function rhRecomputeSumPmExe(pid) {
+    let total = 0;
+    document.querySelectorAll('tr.rh-proj-row[data-pid="'+pid+'"] .rh-col-pmexe').forEach(cell => {
+        total += parseFloat(cell.textContent) || 0;
+    });
+    const sumCell = document.querySelector('tr.rh-sum-row[data-pid="'+pid+'"] .rh-sum-pm');
+    if (sumCell) sumCell.textContent = total > 0 ? (Math.round(total*100)/100) : '';
+}
+
 function rhRecomputeSum(pid, ym) {
     // Collect all project cells for this person+month
     const cells = document.querySelectorAll('.rh-proj-row[data-pid="'+pid+'"] .rh-cell[data-y="'+ym.split('-')[0]+'"][data-m="'+ym.split('-')[1]+'"]');
@@ -1353,12 +1494,51 @@ function rhRecomputeSum(pid, ym) {
 
 // ── Admin: add / delete rows ──────────────────────────────────────────────────
 function rhAddPersonRow(campaignId, type) {
-    const name = prompt('Nome da pessoa:');
-    if (!name) return;
-    const code = prompt('Código RH (ex: R12345):', '') || '';
-    const tipo = prompt('Tipo de ligação:', '') || '';
-    rhAjax('add_person', { campaign_id: parseInt(campaignId), full_name: name, rh_code: code, tipo_ligacao: tipo })
-        .then(() => rhSelectPlan(rhCurrentPlan));
+    document.getElementById('rh-ap-campaign-id').value = campaignId;
+    document.getElementById('rh-ap-name').value  = '';
+    document.getElementById('rh-ap-code').value  = '';
+    document.getElementById('rh-ap-tipo').value  = '';
+    rhUpdateApUserSuggestions('');
+    new bootstrap.Modal(document.getElementById('rh-add-person-modal')).show();
+    setTimeout(() => document.getElementById('rh-ap-name').focus(), 300);
+}
+
+function rhUpdateApUserSuggestions(nameVal) {
+    const sel = document.getElementById('rh-ap-user-sel');
+    const current = sel.value;
+    const normWords = rhNormStr(nameVal).split(/\s+/).filter(w => w.length > 1);
+    const scored = RH_USERS.map(u => {
+        const uWords = rhNormStr(u.username).split(/[\s._-]+/).filter(w => w.length > 1);
+        const score = normWords.filter(w => uWords.some(uw => uw.includes(w) || w.includes(uw))).length;
+        return { ...u, score };
+    }).sort((a, b) => b.score - a.score);
+    sel.innerHTML = '<option value="">— Sem utilizador associado —</option>'
+        + scored.map(u => '<option value="'+u.id+'"'+(u.id==current?' selected':'')+'>'+
+            (u.score >= 2 ? '★ ' : '')+rhEsc(u.username)+'</option>').join('');
+    // Auto-select top suggestion if score >= 2
+    if (!current && scored[0] && scored[0].score >= 2) sel.value = scored[0].id;
+}
+
+async function rhSaveAddPerson() {
+    const cid  = parseInt(document.getElementById('rh-ap-campaign-id').value);
+    const name = document.getElementById('rh-ap-name').value.trim();
+    const code = document.getElementById('rh-ap-code').value.trim();
+    const tipo = document.getElementById('rh-ap-tipo').value.trim();
+    const utid = document.getElementById('rh-ap-user-sel').value;
+    if (!name) { document.getElementById('rh-ap-name').classList.add('is-invalid'); document.getElementById('rh-ap-name').focus(); return; }
+    document.getElementById('rh-ap-name').classList.remove('is-invalid');
+    await rhAjax('add_person', { campaign_id: cid, full_name: name, rh_code: code, tipo_ligacao: tipo,
+        user_token_id: utid ? parseInt(utid) : null });
+    bootstrap.Modal.getInstance(document.getElementById('rh-add-person-modal')).hide();
+    rhSelectPlan(rhCurrentPlan);
+}
+
+async function rhAdjustMonths(dir) {
+    if (!rhCurrentPlan) return;
+    if (dir === '-' && !confirm('Remover o último ano?\nSó é possível se não houver imputações nesses meses.')) return;
+    const res = await rhAjax('adjust_months', { plan_name: rhCurrentPlan, direction: dir });
+    if (res && res.error) { alert(res.error); return; }
+    rhSelectPlan(rhCurrentPlan);
 }
 
 function rhOpenLinkProject(ppid, personId, type, currentProjId, projCode, projName) {
@@ -1412,13 +1592,16 @@ async function rhSaveLinkProject() {
     const name     = document.getElementById('rh-lp-name').value.trim();
     const payload  = { project_id: projId ? parseInt(projId) : null, project_code: code, project_name: name || code };
     if (ppid) {
-        // Link mode: update existing project row
-        await rhAjax('link_project', { pp_id: parseInt(ppid), ...payload });
+        // Link mode: update existing project row (propagates to same project_name)
+        const res = await rhAjax('link_project', { pp_id: parseInt(ppid), ...payload });
+        bootstrap.Modal.getInstance(document.getElementById('rh-link-proj-modal')).hide();
+        if (res && res.propagated > 0)
+            rhSetStatus('Projeto ligado + ' + res.propagated + ' linha' + (res.propagated !== 1 ? 's' : '') + ' com o mesmo nome atualizadas automaticamente');
     } else {
         // Add mode: insert new project row
         await rhAjax('add_person_project', { person_id: parseInt(personId), ...payload });
+        bootstrap.Modal.getInstance(document.getElementById('rh-link-proj-modal')).hide();
     }
-    bootstrap.Modal.getInstance(document.getElementById('rh-link-proj-modal')).hide();
     rhSelectPlan(rhCurrentPlan);
 }
 

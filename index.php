@@ -147,6 +147,7 @@ $tabs = [
             'lab_management' => 'Lab Management',
             'contactos_comerciais' => 'Contactos Comerciais',
             'financeiro' => 'Financeiro',
+            'rh_imputacao' => 'Imputação RH',
             'peer_evaluation' => 'Avaliação entre Pares',
             'skills' => 'Competências',
             'admin' => 'Administration'

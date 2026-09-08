@@ -490,14 +490,28 @@ if ($action && $is_json) {
         case 'add_proj_person': {
             if (!$is_admin) { echo json_encode(['error'=>'Sem permissão']); exit; }
             $b = json_decode(file_get_contents('php://input'), true);
-            $personId = (int)($b['person_id'] ?? 0);
-            $projId   = (int)($b['project_id'] ?? 0);
-            $pmOrc    = isset($b['pm_orc']) && $b['pm_orc'] !== '' ? (float)$b['pm_orc'] : null;
-            if (!$personId || !$projId) { echo json_encode(['error'=>'Dados incompletos']); exit; }
+            $projId = (int)($b['project_id'] ?? 0);
+            $pmOrc  = isset($b['pm_orc']) && $b['pm_orc'] !== '' ? (float)$b['pm_orc'] : null;
+            if (!$projId) { echo json_encode(['error'=>'Dados incompletos']); exit; }
             $proj = $pdo->prepare("SELECT short_name, title FROM projects WHERE id=?");
             $proj->execute([$projId]);
             $proj = $proj->fetch(PDO::FETCH_ASSOC);
             if (!$proj) { echo json_encode(['error'=>'Projeto não encontrado']); exit; }
+
+            // Resolve personId — existing or create new
+            if (!empty($b['person_id'])) {
+                $personId = (int)$b['person_id'];
+            } elseif (!empty($b['new_name'])) {
+                $campId = (int)($b['campaign_id'] ?? 0);
+                if (!$campId) { echo json_encode(['error'=>'Campanha não especificada']); exit; }
+                $sort0 = (int)$pdo->query("SELECT COALESCE(MAX(sort_order),0)+1 FROM rh_persons WHERE campaign_id=$campId")->fetchColumn();
+                $pdo->prepare("INSERT INTO rh_persons (campaign_id, rh_code, full_name, sort_order) VALUES (?,?,?,?)")
+                    ->execute([$campId, $b['new_code'] ?? null, trim($b['new_name']), $sort0]);
+                $personId = (int)$pdo->lastInsertId();
+            } else {
+                echo json_encode(['error'=>'Pessoa não especificada']); exit;
+            }
+
             // Check if already linked
             $exists = $pdo->prepare("SELECT id FROM rh_person_projects WHERE person_id=? AND project_id=?");
             $exists->execute([$personId, $projId]);
@@ -918,16 +932,38 @@ $rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY 
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header py-2">
-        <h6 class="modal-title mb-0">➕ Associar pessoa ao projeto <span id="rh-app-proj-name" class="text-primary"></span></h6>
+        <h6 class="modal-title mb-0">➕ Associar ao projeto <span id="rh-app-proj-name" class="text-primary"></span></h6>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="rh-app-proj-id">
-        <div class="mb-2">
-          <label class="form-label fw-bold mb-0" style="font-size:11px">Pessoa</label>
-          <select class="form-select form-select-sm" id="rh-app-person-sel"></select>
+        <!-- Toggle -->
+        <div class="btn-group btn-group-sm w-100 mb-3" role="group">
+          <button type="button" class="btn btn-primary" id="rh-app-tab-existing" onclick="rhAppToggleMode('existing')">Pessoa existente</button>
+          <button type="button" class="btn btn-outline-primary" id="rh-app-tab-new" onclick="rhAppToggleMode('new')">Nova pessoa</button>
         </div>
-        <div class="mb-2">
+        <!-- Existing person -->
+        <div id="rh-app-section-existing">
+          <label class="form-label fw-bold mb-0" style="font-size:11px">Pessoa</label>
+          <select class="form-select form-select-sm mb-2" id="rh-app-person-sel"></select>
+        </div>
+        <!-- New person -->
+        <div id="rh-app-section-new" style="display:none">
+          <div class="row g-2 mb-2">
+            <div class="col-8">
+              <label class="form-label fw-bold mb-0" style="font-size:11px">Nome *</label>
+              <input type="text" class="form-control form-control-sm" id="rh-app-new-name" placeholder="Nome da pessoa">
+            </div>
+            <div class="col-4">
+              <label class="form-label fw-bold mb-0" style="font-size:11px">Código RH</label>
+              <input type="text" class="form-control form-control-sm" id="rh-app-new-code" placeholder="R12345">
+            </div>
+          </div>
+          <label class="form-label fw-bold mb-0" style="font-size:11px">Campanha *</label>
+          <select class="form-select form-select-sm mb-2" id="rh-app-campaign-sel"></select>
+        </div>
+        <!-- Common -->
+        <div class="mb-0">
           <label class="form-label fw-bold mb-0" style="font-size:11px">PM ORC</label>
           <input type="number" step="0.01" min="0" class="form-control form-control-sm" id="rh-app-pm-orc" placeholder="ex: 0.50">
         </div>
@@ -970,6 +1006,7 @@ const RH_PLAN_MAP   = <?= json_encode($plan_map, JSON_UNESCAPED_UNICODE) ?>;
 const RH_IS_ADMIN   = <?= $is_admin ? 'true' : 'false' ?>;
 const RH_USERS      = <?= json_encode($rh_users, JSON_UNESCAPED_UNICODE) ?>; // [{id, user_id, username}]
 const RH_PROJECTS   = <?= json_encode($rh_projects, JSON_UNESCAPED_UNICODE) ?>; // [{id, short_name, title}]
+const RH_CAMPAIGNS  = <?= json_encode($campaigns, JSON_UNESCAPED_UNICODE) ?>;  // [{id, plan_name, type}]
 let rhCurrentPlan   = null;
 let rhCurrentType   = 'contratados';
 let rhCampaignData  = { contratados: null, bolseiros: null };
@@ -1067,8 +1104,10 @@ function rhRenderResumoProj(data, el) {
 
         // Project header row
         html += '<tr>';
-        html += '<td class="rh-sticky" style="left:'+L1+'px;background:#dbeafe;font-weight:700;font-size:12px;padding:4px 8px;color:#1e40af">'
-              + rhEsc(proj.short_name) + ' — ' + rhEsc(proj.title)
+        const projLabel = proj.short_name + ' — ' + proj.title;
+        const projLabelTrunc = projLabel.length > 40 ? projLabel.substring(0, 40) + '…' : projLabel;
+        html += '<td class="rh-sticky" style="left:'+L1+'px;background:#dbeafe;font-weight:700;font-size:12px;padding:4px 8px;color:#1e40af" title="'+rhEsc(projLabel)+'">'
+              + rhEsc(projLabelTrunc)
               + (ps ? ' <span style="font-size:10px;font-weight:400;color:#64748b">('+ps+' → '+(pe||'…')+')</span>' : '');
         if (RH_IS_ADMIN)
             html += ' <button class="btn btn-xs btn-outline-primary" style="font-size:10px;padding:0 5px" '
@@ -1126,28 +1165,59 @@ function rhRenderResumoProj(data, el) {
     el.innerHTML = html;
 }
 
+let rhAppMode = 'existing';
+
+function rhAppToggleMode(mode) {
+    rhAppMode = mode;
+    document.getElementById('rh-app-section-existing').style.display = mode === 'existing' ? '' : 'none';
+    document.getElementById('rh-app-section-new').style.display      = mode === 'new'      ? '' : 'none';
+    document.getElementById('rh-app-tab-existing').className = 'btn btn-sm ' + (mode === 'existing' ? 'btn-primary' : 'btn-outline-primary');
+    document.getElementById('rh-app-tab-new').className      = 'btn btn-sm ' + (mode === 'new'      ? 'btn-primary' : 'btn-outline-primary');
+}
+
 function rhOpenAddProjPerson(projId, projShortName) {
-    document.getElementById('rh-app-proj-id').value   = projId;
-    document.getElementById('rh-app-proj-name').textContent = projShortName;
-    document.getElementById('rh-app-pm-orc').value    = '';
-    // Populate person list
+    document.getElementById('rh-app-proj-id').value          = projId;
+    document.getElementById('rh-app-proj-name').textContent  = projShortName;
+    document.getElementById('rh-app-pm-orc').value           = '';
+    document.getElementById('rh-app-new-name').value         = '';
+    document.getElementById('rh-app-new-code').value         = '';
+    // Existing persons
     const sel = document.getElementById('rh-app-person-sel');
     sel.innerHTML = '<option value="">— Seleciona uma pessoa —</option>'
         + rhResumoProjAllPersons.map(p =>
             '<option value="'+p.id+'">['+rhEsc(p.camp_type)+'] '+rhEsc(p.full_name)+(p.rh_code?' ('+rhEsc(p.rh_code)+')':'')+'</option>'
         ).join('');
+    // Campaigns
+    const campSel = document.getElementById('rh-app-campaign-sel');
+    campSel.innerHTML = '<option value="">— Seleciona campanha —</option>'
+        + RH_CAMPAIGNS.map(c =>
+            '<option value="'+c.id+'">'+rhEsc(c.plan_name)+' ('+rhEsc(c.type)+')</option>'
+        ).join('');
+    rhAppToggleMode('existing');
     new bootstrap.Modal(document.getElementById('rh-add-proj-person-modal')).show();
 }
 
 async function rhSaveAddProjPerson() {
-    const projId  = parseInt(document.getElementById('rh-app-proj-id').value);
-    const personId= parseInt(document.getElementById('rh-app-person-sel').value);
-    const pmOrc   = document.getElementById('rh-app-pm-orc').value.trim();
-    if (!personId) { alert('Seleciona uma pessoa'); return; }
-    const res = await rhAjax('add_proj_person', { project_id: projId, person_id: personId, pm_orc: pmOrc||null });
+    const projId = parseInt(document.getElementById('rh-app-proj-id').value);
+    const pmOrc  = document.getElementById('rh-app-pm-orc').value.trim();
+    let payload  = { project_id: projId, pm_orc: pmOrc || null };
+    if (rhAppMode === 'existing') {
+        const personId = parseInt(document.getElementById('rh-app-person-sel').value);
+        if (!personId) { alert('Seleciona uma pessoa'); return; }
+        payload.person_id = personId;
+    } else {
+        const name = document.getElementById('rh-app-new-name').value.trim();
+        const code = document.getElementById('rh-app-new-code').value.trim();
+        const campId = parseInt(document.getElementById('rh-app-campaign-sel').value);
+        if (!name) { alert('Introduz um nome'); return; }
+        if (!campId) { alert('Seleciona uma campanha'); return; }
+        payload.new_name = name;
+        payload.new_code = code || null;
+        payload.campaign_id = campId;
+    }
+    const res = await rhAjax('add_proj_person', payload);
     if (res && res.error) { alert(res.error); return; }
     bootstrap.Modal.getInstance(document.getElementById('rh-add-proj-person-modal')).hide();
-    // Reload resumo proj
     rhResumoProjLoaded = false;
     rhLoadResumoProj();
 }
@@ -1336,7 +1406,8 @@ function rhRenderGrid(data, container, type) {
             html += '<div class="rh-proj-code">'+rhEsc(pp.project_code);
             if (hasLink) html += ' <span class="rh-link-dot" title="Ligado: '+rhEsc(pp.linked_short_name||pp.project_name)+'">●</span>';
             html += '</div>';
-            html += '<div class="rh-proj-name">'+rhEsc(pp.project_name)+'</div>';
+            const pnTrunc = pp.project_name && pp.project_name.length > 40 ? pp.project_name.substring(0,40)+'…' : (pp.project_name||'');
+            html += '<div class="rh-proj-name" title="'+rhEsc(pp.project_name)+'">'+rhEsc(pnTrunc)+'</div>';
             if (hasLink && pp.linked_title) {
                 html += '<div style="font-size:10px;color:#198754;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px" title="'+rhEsc(pp.linked_title)+'">'+rhEsc(pp.linked_title)+'</div>';
             }
@@ -1527,8 +1598,8 @@ function rhMultiPromptFill(cells) {
     const rect = first.getBoundingClientRect();
     const inp = document.getElementById('rh-edit-input');
     inp.value = '';
-    inp.style.left   = (rect.left + window.scrollX) + 'px';
-    inp.style.top    = (rect.top  + window.scrollY) + 'px';
+    inp.style.left   = rect.left + 'px';
+    inp.style.top    = rect.top  + 'px';
     inp.style.width  = (rect.width * cells.length) + 'px';
     inp.style.height = rect.height + 'px';
     inp.style.display = 'block';
@@ -1562,8 +1633,8 @@ function rhOpenCellEdit(cell) {
 
     rhEditTarget = { el: cell, ppid, year, month, field: null, orig: cur };
     inp.value = cur;
-    inp.style.left = (rect.left + window.scrollX) + 'px';
-    inp.style.top  = (rect.top  + window.scrollY) + 'px';
+    inp.style.left = rect.left + 'px';
+    inp.style.top  = rect.top  + 'px';
     inp.style.width= rect.width + 'px';
     inp.style.height= rect.height + 'px';
     inp.style.display = 'block';
@@ -1580,8 +1651,8 @@ function rhOpenPmEdit(cell) {
 
     rhEditTarget = { el: cell, ppid, year: null, month: null, field, orig: cur };
     inp.value = cur;
-    inp.style.left = (rect.left + window.scrollX) + 'px';
-    inp.style.top  = (rect.top  + window.scrollY) + 'px';
+    inp.style.left = rect.left + 'px';
+    inp.style.top  = rect.top  + 'px';
     inp.style.width= rect.width + 'px';
     inp.style.height= rect.height + 'px';
     inp.style.display = 'block';

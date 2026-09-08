@@ -343,6 +343,37 @@ if ($action && $is_json) {
             exit;
         }
 
+        // ── Resumo global por utilizador PK ───────────────────────────────
+        case 'get_resumo_pk': {
+            $campsAll = $pdo->query("SELECT months_json FROM rh_campaigns")->fetchAll(PDO::FETCH_COLUMN);
+            $allMonths = [];
+            foreach ($campsAll as $mj) {
+                foreach (json_decode($mj, true) ?: [] as $ym) $allMonths[$ym] = true;
+            }
+            ksort($allMonths);
+            $months = array_keys($allMonths);
+
+            $users = $pdo->query("SELECT id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
+
+            $rows = $pdo->query("
+                SELECT ut.id as ut_id, a.year, a.month, SUM(a.percentage) as total
+                FROM rh_monthly_alloc a
+                JOIN rh_person_projects pp ON a.person_project_id = pp.id
+                JOIN rh_persons p ON pp.person_id = p.id
+                JOIN user_tokens ut ON p.user_token_id = ut.id
+                GROUP BY ut.id, a.year, a.month
+            ")->fetchAll(PDO::FETCH_ASSOC);
+
+            $allocs = [];
+            foreach ($rows as $r) {
+                $ym = $r['year'].'-'.str_pad($r['month'], 2, '0', STR_PAD_LEFT);
+                $allocs[$r['ut_id']][$ym] = (float)$r['total'];
+            }
+
+            echo json_encode(['months' => $months, 'users' => $users, 'allocs' => $allocs]);
+            exit;
+        }
+
         // ── Get users list (for person-linking UI) ────────────────────────
         case 'get_users': {
             $users = $pdo->query("SELECT id, user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
@@ -553,6 +584,9 @@ $rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY 
   <button class="rh-tab" data-type="bolseiros" onclick="rhSwitchTab('bolseiros')">
     🎓 Bolseiros
   </button>
+  <button class="rh-tab" data-type="resumo" onclick="rhSwitchTab('resumo')">
+    📊 Resumo PK
+  </button>
 </div>
 
 <!-- Grid containers -->
@@ -561,6 +595,9 @@ $rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY 
 </div>
 <div id="rh-grid-bolseiros" class="rh-grid-outer" style="display:none">
   <div class="rh-empty">Seleciona um plano para visualizar os dados</div>
+</div>
+<div id="rh-grid-resumo" class="rh-grid-outer" style="display:none">
+  <div class="rh-empty">A carregar…</div>
 </div>
 
 <!-- Floating edit input -->
@@ -687,11 +724,76 @@ function rhYMLabel(ym) {
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
+let rhResumoLoaded = false;
 function rhSwitchTab(type) {
     rhCurrentType = type;
     document.querySelectorAll('.rh-tab').forEach(t => t.classList.toggle('active', t.dataset.type === type));
     document.getElementById('rh-grid-contratados').style.display = type === 'contratados' ? '' : 'none';
     document.getElementById('rh-grid-bolseiros').style.display   = type === 'bolseiros'   ? '' : 'none';
+    document.getElementById('rh-grid-resumo').style.display      = type === 'resumo'      ? '' : 'none';
+    if (type === 'resumo' && !rhResumoLoaded) rhLoadResumo();
+}
+
+async function rhLoadResumo() {
+    const el = document.getElementById('rh-grid-resumo');
+    el.innerHTML = '<div class="rh-empty">A carregar…</div>';
+    const r = await fetch('?tab=rh_imputacao&action=get_resumo_pk', { headers:{'X-Requested-With':'XMLHttpRequest'} });
+    const data = await r.json();
+    rhResumoLoaded = true;
+    rhRenderResumo(data, el);
+}
+
+function rhRenderResumo(data, el) {
+    const { months, users, allocs } = data;
+    if (!months.length) { el.innerHTML = '<div class="rh-empty">Sem dados de imputação disponíveis</div>'; return; }
+
+    const PT_ABBRs = { '01':'jan','02':'fev','03':'mar','04':'abr','05':'mai','06':'jun',
+                       '07':'jul','08':'ago','09':'set','10':'out','11':'nov','12':'dez' };
+
+    // Group months by year for header
+    const yearGroups = {};
+    months.forEach(ym => { const y = ym.split('-')[0]; yearGroups[y] = (yearGroups[y]||0)+1; });
+
+    let html = '<div class="rh-grid-inner"><table class="rh-table">';
+
+    // Header row 1: year spans
+    html += '<tr><th class="rh-sticky" style="left:0;min-width:160px;text-align:left;padding-left:8px">Utilizador PK</th>';
+    Object.entries(yearGroups).forEach(([y, cnt]) => {
+        html += '<th colspan="'+cnt+'" style="text-align:center;border-left:2px solid #555">'+y+'</th>';
+    });
+    html += '</tr>';
+
+    // Header row 2: month abbreviations
+    html += '<tr><th class="rh-sticky" style="left:0;background:#343a40"></th>';
+    months.forEach(ym => {
+        const [y, m] = ym.split('-');
+        html += '<th style="min-width:44px;'+(m === '01' ? 'border-left:2px solid #555':'')+'">'
+              + PT_ABBRs[m]+'</th>';
+    });
+    html += '</tr>';
+
+    // User rows
+    users.forEach(u => {
+        const ua = allocs[u.id] || {};
+        const hasAny = months.some(ym => ua[ym]);
+        html += '<tr>';
+        html += '<td class="rh-sticky" style="left:0;padding:3px 8px;background:#fff;font-size:12px;font-weight:'+(hasAny?'600':'400')+';color:'+(hasAny?'#212529':'#adb5bd')+'">'+rhEsc(u.username)+'</td>';
+        months.forEach(ym => {
+            const v = ua[ym] ?? 0;
+            let bg = '';
+            if (v === 0)        bg = '';
+            else if (v < 100)   bg = 'background:#fff9c4';
+            else if (v === 100) bg = 'background:#d4edda';
+            else                bg = 'background:#f8d7da';
+            const border = ym.endsWith('-01') ? 'border-left:2px solid #dee2e6;' : '';
+            html += '<td style="text-align:center;font-size:11px;'+border+bg+'">'
+                  + (v ? v : '<span style="color:#ced4da">—</span>')+'</td>';
+        });
+        html += '</tr>';
+    });
+
+    html += '</table></div>';
+    el.innerHTML = html;
 }
 
 // ── Plan selection ────────────────────────────────────────────────────────────
@@ -1314,34 +1416,37 @@ async function rhExportXlsx() {
         // Build rows array
         const aoa = [];
 
-        // Header row
-        const hdr = ['iD RH | Nome Profissional','Tipo Ligação','id PRP | Nome Curto','PM    ORC','PM EXE'];
+        // Header row: Nome RH | Utilizador PK | Tipo | Nome Projeto RH | Projeto PK | PM ORC | PM EXE | months...
+        const hdr = ['iD RH | Nome RH','Utilizador PK','Tipo Ligação','Código | Nome Projeto RH','Projeto PK','PM ORC','PM EXE'];
         months.forEach(ym => { const [y,m] = ym.split('-'); hdr.push(PT_ABBRs[m]+'/'+y.slice(2)); });
         aoa.push(hdr);
 
         data.persons.forEach(person => {
-            const personLabel = (person.rh_code ? person.rh_code + '  |  ' : '') + person.full_name;
+            const rhLabel = (person.rh_code ? person.rh_code + '  |  ' : '') + person.full_name;
+            const pkLabel = person.linked_username || '';
             let sumPmExe = 0;
             const sumAllocs = {};
             months.forEach(ym => sumAllocs[ym] = 0);
 
             person.projects.forEach(pp => {
-                const row = [personLabel, person.tipo_ligacao||'', (pp.project_code ? pp.project_code+'  |  ' : '')+pp.project_name, pp.pm_orc, pp.pm_exe];
+                const rhProj = (pp.project_code ? pp.project_code + '  |  ' : '') + pp.project_name;
+                const pkProj = pp.linked_short_name ? (pp.linked_short_name + (pp.linked_title ? ' | ' + pp.linked_title : '')) : '';
+                const row = [rhLabel, pkLabel, person.tipo_ligacao||'', rhProj, pkProj, pp.pm_orc, pp.pm_exe];
                 months.forEach(ym => { row.push(pp.allocations[ym] ?? null); sumAllocs[ym] += parseFloat(pp.allocations[ym]||0); });
                 aoa.push(row);
                 sumPmExe += parseFloat(pp.pm_exe||0);
             });
 
             // SUM row
-            const sumRow = [personLabel, null, 'SUM', null, sumPmExe > 0 ? sumPmExe : null];
+            const sumRow = [rhLabel, pkLabel, null, 'SUM', null, null, sumPmExe > 0 ? sumPmExe : null];
             months.forEach(ym => sumRow.push(sumAllocs[ym] || null));
             aoa.push(sumRow);
         });
 
         const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-        // Column widths
-        const wscols = [{ wch:35 },{ wch:25 },{ wch:28 },{ wch:10 },{ wch:10 }];
+        // Column widths (no cell styles = no colors in output)
+        const wscols = [{ wch:32 },{ wch:18 },{ wch:20 },{ wch:30 },{ wch:25 },{ wch:10 },{ wch:10 }];
         months.forEach(() => wscols.push({ wch:7 }));
         ws['!cols'] = wscols;
 

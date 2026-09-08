@@ -93,7 +93,7 @@ function rhMatchUser(string $fullName, array $users): ?int {
 // ── AJAX / JSON handlers ─────────────────────────────────────────────────────
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $is_json = !empty($_SERVER['HTTP_X_REQUESTED_WITH'])
-        || ($action === 'get_campaign_data')
+        || in_array($action, ['get_campaign_data','get_resumo_pk','get_resumo_proj'], true)
         || str_contains($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json');
 
 if ($action && $is_json) {
@@ -405,6 +405,7 @@ if ($action && $is_json) {
             ksort($allMonths);
             $months = array_keys($allMonths);
 
+            // Allocations grouped by project+person+month
             $rows = $pdo->query("
                 SELECT pr.id as proj_id, pr.short_name, pr.title, pr.data_inicio, pr.data_fim,
                        p.id as person_id, p.full_name, p.rh_code,
@@ -419,6 +420,19 @@ if ($action && $is_json) {
                 ORDER BY pr.short_name, p.full_name, a.year, a.month
             ")->fetchAll(PDO::FETCH_ASSOC);
 
+            // ppid + pm_orc per (person, project) — first row found
+            $ppMeta = [];
+            foreach ($pdo->query("
+                SELECT MIN(pp.id) as ppid, p.id as person_id, pp.project_id,
+                       MAX(pp.pm_orc) as pm_orc
+                FROM rh_person_projects pp
+                JOIN rh_persons p ON pp.person_id=p.id
+                WHERE pp.project_id IS NOT NULL
+                GROUP BY p.id, pp.project_id
+            ")->fetchAll(PDO::FETCH_ASSOC) as $m) {
+                $ppMeta[$m['project_id']][$m['person_id']] = ['ppid'=>(int)$m['ppid'],'pm_orc'=>$m['pm_orc']];
+            }
+
             $projects = [];
             foreach ($rows as $r) {
                 $pid = $r['proj_id']; $persId = $r['person_id'];
@@ -426,16 +440,72 @@ if ($action && $is_json) {
                     'proj_id'=>$pid,'short_name'=>$r['short_name'],'title'=>$r['title'],
                     'data_inicio'=>$r['data_inicio'],'data_fim'=>$r['data_fim'],'persons'=>[]
                 ];
-                if (!isset($projects[$pid]['persons'][$persId])) $projects[$pid]['persons'][$persId] = [
-                    'person_id'=>$persId,'full_name'=>$r['full_name'],'rh_code'=>$r['rh_code'],
-                    'linked_username'=>$r['linked_username'],'allocs'=>[]
-                ];
+                if (!isset($projects[$pid]['persons'][$persId])) {
+                    $meta = $ppMeta[$pid][$persId] ?? ['ppid'=>null,'pm_orc'=>null];
+                    $projects[$pid]['persons'][$persId] = [
+                        'person_id'=>$persId,'full_name'=>$r['full_name'],'rh_code'=>$r['rh_code'],
+                        'linked_username'=>$r['linked_username'],
+                        'ppid'=>$meta['ppid'],'pm_orc'=>$meta['pm_orc'],'allocs'=>[]
+                    ];
+                }
                 $ym = sprintf('%04d-%02d', $r['year'], $r['month']);
                 $projects[$pid]['persons'][$persId]['allocs'][$ym] = (float)$r['pct'];
             }
+
+            // Also include persons with pm_orc but zero allocations
+            foreach ($ppMeta as $projId => $persMap) {
+                if (!isset($projects[$projId])) continue;
+                foreach ($persMap as $persId => $meta) {
+                    if (!isset($projects[$projId]['persons'][$persId])) {
+                        $p = $pdo->prepare("SELECT p.id,p.full_name,p.rh_code,ut.username as linked_username FROM rh_persons p LEFT JOIN user_tokens ut ON p.user_token_id=ut.id WHERE p.id=?");
+                        $p->execute([$persId]);
+                        if ($row = $p->fetch(PDO::FETCH_ASSOC)) {
+                            $projects[$projId]['persons'][$persId] = [
+                                'person_id'=>$persId,'full_name'=>$row['full_name'],'rh_code'=>$row['rh_code'],
+                                'linked_username'=>$row['linked_username'],
+                                'ppid'=>$meta['ppid'],'pm_orc'=>$meta['pm_orc'],'allocs'=>[]
+                            ];
+                        }
+                    }
+                }
+            }
+
+            // Get list of all persons for "add person to project" modal
+            $allPersons = $pdo->query("
+                SELECT p.id, p.full_name, p.rh_code, c.type as camp_type, c.plan_name,
+                       ut.username as linked_username
+                FROM rh_persons p
+                JOIN rh_campaigns c ON p.campaign_id=c.id
+                LEFT JOIN user_tokens ut ON p.user_token_id=ut.id
+                ORDER BY p.full_name
+            ")->fetchAll(PDO::FETCH_ASSOC);
+
             $result = [];
             foreach ($projects as $proj) { $proj['persons'] = array_values($proj['persons']); $result[] = $proj; }
-            echo json_encode(['months'=>$months,'projects'=>$result]);
+            echo json_encode(['months'=>$months,'projects'=>$result,'all_persons'=>$allPersons]);
+            exit;
+        }
+
+        // ── Add person to project (from Resumo Projetos) ──────────────────
+        case 'add_proj_person': {
+            if (!$is_admin) { echo json_encode(['error'=>'Sem permissão']); exit; }
+            $b = json_decode(file_get_contents('php://input'), true);
+            $personId = (int)($b['person_id'] ?? 0);
+            $projId   = (int)($b['project_id'] ?? 0);
+            $pmOrc    = isset($b['pm_orc']) && $b['pm_orc'] !== '' ? (float)$b['pm_orc'] : null;
+            if (!$personId || !$projId) { echo json_encode(['error'=>'Dados incompletos']); exit; }
+            $proj = $pdo->prepare("SELECT short_name, title FROM projects WHERE id=?");
+            $proj->execute([$projId]);
+            $proj = $proj->fetch(PDO::FETCH_ASSOC);
+            if (!$proj) { echo json_encode(['error'=>'Projeto não encontrado']); exit; }
+            // Check if already linked
+            $exists = $pdo->prepare("SELECT id FROM rh_person_projects WHERE person_id=? AND project_id=?");
+            $exists->execute([$personId, $projId]);
+            if ($exists->fetch()) { echo json_encode(['error'=>'Pessoa já associada a este projeto']); exit; }
+            $sort = (int)$pdo->query("SELECT COALESCE(MAX(sort_order),0)+1 FROM rh_person_projects WHERE person_id=$personId")->fetchColumn();
+            $pdo->prepare("INSERT INTO rh_person_projects (person_id,project_code,project_name,project_id,pm_orc,sort_order) VALUES (?,?,?,?,?,?)")
+                ->execute([$personId, $proj['short_name'], $proj['title'], $projId, $pmOrc, $sort]);
+            echo json_encode(['ok'=>true]);
             exit;
         }
 
@@ -598,6 +668,7 @@ $rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY 
 .rh-cell-locked { background:repeating-linear-gradient(45deg,#f1f3f5,#f1f3f5 3px,#e9ecef 3px,#e9ecef 6px); cursor:not-allowed!important; }
 .rh-pm-auto { background:#f0fdf4; color:#166534; font-weight:600; cursor:default!important; font-size:11px; text-align:center; }
 .rh-cell-locked:hover { outline:none!important; }
+.rh-cell-selected { outline:2px solid #0d6efd!important; outline-offset:-2px; background:#dbeafe!important; }
 .rh-sum-empty   { color:#adb5bd; }
 .rh-sum-ok      { background:#d1e7dd; color:#0f5132; }
 .rh-sum-partial { background:#fff3cd; color:#664d03; }
@@ -842,6 +913,33 @@ $rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY 
   </div>
 </div>
 
+<!-- Add person to project modal (from Resumo Projetos) -->
+<div class="modal fade" id="rh-add-proj-person-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title mb-0">➕ Associar pessoa ao projeto <span id="rh-app-proj-name" class="text-primary"></span></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="rh-app-proj-id">
+        <div class="mb-2">
+          <label class="form-label fw-bold mb-0" style="font-size:11px">Pessoa</label>
+          <select class="form-select form-select-sm" id="rh-app-person-sel"></select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-bold mb-0" style="font-size:11px">PM ORC</label>
+          <input type="number" step="0.01" min="0" class="form-control form-control-sm" id="rh-app-pm-orc" placeholder="ex: 0.50">
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-success btn-sm" onclick="rhSaveAddProjPerson()">Associar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Link user modal -->
 <div class="modal fade" id="rh-link-user-modal" tabindex="-1">
   <div class="modal-dialog modal-sm">
@@ -921,8 +1019,11 @@ async function rhLoadResumoProj() {
     rhRenderResumoProj(rhResumoProjData, el);
 }
 
+let rhResumoProjAllPersons = [];
+
 function rhRenderResumoProj(data, el) {
     const { months, projects } = data;
+    rhResumoProjAllPersons = data.all_persons || [];
     if (!months.length || !projects.length) {
         el.innerHTML = '<div class="rh-empty">Sem dados de imputação por projeto</div>'; return;
     }
@@ -931,21 +1032,24 @@ function rhRenderResumoProj(data, el) {
     const yearGroups = {};
     months.forEach(ym => { const y = ym.split('-')[0]; yearGroups[y] = (yearGroups[y]||0)+1; });
 
+    // Sticky widths: Projeto/Pessoa=200, PK User=130, PM ORC=64
+    const L1=0, L2=200, L3=330;
+
     let html = '<div class="rh-grid-inner"><table class="rh-table">';
 
-    // Header row 1: year spans
     html += '<tr>'
-          + '<th class="rh-sticky" style="left:0;min-width:200px;text-align:left;padding-left:8px">Projeto / Pessoa</th>'
-          + '<th class="rh-sticky" style="left:200px;min-width:130px;text-align:left">Utilizador PK</th>';
+          + '<th class="rh-sticky" style="left:'+L1+'px;min-width:200px;text-align:left;padding-left:8px">Projeto / Pessoa</th>'
+          + '<th class="rh-sticky" style="left:'+L2+'px;min-width:130px;text-align:left">Utilizador PK</th>'
+          + '<th class="rh-sticky" style="left:'+L3+'px;min-width:64px;text-align:center">PM ORC</th>';
     Object.entries(yearGroups).forEach(([y, cnt]) => {
         html += '<th colspan="'+cnt+'" style="text-align:center;border-left:2px solid #555">'+y+'</th>';
     });
     html += '</tr>';
 
-    // Header row 2: months
     html += '<tr>'
-          + '<th class="rh-sticky" style="left:0;background:#343a40"></th>'
-          + '<th class="rh-sticky" style="left:200px;background:#343a40"></th>';
+          + '<th class="rh-sticky" style="left:'+L1+'px;background:#343a40"></th>'
+          + '<th class="rh-sticky" style="left:'+L2+'px;background:#343a40"></th>'
+          + '<th class="rh-sticky" style="left:'+L3+'px;background:#343a40"></th>';
     months.forEach(ym => {
         const m = ym.split('-')[1];
         html += '<th style="min-width:44px;'+(m==='01'?'border-left:2px solid #555':'')+'">'
@@ -957,17 +1061,23 @@ function rhRenderResumoProj(data, el) {
         const ps = proj.data_inicio ? proj.data_inicio.substring(0,7) : null;
         const pe = proj.data_fim    ? proj.data_fim.substring(0,7)    : null;
 
-        // Project total row
         const projTotals = {};
+        const projPmOrcTotal = proj.persons.reduce((s,p) => s + (parseFloat(p.pm_orc)||0), 0);
         months.forEach(ym => projTotals[ym] = proj.persons.reduce((s,p) => s+(p.allocs[ym]||0), 0));
 
+        // Project header row
         html += '<tr>';
-        html += '<td class="rh-sticky" style="left:0;background:#dbeafe;font-weight:700;font-size:12px;padding:4px 8px;color:#1e40af">'
+        html += '<td class="rh-sticky" style="left:'+L1+'px;background:#dbeafe;font-weight:700;font-size:12px;padding:4px 8px;color:#1e40af">'
               + rhEsc(proj.short_name) + ' — ' + rhEsc(proj.title)
-              + (ps ? ' <span style="font-size:10px;font-weight:400;color:#64748b">('+ps+' → '+(pe||'…')+')</span>' : '')
-              + '</td>';
-        html += '<td class="rh-sticky" style="left:200px;background:#dbeafe;font-size:11px;color:#64748b;padding:4px 8px">'
+              + (ps ? ' <span style="font-size:10px;font-weight:400;color:#64748b">('+ps+' → '+(pe||'…')+')</span>' : '');
+        if (RH_IS_ADMIN)
+            html += ' <button class="btn btn-xs btn-outline-primary" style="font-size:10px;padding:0 5px" '
+                  + 'onclick="event.stopPropagation();rhOpenAddProjPerson('+proj.proj_id+',\''+rhEsc(proj.short_name)+'\')">+ pessoa</button>';
+        html += '</td>';
+        html += '<td class="rh-sticky" style="left:'+L2+'px;background:#dbeafe;font-size:11px;color:#64748b;padding:4px 8px">'
               + proj.persons.length + ' pessoa'+(proj.persons.length!==1?'s':'')+'</td>';
+        html += '<td class="rh-sticky" style="left:'+L3+'px;background:#dbeafe;font-size:11px;font-weight:700;text-align:center;color:#1e40af">'
+              + (projPmOrcTotal > 0 ? (Math.round(projPmOrcTotal*100)/100) : '—') + '</td>';
         months.forEach(ym => {
             const v = projTotals[ym];
             const m = ym.split('-')[1];
@@ -980,20 +1090,31 @@ function rhRenderResumoProj(data, el) {
 
         // Person rows
         proj.persons.forEach(person => {
+            const ppid = person.ppid;
             html += '<tr>';
-            html += '<td class="rh-sticky" style="left:0;padding:2px 8px 2px 20px;background:#fff;font-size:11px">'
+            html += '<td class="rh-sticky" style="left:'+L1+'px;padding:2px 8px 2px 20px;background:#fff;font-size:11px">'
                   + rhEsc((person.rh_code ? person.rh_code+' | ' : '')+person.full_name)+'</td>';
-            html += '<td class="rh-sticky" style="left:200px;padding:2px 8px;background:#fff;font-size:11px;color:#1d4ed8">'
+            html += '<td class="rh-sticky" style="left:'+L2+'px;padding:2px 8px;background:#fff;font-size:11px;color:#1d4ed8">'
                   + rhEsc(person.linked_username||'—')+'</td>';
+            // PM ORC — editable in this view
+            const pmOrcV = person.pm_orc != null ? parseFloat(person.pm_orc) : null;
+            if (RH_IS_ADMIN && ppid) {
+                html += '<td class="rh-sticky rh-pm-cell rh-editable rh-rp-pmorc" style="left:'+L3+'px;background:#fff;text-align:center;font-size:11px" '
+                      + 'data-ppid="'+ppid+'" data-field="pm_orc">'
+                      + (pmOrcV != null ? pmOrcV : '<span style="color:#ced4da">—</span>')+'</td>';
+            } else {
+                html += '<td class="rh-sticky" style="left:'+L3+'px;background:#fff;text-align:center;font-size:11px;color:#6c757d">'
+                      + (pmOrcV != null ? pmOrcV : '—')+'</td>';
+            }
             months.forEach(ym => {
                 const locked = (ps && ym < ps) || (pe && ym > pe);
                 const v = person.allocs[ym] ?? 0;
                 const m = ym.split('-')[1];
                 let style = m==='01'?'border-left:2px solid #dee2e6;':'';
                 if (locked) style += 'background:repeating-linear-gradient(45deg,#f1f3f5,#f1f3f5 2px,#e9ecef 2px,#e9ecef 4px);';
-                else if (v>=100 && v===100) style += 'background:#d4edda;font-weight:700;color:#0f5132;';
-                else if (v>100) style += 'background:#f8d7da;font-weight:700;color:#721c24;';
-                else if (v>0)   style += 'background:#fff9c4;';
+                else if (v===100) style += 'background:#d4edda;font-weight:700;color:#0f5132;';
+                else if (v>100)   style += 'background:#f8d7da;font-weight:700;color:#721c24;';
+                else if (v>0)     style += 'background:#fff9c4;';
                 html += '<td style="text-align:center;font-size:11px;'+style+'">'
                       + (locked?'':(v?v:'<span style="color:#ced4da">—</span>'))+'</td>';
             });
@@ -1003,6 +1124,32 @@ function rhRenderResumoProj(data, el) {
 
     html += '</table></div>';
     el.innerHTML = html;
+}
+
+function rhOpenAddProjPerson(projId, projShortName) {
+    document.getElementById('rh-app-proj-id').value   = projId;
+    document.getElementById('rh-app-proj-name').textContent = projShortName;
+    document.getElementById('rh-app-pm-orc').value    = '';
+    // Populate person list
+    const sel = document.getElementById('rh-app-person-sel');
+    sel.innerHTML = '<option value="">— Seleciona uma pessoa —</option>'
+        + rhResumoProjAllPersons.map(p =>
+            '<option value="'+p.id+'">['+rhEsc(p.camp_type)+'] '+rhEsc(p.full_name)+(p.rh_code?' ('+rhEsc(p.rh_code)+')':'')+'</option>'
+        ).join('');
+    new bootstrap.Modal(document.getElementById('rh-add-proj-person-modal')).show();
+}
+
+async function rhSaveAddProjPerson() {
+    const projId  = parseInt(document.getElementById('rh-app-proj-id').value);
+    const personId= parseInt(document.getElementById('rh-app-person-sel').value);
+    const pmOrc   = document.getElementById('rh-app-pm-orc').value.trim();
+    if (!personId) { alert('Seleciona uma pessoa'); return; }
+    const res = await rhAjax('add_proj_person', { project_id: projId, person_id: personId, pm_orc: pmOrc||null });
+    if (res && res.error) { alert(res.error); return; }
+    bootstrap.Modal.getInstance(document.getElementById('rh-add-proj-person-modal')).hide();
+    // Reload resumo proj
+    rhResumoProjLoaded = false;
+    rhLoadResumoProj();
 }
 
 function rhRenderResumo(data, el) {
@@ -1206,10 +1353,10 @@ function rhRenderGrid(data, container, type) {
             // Tipo
             html += '<td class="rh-sticky rh-col-tipo" style="font-size:11px;color:#6c757d;padding-left:6px">'+rhEsc(person.tipo_ligacao||'')+'</td>';
 
-            // PM ORC
+            // PM ORC — read-only here, editable in Resumo Projetos
             const pmOrcVal = pp.pm_orc != null ? parseFloat(pp.pm_orc) : null;
-            html += '<td class="rh-sticky rh-col-pmorc rh-pm-cell'+(RH_IS_ADMIN?' rh-editable':'')+'" '
-                  + 'data-ppid="'+ppid+'" data-field="pm_orc">'
+            html += '<td class="rh-sticky rh-col-pmorc rh-pm-cell" '
+                  + 'data-ppid="'+ppid+'" title="Editar PM ORC no Resumo Projetos">'
                   + (pmOrcVal != null ? pmOrcVal : '<span style="color:#ced4da">—</span>')+'</td>';
 
             // PM EXE — auto-computed from monthly allocations (Σ% / 100)
@@ -1315,13 +1462,93 @@ function rhTogglePerson(pid) {
 }
 
 // ── Inline cell editing ───────────────────────────────────────────────────────
-document.addEventListener('click', function(e) {
+// Multi-cell selection state
+let rhMultiSel = { active: false, row: null, startIdx: -1, endIdx: -1, cells: [] };
+
+function rhMultiClearSelection() {
+    rhMultiSel.cells.forEach(c => c.classList.remove('rh-cell-selected'));
+    rhMultiSel = { active: false, row: null, startIdx: -1, endIdx: -1, cells: [] };
+}
+
+function rhMultiGetRowCells(row) {
+    return Array.from(row.querySelectorAll('.rh-cell.rh-editable:not(.rh-cell-locked)'));
+}
+
+document.addEventListener('mousedown', function(e) {
     const cell = e.target.closest('.rh-cell.rh-editable');
-    if (cell) { rhOpenCellEdit(cell); return; }
+    if (!cell || cell.classList.contains('rh-cell-locked')) return;
+    const row = cell.closest('tr.rh-proj-row');
+    if (!row) return;
+    const rowCells = rhMultiGetRowCells(row);
+    const idx = rowCells.indexOf(cell);
+    if (idx < 0) return;
+    rhMultiClearSelection();
+    rhMultiSel = { active: true, row, startIdx: idx, endIdx: idx, cells: rowCells };
+    cell.classList.add('rh-cell-selected');
+    e.preventDefault(); // prevent text selection drag
+});
+
+document.addEventListener('mousemove', function(e) {
+    if (!rhMultiSel.active) return;
+    const cell = e.target.closest('.rh-cell');
+    if (!cell) return;
+    const row = cell.closest('tr.rh-proj-row');
+    if (row !== rhMultiSel.row) return;
+    const idx = rhMultiSel.cells.indexOf(cell);
+    if (idx < 0 || idx === rhMultiSel.endIdx) return;
+    rhMultiSel.endIdx = idx;
+    const lo = Math.min(rhMultiSel.startIdx, rhMultiSel.endIdx);
+    const hi = Math.max(rhMultiSel.startIdx, rhMultiSel.endIdx);
+    rhMultiSel.cells.forEach((c, i) => {
+        if (i >= lo && i <= hi) c.classList.add('rh-cell-selected');
+        else c.classList.remove('rh-cell-selected');
+    });
+});
+
+document.addEventListener('mouseup', function(e) {
+    if (!rhMultiSel.active) return;
+    rhMultiSel.active = false;
+    const lo = Math.min(rhMultiSel.startIdx, rhMultiSel.endIdx);
+    const hi = Math.max(rhMultiSel.startIdx, rhMultiSel.endIdx);
+    const selected = rhMultiSel.cells.slice(lo, hi + 1);
+    if (selected.length <= 1) {
+        // Single cell — normal edit
+        rhMultiClearSelection();
+        if (selected.length === 1) rhOpenCellEdit(selected[0]);
+        return;
+    }
+    // Multiple cells — prompt for value
+    rhMultiPromptFill(selected);
+});
+
+function rhMultiPromptFill(cells) {
+    // Position a floating input near the first cell
+    const first = cells[0];
+    const rect = first.getBoundingClientRect();
+    const inp = document.getElementById('rh-edit-input');
+    inp.value = '';
+    inp.style.left   = (rect.left + window.scrollX) + 'px';
+    inp.style.top    = (rect.top  + window.scrollY) + 'px';
+    inp.style.width  = (rect.width * cells.length) + 'px';
+    inp.style.height = rect.height + 'px';
+    inp.style.display = 'block';
+    inp.focus(); inp.select();
+
+    // Override commit to apply to all selected cells
+    rhEditTarget = { multiCells: cells, orig: null, el: null, ppid: null, year: null, month: null, field: null };
+}
+
+document.addEventListener('click', function(e) {
+    if (rhMultiSel.active) return;
+    const cell = e.target.closest('.rh-cell.rh-editable');
+    if (cell) return; // handled by mouseup
     const pm = e.target.closest('.rh-pm-cell.rh-editable');
     if (pm) { rhOpenPmEdit(pm); return; }
-    // click outside — commit
-    if (!e.target.closest('#rh-edit-input')) rhCommitEdit();
+    // click outside — commit and clear multi-selection
+    if (!e.target.closest('#rh-edit-input')) {
+        rhCommitEdit();
+        rhMultiClearSelection();
+    }
 });
 
 function rhOpenCellEdit(cell) {
@@ -1393,12 +1620,49 @@ function rhCommitEdit() {
     const t = rhEditTarget;
     rhEditTarget = null;
 
+    // Multi-cell fill
+    if (t.multiCells) {
+        rhMultiClearSelection();
+        const numVal = val === '' ? null : parseFloat(val);
+        if (val === '') return;
+        t.multiCells.forEach(cell => {
+            const ppid  = parseInt(cell.dataset.ppid);
+            const year  = parseInt(cell.dataset.y);
+            const month = parseInt(cell.dataset.m);
+            rhUpdateCellVisual(cell, numVal);
+            const row = cell.closest('tr');
+            const pid = row ? row.dataset.pid : null;
+            if (pid) rhRecomputeSum(parseInt(pid), year+'-'+String(month).padStart(2,'0'));
+            rhRecomputePmExe(ppid);
+            if (rhCampaignData[rhCurrentType]) {
+                for (const person of rhCampaignData[rhCurrentType].persons) {
+                    for (const pp of person.projects) {
+                        if (pp.id === ppid) {
+                            const ym = year+'-'+String(month).padStart(2,'0');
+                            if (numVal === null) delete pp.allocations[ym];
+                            else pp.allocations[ym] = numVal;
+                        }
+                    }
+                }
+            }
+            fetch('?tab=rh_imputacao&action=save_alloc', {
+                method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},
+                body: JSON.stringify({ pp_id: ppid, year, month, pct: numVal })
+            }).catch(console.error);
+        });
+        return;
+    }
+
     if (val === t.orig) return; // No change
 
     if (t.field) {
         // PM field
         const numVal = val === '' ? null : parseFloat(val);
         t.el.textContent = numVal != null ? numVal : '';
+        if (t.el.classList.contains('rh-rp-pmorc')) {
+            // PM ORC edited from Resumo Projetos — invalidate main tab cache
+            rhCampaignData = { contratados: null, bolseiros: null };
+        }
         fetch('?tab=rh_imputacao&action=save_pm', {
             method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},
             body: JSON.stringify({ pp_id: t.ppid, field: t.field, value: val === '' ? null : parseFloat(val) })

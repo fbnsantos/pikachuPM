@@ -179,7 +179,8 @@ if ($action && $is_json) {
             $persons = $ps->fetchAll(PDO::FETCH_ASSOC);
             foreach ($persons as &$person) {
                 $pps = $pdo->prepare(
-                    "SELECT pp.*, pr.short_name as linked_short_name, pr.title as linked_title
+                    "SELECT pp.*, pr.short_name as linked_short_name, pr.title as linked_title,
+                            pr.data_inicio, pr.data_fim
                      FROM rh_person_projects pp
                      LEFT JOIN projects pr ON pp.project_id = pr.id
                      WHERE pp.person_id=? ORDER BY pp.sort_order, pp.id");
@@ -210,6 +211,19 @@ if ($action && $is_json) {
             $month = (int)($b['month'] ?? 0);
             $pct   = ($b['pct'] === '' || $b['pct'] === null) ? null : (float)$b['pct'];
             if (!$ppid || !$year || !$month) { echo json_encode(['error'=>'Dados incompletos']); exit; }
+            // Validate against linked project date range
+            $projDates = $pdo->prepare(
+                "SELECT pr.data_inicio, pr.data_fim FROM rh_person_projects pp
+                 LEFT JOIN projects pr ON pp.project_id=pr.id WHERE pp.id=?"
+            );
+            $projDates->execute([$ppid]);
+            if ($pd = $projDates->fetch(PDO::FETCH_ASSOC)) {
+                $ymCell = sprintf('%04d-%02d', $year, $month);
+                if ($pd['data_inicio'] && $ymCell < substr($pd['data_inicio'], 0, 7))
+                    { echo json_encode(['error'=>'Mês anterior ao início do projeto ('.substr($pd['data_inicio'],0,7).')']); exit; }
+                if ($pd['data_fim'] && $ymCell > substr($pd['data_fim'], 0, 7))
+                    { echo json_encode(['error'=>'Mês posterior ao fim do projeto ('.substr($pd['data_fim'],0,7).')']); exit; }
+            }
             if ($pct === null) {
                 $pdo->prepare("DELETE FROM rh_monthly_alloc WHERE person_project_id=? AND year=? AND month=?")
                     ->execute([$ppid, $year, $month]);
@@ -482,6 +496,8 @@ $rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY 
 .rh-cell-low    { background:#fff9e6; }
 .rh-cell-full   { background:#d1e7dd; font-weight:700; color:#0f5132; }
 .rh-cell-over   { background:#f8d7da; color:#721c24; font-weight:700; }
+.rh-cell-locked { background:repeating-linear-gradient(45deg,#f1f3f5,#f1f3f5 3px,#e9ecef 3px,#e9ecef 6px); cursor:not-allowed!important; }
+.rh-cell-locked:hover { outline:none!important; }
 .rh-sum-empty   { color:#adb5bd; }
 .rh-sum-ok      { background:#d1e7dd; color:#0f5132; }
 .rh-sum-partial { background:#fff3cd; color:#664d03; }
@@ -701,7 +717,7 @@ $rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY 
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script>
 // ── State ────────────────────────────────────────────────────────────────────
 const RH_PLAN_MAP   = <?= json_encode($plan_map, JSON_UNESCAPED_UNICODE) ?>;
@@ -945,10 +961,12 @@ function rhRenderGrid(data, container, type) {
                   + 'data-ppid="'+ppid+'" data-field="pm_exe">'
                   + (pmExeVal != null ? pmExeVal : '<span style="color:#ced4da">—</span>')+'</td>';
 
-            // Monthly cells
+            // Monthly cells — lock months outside linked project's date range
+            const projStart = pp.data_inicio ? pp.data_inicio.substring(0,7) : null;
+            const projEnd   = pp.data_fim    ? pp.data_fim.substring(0,7)    : null;
             months.forEach(ym => {
                 const pct = pp.allocations ? pp.allocations[ym] : undefined;
-                html += rhCellHtml(ppid, ym, pct);
+                html += rhCellHtml(ppid, ym, pct, projStart, projEnd);
             });
 
             html += '</tr>';
@@ -993,8 +1011,15 @@ function rhRenderGrid(data, container, type) {
     container.innerHTML = html;
 }
 
-function rhCellHtml(ppid, ym, pct) {
+function rhCellHtml(ppid, ym, pct, projStart, projEnd) {
     const [y, m] = ym.split('-');
+    const locked = (projStart && ym < projStart) || (projEnd && ym > projEnd);
+    if (locked) {
+        const reason = projStart && ym < projStart
+            ? 'Antes do início do projeto ('+projStart+')'
+            : 'Após o fim do projeto ('+projEnd+')';
+        return '<td class="rh-cell rh-cell-locked" data-ppid="'+ppid+'" data-y="'+y+'" data-m="'+m+'" title="'+reason+'"></td>';
+    }
     const editable = RH_IS_ADMIN ? ' rh-editable' : '';
     let cls = 'rh-cell'+editable;
     let label = '';
@@ -1392,6 +1417,35 @@ async function rhExportXlsx() {
     const planCamps = RH_PLAN_MAP[rhCurrentPlan] || {};
     const wb = XLSX.utils.book_new();
 
+    const PT_ABBRs = { '01':'jan','02':'fev','03':'mar','04':'abr','05':'mai','06':'jun',
+                       '07':'jul','08':'ago','09':'set','10':'out','11':'nov','12':'dez' };
+
+    // Style palette
+    const base = (extra) => Object.assign({ font:{sz:10}, alignment:{vertical:'center'} }, extra);
+    const XS = {
+        hdr:    base({ fill:{fgColor:{rgb:'2D3338'}}, font:{bold:true,color:{rgb:'FFFFFF'},sz:10}, alignment:{horizontal:'center',vertical:'center'} }),
+        hdrL:   base({ fill:{fgColor:{rgb:'2D3338'}}, font:{bold:true,color:{rgb:'FFFFFF'},sz:10}, alignment:{horizontal:'left',vertical:'center'} }),
+        person: base({ fill:{fgColor:{rgb:'DBEAFE'}}, font:{bold:true,sz:10}, alignment:{horizontal:'left',vertical:'center'} }),
+        sum:    base({ fill:{fgColor:{rgb:'E9ECEF'}}, font:{italic:true,sz:10}, alignment:{horizontal:'left',vertical:'center'} }),
+        sumNum: base({ fill:{fgColor:{rgb:'E9ECEF'}}, font:{bold:true,sz:10}, alignment:{horizontal:'center',vertical:'center'} }),
+        proj:   base({ alignment:{horizontal:'left',vertical:'center'} }),
+        num:    base({ alignment:{horizontal:'center',vertical:'center'} }),
+        empty:  base({ font:{color:{rgb:'CCCCCC'},sz:10}, alignment:{horizontal:'center',vertical:'center'} }),
+        low:    base({ fill:{fgColor:{rgb:'FFF9C4'}}, alignment:{horizontal:'center',vertical:'center'} }),
+        full:   base({ fill:{fgColor:{rgb:'D4EDDA'}}, font:{bold:true,color:{rgb:'0F5132'},sz:10}, alignment:{horizontal:'center',vertical:'center'} }),
+        over:   base({ fill:{fgColor:{rgb:'F8D7DA'}}, font:{bold:true,color:{rgb:'721C24'},sz:10}, alignment:{horizontal:'center',vertical:'center'} }),
+        locked: base({ fill:{fgColor:{rgb:'EEEEEE'},patternType:'solid'}, font:{color:{rgb:'CCCCCC'},sz:10}, alignment:{horizontal:'center',vertical:'center'} }),
+    };
+    function cellStyle(v, locked) {
+        if (locked) return XS.locked;
+        if (v == null) return XS.empty;
+        const n = parseFloat(v);
+        if (isNaN(n) || n === 0) return XS.empty;
+        if (n < 100) return XS.low;
+        if (n === 100) return XS.full;
+        return XS.over;
+    }
+
     const sheetDefs = [
         { type:'contratados', sheetName:'Imputacao_RH_contratados' },
         { type:'bolseiros',   sheetName:'Imputacao_RH_bolseiros'   }
@@ -1410,50 +1464,78 @@ async function rhExportXlsx() {
         if (!data || !data.persons) continue;
 
         const months = data.months;
-        const PT_ABBRs = { '01':'jan','02':'fev','03':'mar','04':'abr','05':'mai','06':'jun',
-                           '07':'jul','08':'ago','09':'set','10':'out','11':'nov','12':'dez' };
-
-        // Build rows array
         const aoa = [];
+        const styleMap = []; // styleMap[row][col] = style object
 
-        // Header row: Nome RH | Utilizador PK | Tipo | Nome Projeto RH | Projeto PK | PM ORC | PM EXE | months...
+        // Header
         const hdr = ['iD RH | Nome RH','Utilizador PK','Tipo Ligação','Código | Nome Projeto RH','Projeto PK','PM ORC','PM EXE'];
         months.forEach(ym => { const [y,m] = ym.split('-'); hdr.push(PT_ABBRs[m]+'/'+y.slice(2)); });
         aoa.push(hdr);
+        styleMap.push(hdr.map((_,ci) => ci < 5 ? XS.hdrL : XS.hdr));
 
         data.persons.forEach(person => {
-            const rhLabel = (person.rh_code ? person.rh_code + '  |  ' : '') + person.full_name;
+            const rhLabel = (person.rh_code ? person.rh_code+'  |  ' : '')+person.full_name;
             const pkLabel = person.linked_username || '';
             let sumPmExe = 0;
             const sumAllocs = {};
             months.forEach(ym => sumAllocs[ym] = 0);
 
             person.projects.forEach(pp => {
-                const rhProj = (pp.project_code ? pp.project_code + '  |  ' : '') + pp.project_name;
-                const pkProj = pp.linked_short_name ? (pp.linked_short_name + (pp.linked_title ? ' | ' + pp.linked_title : '')) : '';
-                const row = [rhLabel, pkLabel, person.tipo_ligacao||'', rhProj, pkProj, pp.pm_orc, pp.pm_exe];
-                months.forEach(ym => { row.push(pp.allocations[ym] ?? null); sumAllocs[ym] += parseFloat(pp.allocations[ym]||0); });
+                const rhProj = (pp.project_code ? pp.project_code+'  |  ' : '')+pp.project_name;
+                const pkProj = pp.linked_short_name ? (pp.linked_short_name+(pp.linked_title?' | '+pp.linked_title:'')) : '';
+                const ps = pp.data_inicio ? pp.data_inicio.substring(0,7) : null;
+                const pe = pp.data_fim    ? pp.data_fim.substring(0,7)    : null;
+
+                const row = [rhLabel, pkLabel, person.tipo_ligacao||'', rhProj, pkProj, pp.pm_orc!=null?parseFloat(pp.pm_orc):null, pp.pm_exe!=null?parseFloat(pp.pm_exe):null];
+                const styles = [XS.person, XS.person, XS.person, XS.proj, XS.proj, XS.num, XS.num];
+
+                months.forEach(ym => {
+                    const locked = (ps && ym < ps) || (pe && ym > pe);
+                    const v = pp.allocations ? (pp.allocations[ym] ?? null) : null;
+                    row.push(locked ? null : (v != null ? parseFloat(v) : null));
+                    if (!locked) sumAllocs[ym] += parseFloat(v||0);
+                    styles.push(cellStyle(v, locked));
+                });
+
                 aoa.push(row);
+                styleMap.push(styles);
                 sumPmExe += parseFloat(pp.pm_exe||0);
             });
 
             // SUM row
-            const sumRow = [rhLabel, pkLabel, null, 'SUM', null, null, sumPmExe > 0 ? sumPmExe : null];
-            months.forEach(ym => sumRow.push(sumAllocs[ym] || null));
+            const sumRow = [rhLabel, pkLabel, null, 'SUM', null, null, sumPmExe>0?sumPmExe:null];
+            const sumStyles = [XS.sum,XS.sum,XS.sum,XS.sum,XS.sum,XS.sum,XS.sumNum];
+            months.forEach(ym => {
+                const s = sumAllocs[ym];
+                sumRow.push(s > 0 ? s : null);
+                sumStyles.push(s > 0 ? XS.sumNum : XS.sum);
+            });
             aoa.push(sumRow);
+            styleMap.push(sumStyles);
         });
 
         const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-        // Column widths (no cell styles = no colors in output)
-        const wscols = [{ wch:32 },{ wch:18 },{ wch:20 },{ wch:30 },{ wch:25 },{ wch:10 },{ wch:10 }];
-        months.forEach(() => wscols.push({ wch:7 }));
+        // Apply styles
+        const rng = XLSX.utils.decode_range(ws['!ref']);
+        for (let r = rng.s.r; r <= rng.e.r; r++) {
+            for (let c = rng.s.c; c <= rng.e.c; c++) {
+                const addr = XLSX.utils.encode_cell({r, c});
+                if (!ws[addr]) ws[addr] = { t:'z' };
+                if (styleMap[r] && styleMap[r][c]) ws[addr].s = styleMap[r][c];
+            }
+        }
+
+        // Column widths + freeze header row
+        const wscols = [{wch:32},{wch:18},{wch:20},{wch:30},{wch:25},{wch:10},{wch:10}];
+        months.forEach(() => wscols.push({wch:7}));
         ws['!cols'] = wscols;
+        ws['!freeze'] = { xSplit: 0, ySplit: 1 };
 
         XLSX.utils.book_append_sheet(wb, ws, sd.sheetName);
     }
 
-    XLSX.writeFile(wb, rhCurrentPlan + '.xlsx');
+    XLSX.writeFile(wb, rhCurrentPlan+'.xlsx');
     rhSetStatus('Exportado: '+rhCurrentPlan+'.xlsx');
 }
 

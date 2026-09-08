@@ -357,6 +357,48 @@ if ($action && $is_json) {
             exit;
         }
 
+        // ── Resumo global por projeto ─────────────────────────────────────
+        case 'get_resumo_proj': {
+            $campsAll = $pdo->query("SELECT months_json FROM rh_campaigns")->fetchAll(PDO::FETCH_COLUMN);
+            $allMonths = [];
+            foreach ($campsAll as $mj) foreach (json_decode($mj, true) ?: [] as $ym) $allMonths[$ym] = true;
+            ksort($allMonths);
+            $months = array_keys($allMonths);
+
+            $rows = $pdo->query("
+                SELECT pr.id as proj_id, pr.short_name, pr.title, pr.data_inicio, pr.data_fim,
+                       p.id as person_id, p.full_name, p.rh_code,
+                       ut.username as linked_username,
+                       a.year, a.month, SUM(a.percentage) as pct
+                FROM rh_monthly_alloc a
+                JOIN rh_person_projects pp ON a.person_project_id = pp.id
+                JOIN rh_persons p ON pp.person_id = p.id
+                JOIN projects pr ON pp.project_id = pr.id
+                LEFT JOIN user_tokens ut ON p.user_token_id = ut.id
+                GROUP BY pr.id, p.id, a.year, a.month
+                ORDER BY pr.short_name, p.full_name, a.year, a.month
+            ")->fetchAll(PDO::FETCH_ASSOC);
+
+            $projects = [];
+            foreach ($rows as $r) {
+                $pid = $r['proj_id']; $persId = $r['person_id'];
+                if (!isset($projects[$pid])) $projects[$pid] = [
+                    'proj_id'=>$pid,'short_name'=>$r['short_name'],'title'=>$r['title'],
+                    'data_inicio'=>$r['data_inicio'],'data_fim'=>$r['data_fim'],'persons'=>[]
+                ];
+                if (!isset($projects[$pid]['persons'][$persId])) $projects[$pid]['persons'][$persId] = [
+                    'person_id'=>$persId,'full_name'=>$r['full_name'],'rh_code'=>$r['rh_code'],
+                    'linked_username'=>$r['linked_username'],'allocs'=>[]
+                ];
+                $ym = sprintf('%04d-%02d', $r['year'], $r['month']);
+                $projects[$pid]['persons'][$persId]['allocs'][$ym] = (float)$r['pct'];
+            }
+            $result = [];
+            foreach ($projects as $proj) { $proj['persons'] = array_values($proj['persons']); $result[] = $proj; }
+            echo json_encode(['months'=>$months,'projects'=>$result]);
+            exit;
+        }
+
         // ── Resumo global por utilizador PK ───────────────────────────────
         case 'get_resumo_pk': {
             $campsAll = $pdo->query("SELECT months_json FROM rh_campaigns")->fetchAll(PDO::FETCH_COLUMN);
@@ -603,6 +645,9 @@ $rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY 
   <button class="rh-tab" data-type="resumo" onclick="rhSwitchTab('resumo')">
     📊 Resumo PK
   </button>
+  <button class="rh-tab" data-type="resumo-proj" onclick="rhSwitchTab('resumo-proj')">
+    📁 Resumo Projetos
+  </button>
 </div>
 
 <!-- Grid containers -->
@@ -613,6 +658,9 @@ $rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY 
   <div class="rh-empty">Seleciona um plano para visualizar os dados</div>
 </div>
 <div id="rh-grid-resumo" class="rh-grid-outer" style="display:none">
+  <div class="rh-empty">A carregar…</div>
+</div>
+<div id="rh-grid-resumo-proj" class="rh-grid-outer" style="display:none">
   <div class="rh-empty">A carregar…</div>
 </div>
 
@@ -741,22 +789,120 @@ function rhYMLabel(ym) {
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 let rhResumoLoaded = false;
+let rhResumoProjLoaded = false;
+let rhResumoProjData = null;
+let rhResumoPkData = null;
 function rhSwitchTab(type) {
     rhCurrentType = type;
     document.querySelectorAll('.rh-tab').forEach(t => t.classList.toggle('active', t.dataset.type === type));
-    document.getElementById('rh-grid-contratados').style.display = type === 'contratados' ? '' : 'none';
-    document.getElementById('rh-grid-bolseiros').style.display   = type === 'bolseiros'   ? '' : 'none';
-    document.getElementById('rh-grid-resumo').style.display      = type === 'resumo'      ? '' : 'none';
-    if (type === 'resumo' && !rhResumoLoaded) rhLoadResumo();
+    document.getElementById('rh-grid-contratados').style.display  = type === 'contratados'  ? '' : 'none';
+    document.getElementById('rh-grid-bolseiros').style.display    = type === 'bolseiros'    ? '' : 'none';
+    document.getElementById('rh-grid-resumo').style.display       = type === 'resumo'       ? '' : 'none';
+    document.getElementById('rh-grid-resumo-proj').style.display  = type === 'resumo-proj'  ? '' : 'none';
+    if (type === 'resumo'      && !rhResumoLoaded)     rhLoadResumo();
+    if (type === 'resumo-proj' && !rhResumoProjLoaded) rhLoadResumoProj();
 }
 
 async function rhLoadResumo() {
     const el = document.getElementById('rh-grid-resumo');
     el.innerHTML = '<div class="rh-empty">A carregar…</div>';
     const r = await fetch('?tab=rh_imputacao&action=get_resumo_pk', { headers:{'X-Requested-With':'XMLHttpRequest'} });
-    const data = await r.json();
+    rhResumoPkData = await r.json();
     rhResumoLoaded = true;
-    rhRenderResumo(data, el);
+    rhRenderResumo(rhResumoPkData, el);
+}
+
+async function rhLoadResumoProj() {
+    const el = document.getElementById('rh-grid-resumo-proj');
+    el.innerHTML = '<div class="rh-empty">A carregar…</div>';
+    const r = await fetch('?tab=rh_imputacao&action=get_resumo_proj', { headers:{'X-Requested-With':'XMLHttpRequest'} });
+    rhResumoProjData = await r.json();
+    rhResumoProjLoaded = true;
+    rhRenderResumoProj(rhResumoProjData, el);
+}
+
+function rhRenderResumoProj(data, el) {
+    const { months, projects } = data;
+    if (!months.length || !projects.length) {
+        el.innerHTML = '<div class="rh-empty">Sem dados de imputação por projeto</div>'; return;
+    }
+    const PT_ABBRs = { '01':'jan','02':'fev','03':'mar','04':'abr','05':'mai','06':'jun',
+                       '07':'jul','08':'ago','09':'set','10':'out','11':'nov','12':'dez' };
+    const yearGroups = {};
+    months.forEach(ym => { const y = ym.split('-')[0]; yearGroups[y] = (yearGroups[y]||0)+1; });
+
+    let html = '<div class="rh-grid-inner"><table class="rh-table">';
+
+    // Header row 1: year spans
+    html += '<tr>'
+          + '<th class="rh-sticky" style="left:0;min-width:200px;text-align:left;padding-left:8px">Projeto / Pessoa</th>'
+          + '<th class="rh-sticky" style="left:200px;min-width:130px;text-align:left">Utilizador PK</th>';
+    Object.entries(yearGroups).forEach(([y, cnt]) => {
+        html += '<th colspan="'+cnt+'" style="text-align:center;border-left:2px solid #555">'+y+'</th>';
+    });
+    html += '</tr>';
+
+    // Header row 2: months
+    html += '<tr>'
+          + '<th class="rh-sticky" style="left:0;background:#343a40"></th>'
+          + '<th class="rh-sticky" style="left:200px;background:#343a40"></th>';
+    months.forEach(ym => {
+        const m = ym.split('-')[1];
+        html += '<th style="min-width:44px;'+(m==='01'?'border-left:2px solid #555':'')+'">'
+              + PT_ABBRs[m]+'</th>';
+    });
+    html += '</tr>';
+
+    projects.forEach(proj => {
+        const ps = proj.data_inicio ? proj.data_inicio.substring(0,7) : null;
+        const pe = proj.data_fim    ? proj.data_fim.substring(0,7)    : null;
+
+        // Project total row
+        const projTotals = {};
+        months.forEach(ym => projTotals[ym] = proj.persons.reduce((s,p) => s+(p.allocs[ym]||0), 0));
+
+        html += '<tr>';
+        html += '<td class="rh-sticky" style="left:0;background:#dbeafe;font-weight:700;font-size:12px;padding:4px 8px;color:#1e40af">'
+              + rhEsc(proj.short_name) + ' — ' + rhEsc(proj.title)
+              + (ps ? ' <span style="font-size:10px;font-weight:400;color:#64748b">('+ps+' → '+(pe||'…')+')</span>' : '')
+              + '</td>';
+        html += '<td class="rh-sticky" style="left:200px;background:#dbeafe;font-size:11px;color:#64748b;padding:4px 8px">'
+              + proj.persons.length + ' pessoa'+(proj.persons.length!==1?'s':'')+'</td>';
+        months.forEach(ym => {
+            const v = projTotals[ym];
+            const m = ym.split('-')[1];
+            let bg = 'background:#dbeafe;';
+            if (v > 0) bg = 'background:#bfdbfe;font-weight:700;';
+            html += '<td style="text-align:center;font-size:11px;'+(m==='01'?'border-left:2px solid #93c5fd;':'')+bg+'">'
+                  + (v ? v : '<span style="color:#93c5fd">—</span>')+'</td>';
+        });
+        html += '</tr>';
+
+        // Person rows
+        proj.persons.forEach(person => {
+            html += '<tr>';
+            html += '<td class="rh-sticky" style="left:0;padding:2px 8px 2px 20px;background:#fff;font-size:11px">'
+                  + rhEsc((person.rh_code ? person.rh_code+' | ' : '')+person.full_name)+'</td>';
+            html += '<td class="rh-sticky" style="left:200px;padding:2px 8px;background:#fff;font-size:11px;color:#1d4ed8">'
+                  + rhEsc(person.linked_username||'—')+'</td>';
+            months.forEach(ym => {
+                const locked = (ps && ym < ps) || (pe && ym > pe);
+                const v = person.allocs[ym] ?? 0;
+                const m = ym.split('-')[1];
+                let style = m==='01'?'border-left:2px solid #dee2e6;':'';
+                if (locked) style += 'background:repeating-linear-gradient(45deg,#f1f3f5,#f1f3f5 2px,#e9ecef 2px,#e9ecef 4px);';
+                else if (v>=100 && v===100) style += 'background:#d4edda;font-weight:700;color:#0f5132;';
+                else if (v>100) style += 'background:#f8d7da;font-weight:700;color:#721c24;';
+                else if (v>0)   style += 'background:#fff9c4;';
+                html += '<td style="text-align:center;font-size:11px;'+style+'">'
+                      + (locked?'':(v?v:'<span style="color:#ced4da">—</span>'))+'</td>';
+            });
+            html += '</tr>';
+        });
+    });
+
+    html += '</table></div>';
+    el.innerHTML = html;
 }
 
 function rhRenderResumo(data, el) {
@@ -1535,8 +1681,120 @@ async function rhExportXlsx() {
         XLSX.utils.book_append_sheet(wb, ws, sd.sheetName);
     }
 
-    XLSX.writeFile(wb, rhCurrentPlan+'.xlsx');
-    rhSetStatus('Exportado: '+rhCurrentPlan+'.xlsx');
+    // ── Resumo PK sheet ───────────────────────────────────────────────────────
+    rhSetStatus('A adicionar resumo PK…');
+    let pkData = rhResumoPkData;
+    if (!pkData) {
+        const r = await fetch('?tab=rh_imputacao&action=get_resumo_pk', { headers:{'X-Requested-With':'XMLHttpRequest'} });
+        pkData = await r.json();
+        rhResumoPkData = pkData; rhResumoLoaded = true;
+    }
+    if (pkData && pkData.months && pkData.months.length) {
+        const months = pkData.months;
+        const aoa = [];
+        const styleMap = [];
+        const hdr = ['Utilizador PK'];
+        months.forEach(ym => { const [y,m] = ym.split('-'); hdr.push(PT_ABBRs[m]+'/'+y.slice(2)); });
+        aoa.push(hdr);
+        styleMap.push(hdr.map((_,ci) => ci===0 ? XS.hdrL : XS.hdr));
+
+        pkData.users.forEach(u => {
+            const ua = pkData.allocs[u.id] || {};
+            const row = [u.username];
+            const styles = [XS.proj];
+            months.forEach(ym => {
+                const v = ua[ym] ?? null;
+                row.push(v != null ? parseFloat(v) : null);
+                styles.push(cellStyle(v, false));
+            });
+            aoa.push(row);
+            styleMap.push(styles);
+        });
+
+        const ws2 = XLSX.utils.aoa_to_sheet(aoa);
+        const rng2 = XLSX.utils.decode_range(ws2['!ref']);
+        for (let r = rng2.s.r; r <= rng2.e.r; r++)
+            for (let c = rng2.s.c; c <= rng2.e.c; c++) {
+                const addr = XLSX.utils.encode_cell({r,c});
+                if (!ws2[addr]) ws2[addr] = {t:'z'};
+                if (styleMap[r] && styleMap[r][c]) ws2[addr].s = styleMap[r][c];
+            }
+        const wscols2 = [{wch:22}];
+        months.forEach(() => wscols2.push({wch:7}));
+        ws2['!cols'] = wscols2;
+        ws2['!freeze'] = {xSplit:0, ySplit:1};
+        XLSX.utils.book_append_sheet(wb, ws2, 'Resumo_PK');
+    }
+
+    // ── Resumo Projetos sheet ─────────────────────────────────────────────────
+    rhSetStatus('A adicionar resumo por projeto…');
+    let projData = rhResumoProjData;
+    if (!projData) {
+        const r = await fetch('?tab=rh_imputacao&action=get_resumo_proj', { headers:{'X-Requested-With':'XMLHttpRequest'} });
+        projData = await r.json();
+        rhResumoProjData = projData; rhResumoProjLoaded = true;
+    }
+    if (projData && projData.months && projData.months.length && projData.projects.length) {
+        const months = projData.months;
+        const aoa = [];
+        const styleMap = [];
+
+        const hdr = ['Projeto','Pessoa','Utilizador PK'];
+        months.forEach(ym => { const [y,m] = ym.split('-'); hdr.push(PT_ABBRs[m]+'/'+y.slice(2)); });
+        aoa.push(hdr);
+        styleMap.push(hdr.map((_,ci) => ci<3 ? XS.hdrL : XS.hdr));
+
+        projData.projects.forEach(proj => {
+            const ps = proj.data_inicio ? proj.data_inicio.substring(0,7) : null;
+            const pe = proj.data_fim    ? proj.data_fim.substring(0,7)    : null;
+
+            // Project total row
+            const projLabel = proj.short_name + ' — ' + proj.title;
+            const projTotals = {};
+            months.forEach(ym => projTotals[ym] = proj.persons.reduce((s,p)=>s+(p.allocs[ym]||0),0));
+            const projRow = [projLabel, '', ''];
+            const projStyles = [XS.person, XS.person, XS.person];
+            months.forEach(ym => {
+                const v = projTotals[ym];
+                projRow.push(v > 0 ? v : null);
+                projStyles.push(v > 0 ? XS.full : XS.empty);
+            });
+            aoa.push(projRow);
+            styleMap.push(projStyles);
+
+            // Person rows
+            proj.persons.forEach(person => {
+                const row = ['', (person.rh_code?person.rh_code+' | ':'')+person.full_name, person.linked_username||''];
+                const styles = [XS.proj, XS.proj, XS.proj];
+                months.forEach(ym => {
+                    const locked = (ps && ym < ps) || (pe && ym > pe);
+                    const v = person.allocs[ym] ?? null;
+                    row.push(locked ? null : (v != null ? parseFloat(v) : null));
+                    styles.push(cellStyle(v, locked));
+                });
+                aoa.push(row);
+                styleMap.push(styles);
+            });
+        });
+
+        const ws3 = XLSX.utils.aoa_to_sheet(aoa);
+        const rng3 = XLSX.utils.decode_range(ws3['!ref']);
+        for (let r = rng3.s.r; r <= rng3.e.r; r++)
+            for (let c = rng3.s.c; c <= rng3.e.c; c++) {
+                const addr = XLSX.utils.encode_cell({r,c});
+                if (!ws3[addr]) ws3[addr] = {t:'z'};
+                if (styleMap[r] && styleMap[r][c]) ws3[addr].s = styleMap[r][c];
+            }
+        const wscols3 = [{wch:35},{wch:30},{wch:18}];
+        months.forEach(() => wscols3.push({wch:7}));
+        ws3['!cols'] = wscols3;
+        ws3['!freeze'] = {xSplit:0, ySplit:1};
+        XLSX.utils.book_append_sheet(wb, ws3, 'Resumo_Projetos');
+    }
+
+    const filename = (rhCurrentPlan || 'rh_imputacao') + '.xlsx';
+    XLSX.writeFile(wb, filename);
+    rhSetStatus('Exportado: '+filename);
 }
 
 // ── New empty plan ────────────────────────────────────────────────────────────

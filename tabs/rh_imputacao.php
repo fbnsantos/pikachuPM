@@ -1520,16 +1520,12 @@ function rhTogglePerson(pid) {
 }
 
 // ── Inline cell editing ───────────────────────────────────────────────────────
-let rhMultiSel = { dragging: false, row: null, startIdx: -1, endIdx: -1, cells: [] };
+let rhMultiSel = { dragging: false, row: null, startIdx: -1, endIdx: -1, cells: [], lastCell: null };
 
 function rhMultiClearSelection() {
     rhMultiSel.cells.forEach(c => c.classList.remove('rh-cell-selected'));
-    rhMultiSel = { dragging: false, row: null, startIdx: -1, endIdx: -1, cells: [] };
+    rhMultiSel = { dragging: false, row: null, startIdx: -1, endIdx: -1, cells: [], lastCell: null };
     document.body.classList.remove('rh-selecting');
-}
-
-function rhMultiGetRowCells(row) {
-    return Array.from(row.querySelectorAll('.rh-cell.rh-editable'));
 }
 
 document.addEventListener('mousedown', function(e) {
@@ -1537,23 +1533,31 @@ document.addEventListener('mousedown', function(e) {
     if (!cell) return;
     const row = cell.closest('tr.rh-proj-row');
     if (!row) return;
-    const rowCells = rhMultiGetRowCells(row);
-    const idx = rowCells.indexOf(cell);
-    if (idx < 0) return;
+    // Number every editable cell in the row so we can find by index
+    const rowCells = Array.from(row.querySelectorAll('.rh-cell.rh-editable'));
+    rowCells.forEach((c, i) => c.dataset.rhColIdx = i);
+    const idx = parseInt(cell.dataset.rhColIdx);
+    // Hide any open edit input so it doesn't block elementFromPoint during drag
+    const inp = document.getElementById('rh-edit-input');
+    inp.style.display = 'none';
+    rhEditTarget = null;
     rhMultiClearSelection();
-    rhMultiSel = { dragging: true, row, startIdx: idx, endIdx: idx, cells: rowCells };
+    rhMultiSel = { dragging: true, row, startIdx: idx, endIdx: idx, cells: rowCells, lastCell: cell };
     cell.classList.add('rh-cell-selected');
     document.body.classList.add('rh-selecting');
-    // Don't preventDefault — allows focus to move properly
 });
 
-document.addEventListener('mouseover', function(e) {
+document.addEventListener('mousemove', function(e) {
     if (!rhMultiSel.dragging) return;
-    const cell = e.target.closest('.rh-cell.rh-editable');
-    if (!cell) return;
+    // elementFromPoint finds the exact element under cursor, even inside scrollable containers
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el) return;
+    const cell = el.closest('.rh-cell.rh-editable');
+    if (!cell || cell === rhMultiSel.lastCell) return;
     if (cell.closest('tr.rh-proj-row') !== rhMultiSel.row) return;
-    const idx = rhMultiSel.cells.indexOf(cell);
-    if (idx < 0 || idx === rhMultiSel.endIdx) return;
+    const idx = parseInt(cell.dataset.rhColIdx);
+    if (isNaN(idx) || idx === rhMultiSel.endIdx) return;
+    rhMultiSel.lastCell = cell;
     rhMultiSel.endIdx = idx;
     const lo = Math.min(rhMultiSel.startIdx, rhMultiSel.endIdx);
     const hi = Math.max(rhMultiSel.startIdx, rhMultiSel.endIdx);
@@ -1567,23 +1571,24 @@ document.addEventListener('mouseup', function(e) {
     const lo = Math.min(rhMultiSel.startIdx, rhMultiSel.endIdx);
     const hi = Math.max(rhMultiSel.startIdx, rhMultiSel.endIdx);
     const selected = rhMultiSel.cells.slice(lo, hi + 1);
-    if (selected.length <= 1) {
+    if (lo === hi) {
+        // Single cell click
         rhMultiClearSelection();
-        if (selected.length === 1) rhOpenCellEdit(selected[0]);
+        rhOpenCellEdit(selected[0]);
         return;
     }
+    // Multiple cells selected
     rhMultiPromptFill(selected);
 });
 
 function rhMultiPromptFill(cells) {
-    rhCommitEdit(); // commit any previous edit first
     const first = cells[0];
     const rect = first.getBoundingClientRect();
     const inp = document.getElementById('rh-edit-input');
     inp.value = '';
     inp.style.left   = rect.left + 'px';
     inp.style.top    = rect.top  + 'px';
-    inp.style.width  = (rect.width * cells.length) + 'px';
+    inp.style.width  = Math.round(rect.width * cells.length) + 'px';
     inp.style.height = rect.height + 'px';
     inp.style.display = 'block';
     inp.focus(); inp.select();
@@ -1593,11 +1598,7 @@ function rhMultiPromptFill(cells) {
 document.addEventListener('click', function(e) {
     if (rhMultiSel.dragging) return;
     const cell = e.target.closest('.rh-cell.rh-editable');
-    if (cell) {
-        // Only open edit here if mousedown didn't start a selection
-        // (mousedown always starts one, mouseup handles it — so we skip here)
-        return;
-    }
+    if (cell) return; // single-cell handled by mouseup → rhOpenCellEdit
     const pm = e.target.closest('.rh-pm-cell.rh-editable');
     if (pm) { rhOpenPmEdit(pm); return; }
     if (!e.target.closest('#rh-edit-input')) {

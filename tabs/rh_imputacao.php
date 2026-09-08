@@ -60,6 +60,7 @@ $is_json = !empty($_SERVER['HTTP_X_REQUESTED_WITH'])
         || str_contains($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json');
 
 if ($action && $is_json) {
+    while (ob_get_level()) ob_end_clean();
     header('Content-Type: application/json; charset=utf-8');
 
     switch ($action) {

@@ -27,10 +27,16 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS rh_persons (
     rh_code VARCHAR(50) NOT NULL,
     full_name VARCHAR(255) NOT NULL,
     tipo_ligacao VARCHAR(150),
+    user_token_id INT DEFAULT NULL,
     sort_order INT DEFAULT 0,
     INDEX idx_camp (campaign_id),
     FOREIGN KEY (campaign_id) REFERENCES rh_campaigns(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+// Add user_token_id column to existing tables (migration)
+if (!$pdo->query("SHOW COLUMNS FROM rh_persons LIKE 'user_token_id'")->fetch()) {
+    $pdo->exec("ALTER TABLE rh_persons ADD COLUMN user_token_id INT DEFAULT NULL AFTER tipo_ligacao");
+}
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS rh_person_projects (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -39,10 +45,16 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS rh_person_projects (
     project_name VARCHAR(255) NOT NULL DEFAULT '',
     pm_orc DECIMAL(8,2),
     pm_exe DECIMAL(8,2),
+    project_id INT DEFAULT NULL,
     sort_order INT DEFAULT 0,
     INDEX idx_per (person_id),
     FOREIGN KEY (person_id) REFERENCES rh_persons(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+// Add project_id column to existing tables (migration)
+if (!$pdo->query("SHOW COLUMNS FROM rh_person_projects LIKE 'project_id'")->fetch()) {
+    $pdo->exec("ALTER TABLE rh_person_projects ADD COLUMN project_id INT DEFAULT NULL AFTER pm_exe");
+}
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS rh_monthly_alloc (
     person_project_id INT NOT NULL,
@@ -52,6 +64,31 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS rh_monthly_alloc (
     PRIMARY KEY (person_project_id, year, month),
     FOREIGN KEY (person_project_id) REFERENCES rh_person_projects(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+// Name normalization: lowercase, remove accents roughly, keep only letters/spaces
+function rhNormName(string $s): string {
+    $s = mb_strtolower($s, 'UTF-8');
+    $s = strtr($s, ['à'=>'a','á'=>'a','â'=>'a','ã'=>'a','ä'=>'a','è'=>'e','é'=>'e','ê'=>'e','ë'=>'e',
+                     'ì'=>'i','í'=>'i','î'=>'i','ï'=>'i','ò'=>'o','ó'=>'o','ô'=>'o','õ'=>'o','ö'=>'o',
+                     'ù'=>'u','ú'=>'u','û'=>'u','ü'=>'u','ç'=>'c','ñ'=>'n']);
+    return preg_replace('/[^a-z ]/', '', $s);
+}
+
+function rhMatchUser(string $fullName, array $users): ?int {
+    $normFull = rhNormName($fullName);
+    $nameWords = array_filter(explode(' ', $normFull), fn($w) => strlen($w) > 2);
+    $best = ['score'=>0, 'uid'=>null];
+    foreach ($users as $u) {
+        $normUser = rhNormName($u['username']);
+        $score = 0;
+        foreach ($nameWords as $w) {
+            if (str_contains($normUser, $w) || str_contains($normFull, $normUser)) $score++;
+        }
+        if ($score > $best['score']) { $best = ['score'=>$score, 'uid'=>(int)$u['id']]; }
+    }
+    return ($best['score'] >= 2) ? $best['uid'] : null;
+}
 
 // ── AJAX / JSON handlers ─────────────────────────────────────────────────────
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
@@ -76,6 +113,14 @@ if ($action && $is_json) {
             if (!$plan_name || !in_array($type, ['contratados','bolseiros'], true)) {
                 echo json_encode(['error'=>'plan_name e type são obrigatórios']); exit;
             }
+            // Pre-load projects for auto-match (short_name → id)
+            $projLookup = [];
+            foreach ($pdo->query("SELECT id, short_name FROM projects")->fetchAll(PDO::FETCH_ASSOC) as $pr) {
+                $projLookup[strtolower(trim($pr['short_name']))] = (int)$pr['id'];
+            }
+            // Pre-load users for name-based suggestion (best-effort)
+            $userLookup = $pdo->query("SELECT id, user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
+
             $pdo->beginTransaction();
             try {
                 $pdo->prepare("DELETE FROM rh_campaigns WHERE plan_name=? AND type=?")
@@ -85,13 +130,17 @@ if ($action && $is_json) {
                 $cid = (int)$pdo->lastInsertId();
                 $sortP = 0;
                 foreach ($persons as $p) {
-                    $pdo->prepare("INSERT INTO rh_persons (campaign_id,rh_code,full_name,tipo_ligacao,sort_order) VALUES (?,?,?,?,?)")
-                        ->execute([$cid, $p['rh_code'], $p['full_name'], $p['tipo_ligacao'] ?? null, $sortP++]);
+                    // Best-effort person→user match by word overlap
+                    $matchedUid = rhMatchUser($p['full_name'], $userLookup);
+                    $pdo->prepare("INSERT INTO rh_persons (campaign_id,rh_code,full_name,tipo_ligacao,user_token_id,sort_order) VALUES (?,?,?,?,?,?)")
+                        ->execute([$cid, $p['rh_code'], $p['full_name'], $p['tipo_ligacao'] ?? null, $matchedUid, $sortP++]);
                     $pid = (int)$pdo->lastInsertId();
                     $sortPP = 0;
                     foreach ($p['projects'] as $pp) {
-                        $pdo->prepare("INSERT INTO rh_person_projects (person_id,project_code,project_name,pm_orc,pm_exe,sort_order) VALUES (?,?,?,?,?,?)")
-                            ->execute([$pid, $pp['code'], $pp['name'], $pp['pm_orc'] ?? null, $pp['pm_exe'] ?? null, $sortPP++]);
+                        // Auto-match project by short_name
+                        $projId = $projLookup[strtolower(trim($pp['name']))] ?? null;
+                        $pdo->prepare("INSERT INTO rh_person_projects (person_id,project_code,project_name,pm_orc,pm_exe,project_id,sort_order) VALUES (?,?,?,?,?,?,?)")
+                            ->execute([$pid, $pp['code'], $pp['name'], $pp['pm_orc'] ?? null, $pp['pm_exe'] ?? null, $projId, $sortPP++]);
                         $ppid = (int)$pdo->lastInsertId();
                         foreach ($pp['allocations'] as $ym => $pct) {
                             if ($pct === null || $pct === '') continue;
@@ -121,11 +170,19 @@ if ($action && $is_json) {
             $campaign['months'] = json_decode($campaign['months_json'], true);
             unset($campaign['months_json']);
 
-            $ps = $pdo->prepare("SELECT * FROM rh_persons WHERE campaign_id=? ORDER BY sort_order,id");
+            $ps = $pdo->prepare(
+                "SELECT p.*, ut.username as linked_username
+                 FROM rh_persons p
+                 LEFT JOIN user_tokens ut ON p.user_token_id = ut.id
+                 WHERE p.campaign_id=? ORDER BY p.sort_order, p.id");
             $ps->execute([$cid]);
             $persons = $ps->fetchAll(PDO::FETCH_ASSOC);
             foreach ($persons as &$person) {
-                $pps = $pdo->prepare("SELECT * FROM rh_person_projects WHERE person_id=? ORDER BY sort_order,id");
+                $pps = $pdo->prepare(
+                    "SELECT pp.*, pr.short_name as linked_short_name, pr.title as linked_title
+                     FROM rh_person_projects pp
+                     LEFT JOIN projects pr ON pp.project_id = pr.id
+                     WHERE pp.person_id=? ORDER BY pp.sort_order, pp.id");
                 $pps->execute([$person['id']]);
                 $person['projects'] = $pps->fetchAll(PDO::FETCH_ASSOC);
                 foreach ($person['projects'] as &$pp) {
@@ -272,6 +329,25 @@ if ($action && $is_json) {
             echo json_encode(['ok'=>true]);
             exit;
         }
+
+        // ── Link person to user_token ─────────────────────────────────────
+        case 'link_person': {
+            if (!$is_admin) { echo json_encode(['error'=>'Sem permissão']); exit; }
+            $b = json_decode(file_get_contents('php://input'), true);
+            $pid = (int)($b['person_id'] ?? 0);
+            $utid = isset($b['user_token_id']) ? ($b['user_token_id'] === '' || $b['user_token_id'] === null ? null : (int)$b['user_token_id']) : false;
+            if (!$pid || $utid === false) { echo json_encode(['error'=>'Dados incompletos']); exit; }
+            $pdo->prepare("UPDATE rh_persons SET user_token_id=? WHERE id=?")->execute([$utid, $pid]);
+            echo json_encode(['ok'=>true]);
+            exit;
+        }
+
+        // ── Get users list (for person-linking UI) ────────────────────────
+        case 'get_users': {
+            $users = $pdo->query("SELECT id, user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
+            echo json_encode($users);
+            exit;
+        }
     }
 
     echo json_encode(['error'=>'Ação desconhecida']);
@@ -291,6 +367,9 @@ $plan_map = [];
 foreach ($campaigns as $c) {
     $plan_map[$c['plan_name']][$c['type']] = (int)$c['id'];
 }
+
+// Users for person-link selector
+$rh_users = $pdo->query("SELECT id, user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <style>
 .rh-wrap { padding: 0 0 60px; }
@@ -391,6 +470,14 @@ foreach ($campaigns as $c) {
 .rh-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:#6c757d; padding:6px 10px; background:#f8f9fa; border-top:1px solid #dee2e6; border-radius:0 0 8px 8px; }
 .rh-legend-item { display:flex; align-items:center; gap:4px; }
 .rh-legend-swatch { width:14px; height:14px; border-radius:3px; border:1px solid #dee2e6; }
+
+/* User link badges */
+.rh-user-badge { display:inline-flex; align-items:center; background:#dbeafe; color:#1d4ed8; font-size:10px; font-weight:600; padding:1px 7px; border-radius:10px; margin-left:8px; }
+.rh-user-unlinked { background:#f3f4f6; color:#9ca3af; }
+
+/* Project linked indicator */
+.rh-proj-linked .rh-proj-code { color:#198754; }
+.rh-link-dot { color:#198754; font-size:8px; vertical-align:middle; }
 </style>
 
 <div class="rh-wrap">
@@ -493,11 +580,35 @@ foreach ($campaigns as $c) {
   </div>
 </div>
 
+<!-- Link user modal -->
+<div class="modal fade" id="rh-link-user-modal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title mb-0">🔗 Ligar ao utilizador</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted mb-2" style="font-size:12px"><strong id="rh-lu-person-name"></strong></p>
+        <input type="hidden" id="rh-lu-person-id">
+        <label class="form-label fw-bold" style="font-size:12px">Utilizador pikachuPM</label>
+        <select class="form-select form-select-sm" id="rh-lu-user-sel"></select>
+        <p class="text-muted mt-2 mb-0" style="font-size:11px">★ = sugestão automática por nome</p>
+      </div>
+      <div class="modal-footer py-2">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="rhSaveLinkUser()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 // ── State ────────────────────────────────────────────────────────────────────
 const RH_PLAN_MAP   = <?= json_encode($plan_map, JSON_UNESCAPED_UNICODE) ?>;
 const RH_IS_ADMIN   = <?= $is_admin ? 'true' : 'false' ?>;
+const RH_USERS      = <?= json_encode($rh_users, JSON_UNESCAPED_UNICODE) ?>; // [{id, user_id, username}]
 let rhCurrentPlan   = null;
 let rhCurrentType   = 'contratados';
 let rhCampaignData  = { contratados: null, bolseiros: null };
@@ -605,17 +716,27 @@ function rhRenderGrid(data, container, type) {
 
         // Person header row
         const pmExeTotal = projects.reduce((s,pp) => s + (parseFloat(pp.pm_exe)||0), 0);
+        const linkedUser = person.linked_username;
         html += '<tr class="rh-person-hdr" onclick="rhTogglePerson('+pid+')">';
         html += '<td colspan="'+totalCols+'">';
         html += '<span style="margin-right:6px;font-size:10px;color:#6c757d" id="rh-arrow-'+pid+'">▼</span>';
         html += '<span class="rh-ph-name">'+rhEsc(person.full_name)+'</span>';
         html += '<span class="rh-ph-tipo">'+rhEsc(person.tipo_ligacao||'')+'</span>';
+        // User link badge
+        if (linkedUser) {
+            html += '<span class="rh-user-badge" title="Ligado ao utilizador '+rhEsc(linkedUser)+'">👤 '+rhEsc(linkedUser)+'</span>';
+        } else {
+            html += '<span class="rh-user-badge rh-user-unlinked" title="Sem utilizador associado">👤 ?</span>';
+        }
         html += '<span class="rh-ph-meta">'+projects.length+' projeto'+(projects.length!==1?'s':'');
         if (pmExeTotal) html += ' · PM EXE: '+pmExeTotal.toFixed(1)+' meses';
         html += '</span>';
         html += '<span class="rh-ph-meta" style="margin-left:6px;color:#6c757d;font-size:10px">('+rhEsc(person.rh_code)+')</span>';
         if (RH_IS_ADMIN) {
-            html += '<button class="btn btn-xs btn-outline-primary ms-3" style="font-size:10px;padding:0 6px" onclick="event.stopPropagation();rhAddProjectRow('+pid+',\''+type+'\')">+ projeto</button>';
+            html += '<button class="btn btn-xs btn-outline-secondary ms-2" style="font-size:10px;padding:0 6px" '
+                  + 'onclick="event.stopPropagation();rhOpenLinkUser('+pid+','+(person.user_token_id||'null')+',\''+rhEsc(person.full_name)+'\')" '
+                  + 'title="Ligar ao utilizador pikachuPM">🔗 ligar</button>';
+            html += '<button class="btn btn-xs btn-outline-primary ms-1" style="font-size:10px;padding:0 6px" onclick="event.stopPropagation();rhAddProjectRow('+pid+',\''+type+'\')">+ projeto</button>';
             html += '<button class="btn btn-xs btn-outline-danger ms-1" style="font-size:10px;padding:0 6px" onclick="event.stopPropagation();rhDeletePerson('+pid+',\''+type+'\')">🗑</button>';
         }
         html += '</td></tr>';
@@ -626,9 +747,15 @@ function rhRenderGrid(data, container, type) {
             html += '<tr class="rh-proj-row" data-pid="'+pid+'" data-ppid="'+ppid+'">';
 
             // Project label
-            html += '<td class="rh-sticky rh-col-proj rh-proj-label">';
-            html += '<div class="rh-proj-code">'+rhEsc(pp.project_code)+'</div>';
+            const hasLink = pp.project_id != null;
+            html += '<td class="rh-sticky rh-col-proj rh-proj-label'+(hasLink?' rh-proj-linked':'')+'">';
+            html += '<div class="rh-proj-code">'+rhEsc(pp.project_code);
+            if (hasLink) html += ' <span class="rh-link-dot" title="Ligado: '+rhEsc(pp.linked_short_name||pp.project_name)+'">●</span>';
+            html += '</div>';
             html += '<div class="rh-proj-name">'+rhEsc(pp.project_name)+'</div>';
+            if (hasLink && pp.linked_title) {
+                html += '<div style="font-size:10px;color:#198754;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px" title="'+rhEsc(pp.linked_title)+'">'+rhEsc(pp.linked_title)+'</div>';
+            }
             if (RH_IS_ADMIN) {
                 html += '<div class="rh-row-actions">'
                       + '<button class="rh-btn-del" onclick="rhDeletePP('+ppid+',\''+type+'\')" title="Remover projeto">✕</button>'
@@ -1136,6 +1263,51 @@ async function rhCreateEmptyPlan() {
     }
     bootstrap.Modal.getInstance(document.getElementById('rh-new-plan-modal')).hide();
     location.reload();
+}
+
+// ── Link person to user ───────────────────────────────────────────────────────
+function rhOpenLinkUser(personId, currentUtid, fullName) {
+    // Build a simple modal-style prompt using the existing Bootstrap modal
+    const modal = document.getElementById('rh-link-user-modal');
+    document.getElementById('rh-lu-person-name').textContent = fullName;
+    document.getElementById('rh-lu-person-id').value = personId;
+
+    const sel = document.getElementById('rh-lu-user-sel');
+    sel.innerHTML = '<option value="">— sem ligação —</option>';
+
+    // Compute suggestions by word overlap
+    const normFull = rhNormStr(fullName);
+    const scored = RH_USERS.map(u => {
+        const normU = rhNormStr(u.username);
+        const words = normFull.split(' ').filter(w => w.length > 2);
+        let score = words.reduce((s,w) => s + (normU.includes(w) || normFull.includes(normU) ? 1 : 0), 0);
+        return { ...u, score };
+    }).sort((a,b) => b.score - a.score);
+
+    scored.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.textContent = u.username + (u.score >= 2 ? ' ★' : '');
+        if (u.id === currentUtid) opt.selected = true;
+        sel.appendChild(opt);
+    });
+
+    if (!currentUtid) sel.selectedIndex = 0;
+    new bootstrap.Modal(modal).show();
+}
+
+function rhNormStr(s) {
+    return s.toLowerCase()
+        .replace(/[àáâãä]/g,'a').replace(/[èéêë]/g,'e').replace(/[ìíîï]/g,'i')
+        .replace(/[òóôõö]/g,'o').replace(/[ùúûü]/g,'u').replace(/ç/g,'c').replace(/[^a-z ]/g,'');
+}
+
+async function rhSaveLinkUser() {
+    const pid  = parseInt(document.getElementById('rh-lu-person-id').value);
+    const utid = document.getElementById('rh-lu-user-sel').value;
+    await rhAjax('link_person', { person_id: pid, user_token_id: utid === '' ? null : parseInt(utid) });
+    bootstrap.Modal.getInstance(document.getElementById('rh-link-user-modal')).hide();
+    rhSelectPlan(rhCurrentPlan); // Reload
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────

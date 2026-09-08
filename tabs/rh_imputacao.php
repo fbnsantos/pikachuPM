@@ -290,9 +290,10 @@ if ($action && $is_json) {
             $code = trim($b['project_code'] ?? '');
             $name = trim($b['project_name'] ?? '');
             if (!$pid) { echo json_encode(['error'=>'person_id requerido']); exit; }
+            $projId = array_key_exists('project_id', $b) ? ($b['project_id'] === null ? null : (int)$b['project_id']) : null;
             $sort = (int)$pdo->query("SELECT COALESCE(MAX(sort_order),0)+1 FROM rh_person_projects WHERE person_id=$pid")->fetchColumn();
-            $pdo->prepare("INSERT INTO rh_person_projects (person_id,project_code,project_name,sort_order) VALUES (?,?,?,?)")
-                ->execute([$pid, $code, $name, $sort]);
+            $pdo->prepare("INSERT INTO rh_person_projects (person_id,project_code,project_name,project_id,sort_order) VALUES (?,?,?,?,?)")
+                ->execute([$pid, $code, $name, $projId, $sort]);
             echo json_encode(['ok'=>true,'pp_id'=>(int)$pdo->lastInsertId()]);
             exit;
         }
@@ -348,6 +349,21 @@ if ($action && $is_json) {
             echo json_encode($users);
             exit;
         }
+
+        // ── Link project row to pikachuPM project ─────────────────────────
+        case 'link_project': {
+            if (!$is_admin) { echo json_encode(['error'=>'Sem permissão']); exit; }
+            $b = json_decode(file_get_contents('php://input'), true);
+            $ppid   = (int)($b['pp_id'] ?? 0);
+            $projId = array_key_exists('project_id', $b) ? ($b['project_id'] === null ? null : (int)$b['project_id']) : false;
+            $code   = trim($b['project_code'] ?? '');
+            $name   = trim($b['project_name'] ?? '');
+            if (!$ppid || $projId === false) { echo json_encode(['error'=>'Dados incompletos']); exit; }
+            $pdo->prepare("UPDATE rh_person_projects SET project_id=?, project_code=?, project_name=? WHERE id=?")
+                ->execute([$projId, $code, $name, $ppid]);
+            echo json_encode(['ok'=>true]);
+            exit;
+        }
     }
 
     echo json_encode(['error'=>'Ação desconhecida']);
@@ -370,6 +386,9 @@ foreach ($campaigns as $c) {
 
 // Users for person-link selector
 $rh_users = $pdo->query("SELECT id, user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
+
+// Projects for project-link selector
+$rh_projects = $pdo->query("SELECT id, short_name, title FROM projects ORDER BY short_name")->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <style>
 .rh-wrap { padding: 0 0 60px; }
@@ -477,6 +496,11 @@ $rh_users = $pdo->query("SELECT id, user_id, username FROM user_tokens ORDER BY 
 
 /* Project linked indicator */
 .rh-proj-linked .rh-proj-code { color:#198754; }
+.rh-btn-link { background:none;border:none;cursor:pointer;font-size:12px;padding:0 3px;opacity:.6; }
+.rh-btn-link:hover { opacity:1; }
+.rh-proj-pick { padding:5px 8px;cursor:pointer;border-bottom:1px solid #f1f3f5;font-size:12px; }
+.rh-proj-pick:hover { background:#f8f9fa; }
+.rh-proj-pick-sel { background:#dbeafe!important; }
 .rh-link-dot { color:#198754; font-size:8px; vertical-align:middle; }
 </style>
 
@@ -580,6 +604,43 @@ $rh_users = $pdo->query("SELECT id, user_id, username FROM user_tokens ORDER BY 
   </div>
 </div>
 
+<!-- Link project modal -->
+<div class="modal fade" id="rh-link-proj-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title mb-0">🔗 Associar projeto pikachuPM</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="padding-bottom:8px">
+        <input type="hidden" id="rh-lp-ppid">
+        <input type="hidden" id="rh-lp-person-id">
+        <input type="hidden" id="rh-lp-type">
+        <input type="hidden" id="rh-lp-selected-proj-id">
+        <input type="text" class="form-control form-control-sm mb-2" id="rh-lp-search"
+               placeholder="Pesquisar projeto…" oninput="rhFilterProjList(this.value)">
+        <div id="rh-lp-list" style="max-height:220px;overflow-y:auto;border:1px solid #dee2e6;border-radius:4px;margin-bottom:10px"></div>
+        <div class="row g-2">
+          <div class="col-4">
+            <label class="form-label fw-bold mb-0" style="font-size:11px">Código RH</label>
+            <input type="text" class="form-control form-control-sm" id="rh-lp-code" placeholder="ex: PG07206">
+          </div>
+          <div class="col-8">
+            <label class="form-label fw-bold mb-0" style="font-size:11px">Nome no ficheiro RH</label>
+            <input type="text" class="form-control form-control-sm" id="rh-lp-name" placeholder="Nome curto">
+          </div>
+        </div>
+        <p class="text-muted mt-2 mb-0" style="font-size:11px">Seleciona um projeto da lista para associar. O código e nome podem ser editados independentemente.</p>
+      </div>
+      <div class="modal-footer py-2">
+        <button class="btn btn-outline-secondary btn-sm" onclick="rhClearProjLink()">Sem ligação</button>
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="rhSaveLinkProject()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Link user modal -->
 <div class="modal fade" id="rh-link-user-modal" tabindex="-1">
   <div class="modal-dialog modal-sm">
@@ -609,6 +670,7 @@ $rh_users = $pdo->query("SELECT id, user_id, username FROM user_tokens ORDER BY 
 const RH_PLAN_MAP   = <?= json_encode($plan_map, JSON_UNESCAPED_UNICODE) ?>;
 const RH_IS_ADMIN   = <?= $is_admin ? 'true' : 'false' ?>;
 const RH_USERS      = <?= json_encode($rh_users, JSON_UNESCAPED_UNICODE) ?>; // [{id, user_id, username}]
+const RH_PROJECTS   = <?= json_encode($rh_projects, JSON_UNESCAPED_UNICODE) ?>; // [{id, short_name, title}]
 let rhCurrentPlan   = null;
 let rhCurrentType   = 'contratados';
 let rhCampaignData  = { contratados: null, bolseiros: null };
@@ -736,7 +798,7 @@ function rhRenderGrid(data, container, type) {
             html += '<button class="btn btn-xs btn-outline-secondary ms-2" style="font-size:10px;padding:0 6px" '
                   + 'onclick="event.stopPropagation();rhOpenLinkUser('+pid+','+(person.user_token_id||'null')+',\''+rhEsc(person.full_name)+'\')" '
                   + 'title="Ligar ao utilizador pikachuPM">🔗 ligar</button>';
-            html += '<button class="btn btn-xs btn-outline-primary ms-1" style="font-size:10px;padding:0 6px" onclick="event.stopPropagation();rhAddProjectRow('+pid+',\''+type+'\')">+ projeto</button>';
+            html += '<button class="btn btn-xs btn-outline-primary ms-1" style="font-size:10px;padding:0 6px" onclick="event.stopPropagation();rhOpenLinkProject(null,'+pid+',\''+type+'\',null,\'\',\'\')">+ projeto</button>';
             html += '<button class="btn btn-xs btn-outline-danger ms-1" style="font-size:10px;padding:0 6px" onclick="event.stopPropagation();rhDeletePerson('+pid+',\''+type+'\')">🗑</button>';
         }
         html += '</td></tr>';
@@ -757,8 +819,11 @@ function rhRenderGrid(data, container, type) {
                 html += '<div style="font-size:10px;color:#198754;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px" title="'+rhEsc(pp.linked_title)+'">'+rhEsc(pp.linked_title)+'</div>';
             }
             if (RH_IS_ADMIN) {
+                const escapedCode = rhEsc(pp.project_code||'');
+                const escapedName = rhEsc(pp.project_name||'');
                 html += '<div class="rh-row-actions">'
-                      + '<button class="rh-btn-del" onclick="rhDeletePP('+ppid+',\''+type+'\')" title="Remover projeto">✕</button>'
+                      + '<button class="rh-btn-link" onclick="event.stopPropagation();rhOpenLinkProject('+ppid+',null,\''+type+'\','+(pp.project_id||'null')+',\''+escapedCode+'\',\''+escapedName+'\')" title="Associar a projeto pikachuPM">🔗</button>'
+                      + '<button class="rh-btn-del" onclick="event.stopPropagation();rhDeletePP('+ppid+',\''+type+'\')" title="Remover projeto">✕</button>'
                       + '</div>';
             }
             html += '</td>';
@@ -1023,11 +1088,65 @@ function rhAddPersonRow(campaignId, type) {
         .then(() => rhSelectPlan(rhCurrentPlan));
 }
 
-function rhAddProjectRow(personId, type) {
-    const code = prompt('Código do projeto (ex: PG07206 ou STEP_IRIS):', '') || '';
-    const name = prompt('Nome curto do projeto:', code) || code;
-    rhAjax('add_person_project', { person_id: personId, project_code: code, project_name: name })
-        .then(() => rhSelectPlan(rhCurrentPlan));
+function rhOpenLinkProject(ppid, personId, type, currentProjId, projCode, projName) {
+    document.getElementById('rh-lp-ppid').value      = ppid || '';
+    document.getElementById('rh-lp-person-id').value = personId || '';
+    document.getElementById('rh-lp-type').value      = type || '';
+    document.getElementById('rh-lp-selected-proj-id').value = currentProjId || '';
+    document.getElementById('rh-lp-code').value = projCode || '';
+    document.getElementById('rh-lp-name').value = projName || '';
+    document.getElementById('rh-lp-search').value = '';
+    rhFilterProjList('', currentProjId);
+    new bootstrap.Modal(document.getElementById('rh-link-proj-modal')).show();
+}
+
+function rhFilterProjList(q, selectedId) {
+    selectedId = selectedId !== undefined ? selectedId : parseInt(document.getElementById('rh-lp-selected-proj-id').value) || null;
+    const list = document.getElementById('rh-lp-list');
+    const term = (q || '').toLowerCase().trim();
+    const filtered = term
+        ? RH_PROJECTS.filter(p => (p.short_name+' '+p.title).toLowerCase().includes(term))
+        : RH_PROJECTS;
+    if (!filtered.length) { list.innerHTML = '<div style="padding:8px;color:#6c757d;font-size:12px">Sem resultados</div>'; return; }
+    list.innerHTML = filtered.map(p => {
+        const sel = p.id === selectedId;
+        return '<div class="rh-proj-pick'+(sel?' rh-proj-pick-sel':'')+'" data-pid="'+p.id+'" data-code="'+rhEsc(p.short_name)+'" data-name="'+rhEsc(p.title)+'" onclick="rhPickProj(this)">'
+             + '<strong style="font-size:12px">'+rhEsc(p.short_name)+'</strong> '
+             + '<span style="font-size:11px;color:#6c757d">'+rhEsc(p.title)+'</span>'
+             + '</div>';
+    }).join('');
+}
+
+function rhPickProj(el) {
+    document.querySelectorAll('#rh-lp-list .rh-proj-pick').forEach(d => d.classList.remove('rh-proj-pick-sel'));
+    el.classList.add('rh-proj-pick-sel');
+    document.getElementById('rh-lp-selected-proj-id').value = el.dataset.pid;
+    document.getElementById('rh-lp-code').value = el.dataset.code;
+    if (!document.getElementById('rh-lp-name').value) document.getElementById('rh-lp-name').value = el.dataset.name;
+}
+
+function rhClearProjLink() {
+    document.getElementById('rh-lp-selected-proj-id').value = '';
+    document.querySelectorAll('#rh-lp-list .rh-proj-pick').forEach(d => d.classList.remove('rh-proj-pick-sel'));
+}
+
+async function rhSaveLinkProject() {
+    const ppid     = document.getElementById('rh-lp-ppid').value;
+    const personId = document.getElementById('rh-lp-person-id').value;
+    const type     = document.getElementById('rh-lp-type').value;
+    const projId   = document.getElementById('rh-lp-selected-proj-id').value;
+    const code     = document.getElementById('rh-lp-code').value.trim();
+    const name     = document.getElementById('rh-lp-name').value.trim();
+    const payload  = { project_id: projId ? parseInt(projId) : null, project_code: code, project_name: name || code };
+    if (ppid) {
+        // Link mode: update existing project row
+        await rhAjax('link_project', { pp_id: parseInt(ppid), ...payload });
+    } else {
+        // Add mode: insert new project row
+        await rhAjax('add_person_project', { person_id: parseInt(personId), ...payload });
+    }
+    bootstrap.Modal.getInstance(document.getElementById('rh-link-proj-modal')).hide();
+    rhSelectPlan(rhCurrentPlan);
 }
 
 function rhDeletePP(ppid, type) {

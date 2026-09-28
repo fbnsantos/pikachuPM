@@ -882,10 +882,23 @@ document.addEventListener('DOMContentLoaded', function() {
                     <i class="bi bi-server" style="font-size:0.9em;"></i> <?= round(ini_get('session.gc_maxlifetime') / 60) ?>min
                 </span>
             </p>
-            <p class="mt-2">
+            <p class="mt-2" style="display:flex;align-items:center;gap:8px">
                 <a href="logout.php" class="logout-btn">
                     <i class="bi bi-box-arrow-right"></i> Sair
                 </a>
+                <?php
+                    $free  = disk_free_space('/');
+                    $total = disk_total_space('/');
+                    $freeMB  = round($free  / 1048576);
+                    $totalGB = round($total / 1073741824, 1);
+                    $usedPct = $total > 0 ? round(($total - $free) / $total * 100) : 0;
+                    $color = $usedPct >= 90 ? '#dc3545' : ($usedPct >= 75 ? '#ffc107' : '#6c757d');
+                ?>
+                <span title="Espaço livre / total no servidor (<?= $usedPct ?>% usado)"
+                      style="font-size:0.75em;color:<?= $color ?>;opacity:0.85;white-space:nowrap">
+                    <i class="bi bi-hdd" style="font-size:0.9em"></i>
+                    <?= $freeMB ?> MB livres / <?= $totalGB ?> GB
+                </span>
             </p>
         </div>
     </div>

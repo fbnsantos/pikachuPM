@@ -129,6 +129,12 @@ try {
     // Ignorar erros de migração já aplicada
 }
 
+// Coluna completed em prototype_milestones
+try {
+    if (!$pdo->query("SHOW COLUMNS FROM prototype_milestones LIKE 'completed'")->fetch())
+        $pdo->exec("ALTER TABLE prototype_milestones ADD COLUMN completed TINYINT(1) NOT NULL DEFAULT 0 AFTER color");
+} catch (PDOException $e) {}
+
 // Estado (ativo/fechado) e tipo nos protótipos
 try {
     if (!$pdo->query("SHOW COLUMNS FROM prototypes LIKE 'estado'")->fetch())
@@ -271,6 +277,22 @@ try {
 function lnFileIconClass($ext) {
     $map = ['pdf'=>'bi-file-earmark-pdf text-danger','doc'=>'bi-file-earmark-word text-primary','docx'=>'bi-file-earmark-word text-primary','xls'=>'bi-file-earmark-excel text-success','xlsx'=>'bi-file-earmark-excel text-success','ppt'=>'bi-file-earmark-ppt text-warning','pptx'=>'bi-file-earmark-ppt text-warning','zip'=>'bi-file-earmark-zip text-secondary','rar'=>'bi-file-earmark-zip text-secondary','txt'=>'bi-file-earmark-text text-muted','csv'=>'bi-file-earmark-text text-muted'];
     return $map[$ext] ?? 'bi-file-earmark text-muted';
+}
+
+function loadMilestonesJson($pdo, $protoId) {
+    $mStmt = $pdo->prepare("SELECT * FROM prototype_milestones WHERE prototype_id=? ORDER BY target_date ASC");
+    $mStmt->execute([$protoId]);
+    $milestones = $mStmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($milestones as &$rm) {
+        $sStmt = $pdo->prepare("SELECT us.id, us.story_text, us.moscow_priority FROM milestone_stories ms JOIN user_stories us ON ms.story_id=us.id WHERE ms.milestone_id=?");
+        $sStmt->execute([$rm['id']]);
+        $rm['stories'] = $sStmt->fetchAll(PDO::FETCH_ASSOC);
+        $pStmt = $pdo->prepare("SELECT p.id, p.title, COALESCE(p.short_name,'') as short_name FROM milestone_projects mp JOIN projects p ON mp.project_id=p.id WHERE mp.milestone_id=?");
+        $pStmt->execute([$rm['id']]);
+        $rm['projects'] = $pStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+    unset($rm);
+    return $milestones;
 }
 
 // Tabelas de notas de protótipo
@@ -666,25 +688,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
                 
             case 'toggle_story_status':
-                // Alternar status entre open e closed
                 $stmt = $pdo->prepare("
                     UPDATE user_stories SET
-                        status = CASE
-                            WHEN status = 'open' THEN 'closed'
-                            ELSE 'open'
-                        END,
-                        closed_at = CASE
-                            WHEN status = 'open' THEN NOW()
-                            ELSE NULL
-                        END,
+                        status = CASE WHEN status = 'open' THEN 'closed' ELSE 'open' END,
+                        closed_at = CASE WHEN status = 'open' THEN NOW() ELSE NULL END,
                         updated_at = NOW()
                     WHERE id = ?
                 ");
                 $stmt->execute([$_POST['story_id']]);
-                $message = "Status da story atualizado com sucesso!";
-                $messageType = 'success';
-                
-                // Redirecionar
+                if (!empty($_POST['_ajax'])) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['ok' => 1]);
+                    exit;
+                }
                 $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $selectedPrototypeId;
                 if ($filterMine) $redirectUrl .= "&filter_mine=true";
                 if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
@@ -894,11 +910,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($checkTodos) {
                     $stmt = $pdo->prepare("DELETE FROM story_tasks WHERE id=?");
                     $stmt->execute([$_POST['association_id']]);
-
-                    // Obter prototype_id do POST
+                    if (!empty($_POST['_ajax'])) {
+                        header('Content-Type: application/json');
+                        echo json_encode(['ok' => 1]);
+                        exit;
+                    }
                     $prototypeIdForRedirect = $_POST['prototype_id'] ?? $selectedPrototypeId;
-
-                    // Redirecionar
                     $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=" . $prototypeIdForRedirect;
                     if ($filterMine) $redirectUrl .= "&filter_mine=true";
                     if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
@@ -1055,6 +1072,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             ->execute([$milestoneIdToAssoc, $sid]);
                     }
                 }
+                if (!empty($_POST['_ajax'])) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['ok' => 1, 'milestones' => loadMilestonesJson($pdo, $protoId)]);
+                    exit;
+                }
                 $redirectUrl = "?tab=prototypes/prototypesv2&prototype_id=$protoId";
                 if ($filterMine) $redirectUrl .= "&filter_mine=true";
                 if ($filterParticipate) $redirectUrl .= "&filter_participate=true";
@@ -1078,7 +1100,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } else {
                         $pdo->prepare("INSERT INTO prototype_milestones (prototype_id,title,description,target_date,color) VALUES (?,?,?,?,?)")
                             ->execute([$protoId, $title, $desc, $date, $color]);
+                        $mid = (int)$pdo->lastInsertId();
                     }
+                }
+                if (!empty($_POST['_ajax'])) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['ok' => 1, 'milestones' => loadMilestonesJson($pdo, $protoId)]);
+                    exit;
                 }
                 header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#roadmap-section");
                 exit;
@@ -1087,6 +1115,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $protoId = (int)($_POST['prototype_id'] ?? 0);
                 $mid     = (int)($_POST['milestone_id'] ?? 0);
                 if ($mid) $pdo->prepare("DELETE FROM prototype_milestones WHERE id=? AND prototype_id=?")->execute([$mid, $protoId]);
+                if (!empty($_POST['_ajax'])) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['ok' => 1, 'milestones' => loadMilestonesJson($pdo, $protoId)]);
+                    exit;
+                }
+                header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#roadmap-section");
+                exit;
+
+            case 'toggle_milestone_completed':
+                $protoId = (int)($_POST['prototype_id'] ?? 0);
+                $mid     = (int)($_POST['milestone_id'] ?? 0);
+                if ($mid) {
+                    $pdo->prepare("UPDATE prototype_milestones SET completed = 1 - completed WHERE id=? AND prototype_id=?")->execute([$mid, $protoId]);
+                }
+                if (!empty($_POST['_ajax'])) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['ok' => 1, 'milestones' => loadMilestonesJson($pdo, $protoId)]);
+                    exit;
+                }
                 header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#roadmap-section");
                 exit;
 
@@ -1103,6 +1150,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $pdo->prepare("INSERT IGNORE INTO milestone_stories (milestone_id,story_id) VALUES (?,?)")->execute([$mid, $sid]);
                     }
                 }
+                if (!empty($_POST['_ajax'])) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['ok' => 1, 'milestones' => loadMilestonesJson($pdo, $protoId)]);
+                    exit;
+                }
                 header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#roadmap-section");
                 exit;
 
@@ -1118,6 +1170,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } else {
                         $pdo->prepare("INSERT IGNORE INTO milestone_projects (milestone_id,project_id) VALUES (?,?)")->execute([$mid, $pid]);
                     }
+                }
+                if (!empty($_POST['_ajax'])) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['ok' => 1, 'milestones' => loadMilestonesJson($pdo, $protoId)]);
+                    exit;
                 }
                 header("Location: ?tab=prototypes/prototypesv2&prototype_id=$protoId#roadmap-section");
                 exit;
@@ -2975,6 +3032,7 @@ if ($selectedPrototype && $checkTodos) {
                                  data-title="<?= htmlspecialchars($rm['title']) ?>"
                                  data-desc="<?= htmlspecialchars($rm['description'] ?? '') ?>"
                                  data-color="<?= htmlspecialchars($rm['color']) ?>"
+                                 data-completed="<?= (int)($rm['completed'] ?? 0) ?>"
                                  style="background:<?= htmlspecialchars($rm['color']) ?>; border-color:<?= htmlspecialchars($rm['color']) ?>;"
                                  onclick="rmSelect(this)"
                                  title="<?= htmlspecialchars($rm['title']) ?> — <?= date('d/m/Y', strtotime($rm['target_date'])) ?>">
@@ -2994,6 +3052,9 @@ if ($selectedPrototype && $checkTodos) {
                             <small class="text-muted ms-2" id="rm-d-date"></small>
                         </div>
                         <div class="d-flex gap-1">
+                            <button class="btn btn-sm btn-outline-success" id="rm-d-done-btn" onclick="rmToggleCompleted()" title="Marcar como concluído/não concluído">
+                                <i class="bi bi-check-circle" id="rm-d-done-icon"></i> <span id="rm-d-done-text">Concluído</span>
+                            </button>
                             <button class="btn btn-sm btn-outline-primary" onclick="rmOpenEdit()"><i class="bi bi-pencil"></i></button>
                             <button class="btn btn-sm btn-outline-danger" onclick="rmDeleteCurrent()"><i class="bi bi-trash"></i></button>
                             <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('rm-detail').style.display='none'"><i class="bi bi-x"></i></button>
@@ -3114,6 +3175,12 @@ if ($selectedPrototype && $checkTodos) {
                 <input type="hidden" name="prototype_id" value="<?= $rmProtoId ?>">
                 <input type="hidden" name="milestone_id" id="rm-delete-mid" value="">
             </form>
+            <!-- Form oculto para toggle completed -->
+            <form method="POST" id="rm-completed-form" style="display:none;">
+                <input type="hidden" name="action" value="toggle_milestone_completed">
+                <input type="hidden" name="prototype_id" value="<?= $rmProtoId ?>">
+                <input type="hidden" name="milestone_id" id="rm-completed-mid" value="">
+            </form>
 
             <style>
             .rm-wrap { overflow-x: auto; padding-bottom: 8px; }
@@ -3159,6 +3226,35 @@ if ($selectedPrototype && $checkTodos) {
             }
             .rm-month-cell:hover { color: #0d6efd; }
             .rm-month-cell.rm-cur-month { color: #dc3545; font-weight: 600; }
+            .rm-month-cell.rm-past-month { color: #adb5bd; }
+            .rm-milestone-past { opacity: 0.6; }
+            .rm-milestone-past::after {
+                content: ''; position: absolute; top: -3px; right: -3px;
+                width: 7px; height: 7px; border-radius: 50%;
+                background: #6c757d; border: 1px solid #fff;
+            }
+            .rm-milestone-done { opacity: 1 !important; }
+            .rm-milestone-done::after {
+                content: '✓'; position: absolute; top: -18px; left: 50%;
+                transform: translateX(-50%); font-size: 10px; color: #198754;
+                font-weight: 700; pointer-events: none;
+            }
+            /* Task filter */
+            .story-tasks-wrap { margin-top: 6px; }
+            .story-tasks-header {
+                display: flex; align-items: center; gap: 8px; cursor: pointer;
+                padding: 4px 0; user-select: none;
+            }
+            .story-tasks-label { font-size: 12px; color: #6c757d; font-weight: 600; }
+            .story-tasks-chevron { font-size: 11px; color: #9ca3af; transition: transform .2s; }
+            .story-tasks-header.open .story-tasks-chevron { transform: rotate(180deg); }
+            .story-tasks-filters { display: flex; gap: 3px; margin-left: auto; }
+            .st-filter-btn {
+                font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid #dee2e6;
+                background: #f8f9fa; color: #495057; cursor: pointer; line-height: 1.4;
+            }
+            .st-filter-btn.active { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+            .story-tasks-body { margin-top: 4px; }
             .rm-detail-panel {
                 border: 1px solid #dee2e6; border-radius: 8px;
                 padding: 14px 16px; margin-top: 16px; background: #fafafa;
@@ -3198,19 +3294,20 @@ if ($selectedPrototype && $checkTodos) {
             <script>
             // Global: milestones deste protótipo (usado no modal Fechar Story)
             var RM_DATA = <?= json_encode($selectedPrototype['milestones'] ?? []) ?>;
+            var RM_PROTO_ID = <?= $rmProtoId ?>;
             (function(){
-            const MONTHS = 24;
+            const PAST_MONTHS = 3;
+            const FUT_MONTHS  = 24;
+            const MONTHS      = PAST_MONTHS + FUT_MONTHS;
 
             // Position milestones and months on the timeline bar
             function rmInit() {
                 const bar = document.querySelector('.rm-bar');
                 if (!bar) return;
-                const barW = bar.offsetWidth;
 
-                const now = new Date();
-                const start = new Date(now.getFullYear(), now.getMonth(), 1);
-                const end   = new Date(start);
-                end.setMonth(end.getMonth() + MONTHS);
+                const now   = new Date();
+                const start = new Date(now.getFullYear(), now.getMonth() - PAST_MONTHS, 1);
+                const end   = new Date(now.getFullYear(), now.getMonth() + FUT_MONTHS, 1);
                 const totalMs = end - start;
 
                 // Today marker
@@ -3223,9 +3320,13 @@ if ($selectedPrototype && $checkTodos) {
                 // Milestone markers
                 document.querySelectorAll('.rm-milestone').forEach(el => {
                     const d = new Date(el.dataset.date + 'T12:00:00');
-                    const pct = Math.min(1, Math.max(0, (d - start) / totalMs));
+                    const rawPct = (d - start) / totalMs;
+                    const pct = Math.min(1, Math.max(0, rawPct));
                     el.style.left = (pct * 100) + '%';
-                    // Label inside marker
+                    const isPast = d < now;
+                    const isDone = el.dataset.completed === '1';
+                    el.classList.toggle('rm-milestone-past', isPast && !isDone);
+                    el.classList.toggle('rm-milestone-done', isDone);
                     let lbl = el.querySelector('.rm-label');
                     if (!lbl) { lbl = document.createElement('div'); lbl.className = 'rm-label'; el.appendChild(lbl); }
                     lbl.textContent = el.dataset.title;
@@ -3236,18 +3337,16 @@ if ($selectedPrototype && $checkTodos) {
                 if (!grid) return;
                 grid.innerHTML = '';
                 for (let i = 0; i < MONTHS; i++) {
-                    const m = new Date(start);
-                    m.setMonth(m.getMonth() + i);
+                    const m = new Date(start.getFullYear(), start.getMonth() + i, 1);
                     const cell = document.createElement('div');
                     cell.className = 'rm-month-cell';
-                    if (i === 0) cell.classList.add('rm-cur-month');
+                    if (i === PAST_MONTHS) cell.classList.add('rm-cur-month');
+                    if (i < PAST_MONTHS) cell.classList.add('rm-past-month');
                     const mo = m.toLocaleString('pt-PT', {month:'short'});
                     cell.innerHTML = '<div>' + mo + '</div><div style="font-size:10px;opacity:.7;">' + m.getFullYear() + '</div>';
-                    // Click month cell → pre-fill date in add modal
                     cell.addEventListener('click', () => {
                         const y = m.getFullYear(), mo2 = String(m.getMonth()+1).padStart(2,'0');
-                        const day = String(m.getDate()).padStart(2,'0');
-                        rmOpenAdd(y+'-'+mo2+'-'+day);
+                        rmOpenAdd(y + '-' + mo2 + '-15');
                     });
                     grid.appendChild(cell);
                 }
@@ -3279,11 +3378,66 @@ if ($selectedPrototype && $checkTodos) {
                 new bootstrap.Modal(document.getElementById('rmMilestoneModal')).show();
             };
 
+            // ── AJAX helper ──────────────────────────────────────────────
+            function rmAjaxPost(formEl, extraFields) {
+                const fd = new FormData(formEl);
+                fd.append('_ajax', '1');
+                if (extraFields) Object.entries(extraFields).forEach(([k,v]) => fd.set(k, v));
+                return fetch(location.href, {method:'POST', body:fd})
+                    .then(r => r.json());
+            }
+
+            // Update RM_DATA + re-render timeline after any milestone change
+            function rmUpdateData(newMilestones, keepSelectedId) {
+                RM_DATA = newMilestones;
+                // Rebuild milestone dots in the bar
+                const bar = document.querySelector('.rm-bar');
+                if (bar) {
+                    bar.querySelectorAll('.rm-milestone').forEach(e => e.remove());
+                    RM_DATA.forEach(m => {
+                        const el = document.createElement('div');
+                        el.className = 'rm-milestone';
+                        el.dataset.id        = m.id;
+                        el.dataset.date      = m.target_date;
+                        el.dataset.title     = m.title;
+                        el.dataset.desc      = m.description || '';
+                        el.dataset.color     = m.color;
+                        el.dataset.completed = m.completed || '0';
+                        el.style.background  = m.color;
+                        el.style.borderColor = m.color;
+                        el.title = m.title + ' — ' + new Date(m.target_date+'T12:00:00').toLocaleDateString('pt-PT');
+                        el.onclick = function() { rmSelect(this); };
+                        bar.appendChild(el);
+                    });
+                }
+                rmInit();
+                if (keepSelectedId) {
+                    const el = bar && bar.querySelector('.rm-milestone[data-id="'+keepSelectedId+'"]');
+                    if (el) { rmSelect(el); } else { document.getElementById('rm-detail').style.display='none'; }
+                }
+            }
+
             window.rmDeleteCurrent = function() {
                 if (!window._rmSelectedId) return;
                 if (!confirm('Eliminar este milestone?')) return;
+                const form = document.getElementById('rm-delete-form');
                 document.getElementById('rm-delete-mid').value = window._rmSelectedId;
-                document.getElementById('rm-delete-form').submit();
+                rmAjaxPost(form).then(data => {
+                    if (data.ok) {
+                        window._rmSelectedId = null;
+                        document.getElementById('rm-detail').style.display = 'none';
+                        rmUpdateData(data.milestones, null);
+                    }
+                });
+            };
+
+            window.rmToggleCompleted = function() {
+                if (!window._rmSelectedId) return;
+                const form = document.getElementById('rm-completed-form');
+                document.getElementById('rm-completed-mid').value = window._rmSelectedId;
+                rmAjaxPost(form).then(data => {
+                    if (data.ok) { rmUpdateData(data.milestones, window._rmSelectedId); }
+                });
             };
 
             window.rmSelect = function(el) {
@@ -3300,20 +3454,36 @@ if ($selectedPrototype && $checkTodos) {
                 document.getElementById('rm-d-date').textContent = d.toLocaleDateString('pt-PT', {day:'2-digit',month:'long',year:'numeric'});
                 document.getElementById('rm-d-desc').textContent = m.description || '';
 
+                // Update "Concluído" button state
+                const doneBtn = document.getElementById('rm-d-done-btn');
+                const isDone = m.completed == 1;
+                doneBtn.className = 'btn btn-sm ' + (isDone ? 'btn-success' : 'btn-outline-success');
+                document.getElementById('rm-d-done-icon').className = isDone ? 'bi bi-check-circle-fill' : 'bi bi-check-circle';
+                document.getElementById('rm-d-done-text').textContent = isDone ? 'Concluído ✓' : 'Concluído';
+
                 // Stories
                 const sList = document.getElementById('rm-d-stories-list');
                 sList.innerHTML = '';
                 (m.stories || []).forEach(s => {
                     const div = document.createElement('div');
                     div.className = 'rm-linked-item';
+                    const btn = document.createElement('button');
+                    btn.className = 'rm-remove'; btn.title = 'Remover'; btn.textContent = '×';
+                    btn.onclick = function() {
+                        const fd = new FormData();
+                        fd.append('action','toggle_milestone_story');
+                        fd.append('prototype_id', RM_PROTO_ID);
+                        fd.append('milestone_id', mid);
+                        fd.append('story_id', s.id);
+                        fd.append('_ajax','1');
+                        fetch(location.href,{method:'POST',body:fd}).then(r=>r.json()).then(data=>{
+                            if (data.ok) rmUpdateData(data.milestones, mid);
+                        });
+                    };
                     div.innerHTML = '<span class="rm-moscow rm-moscow-' + (s.moscow_priority||'should').toLowerCase() + '">' +
                         (s.moscow_priority||'?').toUpperCase() + '</span>' +
-                        '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;">' + escHtml(s.story_text.substring(0,70)) + '</span>' +
-                        '<form method="POST" style="margin:0"><input type="hidden" name="action" value="toggle_milestone_story">' +
-                        '<input type="hidden" name="prototype_id" value="<?= $rmProtoId ?>">' +
-                        '<input type="hidden" name="milestone_id" value="' + mid + '">' +
-                        '<input type="hidden" name="story_id" value="' + s.id + '">' +
-                        '<button type="submit" class="rm-remove" title="Remover">×</button></form>';
+                        '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;">' + escHtml((s.story_text||'').substring(0,70)) + '</span>';
+                    div.appendChild(btn);
                     sList.appendChild(div);
                 });
                 if (!m.stories || !m.stories.length) sList.innerHTML = '<span class="text-muted" style="font-size:12px;">Nenhuma story associada</span>';
@@ -3324,23 +3494,62 @@ if ($selectedPrototype && $checkTodos) {
                 (m.projects || []).forEach(p => {
                     const div = document.createElement('div');
                     div.className = 'rm-linked-item';
-                    div.innerHTML = (p.short_name ? '<strong>' + escHtml(p.short_name) + '</strong> — ' : '') + escHtml(p.title.substring(0,55)) +
-                        '<form method="POST" style="margin:0"><input type="hidden" name="action" value="toggle_milestone_project">' +
-                        '<input type="hidden" name="prototype_id" value="<?= $rmProtoId ?>">' +
-                        '<input type="hidden" name="milestone_id" value="' + mid + '">' +
-                        '<input type="hidden" name="project_id" value="' + p.id + '">' +
-                        '<button type="submit" class="rm-remove" title="Remover">×</button></form>';
+                    const btn = document.createElement('button');
+                    btn.className = 'rm-remove'; btn.title = 'Remover'; btn.textContent = '×';
+                    btn.onclick = function() {
+                        const fd = new FormData();
+                        fd.append('action','toggle_milestone_project');
+                        fd.append('prototype_id', RM_PROTO_ID);
+                        fd.append('milestone_id', mid);
+                        fd.append('project_id', p.id);
+                        fd.append('_ajax','1');
+                        fetch(location.href,{method:'POST',body:fd}).then(r=>r.json()).then(data=>{
+                            if (data.ok) rmUpdateData(data.milestones, mid);
+                        });
+                    };
+                    div.innerHTML = (p.short_name ? '<strong>' + escHtml(p.short_name) + '</strong> — ' : '') + escHtml((p.title||'').substring(0,55));
+                    div.appendChild(btn);
                     pList.appendChild(div);
                 });
                 if (!m.projects || !m.projects.length) pList.innerHTML = '<span class="text-muted" style="font-size:12px;">Nenhum projecto associado</span>';
 
-                // Fill milestone_id in pick forms
+                // Fill milestone_id in pick forms (for add via picker)
                 document.querySelectorAll('.rm-mid-field').forEach(f => f.value = mid);
 
                 document.getElementById('rm-detail').style.display = 'block';
             };
 
+            // Intercept pick forms (associate story/project) via AJAX
+            document.addEventListener('submit', function(e) {
+                const form = e.target;
+                if (!form.classList.contains('rm-pick-form')) return;
+                e.preventDefault();
+                const fd = new FormData(form);
+                fd.append('_ajax','1');
+                fetch(location.href,{method:'POST',body:fd}).then(r=>r.json()).then(data=>{
+                    if (data.ok) rmUpdateData(data.milestones, window._rmSelectedId);
+                });
+            });
+
+            // Intercept add/edit milestone modal form via AJAX
+            document.addEventListener('submit', function(e) {
+                const form = e.target;
+                if (form.closest('#rmMilestoneModal') === null) return;
+                e.preventDefault();
+                const isEdit = form.querySelector('#rm-form-action') && form.querySelector('#rm-form-action').value === 'edit_milestone';
+                const prevMid = isEdit ? window._rmSelectedId : null;
+                const fd = new FormData(form);
+                fd.append('_ajax','1');
+                fetch(location.href,{method:'POST',body:fd}).then(r=>r.json()).then(data=>{
+                    if (data.ok) {
+                        bootstrap.Modal.getInstance(document.getElementById('rmMilestoneModal'))?.hide();
+                        rmUpdateData(data.milestones, prevMid);
+                    }
+                });
+            }, true);
+
             function escHtml(s) {
+                s = s || '';
                 return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
             }
 
@@ -3352,6 +3561,104 @@ if ($selectedPrototype && $checkTodos) {
                 window.addEventListener('resize', rmInit);
             }
             })();
+
+            // ── Task filter / collapse ────────────────────────────────────
+            window.stToggle = function(header) {
+                const body = header.nextElementSibling;
+                const open = body.style.display !== 'none';
+                body.style.display = open ? 'none' : 'block';
+                header.classList.toggle('open', !open);
+            };
+            window.stFilter = function(btn, filter) {
+                const wrap = btn.closest('.story-tasks-wrap');
+                wrap.querySelectorAll('.st-filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const doneStates = ['concluída','completada','fechada','concluida'];
+                wrap.querySelectorAll('.task-badge').forEach(el => {
+                    const cat = el.dataset.taskCat;
+                    let show = filter === 'all' ||
+                               (filter === 'pending' && cat === 'pending') ||
+                               (filter === 'done'    && cat === 'done');
+                    el.style.display = show ? '' : 'none';
+                });
+                // Open body if closed
+                const body = wrap.querySelector('.story-tasks-body');
+                const header = wrap.querySelector('.story-tasks-header');
+                if (body.style.display === 'none') {
+                    body.style.display = 'block';
+                    header.classList.add('open');
+                }
+            };
+            window.stRemoveTask = function(btn) {
+                if (!confirm('Remover esta task?')) return;
+                const form = btn.closest('.rm-task-rm-form');
+                const assocId = form.dataset.assoc;
+                const protoId = form.dataset.proto;
+                const fd = new FormData();
+                fd.append('action','remove_task_from_story');
+                fd.append('association_id', assocId);
+                fd.append('prototype_id', protoId);
+                fd.append('_ajax','1');
+                fetch(location.href,{method:'POST',body:fd}).then(r=>r.json()).then(data=>{
+                    if (data.ok) {
+                        const badge = btn.closest('.task-badge');
+                        const wrap  = badge.closest('.story-tasks-wrap');
+                        badge.remove();
+                        const pending = wrap.querySelectorAll('.task-badge[data-task-cat="pending"]').length;
+                        const done    = wrap.querySelectorAll('.task-badge[data-task-cat="done"]').length;
+                        wrap.querySelector('.badge.bg-warning').textContent = pending;
+                        wrap.querySelector('.badge.bg-success').textContent = done;
+                    }
+                });
+            };
+
+            // ── AJAX intercept for "Reabrir Story" form ──────────────────
+            document.addEventListener('submit', function(e) {
+                const form = e.target;
+                const actionInput = form.querySelector('input[name="action"]');
+                if (!actionInput || actionInput.value !== 'toggle_story_status') return;
+                e.preventDefault();
+                const fd = new FormData(form);
+                fd.append('_ajax','1');
+                fetch(location.href,{method:'POST',body:fd}).then(r=>r.json()).then(data=>{
+                    if (!data.ok) return;
+                    const storyItem = form.closest('.story-item');
+                    if (!storyItem) return;
+                    storyItem.classList.remove('closed');
+                    const badge = storyItem.querySelector('.badge.bg-secondary');
+                    if (badge) { badge.className = 'badge bg-info'; badge.textContent = 'Aberta'; }
+                    form.closest('.story-actions-panel').querySelectorAll('form').forEach(f => {
+                        const ai = f.querySelector('input[name="action"]');
+                        if (ai && ai.value === 'toggle_story_status') {
+                            f.replaceWith(Object.assign(document.createElement('span'),
+                                {className:'text-muted small', textContent:'(reaberta — recarregue para fechar)'}));
+                        }
+                    });
+                });
+            });
+
+            // ── AJAX intercept for "Fechar Story" modal form ─────────────
+            document.addEventListener('submit', function(e) {
+                const form = e.target;
+                if (form.id !== 'closeStoryForm') return;
+                e.preventDefault();
+                const fd = new FormData(form);
+                fd.append('_ajax','1');
+                fetch(location.href,{method:'POST',body:fd}).then(r=>r.json()).then(data=>{
+                    if (!data.ok) return;
+                    bootstrap.Modal.getInstance(document.getElementById('closeStoryModal'))?.hide();
+                    const storyId = form.querySelector('#csm-story-id').value;
+                    const storyItem = document.querySelector('.story-item [data-id="' + storyId + '"]')?.closest('.story-item')
+                        || [...document.querySelectorAll('.story-item')].find(si =>
+                            si.querySelector('input[name="story_id"][value="' + storyId + '"]'));
+                    if (storyItem) {
+                        storyItem.classList.add('closed');
+                        const badge = storyItem.querySelector('.badge.bg-info');
+                        if (badge) { badge.className = 'badge bg-secondary'; badge.textContent = 'Fechada'; }
+                    }
+                    if (data.milestones) rmUpdateData(data.milestones, window._rmSelectedId);
+                });
+            });
             </script>
 
             <!-- ══ NOTAS ══════════════════════════════════════════════════════ -->
@@ -4016,37 +4323,56 @@ if ($selectedPrototype && $checkTodos) {
                                 
                                 <!-- Tasks Associadas -->
                                 <?php if ($checkTodos && !empty($story['tasks'])): ?>
-                                <div class="story-tasks">
-                                    <small class="text-muted mb-2 d-block">Tasks Associadas:</small>
-                                    <?php foreach ($story['tasks'] as $task): ?>
-                                        <div class="task-badge <?= $task['estado'] ?>">
-                                            <div class="task-info" onclick="openTaskEditor(<?= $task['id'] ?>)" style="cursor: pointer; flex: 1;">
-                                                <div class="task-title">
-                                                    <?= htmlspecialchars($task['titulo']) ?>
-                                                </div>
+                                <?php
+                                    $doneStates   = ['concluída','completada','fechada','concluida'];
+                                    $taskPending  = 0; $taskDone = 0;
+                                    foreach ($story['tasks'] as $t) {
+                                        if (in_array(strtolower($t['estado']), $doneStates)) $taskDone++;
+                                        else $taskPending++;
+                                    }
+                                ?>
+                                <div class="story-tasks-wrap">
+                                    <div class="story-tasks-header" onclick="stToggle(this)">
+                                        <span class="story-tasks-label">
+                                            <i class="bi bi-list-task"></i>
+                                            Tasks
+                                            <span class="badge bg-warning text-dark ms-1" title="Pendentes"><?= $taskPending ?></span>
+                                            <span class="badge bg-success ms-1" title="Concluídas"><?= $taskDone ?></span>
+                                        </span>
+                                        <span class="story-tasks-filters" onclick="event.stopPropagation()">
+                                            <button class="st-filter-btn active" data-filter="pending" onclick="stFilter(this,'pending')">Pendentes</button>
+                                            <button class="st-filter-btn" data-filter="done" onclick="stFilter(this,'done')">Concluídas</button>
+                                            <button class="st-filter-btn" data-filter="all" onclick="stFilter(this,'all')">Todas</button>
+                                        </span>
+                                        <i class="bi bi-chevron-down story-tasks-chevron"></i>
+                                    </div>
+                                    <div class="story-tasks-body" style="display:none;">
+                                    <?php foreach ($story['tasks'] as $task):
+                                        $isDone = in_array(strtolower($task['estado']), $doneStates);
+                                        $taskCat = $isDone ? 'done' : 'pending';
+                                    ?>
+                                        <div class="task-badge <?= htmlspecialchars($task['estado']) ?>" data-task-cat="<?= $taskCat ?>"
+                                             style="<?= $isDone ? 'display:none' : '' ?>">
+                                            <div class="task-info" onclick="openTaskEditor(<?= $task['id'] ?>)" style="cursor:pointer;flex:1;">
+                                                <div class="task-title"><?= htmlspecialchars($task['titulo']) ?></div>
                                                 <div class="task-meta">
                                                     <span class="badge badge-sm bg-secondary"><?= htmlspecialchars($task['estado']) ?></span>
-                                                    <?php if ($task['responsavel_nome']): ?>
-                                                        👤 <?= htmlspecialchars($task['responsavel_nome']) ?>
-                                                    <?php endif; ?>
-                                                    <?php if ($task['data_limite']): ?>
-                                                        📅 <?= date('d/m/Y', strtotime($task['data_limite'])) ?>
-                                                    <?php endif; ?>
+                                                    <?php if ($task['responsavel_nome']): ?>👤 <?= htmlspecialchars($task['responsavel_nome']) ?><?php endif; ?>
+                                                    <?php if ($task['data_limite']): ?>📅 <?= date('d/m/Y', strtotime($task['data_limite'])) ?><?php endif; ?>
                                                 </div>
                                             </div>
                                             <button class="btn btn-sm btn-primary" onclick="openTaskEditor(<?= $task['id'] ?>)" title="Editar Task">
                                                 <i class="bi bi-pencil"></i>
                                             </button>
-                                            <form method="POST" style="display:inline;" onsubmit="return confirm('Remover esta task?')">
-                                                <input type="hidden" name="action" value="remove_task_from_story">
-                                                <input type="hidden" name="association_id" value="<?= $task['association_id'] ?>">
-                                                <input type="hidden" name="prototype_id" value="<?= $selectedPrototype['id'] ?>">
-                                                <button type="submit" class="btn btn-sm btn-danger" title="Remover da Story">
+                                            <form class="rm-task-rm-form" data-assoc="<?= $task['association_id'] ?>" data-proto="<?= $selectedPrototype['id'] ?>" style="display:inline;">
+                                                <button type="button" class="btn btn-sm btn-danger" title="Remover da Story"
+                                                        onclick="stRemoveTask(this)">
                                                     <i class="bi bi-x-lg"></i>
                                                 </button>
                                             </form>
                                         </div>
                                     <?php endforeach; ?>
+                                    </div>
                                 </div>
                                 <?php endif; ?>
                                 

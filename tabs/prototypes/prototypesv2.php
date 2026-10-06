@@ -3008,10 +3008,21 @@ if ($selectedPrototype && $checkTodos) {
             <!-- ══ ROADMAP ══════════════════════════════════════════════════ -->
             <div class="detail-section" id="roadmap-section">
                 <div class="section-header">
-                    <h5><i class="bi bi-map"></i> Roadmap <span style="font-size:12px;font-weight:400;color:#6c757d;">(24 meses)</span></h5>
-                    <button class="btn btn-sm btn-success" onclick="rmOpenAdd()">
-                        <i class="bi bi-plus-lg"></i> Milestone
-                    </button>
+                    <h5><i class="bi bi-map"></i> Roadmap <span id="rm-range-label" style="font-size:12px;font-weight:400;color:#6c757d;"></span></h5>
+                    <div class="d-flex gap-1 align-items-center">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="rmShift(-3)" title="3 meses atrás">
+                            <i class="bi bi-chevron-left"></i> 3m
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="rmShift(0)" title="Voltar ao presente" id="rm-reset-btn" style="display:none;">
+                            <i class="bi bi-house"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="rmShift(3)" title="3 meses à frente">
+                            3m <i class="bi bi-chevron-right"></i>
+                        </button>
+                        <button class="btn btn-sm btn-success" onclick="rmOpenAdd()">
+                            <i class="bi bi-plus-lg"></i> Milestone
+                        </button>
+                    </div>
                 </div>
 
                 <?php
@@ -3299,6 +3310,7 @@ if ($selectedPrototype && $checkTodos) {
             const PAST_MONTHS = 3;
             const FUT_MONTHS  = 24;
             const MONTHS      = PAST_MONTHS + FUT_MONTHS;
+            var rmOffset = 0; // months offset from default window (negative = further back)
 
             // Position milestones and months on the timeline bar
             function rmInit() {
@@ -3306,15 +3318,27 @@ if ($selectedPrototype && $checkTodos) {
                 if (!bar) return;
 
                 const now   = new Date();
-                const start = new Date(now.getFullYear(), now.getMonth() - PAST_MONTHS, 1);
-                const end   = new Date(now.getFullYear(), now.getMonth() + FUT_MONTHS, 1);
+                const start = new Date(now.getFullYear(), now.getMonth() - PAST_MONTHS + rmOffset, 1);
+                const end   = new Date(now.getFullYear(), now.getMonth() + FUT_MONTHS  + rmOffset, 1);
                 const totalMs = end - start;
+
+                // Update range label
+                const rangeLabel = document.getElementById('rm-range-label');
+                if (rangeLabel) {
+                    const s = start.toLocaleString('pt-PT',{month:'short',year:'numeric'});
+                    const e = new Date(end.getFullYear(), end.getMonth()-1, 1).toLocaleString('pt-PT',{month:'short',year:'numeric'});
+                    rangeLabel.textContent = '(' + s + ' → ' + e + ')';
+                }
+                // Show/hide reset button
+                const resetBtn = document.getElementById('rm-reset-btn');
+                if (resetBtn) resetBtn.style.display = rmOffset !== 0 ? '' : 'none';
 
                 // Today marker
                 const todayEl = document.getElementById('rm-today-marker');
                 if (todayEl) {
                     const pct = Math.min(1, Math.max(0, (now - start) / totalMs));
                     todayEl.style.left = (pct * 100) + '%';
+                    todayEl.style.display = (pct > 0 && pct < 1) ? '' : 'none';
                 }
 
                 // Milestone markers
@@ -3336,12 +3360,13 @@ if ($selectedPrototype && $checkTodos) {
                 const grid = document.getElementById('rm-months');
                 if (!grid) return;
                 grid.innerHTML = '';
+                const curMonthIdx = PAST_MONTHS - rmOffset; // index of current month in the grid
                 for (let i = 0; i < MONTHS; i++) {
                     const m = new Date(start.getFullYear(), start.getMonth() + i, 1);
                     const cell = document.createElement('div');
                     cell.className = 'rm-month-cell';
-                    if (i === PAST_MONTHS) cell.classList.add('rm-cur-month');
-                    if (i < PAST_MONTHS) cell.classList.add('rm-past-month');
+                    if (i === curMonthIdx) cell.classList.add('rm-cur-month');
+                    if (i < curMonthIdx) cell.classList.add('rm-past-month');
                     const mo = m.toLocaleString('pt-PT', {month:'short'});
                     cell.innerHTML = '<div>' + mo + '</div><div style="font-size:10px;opacity:.7;">' + m.getFullYear() + '</div>';
                     cell.addEventListener('click', () => {
@@ -3351,6 +3376,12 @@ if ($selectedPrototype && $checkTodos) {
                     grid.appendChild(cell);
                 }
             }
+
+            window.rmShift = function(delta) {
+                if (delta === 0) { rmOffset = 0; } // reset to default
+                else { rmOffset += delta; }
+                rmInit();
+            };
 
             window.rmOpenAdd = function(preDate) {
                 document.getElementById('rm-modal-title').textContent = 'Novo Milestone';

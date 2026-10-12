@@ -54,7 +54,12 @@ try {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES user_tokens(user_id)
     )');
-    
+    // Migração: adicionar data_defesa se ainda não existe
+    $res = $db->query("SHOW COLUMNS FROM phd_info LIKE 'data_defesa'");
+    if ($res && $res->num_rows === 0) {
+        $db->query("ALTER TABLE phd_info ADD COLUMN data_defesa DATE NULL AFTER data_inicio");
+    }
+
     // Criar tabela para artigos do doutoramento
     $db->query('CREATE TABLE IF NOT EXISTS phd_artigos (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -257,27 +262,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Guardar/Atualizar informações do doutoramento
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_phd_info') {
-    $data_inicio = !empty($_POST['data_inicio']) ? $_POST['data_inicio'] : null;
-    $titulo = trim($_POST['titulo_doutoramento']);
-    $orientador = trim($_POST['orientador']);
+    $data_inicio  = !empty($_POST['data_inicio'])  ? $_POST['data_inicio']  : null;
+    $data_defesa  = !empty($_POST['data_defesa'])  ? $_POST['data_defesa']  : null;
+    $titulo       = trim($_POST['titulo_doutoramento']);
+    $orientador   = trim($_POST['orientador']);
     $coorientador = trim($_POST['coorientador']);
-    $instituicao = trim($_POST['instituicao']);
+    $instituicao  = trim($_POST['instituicao']);
     $departamento = trim($_POST['departamento']);
-    $link_tese = trim($_POST['link_tese']);
-    $notas = trim($_POST['notas']);
+    $link_tese    = trim($_POST['link_tese']);
+    $notas        = trim($_POST['notas']);
     $selected_user = intval($_POST['selected_user']);
-    
+
     $stmt = $db->prepare('SELECT id FROM phd_info WHERE user_id = ?');
     $stmt->bind_param('i', $selected_user);
     $stmt->execute();
     $result = $stmt->get_result();
-    
+
     if ($result->num_rows > 0) {
-        $stmt = $db->prepare('UPDATE phd_info SET data_inicio = ?, titulo_doutoramento = ?, orientador = ?, coorientador = ?, instituicao = ?, departamento = ?, link_tese = ?, notas = ? WHERE user_id = ?');
-        $stmt->bind_param('ssssssssi', $data_inicio, $titulo, $orientador, $coorientador, $instituicao, $departamento, $link_tese, $notas, $selected_user);
+        $stmt = $db->prepare('UPDATE phd_info SET data_inicio = ?, data_defesa = ?, titulo_doutoramento = ?, orientador = ?, coorientador = ?, instituicao = ?, departamento = ?, link_tese = ?, notas = ? WHERE user_id = ?');
+        $stmt->bind_param('sssssssssi', $data_inicio, $data_defesa, $titulo, $orientador, $coorientador, $instituicao, $departamento, $link_tese, $notas, $selected_user);
     } else {
-        $stmt = $db->prepare('INSERT INTO phd_info (user_id, data_inicio, titulo_doutoramento, orientador, coorientador, instituicao, departamento, link_tese, notas) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-        $stmt->bind_param('issssssss', $selected_user, $data_inicio, $titulo, $orientador, $coorientador, $instituicao, $departamento, $link_tese, $notas);
+        $stmt = $db->prepare('INSERT INTO phd_info (user_id, data_inicio, data_defesa, titulo_doutoramento, orientador, coorientador, instituicao, departamento, link_tese, notas) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        $stmt->bind_param('isssssssss', $selected_user, $data_inicio, $data_defesa, $titulo, $orientador, $coorientador, $instituicao, $departamento, $link_tese, $notas);
     }
     
     if ($stmt->execute()) {
@@ -829,6 +835,29 @@ $total_artigos = count($artigos);
                     <div class="col-md-6">
                         <p><strong>Título:</strong> <?= htmlspecialchars($phd_info['titulo_doutoramento'] ?: 'N/A') ?></p>
                         <p><strong>Data de Início:</strong> <?= $phd_info['data_inicio'] ? date('d/m/Y', strtotime($phd_info['data_inicio'])) : 'N/A' ?></p>
+                        <p><strong>Deadline (Defesa):</strong>
+                        <?php if (!empty($phd_info['data_defesa'])): ?>
+                            <?= date('d/m/Y', strtotime($phd_info['data_defesa'])) ?>
+                            <?php
+                                $hoje = new DateTime();
+                                $def  = new DateTime($phd_info['data_defesa']);
+                                $diff = $hoje->diff($def);
+                                $dias = (int)$def->format('U') - (int)$hoje->format('U');
+                                if ($dias < 0) {
+                                    echo ' <span class="badge bg-secondary">Concluída</span>';
+                                } elseif ($diff->days <= 30) {
+                                    echo ' <span class="badge bg-danger">' . $diff->days . ' dias</span>';
+                                } elseif ($diff->days <= 90) {
+                                    echo ' <span class="badge bg-warning text-dark">' . $diff->days . ' dias</span>';
+                                } else {
+                                    $meses = $diff->y * 12 + $diff->m;
+                                    echo ' <span class="badge bg-info text-dark">' . $meses . ' meses</span>';
+                                }
+                            ?>
+                        <?php else: ?>
+                            <span class="text-muted">N/A</span>
+                        <?php endif; ?>
+                        </p>
                         <p><strong>Orientador:</strong> <?= htmlspecialchars($phd_info['orientador'] ?: 'N/A') ?></p>
                         <p><strong>Coorientador:</strong> <?= htmlspecialchars($phd_info['coorientador'] ?: 'N/A') ?></p>
                     </div>
@@ -1310,8 +1339,13 @@ $total_artigos = count($artigos);
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Data de Início</label>
-                            <input type="date" class="form-control" name="data_inicio" 
+                            <input type="date" class="form-control" name="data_inicio"
                                    value="<?= $phd_info['data_inicio'] ?? '' ?>">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Deadline (Data de Defesa)</label>
+                            <input type="date" class="form-control" name="data_defesa"
+                                   value="<?= $phd_info['data_defesa'] ?? '' ?>">
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Orientador</label>

@@ -1591,23 +1591,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script>
 // ===== MODO FOCO =====
-(function () {
-    const PING_INTERVAL = 40 * 60; // 40 minutos em segundos
-    const PING_TIMEOUT  = 90;       // 90s para responder antes de terminar foco
+const PING_INTERVAL = 40 * 60;
+const PING_TIMEOUT  = 90;
 
-    let focoTaskId    = null;
-    let focoStart     = null;
-    let focoMainTimer = null;
-    let focoPingTimer = null;
-    let pingSecondsLeft = PING_INTERVAL;
-    let awaitingResponse = false;
-    let responseDeadline = null;
+let focoTaskId    = null;
+let focoStart     = null;
+let focoMainTimer = null;
+let pingSecondsLeft = PING_INTERVAL;
+let awaitingResponse = false;
+let responseDeadline = null;
 
-    const bar       = document.getElementById('foco-bar');
-    const timerEl   = document.getElementById('foco-timer');
-    const titleEl   = document.getElementById('foco-title');
-    const pingEl    = document.getElementById('foco-ping-countdown');
-    const btnResp   = document.getElementById('foco-btn-resp');
+const bar     = document.getElementById('foco-bar');
+const timerEl = document.getElementById('foco-timer');
+const titleEl = document.getElementById('foco-title');
+const pingEl  = document.getElementById('foco-ping-countdown');
+const btnResp = document.getElementById('foco-btn-resp');
+
+(function initFoco() {
 
     function fmt(s) {
         const h = Math.floor(s / 3600);
@@ -1731,7 +1731,7 @@ document.addEventListener('DOMContentLoaded', function() {
             focoMainTimer = setInterval(tick, 1000);
         } catch(e) { sessionStorage.removeItem('foco'); }
     }
-})();
+})(); // fim initFoco
 // ===== FIM MODO FOCO =====
 </script>
 

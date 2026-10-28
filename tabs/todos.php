@@ -779,6 +779,10 @@ $db->close();
                                     <div class="d-flex justify-content-between align-items-center">
                                         <small class="text-muted">
                                             <i class="bi bi-person"></i> <?= htmlspecialchars($todo['responsavel_nome'] ?? 'N/A') ?>
+                                            <?php if (!empty($focoMap[$todo['id']])): ?>
+                                            <?php $fs = $focoMap[$todo['id']]; $fh = floor($fs/3600); $fm = floor(($fs%3600)/60); ?>
+                                            &nbsp;<span style="color:#6d28d9; font-weight:600;">🎯 <?= $fh > 0 ? "{$fh}h {$fm}m" : "{$fm}m" ?></span>
+                                            <?php endif; ?>
                                         </small>
                                         <?php if ($todo['data_limite']): ?>
                                             <small class="text-muted">
@@ -803,17 +807,6 @@ $db->close();
                                             <?= htmlspecialchars($sp['nome']) ?>
                                         </a>
                                         <?php endforeach; ?>
-                                    </div>
-                                    <?php endif; ?>
-
-                                    <?php if (!empty($focoMap[$todo['id']])): ?>
-                                    <?php
-                                        $fs = $focoMap[$todo['id']];
-                                        $fh = floor($fs/3600); $fm = floor(($fs%3600)/60);
-                                        $focoLabel = $fh > 0 ? "{$fh}h {$fm}min" : "{$fm}min";
-                                    ?>
-                                    <div class="mt-1" style="font-size:11px; color:#6d28d9;">
-                                        🎯 <?= $focoLabel ?> em foco
                                     </div>
                                     <?php endif; ?>
 

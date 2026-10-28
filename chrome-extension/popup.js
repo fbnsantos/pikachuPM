@@ -298,6 +298,7 @@ function buildTodoCard(todo) {
     <div class="todo-actions">
       ${stateButtons}
       <button class="btn-details" title="Ver descrição e checklist">📋</button>
+      <button class="btn-foco" data-foco-id="${todo.id}" data-foco-title="${escapeHtml(todo.titulo || '')}" title="Iniciar foco nesta tarefa">🎯</button>
       <button class="btn-open" title="Abrir no pikachuPM">↗ Abrir</button>
       <button class="btn-delete" title="Eliminar">🗑</button>
     </div>`;
@@ -332,6 +333,12 @@ function buildTodoCard(todo) {
         detEl.innerHTML = `<span class="td-error">${escapeHtml(err.message)}</span>`;
       }
     }
+  });
+
+  card.querySelector('.btn-foco').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const btn = e.currentTarget;
+    focoIniciar(btn.dataset.focoId, btn.dataset.focoTitle);
   });
 
   card.querySelector('.btn-open').addEventListener('click', (e) => {
@@ -1125,6 +1132,170 @@ async function initMqttPubTopic() {
   if (el && mqttPubTopic) el.value = mqttPubTopic;
 }
 
+// ── Foco ──────────────────────────────────────────────────────
+var _foco = window._foco || {
+  id: null, title: '', inicio: null,
+  elapsed: 0,          // segundos acumulados antes de pausas
+  timerInterval: null,
+  pingInterval: null,
+  pingS: 40 * 60,
+  pingLeft: 0,
+};
+window._foco = _foco;
+
+function focoPlayPing() {
+  try {
+    if (!_audioCtx) _audioCtx = new AudioContext();
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+    const ctx = _audioCtx;
+    const t   = ctx.currentTime;
+    [880, 1100].forEach((freq, i) => {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t + i * 0.25);
+      gain.gain.setValueAtTime(0.4, t + i * 0.25);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.25 + 0.3);
+      osc.start(t + i * 0.25); osc.stop(t + i * 0.25 + 0.3);
+    });
+  } catch { /* AudioContext indisponível */ }
+}
+
+function focoNotify(msg) {
+  try {
+    chrome.notifications.create({
+      type: 'basic', iconUrl: 'icons/icon48.png',
+      title: '🎯 pikachuPM Foco', message: msg,
+    });
+  } catch { /* notificações indisponíveis */ }
+}
+
+async function focoGuardar() {
+  if (!_foco.id || !_foco.inicio) return;
+  const dur = _foco.elapsed + Math.round((Date.now() - _foco.inicio) / 1000);
+  if (dur < 10) return;
+  try {
+    await apiFetch('/tabs/todos.php', {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'save_foco',
+        todo_id: _foco.id,
+        iniciado_em: new Date(_foco.inicio).toISOString().slice(0, 19).replace('T', ' '),
+        duracao_segundos: dur,
+      }),
+    });
+  } catch { /* silencioso */ }
+}
+
+function focoFmt(s) {
+  const m = Math.floor(s / 60), ss = s % 60;
+  return String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+}
+
+function focoUpdateUI() {
+  const bar   = document.getElementById('foco-bar');
+  const tit   = document.getElementById('foco-titulo');
+  const timer = document.getElementById('foco-timer');
+  const cd    = document.getElementById('foco-ping-cd');
+  if (!bar) return;
+  if (!_foco.id) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  if (tit)   tit.textContent   = _foco.title;
+  if (timer) timer.textContent = focoFmt(_foco.elapsed + Math.round((Date.now() - _foco.inicio) / 1000));
+  if (cd)    cd.textContent    = focoFmt(_foco.pingLeft);
+}
+
+function focoIniciar(id, title) {
+  if (_foco.id) focoGuardar().then(() => _focoReset());
+  _foco.id      = id;
+  _foco.title   = title;
+  _foco.inicio  = Date.now();
+  _foco.elapsed = 0;
+  _foco.pingLeft = _foco.pingS;
+
+  clearInterval(_foco.timerInterval);
+  clearInterval(_foco.pingInterval);
+
+  _foco.timerInterval = setInterval(() => focoUpdateUI(), 1000);
+  _foco.pingInterval  = setInterval(() => {
+    _foco.pingLeft--;
+    if (_foco.pingLeft <= 0) {
+      focoPlayPing();
+      focoNotify(`Ainda estás a trabalhar em: ${_foco.title}?`);
+      // auto-stop after 5 min without response
+      setTimeout(() => {
+        if (_foco.pingLeft <= 0) focoTerminar();
+      }, 5 * 60 * 1000);
+      _foco.pingLeft = _foco.pingS;
+    }
+  }, 1000);
+
+  focoUpdateUI();
+  chrome.storage.local.set({ focoState: { id, title, inicio: _foco.inicio, elapsed: 0, pingS: _foco.pingS } }).catch(() => {});
+}
+
+function _focoReset() {
+  clearInterval(_foco.timerInterval);
+  clearInterval(_foco.pingInterval);
+  _foco.id = null; _foco.title = ''; _foco.inicio = null; _foco.elapsed = 0; _foco.pingLeft = 0;
+  focoUpdateUI();
+  chrome.storage.local.remove('focoState').catch(() => {});
+}
+
+function focoTerminar() {
+  if (!_foco.id) return;
+  focoGuardar().then(() => _focoReset());
+}
+
+function focoResponder() {
+  _foco.pingLeft = _foco.pingS;
+}
+
+function focoAlterarTempo(mins) {
+  _foco.pingS    = mins * 60;
+  _foco.pingLeft = _foco.pingS;
+}
+
+function focoInitUI() {
+  const bar     = document.getElementById('foco-bar');
+  if (!bar) return;
+
+  document.getElementById('foco-responder')?.addEventListener('click', focoResponder);
+  document.getElementById('foco-terminar')?.addEventListener('click', focoTerminar);
+  document.getElementById('foco-ping-select')?.addEventListener('change', (e) => {
+    focoAlterarTempo(parseInt(e.target.value, 10));
+  });
+
+  // restore from session storage
+  chrome.storage.local.get(['focoState']).then(({ focoState }) => {
+    if (!focoState || !focoState.id) return;
+    _foco.id      = focoState.id;
+    _foco.title   = focoState.title;
+    _foco.inicio  = focoState.inicio;
+    _foco.elapsed = focoState.elapsed || 0;
+    _foco.pingS   = focoState.pingS   || 40 * 60;
+    _foco.pingLeft = _foco.pingS;
+
+    const sel = document.getElementById('foco-ping-select');
+    if (sel) sel.value = String(_foco.pingS / 60);
+
+    clearInterval(_foco.timerInterval);
+    clearInterval(_foco.pingInterval);
+    _foco.timerInterval = setInterval(() => focoUpdateUI(), 1000);
+    _foco.pingInterval  = setInterval(() => {
+      _foco.pingLeft--;
+      if (_foco.pingLeft <= 0) {
+        focoPlayPing();
+        focoNotify(`Ainda estás a trabalhar em: ${_foco.title}?`);
+        setTimeout(() => { if (_foco.pingLeft <= 0) focoTerminar(); }, 5 * 60 * 1000);
+        _foco.pingLeft = _foco.pingS;
+      }
+    }, 1000);
+    focoUpdateUI();
+  }).catch(() => {});
+}
+
 // ── Init ──────────────────────────────────────────────────────
 async function init() {
   const config = await loadConfig();
@@ -1146,6 +1317,7 @@ async function init() {
     applyCompact(config.compactMode);
     startClock();
     initPomodoro();
+    focoInitUI();
     await Promise.all([
       fetchTodos(), fetchCalendar(),
       fetchSprints(), fetchDeliverables(), fetchLeads(),

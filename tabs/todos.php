@@ -647,7 +647,18 @@ $db->close();
             <span style="font-size:.72rem; opacity:.7;">Em foco</span>
         </div>
         <span id="foco-timer">00:00</span>
-        <span id="foco-ping-countdown" title="Próximo ping">🔔 40:00</span>
+        <span id="foco-ping-countdown" title="Próximo ping" style="cursor:pointer;" onclick="focoEditarTempo()">🔔 40:00</span>
+        <select id="foco-ping-select" onchange="focoAlterarTempo(this.value)" style="display:none; background:#1e3a5f; color:#fff; border:1px solid rgba(255,255,255,.4); border-radius:6px; padding:2px 6px; font-size:.8rem; cursor:pointer;">
+            <option value="10">10 min</option>
+            <option value="15">15 min</option>
+            <option value="20">20 min</option>
+            <option value="25">25 min</option>
+            <option value="30">30 min</option>
+            <option value="40" selected>40 min</option>
+            <option value="50">50 min</option>
+            <option value="60">60 min</option>
+            <option value="90">90 min</option>
+        </select>
         <button class="btn-foco" onclick="focoResponder()" id="foco-btn-resp" style="display:none;">
             ✅ Continuar
         </button>
@@ -1691,6 +1702,28 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     window.addEventListener('beforeunload', guardar);
+
+    var pingSelect = document.getElementById('foco-ping-select');
+
+    window.focoEditarTempo = function() {
+        var el = document.getElementById('foco-ping-countdown');
+        el.style.display = 'none';
+        pingSelect.style.display = '';
+        pingSelect.focus();
+    };
+
+    window.focoAlterarTempo = function(mins) {
+        PING_S = parseInt(mins) * 60;
+        F.ping = PING_S;
+        pingSelect.style.display = 'none';
+        document.getElementById('foco-ping-countdown').style.display = '';
+        pingEl.textContent = '🔔 ' + fmt(F.ping);
+    };
+
+    pingSelect.addEventListener('blur', function() {
+        pingSelect.style.display = 'none';
+        document.getElementById('foco-ping-countdown').style.display = '';
+    });
 
     // Event delegation para botões 🎯 (evita onclick inline com json_encode)
     document.addEventListener('click', function(e) {

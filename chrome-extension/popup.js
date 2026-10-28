@@ -292,7 +292,7 @@ function buildTodoCard(todo) {
     <div class="todo-meta">
       ${deadlineHtml}
       ${todo.autor_nome ? `<span title="Criado por">✏️ ${escapeHtml(todo.autor_nome)}</span>` : ''}
-      ${todo.responsavel_nome ? `<span title="Responsável">👤 ${escapeHtml(todo.responsavel_nome)}</span>` : ''}
+      ${todo.responsavel_nome ? `<span title="Responsável">👤 ${escapeHtml(todo.responsavel_nome)}${todo.foco_segundos > 0 ? ` <span title="Tempo em foco" style="color:#7c3aed; font-size:0.85em;">🎯 ${focoFmtTotal(todo.foco_segundos)}</span>` : ''}</span>` : ''}
     </div>
     <div class="todo-details" id="details-${todo.id}"></div>
     <div class="todo-actions">
@@ -1191,6 +1191,11 @@ async function focoGuardar() {
 function focoFmt(s) {
   const m = Math.floor(s / 60), ss = s % 60;
   return String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+}
+
+function focoFmtTotal(s) {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 function focoUpdateUI() {

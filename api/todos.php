@@ -121,10 +121,12 @@ switch ($method) {
                 $query = '
                     SELECT t.*,
                            autor_user.username as autor_nome,
-                           resp_user.username as responsavel_nome
+                           resp_user.username as responsavel_nome,
+                           COALESCE(fl.foco_total, 0) as foco_segundos
                     FROM todos t
                     LEFT JOIN user_tokens autor_user ON t.autor = autor_user.user_id
                     LEFT JOIN user_tokens resp_user ON t.responsavel = resp_user.user_id
+                    LEFT JOIN (SELECT todo_id, SUM(duracao_segundos) as foco_total FROM todo_foco_log GROUP BY todo_id) fl ON fl.todo_id = t.id
                     WHERE t.responsavel = ?
                 ';
 

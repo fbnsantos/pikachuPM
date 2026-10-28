@@ -45,10 +45,42 @@ while ($row = $result->fetch_assoc()) {
 }
 $stmt->close();
 
+// Criar tabela de log de foco se não existir
+try {
+    $db->query("CREATE TABLE IF NOT EXISTS todo_foco_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        todo_id INT NOT NULL,
+        user_id INT NOT NULL,
+        iniciado_em DATETIME NOT NULL,
+        duracao_segundos INT NOT NULL,
+        INDEX idx_todo (todo_id),
+        INDEX idx_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+} catch (Exception $e) {}
+
 // PROCESSAR AÇÕES - IMPORTANTE: Deve estar ANTES de qualquer output HTML
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
-    
+
+    // GUARDAR SESSÃO DE FOCO - AJAX
+    if ($action === 'save_foco' && isset($_POST['ajax'])) {
+        while (ob_get_level()) ob_end_clean();
+        header('Content-Type: application/json');
+        $todo_id  = (int)($_POST['todo_id'] ?? 0);
+        $segundos = (int)($_POST['duracao_segundos'] ?? 0);
+        $inicio   = $_POST['iniciado_em'] ?? '';
+        if ($todo_id > 0 && $segundos > 0 && $inicio) {
+            $stmt = $db->prepare('INSERT INTO todo_foco_log (todo_id, user_id, iniciado_em, duracao_segundos) VALUES (?,?,?,?)');
+            $stmt->bind_param('iisi', $todo_id, $user_id, $inicio, $segundos);
+            $stmt->execute();
+            $stmt->close();
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['success' => false]);
+        }
+        $db->close(); exit;
+    }
+
     // MUDAR ESTADO (Drag & Drop do Kanban) - AJAX
     if ($action === 'change_estado' && isset($_POST['ajax'])) {
         // Limpar qualquer output buffer
@@ -438,6 +470,22 @@ $stats = [
     'concluida' => count($todos_by_estado['concluída'])
 ];
 
+// Carregar tempo total de foco por tarefa (batch)
+$focoMap = [];
+if (!empty($todos)) {
+    $ids = array_column($todos, 'id');
+    $ph  = implode(',', array_fill(0, count($ids), '?'));
+    $types = str_repeat('i', count($ids));
+    $stmt = $db->prepare("SELECT todo_id, SUM(duracao_segundos) as total FROM todo_foco_log WHERE todo_id IN ($ph) GROUP BY todo_id");
+    $stmt->bind_param($types, ...$ids);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    while ($row = $res->fetch_assoc()) {
+        $focoMap[$row['todo_id']] = (int)$row['total'];
+    }
+    $stmt->close();
+}
+
 $db->close();
 ?>
 
@@ -755,6 +803,17 @@ $db->close();
                                             <?= htmlspecialchars($sp['nome']) ?>
                                         </a>
                                         <?php endforeach; ?>
+                                    </div>
+                                    <?php endif; ?>
+
+                                    <?php if (!empty($focoMap[$todo['id']])): ?>
+                                    <?php
+                                        $fs = $focoMap[$todo['id']];
+                                        $fh = floor($fs/3600); $fm = floor(($fs%3600)/60);
+                                        $focoLabel = $fh > 0 ? "{$fh}h {$fm}min" : "{$fm}min";
+                                    ?>
+                                    <div class="mt-1" style="font-size:11px; color:#6d28d9;">
+                                        🎯 <?= $focoLabel ?> em foco
                                     </div>
                                     <?php endif; ?>
 
@@ -1624,19 +1683,37 @@ document.addEventListener('DOMContentLoaded', function() {
         sessionStorage.setItem('foco', JSON.stringify({ id, title, start: focoStart }));
     };
 
+    function focoGuardar() {
+        if (!focoTaskId || !focoStart) return;
+        const segundos = Math.floor((Date.now() - focoStart) / 1000);
+        if (segundos < 30) return; // não vale a pena registar menos de 30s
+        const inicio = new Date(focoStart).toISOString().slice(0,19).replace('T',' ');
+        const fd = new FormData();
+        fd.append('action', 'save_foco');
+        fd.append('ajax', '1');
+        fd.append('todo_id', focoTaskId);
+        fd.append('duracao_segundos', segundos);
+        fd.append('iniciado_em', inicio);
+        navigator.sendBeacon('?tab=todos', fd);
+    }
+
+    window.focoTerminar = function() {
+        focoGuardar();
+        clearInterval(focoMainTimer);
+        bar.style.display = 'none';
+        focoTaskId = null;
+        sessionStorage.removeItem('foco');
+    };
+
+    // Guardar ao fechar a janela/tab
+    window.addEventListener('beforeunload', () => { if (focoTaskId) focoGuardar(); });
+    // Guardar ao clicar "Continuar" também actualiza o sessionStorage
     window.focoResponder = function() {
         awaitingResponse = false;
         pingSecondsLeft  = PING_INTERVAL;
         btnResp.style.display = 'none';
         playPing();
         sessionStorage.setItem('foco', JSON.stringify({ id: focoTaskId, title: titleEl.textContent, start: focoStart }));
-    };
-
-    window.focoTerminar = function() {
-        clearInterval(focoMainTimer);
-        bar.style.display = 'none';
-        focoTaskId = null;
-        sessionStorage.removeItem('foco');
     };
 
     // Restaurar foco após reload de página

@@ -1591,147 +1591,128 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script>
 // ===== MODO FOCO =====
-const PING_INTERVAL = 40 * 60;
-const PING_TIMEOUT  = 90;
+(function() {
+    var F = window._foco || {};
+    if (F._timer) clearInterval(F._timer); // limpar timer anterior se reinjection
 
-let focoTaskId    = null;
-let focoStart     = null;
-let focoMainTimer = null;
-let pingSecondsLeft = PING_INTERVAL;
-let awaitingResponse = false;
-let responseDeadline = null;
+    var PING_S = 40 * 60, PING_T = 90;
 
-const bar     = document.getElementById('foco-bar');
-const timerEl = document.getElementById('foco-timer');
-const titleEl = document.getElementById('foco-title');
-const pingEl  = document.getElementById('foco-ping-countdown');
-const btnResp = document.getElementById('foco-btn-resp');
+    var bar     = document.getElementById('foco-bar');
+    var timerEl = document.getElementById('foco-timer');
+    var titleEl = document.getElementById('foco-title');
+    var pingEl  = document.getElementById('foco-ping-countdown');
+    var btnResp = document.getElementById('foco-btn-resp');
 
-(function initFoco() {
+    if (!bar) return; // elemento não encontrado, abortar
 
     function fmt(s) {
-        const h = Math.floor(s / 3600);
-        const m = Math.floor((s % 3600) / 60);
-        const sec = s % 60;
-        if (h > 0) return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
-        return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
+        var h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+        if (h > 0) return pad(h)+':'+pad(m)+':'+pad(sec);
+        return pad(m)+':'+pad(sec);
     }
+    function pad(n) { return String(n).padStart(2,'0'); }
 
     function playPing() {
         try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain); gain.connect(ctx.destination);
-            osc.type = 'sine'; osc.frequency.value = 880;
-            gain.gain.setValueAtTime(.6, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + .8);
-            osc.start(); osc.stop(ctx.currentTime + .8);
-            // segundo ping
-            setTimeout(() => {
-                const o2 = ctx.createOscillator(); const g2 = ctx.createGain();
-                o2.connect(g2); g2.connect(ctx.destination);
-                o2.type = 'sine'; o2.frequency.value = 1100;
-                g2.gain.setValueAtTime(.5, ctx.currentTime);
-                g2.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + .6);
-                o2.start(); o2.stop(ctx.currentTime + .6);
-            }, 350);
+            var ctx = new (window.AudioContext || window.webkitAudioContext)();
+            function beep(freq, t) {
+                var o = ctx.createOscillator(), g = ctx.createGain();
+                o.connect(g); g.connect(ctx.destination);
+                o.type='sine'; o.frequency.value=freq;
+                g.gain.setValueAtTime(.5, t);
+                g.gain.exponentialRampToValueAtTime(.001, t+.7);
+                o.start(t); o.stop(t+.7);
+            }
+            beep(880, ctx.currentTime);
+            beep(1100, ctx.currentTime + .4);
         } catch(e) {}
     }
 
     function tick() {
-        const elapsed = Math.floor((Date.now() - focoStart) / 1000);
+        var elapsed = Math.floor((Date.now() - F.start) / 1000);
         timerEl.textContent = fmt(elapsed);
-
-        if (awaitingResponse) {
-            const left = Math.max(0, responseDeadline - Math.floor(Date.now()/1000));
+        if (F.awaiting) {
+            var left = Math.max(0, F.deadline - Math.floor(Date.now()/1000));
             pingEl.textContent = '⏳ ' + fmt(left);
             if (left === 0) { focoTerminar(); return; }
         } else {
-            pingEl.textContent = '🔔 ' + fmt(pingSecondsLeft);
-            pingSecondsLeft--;
-            if (pingSecondsLeft <= 0) {
-                // disparar ping
-                pingSecondsLeft = PING_INTERVAL;
-                awaitingResponse = true;
-                responseDeadline = Math.floor(Date.now()/1000) + PING_TIMEOUT;
+            F.ping--;
+            pingEl.textContent = '🔔 ' + fmt(F.ping);
+            if (F.ping <= 0) {
+                F.ping = PING_S;
+                F.awaiting = true;
+                F.deadline = Math.floor(Date.now()/1000) + PING_T;
                 playPing();
                 bar.classList.add('foco-pulse');
-                setTimeout(() => bar.classList.remove('foco-pulse'), 600);
+                setTimeout(function(){ bar.classList.remove('foco-pulse'); }, 600);
                 btnResp.style.display = '';
-                if (Notification.permission === 'granted') {
-                    new Notification('🎯 Ainda a trabalhar?', { body: titleEl.textContent, icon: '' });
-                }
+                try { new Notification('🎯 Ainda a trabalhar?', { body: F.title }); } catch(e){}
             }
         }
     }
 
+    function guardar() {
+        if (!F.id || !F.start) return;
+        var seg = Math.floor((Date.now() - F.start) / 1000);
+        if (seg < 30) return;
+        var inicio = new Date(F.start).toISOString().slice(0,19).replace('T',' ');
+        var fd = new FormData();
+        fd.append('action','save_foco'); fd.append('ajax','1');
+        fd.append('todo_id', F.id); fd.append('duracao_segundos', seg);
+        fd.append('iniciado_em', inicio);
+        navigator.sendBeacon(location.pathname + location.search, fd);
+    }
+
     window.focoIniciar = function(id, title) {
-        focoTaskId = id;
-        focoStart  = Date.now();
-        pingSecondsLeft  = PING_INTERVAL;
-        awaitingResponse = false;
+        guardar(); // guardar sessão anterior se existia
+        F.id = id; F.title = title; F.start = Date.now();
+        F.ping = PING_S; F.awaiting = false;
         btnResp.style.display = 'none';
         titleEl.textContent = title;
         timerEl.textContent = '00:00';
+        pingEl.textContent  = '🔔 ' + fmt(PING_S);
         bar.style.display = 'flex';
-        bar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        clearInterval(focoMainTimer);
-        focoMainTimer = setInterval(tick, 1000);
-        Notification.requestPermission();
-        // guardar em sessionStorage para sobreviver a reloads leves
-        sessionStorage.setItem('foco', JSON.stringify({ id, title, start: focoStart }));
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        if (F._timer) clearInterval(F._timer);
+        F._timer = setInterval(tick, 1000);
+        window._foco = F;
+        try { Notification.requestPermission(); } catch(e){}
+        sessionStorage.setItem('foco', JSON.stringify({ id: id, title: title, start: F.start }));
     };
 
-    function focoGuardar() {
-        if (!focoTaskId || !focoStart) return;
-        const segundos = Math.floor((Date.now() - focoStart) / 1000);
-        if (segundos < 30) return; // não vale a pena registar menos de 30s
-        const inicio = new Date(focoStart).toISOString().slice(0,19).replace('T',' ');
-        const fd = new FormData();
-        fd.append('action', 'save_foco');
-        fd.append('ajax', '1');
-        fd.append('todo_id', focoTaskId);
-        fd.append('duracao_segundos', segundos);
-        fd.append('iniciado_em', inicio);
-        navigator.sendBeacon('?tab=todos', fd);
-    }
-
     window.focoTerminar = function() {
-        focoGuardar();
-        clearInterval(focoMainTimer);
+        guardar();
+        if (F._timer) clearInterval(F._timer);
         bar.style.display = 'none';
-        focoTaskId = null;
+        F.id = null; F.start = null;
+        window._foco = F;
         sessionStorage.removeItem('foco');
     };
 
-    // Guardar ao fechar a janela/tab
-    window.addEventListener('beforeunload', () => { if (focoTaskId) focoGuardar(); });
-    // Guardar ao clicar "Continuar" também actualiza o sessionStorage
     window.focoResponder = function() {
-        awaitingResponse = false;
-        pingSecondsLeft  = PING_INTERVAL;
+        F.awaiting = false; F.ping = PING_S;
         btnResp.style.display = 'none';
         playPing();
-        sessionStorage.setItem('foco', JSON.stringify({ id: focoTaskId, title: titleEl.textContent, start: focoStart }));
+        sessionStorage.setItem('foco', JSON.stringify({ id: F.id, title: F.title, start: F.start }));
     };
 
-    // Restaurar foco após reload de página
-    const saved = sessionStorage.getItem('foco');
-    if (saved) {
-        try {
-            const f = JSON.parse(saved);
-            focoStart = f.start;
-            const elapsed = Math.floor((Date.now() - focoStart) / 1000);
-            // recalcular onde estamos no ciclo de ping
-            pingSecondsLeft = PING_INTERVAL - (elapsed % PING_INTERVAL);
-            titleEl.textContent = f.title;
-            focoTaskId = f.id;
+    window.addEventListener('beforeunload', guardar);
+
+    // Restaurar sessão após reload
+    try {
+        var saved = JSON.parse(sessionStorage.getItem('foco') || 'null');
+        if (saved && saved.id && saved.start) {
+            F.id = saved.id; F.title = saved.title; F.start = saved.start;
+            var elapsed = Math.floor((Date.now() - F.start) / 1000);
+            F.ping = PING_S - (elapsed % PING_S); F.awaiting = false;
+            titleEl.textContent = F.title;
+            timerEl.textContent = fmt(elapsed);
             bar.style.display = 'flex';
-            focoMainTimer = setInterval(tick, 1000);
-        } catch(e) { sessionStorage.removeItem('foco'); }
-    }
-})(); // fim initFoco
+            F._timer = setInterval(tick, 1000);
+            window._foco = F;
+        }
+    } catch(e) { sessionStorage.removeItem('foco'); }
+})();
 // ===== FIM MODO FOCO =====
 </script>
 

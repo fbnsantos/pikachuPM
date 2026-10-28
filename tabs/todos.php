@@ -819,8 +819,9 @@ $db->close();
 
                                     <!-- Botões de ação -->
                                     <div class="task-actions">
-                                        <button class="btn btn-sm btn-outline-warning btn-task-action btn-focus-task"
-                                                onclick="focoIniciar(<?= $todo['id'] ?>, <?= json_encode($todo['titulo']) ?>)"
+                                        <button class="btn btn-sm btn-outline-warning btn-task-action btn-focus-task js-foco-btn"
+                                                data-foco-id="<?= $todo['id'] ?>"
+                                                data-foco-title="<?= htmlspecialchars($todo['titulo'], ENT_QUOTES) ?>"
                                                 title="Focar nesta tarefa">🎯</button>
                                         <button class="btn btn-sm btn-primary btn-task-action edit-task-btn"
                                                 data-task-id="<?= $todo['id'] ?>" title="Editar">
@@ -1697,6 +1698,13 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     window.addEventListener('beforeunload', guardar);
+
+    // Event delegation para botões 🎯 (evita onclick inline com json_encode)
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.js-foco-btn');
+        if (!btn) return;
+        window.focoIniciar(parseInt(btn.dataset.focoId), btn.dataset.focoTitle);
+    });
 
     // Restaurar sessão após reload
     try {

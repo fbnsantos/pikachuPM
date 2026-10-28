@@ -1176,7 +1176,7 @@ async function focoGuardar() {
   const dur = _foco.elapsed + Math.round((Date.now() - _foco.inicio) / 1000);
   if (dur < 10) return;
   try {
-    await apiFetch('/tabs/todos.php', {
+    await apiFetch('/api/todos.php', {
       method: 'POST',
       body: JSON.stringify({
         action: 'save_foco',

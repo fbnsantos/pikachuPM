@@ -203,6 +203,35 @@ switch ($method) {
         break;
         
     case 'POST':
+        // Guardar sessão de foco
+        if (isset($input['action']) && $input['action'] === 'save_foco') {
+            try {
+                $todo_id  = (int)($input['todo_id'] ?? 0);
+                $segundos = (int)($input['duracao_segundos'] ?? 0);
+                $inicio   = trim($input['iniciado_em'] ?? '');
+                if ($todo_id <= 0 || $segundos <= 0 || !$inicio) {
+                    json_error(400, 'Dados de foco inválidos');
+                }
+                // Criar tabela se não existir
+                $db->query("CREATE TABLE IF NOT EXISTS todo_foco_log (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    todo_id INT NOT NULL,
+                    user_id INT NOT NULL,
+                    iniciado_em DATETIME NOT NULL,
+                    duracao_segundos INT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )");
+                $stmt = $db->prepare('INSERT INTO todo_foco_log (todo_id, user_id, iniciado_em, duracao_segundos) VALUES (?,?,?,?)');
+                $stmt->bind_param('iisi', $todo_id, $user_id, $inicio, $segundos);
+                $stmt->execute();
+                $stmt->close();
+                echo json_encode(['success' => true]);
+            } catch (Exception $e) {
+                json_error(500, 'Erro ao guardar foco: ' . $e->getMessage());
+            }
+            break;
+        }
+
         // Adicionar um novo todo
         try {
             // Verificar se os dados necessários foram fornecidos

@@ -442,6 +442,38 @@ $db->close();
 ?>
 
 <style>
+/* ===== FOCO ===== */
+#foco-bar {
+    position: sticky;
+    top: 0;
+    z-index: 1050;
+    background: linear-gradient(135deg, #1e3a5f 0%, #0d6efd 100%);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 4px 16px rgba(13,110,253,.35);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    animation: foco-in .3s ease;
+}
+@keyframes foco-in { from { transform: translateY(-100%); opacity:0; } to { transform: translateY(0); opacity:1; } }
+#foco-bar.foco-pulse {
+    animation: foco-ping .4s ease;
+}
+@keyframes foco-ping {
+    0%,100% { box-shadow: 0 4px 16px rgba(13,110,253,.35); }
+    50% { box-shadow: 0 0 0 12px rgba(255,193,7,.5), 0 4px 16px rgba(13,110,253,.35); background: linear-gradient(135deg, #7c3d00 0%, #d97706 100%); }
+}
+#foco-timer { font-size: 1.6rem; font-weight: 700; font-family: monospace; letter-spacing: 2px; min-width: 90px; }
+#foco-title { font-size: .95rem; font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#foco-ping-countdown { font-size: .75rem; opacity: .75; min-width: 80px; text-align: right; }
+.btn-foco { background: none; border: 1.5px solid rgba(255,255,255,.5); color: #fff; border-radius: 6px; padding: 2px 8px; font-size: .8rem; cursor: pointer; white-space: nowrap; }
+.btn-foco:hover { background: rgba(255,255,255,.15); }
+.kanban-card .btn-focus-task { opacity: 0; transition: opacity .15s; }
+.kanban-card:hover .btn-focus-task { opacity: 1; }
+/* ===== FIM FOCO ===== */
+
 .stats-card {
     border-radius: 10px;
     padding: 15px;
@@ -559,6 +591,21 @@ $db->close();
         </div>
     <?php endif; ?>
     
+    <!-- Barra de Foco -->
+    <div id="foco-bar" style="display:none;">
+        <span style="font-size:1.3rem;">🎯</span>
+        <div style="display:flex; flex-direction:column; flex:1; min-width:0;">
+            <span id="foco-title">—</span>
+            <span style="font-size:.72rem; opacity:.7;">Em foco</span>
+        </div>
+        <span id="foco-timer">00:00</span>
+        <span id="foco-ping-countdown" title="Próximo ping">🔔 40:00</span>
+        <button class="btn-foco" onclick="focoResponder()" id="foco-btn-resp" style="display:none;">
+            ✅ Continuar
+        </button>
+        <button class="btn-foco" onclick="focoTerminar()">✕ Terminar foco</button>
+    </div>
+
     <!-- Estatísticas -->
     <div class="row mb-4">
         <div class="col-md-3 mb-3">
@@ -713,7 +760,10 @@ $db->close();
 
                                     <!-- Botões de ação -->
                                     <div class="task-actions">
-                                        <button class="btn btn-sm btn-primary btn-task-action edit-task-btn" 
+                                        <button class="btn btn-sm btn-outline-warning btn-task-action btn-focus-task"
+                                                onclick="focoIniciar(<?= $todo['id'] ?>, <?= json_encode($todo['titulo']) ?>)"
+                                                title="Focar nesta tarefa">🎯</button>
+                                        <button class="btn btn-sm btn-primary btn-task-action edit-task-btn"
                                                 data-task-id="<?= $todo['id'] ?>" title="Editar">
                                             <i class="bi bi-pencil"></i>
                                         </button>
@@ -1478,6 +1528,134 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+</script>
+
+<script>
+// ===== MODO FOCO =====
+(function () {
+    const PING_INTERVAL = 40 * 60; // 40 minutos em segundos
+    const PING_TIMEOUT  = 90;       // 90s para responder antes de terminar foco
+
+    let focoTaskId    = null;
+    let focoStart     = null;
+    let focoMainTimer = null;
+    let focoPingTimer = null;
+    let pingSecondsLeft = PING_INTERVAL;
+    let awaitingResponse = false;
+    let responseDeadline = null;
+
+    const bar       = document.getElementById('foco-bar');
+    const timerEl   = document.getElementById('foco-timer');
+    const titleEl   = document.getElementById('foco-title');
+    const pingEl    = document.getElementById('foco-ping-countdown');
+    const btnResp   = document.getElementById('foco-btn-resp');
+
+    function fmt(s) {
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const sec = s % 60;
+        if (h > 0) return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
+        return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
+    }
+
+    function playPing() {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.type = 'sine'; osc.frequency.value = 880;
+            gain.gain.setValueAtTime(.6, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + .8);
+            osc.start(); osc.stop(ctx.currentTime + .8);
+            // segundo ping
+            setTimeout(() => {
+                const o2 = ctx.createOscillator(); const g2 = ctx.createGain();
+                o2.connect(g2); g2.connect(ctx.destination);
+                o2.type = 'sine'; o2.frequency.value = 1100;
+                g2.gain.setValueAtTime(.5, ctx.currentTime);
+                g2.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + .6);
+                o2.start(); o2.stop(ctx.currentTime + .6);
+            }, 350);
+        } catch(e) {}
+    }
+
+    function tick() {
+        const elapsed = Math.floor((Date.now() - focoStart) / 1000);
+        timerEl.textContent = fmt(elapsed);
+
+        if (awaitingResponse) {
+            const left = Math.max(0, responseDeadline - Math.floor(Date.now()/1000));
+            pingEl.textContent = '⏳ ' + fmt(left);
+            if (left === 0) { focoTerminar(); return; }
+        } else {
+            pingEl.textContent = '🔔 ' + fmt(pingSecondsLeft);
+            pingSecondsLeft--;
+            if (pingSecondsLeft <= 0) {
+                // disparar ping
+                pingSecondsLeft = PING_INTERVAL;
+                awaitingResponse = true;
+                responseDeadline = Math.floor(Date.now()/1000) + PING_TIMEOUT;
+                playPing();
+                bar.classList.add('foco-pulse');
+                setTimeout(() => bar.classList.remove('foco-pulse'), 600);
+                btnResp.style.display = '';
+                if (Notification.permission === 'granted') {
+                    new Notification('🎯 Ainda a trabalhar?', { body: titleEl.textContent, icon: '' });
+                }
+            }
+        }
+    }
+
+    window.focoIniciar = function(id, title) {
+        focoTaskId = id;
+        focoStart  = Date.now();
+        pingSecondsLeft  = PING_INTERVAL;
+        awaitingResponse = false;
+        btnResp.style.display = 'none';
+        titleEl.textContent = title;
+        timerEl.textContent = '00:00';
+        bar.style.display = 'flex';
+        bar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        clearInterval(focoMainTimer);
+        focoMainTimer = setInterval(tick, 1000);
+        Notification.requestPermission();
+        // guardar em sessionStorage para sobreviver a reloads leves
+        sessionStorage.setItem('foco', JSON.stringify({ id, title, start: focoStart }));
+    };
+
+    window.focoResponder = function() {
+        awaitingResponse = false;
+        pingSecondsLeft  = PING_INTERVAL;
+        btnResp.style.display = 'none';
+        playPing();
+        sessionStorage.setItem('foco', JSON.stringify({ id: focoTaskId, title: titleEl.textContent, start: focoStart }));
+    };
+
+    window.focoTerminar = function() {
+        clearInterval(focoMainTimer);
+        bar.style.display = 'none';
+        focoTaskId = null;
+        sessionStorage.removeItem('foco');
+    };
+
+    // Restaurar foco após reload de página
+    const saved = sessionStorage.getItem('foco');
+    if (saved) {
+        try {
+            const f = JSON.parse(saved);
+            focoStart = f.start;
+            const elapsed = Math.floor((Date.now() - focoStart) / 1000);
+            // recalcular onde estamos no ciclo de ping
+            pingSecondsLeft = PING_INTERVAL - (elapsed % PING_INTERVAL);
+            titleEl.textContent = f.title;
+            focoTaskId = f.id;
+            bar.style.display = 'flex';
+            focoMainTimer = setInterval(tick, 1000);
+        } catch(e) { sessionStorage.removeItem('foco'); }
+    }
+})();
+// ===== FIM MODO FOCO =====
 </script>
 
 <?php

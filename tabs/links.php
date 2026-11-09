@@ -422,6 +422,53 @@ if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
                 $search_results['phd_notes'] = $s->fetchAll(PDO::FETCH_ASSOC);
             }
 
+            // 10. Chat (mensagens + nomes de anexos) — só canais de que o utilizador faz parte
+            $gsUid = (int)($_SESSION['user_id'] ?? 0);
+            if ($gsUid && $pdo_s->query("SHOW TABLES LIKE 'chat_messages'")->rowCount()) {
+                try {
+                    $has = fn($t) => $pdo_s->query("SHOW TABLES LIKE " . $pdo_s->quote($t))->rowCount() > 0;
+                    $isAdmin = false;
+                    if ($has('admin_users')) {
+                        $a = $pdo_s->prepare("SELECT 1 FROM admin_users WHERE user_id = ? LIMIT 1");
+                        $a->execute([$gsUid]);
+                        $isAdmin = (bool)$a->fetchColumn();
+                    }
+                    // Canais acessíveis (mesma regra do api/chat.php: responsável + tabela de membros)
+                    $acc = []; $accP = [];
+                    if (!$isAdmin) {
+                        foreach ([['sprint','sprints','sprint_members','sprint_id'],
+                                  ['prototype','prototypes','prototype_members','prototype_id'],
+                                  ['lead','leads','lead_members','lead_id']] as [$ct, $tbl, $mt, $mc]) {
+                            if (!$has($tbl)) continue;
+                            $sub = "SELECT id FROM $tbl WHERE responsavel_id = ?"; $accP[] = $ct; $accP[] = $gsUid;
+                            if ($has($mt)) { $sub .= " UNION SELECT $mc FROM $mt WHERE user_id = ?"; $accP[] = $gsUid; }
+                            $acc[] = "(m.channel_type = ? AND m.channel_id IN ($sub))";
+                        }
+                    }
+                    if ($isAdmin || $acc) {
+                        $attCol = "COALESCE((SELECT GROUP_CONCAT(ca.file_name SEPARATOR ' ') FROM chat_attachments ca WHERE ca.message_id = m.id), '')";
+                        [$w, $p] = gsWhere(["COALESCE(m.body,'')", $attCol], $gsTerms, $gsExcludes);
+                        $accSql = $isAdmin ? '1' : '(' . implode(' OR ', $acc) . ')';
+                        $tSprint = $has('sprints')    ? "(SELECT nome FROM sprints WHERE id = m.channel_id)" : "NULL";
+                        $tProto  = $has('prototypes') ? "(SELECT COALESCE(NULLIF(short_name,''), name) FROM prototypes WHERE id = m.channel_id)" : "NULL";
+                        $tLead   = $has('leads')      ? "(SELECT titulo FROM leads WHERE id = m.channel_id)" : "NULL";
+                        $s = $pdo_s->prepare("SELECT m.id, m.channel_type, m.channel_id, m.body, m.created_at,
+                                                     $attCol AS att_names,
+                                                     CASE m.channel_type WHEN 'sprint' THEN $tSprint
+                                                                         WHEN 'prototype' THEN $tProto
+                                                                         ELSE $tLead END AS channel_title,
+                                                     COALESCE(u.username,'') AS username
+                                              FROM chat_messages m
+                                              LEFT JOIN user_tokens u ON m.user_id = u.user_id
+                                              WHERE m.deleted_at IS NULL AND m.is_system = 0
+                                                AND $accSql AND ($w)
+                                              ORDER BY m.id DESC LIMIT 20");
+                        $s->execute(array_merge($isAdmin ? [] : $accP, $p));
+                        $search_results['chat'] = $s->fetchAll(PDO::FETCH_ASSOC);
+                    }
+                } catch (PDOException $e) { /* ignorar */ }
+            }
+
         } catch (PDOException $e) { /* ignorar */ }
     }
 }
@@ -499,6 +546,7 @@ $sections = [
     'project_notes' => ['💬', 'Notas de Projetos'],
     'sprint_notes'  => ['💬', 'Notas de Sprints'],
     'phd_notes'     => ['💬', 'Notas de Doutoramento'],
+    'chat'          => ['🗨️', 'Mensagens do Chat'],
     'links'         => ['🔗', 'Links'],
 ];
 $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
@@ -673,6 +721,22 @@ $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
             </div>
             <div class="gs-meta">👤 <?= htmlspecialchars($r['username']) ?> · <?= date('d/m/Y', strtotime($r['created_at'])) ?></div>
             <div class="gs-snippet"><?= hl(snippet($r['note_text'], $q), $q) ?></div>
+
+        <?php elseif ($key === 'chat'): ?>
+            <?php
+            $chLbl = ['sprint' => ['🏃','sprint','#dbeafe;color:#1d4ed8'], 'prototype' => ['🔬','protótipo','#d1fae5;color:#065f46'], 'lead' => ['🎯','lead','#fef3c7;color:#92400e']];
+            [$chIc, $chTxt, $chCol] = $chLbl[$r['channel_type']] ?? ['💬', $r['channel_type'], '#e5e7eb;color:#374151'];
+            $chBody = trim((string)$r['body']);
+            ?>
+            <div class="gs-title">
+                <a href="?tab=chat&type=<?= urlencode($r['channel_type']) ?>&id=<?= (int)$r['channel_id'] ?>">
+                    <?= $chIc ?> <?= hl($r['channel_title'] ?: '('.$chTxt.' #'.$r['channel_id'].')', $q) ?>
+                </a>
+                <span class="gs-badge ms-1" style="background:<?= $chCol ?>;"><?= $chTxt ?></span>
+            </div>
+            <div class="gs-meta">👤 <?= htmlspecialchars($r['username']) ?> · <?= date('d/m/Y H:i', strtotime($r['created_at'])) ?></div>
+            <?php if ($chBody !== ''): ?><div class="gs-snippet"><?= hl(snippet($chBody, $q), $q) ?></div><?php endif; ?>
+            <?php if ($r['att_names'] !== ''): ?><div class="gs-meta">📎 <?= hl($r['att_names'], $q) ?></div><?php endif; ?>
 
         <?php elseif ($key === 'files'): ?>
             <?php $ext = strtolower(pathinfo($r['file_name'], PATHINFO_EXTENSION));

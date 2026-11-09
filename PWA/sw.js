@@ -1,5 +1,6 @@
-const CACHE = 'pikachu-pwa-v42';
-const V = '?v=42';
+const CACHE = 'pikachu-pwa-v43';
+const V = '?v=43';
+const CHAT_CFG_CACHE = 'pk-chat-cfg'; // guarda o URL da API do chat para o handler de push
 // Os URLs têm de coincidir com os do index.html (incluindo ?v=), para servir offline
 const SHELL = [
   './index.html',
@@ -20,7 +21,7 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE && k !== CHAT_CFG_CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
       .then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
       .then(clients => clients.forEach(c => c.postMessage({ type: 'SW_UPDATED' })))
@@ -60,13 +61,71 @@ self.addEventListener('fetch', e => {
   );
 });
 
-// Clicar numa notificação do chat → foca/abre a app
+// ══ Notificações push do chat ══════════════════════════════
+// O servidor envia um push sem conteúdo; aqui perguntamos a api/chat.php?action=push_inbox
+// (o URL da API é guardado pela app na cache CHAT_CFG_CACHE) o que há por ler.
+const CHAT_ICONS = { sprint: '🏃', prototype: '🧪', lead: '🎯' };
+
+async function chatCfg() {
+  try {
+    const r = await (await caches.open(CHAT_CFG_CACHE)).match('chat-cfg');
+    return r ? await r.json() : null;
+  } catch (e) { return null; }
+}
+
+async function onChatPush(e) {
+  let data = null;
+  try {
+    const cfg = await chatCfg();
+    const sub = await self.registration.pushManager.getSubscription();
+    if (cfg && cfg.api && sub) {
+      const r = await fetch(cfg.api + '?action=push_inbox', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: sub.endpoint }), cache: 'no-store',
+      });
+      if (r.ok) data = await r.json();
+    }
+  } catch (err) { /* sem rede → notificação genérica */ }
+
+  // App aberta e visível → o próprio chat mostra/toca a mensagem
+  const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  if (wins.some(c => c.visibilityState === 'visible' && c.focused) && !(data && data.test)) return;
+
+  const base = { icon: 'img/icon-192x192.png', badge: 'img/icon-192x192.png', vibrate: [200, 100, 200], renotify: true, silent: false };
+  if (data && data.test) {
+    await self.registration.showNotification('🔔 pikachuPM', { ...base, body: 'As notificações do chat estão a funcionar.', tag: 'pkchat-test' });
+  }
+  if (data && data.channels && data.channels.length) {
+    for (const c of data.channels.slice(0, 3)) {
+      const who = c.last ? `${c.last.username}: ${c.last.body}` : 'Nova mensagem';
+      await self.registration.showNotification(`${c.mentions ? '@ ' : ''}${CHAT_ICONS[c.type] || '💬'} ${c.title}`, {
+        ...base,
+        body: c.unread > 1 ? `${who}\n(${c.unread} mensagens por ler)` : who,
+        tag: `pkchat-${c.type}:${c.id}`,
+        data: { type: c.type, id: c.id },
+      });
+    }
+  } else if (!data) {
+    await self.registration.showNotification('💬 pikachuPM', { ...base, body: 'Tens mensagens novas no chat.', tag: 'pkchat-generic' });
+  }
+}
+
+self.addEventListener('push', e => e.waitUntil(onChatPush(e)));
+
+// Clicar numa notificação do chat → abre a app nesse canal
 self.addEventListener('notificationclick', e => {
   e.notification.close();
+  const d = e.notification.data || {};
+  const hash = d.type && d.id ? `#chat=${d.type}:${d.id}` : '#chat';
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-      for (const c of list) { if ('focus' in c) return c.focus(); }
-      return self.clients.openWindow ? self.clients.openWindow('./index.html') : null;
+      for (const c of list) {
+        if ('focus' in c) {
+          c.postMessage({ type: 'OPEN_CHAT', chatType: d.type || null, chatId: d.id || null });
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow ? self.clients.openWindow('./index.html' + hash) : null;
     })
   );
 });

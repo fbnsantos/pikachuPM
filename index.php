@@ -1927,12 +1927,46 @@ document.addEventListener('keydown', e => {
         link.title = n + ' mensage' + (n === 1 ? 'm' : 'ns') + ' por ler';
     };
     if (<?= json_encode($tabSelecionada === 'chat') ?>) return; // a própria tab do chat actualiza o badge
+    // Som + notificação do sistema quando chegam mensagens novas (preferência partilhada com o chat)
+    var ctx = null, prevLast = null;
+    function unlock() { try { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); if (ctx.state === 'suspended') ctx.resume(); } catch (e) {} }
+    ['pointerdown', 'keydown'].forEach(function (ev) { document.addEventListener(ev, unlock, { passive: true }); });
+    function ding(mention) {
+        try { if (localStorage.getItem('pkchat_sound') === '0') return; } catch (e) {}
+        try {
+            unlock(); if (!ctx || ctx.state !== 'running') return;
+            var t = ctx.currentTime, notes = mention ? [784, 1047, 1319] : [880, 1319];
+            notes.forEach(function (f, i) {
+                var o = ctx.createOscillator(), g = ctx.createGain(), d = i * 0.12;
+                o.frequency.value = f; o.connect(g); g.connect(ctx.destination);
+                g.gain.setValueAtTime(0.0001, t + d); g.gain.exponentialRampToValueAtTime(0.25, t + d + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.38); o.start(t + d); o.stop(t + d + 0.42);
+            });
+        } catch (e) {}
+    }
     function tick() {
         fetch('api/chat.php?action=unread', { credentials: 'same-origin', cache: 'no-store' })
             .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (d) { if (d) window.pkChatSetNavBadge(d.unread_total); })
+            .then(function (d) {
+                if (!d) return;
+                window.pkChatSetNavBadge(d.unread_total);
+                var cur = {};
+                (d.channels || []).forEach(function (c) { cur[c.type + ':' + c.id] = c.last ? c.last.id : 0; });
+                if (prevLast) {
+                    var fresh = (d.channels || []).filter(function (c) { return c.last && c.last.id > (prevLast[c.type + ':' + c.id] || 0); });
+                    if (fresh.length) {
+                        ding(fresh.some(function (c) { return c.mentions > 0; }));
+                        if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+                            fresh.slice(0, 3).forEach(function (c) {
+                                try { new Notification('💬 ' + c.title, { body: c.last.username + ': ' + c.last.body, tag: 'pkchat-' + c.type + ':' + c.id }); } catch (e) {}
+                            });
+                        }
+                    }
+                }
+                prevLast = cur;
+            })
             .catch(function () {});
-        setTimeout(tick, document.hidden ? 120000 : 45000);
+        setTimeout(tick, document.hidden ? 60000 : 30000);
     }
     tick();
 })();

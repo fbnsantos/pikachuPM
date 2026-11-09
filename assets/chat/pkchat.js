@@ -159,6 +159,44 @@
     };
   }
 
+  // ── som ────────────────────────────────────────────────────
+  // Gerado com Web Audio (sem ficheiros). Os browsers só deixam tocar depois de
+  // um clique/toque na página, por isso o contexto é "desbloqueado" no 1.º gesto.
+  const SOUND_KEY = 'pkchat_sound';
+  let audioCtx = null, lastDing = 0;
+  function soundEnabled() { try { return localStorage.getItem(SOUND_KEY) !== '0'; } catch (e) { return true; } }
+  function setSound(on) { try { localStorage.setItem(SOUND_KEY, on ? '1' : '0'); } catch (e) {} }
+  function unlockAudio() {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    } catch (e) {}
+  }
+  ['pointerdown', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, unlockAudio, { passive: true }));
+  /** kind: 'msg' (2 notas) | 'mention' (3 notas, mais alto). */
+  function ding(kind = 'msg', force = false) {
+    if (!force && !soundEnabled()) return;
+    const now = Date.now();
+    if (now - lastDing < 1200) return;
+    lastDing = now;
+    try {
+      unlockAudio();
+      if (!audioCtx || audioCtx.state !== 'running') return;
+      const t = audioCtx.currentTime;
+      const notes = kind === 'mention' ? [[784, 0], [1047, 0.11], [1319, 0.22]] : [[880, 0], [1319, 0.13]];
+      const vol = kind === 'mention' ? 0.3 : 0.22;
+      notes.forEach(([f, d]) => {
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.type = 'sine'; o.frequency.value = f;
+        o.connect(g); g.connect(audioCtx.destination);
+        g.gain.setValueAtTime(0.0001, t + d);
+        g.gain.exponentialRampToValueAtTime(vol, t + d + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.38);
+        o.start(t + d); o.stop(t + d + 0.42);
+      });
+    } catch (e) {}
+  }
+
   // ── notificações do sistema ────────────────────────────────
   async function sysNotify(title, body, tag) {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -201,6 +239,7 @@
       <aside class="pkc-side">
         <div class="pkc-side-head">
           <span class="pkc-side-title">💬 Chat</span>
+          <button class="pkc-ibtn pkc-sound-btn" data-act="sound" title="Som das mensagens">${soundEnabled() ? '🔊' : '🔇'}</button>
           <button class="pkc-ibtn" data-act="notif" title="Activar notificações">🔔</button>
           ${opts.onClose ? '<button class="pkc-ibtn" data-act="close" title="Fechar">✕</button>' : ''}
         </div>
@@ -329,15 +368,18 @@
         S.prevLast = {};
         d.channels.forEach(c => { S.prevLast[c.type + ':' + c.id] = c.last ? c.last.id : 0; });
         // notificações: novas mensagens noutros canais (ou com a janela escondida)
-        if (prev && opts.notify) {
+        if (prev) {
+          let sound = null;
           d.channels.forEach(c => {
             const k = c.type + ':' + c.id;
             if (!c.last || !c.unread || c.last.id <= (prev[k] || 0)) return;
             if (c.last.username === S.me.username) return;
             const isCur = S.cur && S.cur.type === c.type && S.cur.id === c.id;
-            if (isCur && !document.hidden) return;
-            sysNotify(`${TYPE_META[c.type].icon} ${c.title}`, `${c.last.username}: ${c.last.body}`, 'pkchat-' + k);
+            if (isCur) return; // o canal aberto já toca pelo polling
+            sound = c.mentions ? 'mention' : (sound || 'msg');
+            if (opts.notify && document.hidden) sysNotify(`${TYPE_META[c.type].icon} ${c.title}`, `${c.last.username}: ${c.last.body}`, 'pkchat-' + k);
           });
+          if (sound) ding(sound);
         }
         // o canal aberto conta como lido
         d.channels.forEach(c => {
@@ -633,10 +675,13 @@
         const d = await api.get('poll', { type: S.cur.type, id: S.cur.id, after_id: S.lastId, since: S.since });
         if (gen !== S.gen) return;
         const wasBottom = nearBottom();
-        let newFromOthers = 0, changed = false;
+        let newFromOthers = 0, changed = false, mentioned = false;
         d.messages.forEach(m => {
           const old = S.msgs.get(m.id);
-          if (!old && S.me && m.user_id !== S.me.user_id) newFromOthers++;
+          if (!old && S.me && m.user_id !== S.me.user_id && !m.deleted) {
+            newFromOthers++;
+            if (mentionsMe(m)) mentioned = true;
+          }
           if (!old || JSON.stringify(old) !== JSON.stringify(m)) changed = true;
           upsert(m);
         });
@@ -659,6 +704,7 @@
         if ((changed || readsChanged) && !S.editingId) renderMessages();
         if (newFromOthers && !wasBottom) { S.newWhileUp += newFromOthers; D.jump.hidden = false; D.jump.textContent = `↓ ${S.newWhileUp} nova${S.newWhileUp > 1 ? 's' : ''} mensage${S.newWhileUp > 1 ? 'ns' : 'm'}`; }
         if (JSON.stringify(S.typing) !== JSON.stringify(d.typing)) { S.typing = d.typing; renderTyping(); }
+        if (newFromOthers) ding(mentioned ? 'mention' : 'msg');
         if (newFromOthers && document.hidden && opts.notify && !full) {
           const last = d.messages[d.messages.length - 1];
           sysNotify(`${TYPE_META[S.cur.type].icon} ${S.chan.title}`, `${last.username}: ${last.body || '📎 Anexo'}`, 'pkchat-' + S.cur.type + ':' + S.cur.id);
@@ -966,7 +1012,16 @@
         case 'group': S.collapsed[t.dataset.type] = !S.collapsed[t.dataset.type]; renderChannels(); break;
         case 'back': wrap.classList.remove('pkc-has-conv'); stopPoll(); S.cur = null; S.gen++; renderChannels(); loadChannels(true); break;
         case 'close': opts.onClose && opts.onClose(); break;
+        case 'sound': {
+          const on = !soundEnabled();
+          setSound(on);
+          t.textContent = on ? '🔊' : '🔇';
+          toast(on ? '🔊 Som activado' : '🔇 Som desligado');
+          if (on) ding('msg', true);
+          break;
+        }
         case 'notif':
+          if (opts.onNotifications) { opts.onNotifications(); break; }
           if (!('Notification' in window)) { toast('Este browser não suporta notificações', true); break; }
           Notification.requestPermission().then(p => toast(p === 'granted' ? '🔔 Notificações activadas' : 'Notificações bloqueadas no browser', p !== 'granted'));
           break;
@@ -1169,13 +1224,15 @@
       try {
         const d = await api.get('unread');
         cb(d.unread_total, d.mentions_total, d.channels);
-        if (prev && opts.notify) {
+        if (prev) {
+          let sound = null;
           d.channels.forEach(c => {
             const k = c.type + ':' + c.id;
-            if (c.last && c.last.id > (prev[k] || 0) && document.hidden) {
-              sysNotify(`${TYPE_META[c.type].icon} ${c.title}`, `${c.last.username}: ${c.last.body}`, 'pkchat-' + k);
-            }
+            if (!c.last || c.last.id <= (prev[k] || 0)) return;
+            sound = c.mentions ? 'mention' : (sound || 'msg');
+            if (opts.notify && document.hidden) sysNotify(`${TYPE_META[c.type].icon} ${c.title}`, `${c.last.username}: ${c.last.body}`, 'pkchat-' + k);
           });
+          if (sound && !document.hidden) ding(sound);
         }
         prev = {};
         d.channels.forEach(c => { prev[c.type + ':' + c.id] = c.last ? c.last.id : 0; });
@@ -1186,5 +1243,5 @@
     return { stop: () => clearTimeout(timer) };
   }
 
-  window.PKChat = { mount, watchUnread };
+  window.PKChat = { mount, watchUnread, ding, soundEnabled, setSound };
 })();

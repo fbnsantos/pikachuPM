@@ -60,24 +60,6 @@ try {
     chat_err(500, 'Erro de ligação à base de dados');
 }
 
-// ── Autenticação ────────────────────────────────────────────────
-$uid = 0;
-if ($CHAT_TOKEN !== null) {
-    $st = $pdo->prepare('SELECT user_id FROM user_tokens WHERE token = ?');
-    $st->execute([$CHAT_TOKEN]);
-    $uid = (int)($st->fetchColumn() ?: 0);
-    if (!$uid) chat_err(401, 'Token inválido');
-} else {
-    if (session_status() === PHP_SESSION_NONE) session_start();
-    $uid = (int)($_SESSION['user_id'] ?? 0);
-    session_write_close(); // não bloquear outros pedidos da mesma sessão (polling)
-    if (!$uid) chat_err(401, 'Sessão expirada');
-}
-
-$st = $pdo->prepare('SELECT username FROM user_tokens WHERE user_id = ?');
-$st->execute([$uid]);
-$myName = (string)($st->fetchColumn() ?: ('user' . $uid));
-
 // ── Schema (migração inline) ────────────────────────────────────
 function chat_ensure_schema(PDO $pdo): void {
     $pdo->exec("CREATE TABLE IF NOT EXISTS chat_messages (
@@ -137,9 +119,64 @@ function chat_ensure_schema(PDO $pdo): void {
 }
 try {
     if (!$pdo->query("SHOW TABLES LIKE 'chat_typing'")->fetch()) chat_ensure_schema($pdo);
+    if (!$pdo->query("SHOW TABLES LIKE 'chat_push_subs'")->fetch()) {
+        // Subscrições Web Push (uma por browser/dispositivo)
+        $pdo->exec("CREATE TABLE IF NOT EXISTS chat_push_subs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            endpoint TEXT NOT NULL,
+            endpoint_hash CHAR(64) NOT NULL,
+            p256dh VARCHAR(255) NULL,
+            auth VARCHAR(255) NULL,
+            user_agent VARCHAR(255) NULL,
+            pending_test TINYINT(1) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_used DATETIME NULL,
+            UNIQUE KEY uq_endpoint (endpoint_hash),
+            INDEX idx_user (user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Par de chaves VAPID do servidor (gerado automaticamente na 1.ª utilização)
+        $pdo->exec("CREATE TABLE IF NOT EXISTS chat_push_config (
+            id TINYINT PRIMARY KEY,
+            public_key VARCHAR(255) NOT NULL,
+            private_pem TEXT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    }
 } catch (PDOException $e) {
     chat_err(500, 'Erro ao preparar tabelas do chat: ' . $e->getMessage());
 }
+
+// ── Autenticação ────────────────────────────────────────────────
+$action = (string)($_GET['action'] ?? $_POST['action'] ?? '');
+$uid = 0;
+if ($action === 'push_inbox') {
+    // Chamado pelo service worker quando chega um push (sem token/cookies):
+    // o endpoint da subscrição — URL secreto — identifica o utilizador.
+    header('Access-Control-Allow-Origin: *');
+    $in = json_decode(file_get_contents('php://input'), true) ?: [];
+    $ep = (string)($in['endpoint'] ?? '');
+    if ($ep === '') chat_err(400, 'Endpoint em falta');
+    $st = $pdo->prepare('SELECT user_id FROM chat_push_subs WHERE endpoint_hash = ?');
+    $st->execute([hash('sha256', $ep)]);
+    $uid = (int)($st->fetchColumn() ?: 0);
+    if (!$uid) chat_err(404, 'Subscrição desconhecida');
+    $pdo->prepare('UPDATE chat_push_subs SET last_used = NOW() WHERE endpoint_hash = ?')->execute([hash('sha256', $ep)]);
+} elseif ($CHAT_TOKEN !== null) {
+    $st = $pdo->prepare('SELECT user_id FROM user_tokens WHERE token = ?');
+    $st->execute([$CHAT_TOKEN]);
+    $uid = (int)($st->fetchColumn() ?: 0);
+    if (!$uid) chat_err(401, 'Token inválido');
+} else {
+    if (session_status() === PHP_SESSION_NONE) session_start();
+    $uid = (int)($_SESSION['user_id'] ?? 0);
+    session_write_close(); // não bloquear outros pedidos da mesma sessão (polling)
+    if (!$uid) chat_err(401, 'Sessão expirada');
+}
+
+$st = $pdo->prepare('SELECT username FROM user_tokens WHERE user_id = ?');
+$st->execute([$uid]);
+$myName = (string)($st->fetchColumn() ?: ('user' . $uid));
 
 // ── Helpers de tabelas/canais ───────────────────────────────────
 function chat_table_exists(PDO $pdo, string $t): bool {
@@ -459,11 +496,117 @@ function chat_uploaded_files(): array {
     return $out;
 }
 
+// ── Web Push (VAPID, sem payload) ───────────────────────────────
+// O push só "acorda" o service worker; este pede o conteúdo a ?action=push_inbox.
+// Assim não é preciso cifrar o payload (RFC 8291) — basta assinar o JWT VAPID (ES256).
+
+function chat_b64u(string $s): string { return rtrim(strtr(base64_encode($s), '+/', '-_'), '='); }
+
+/** Devolve ['public' => b64url(65 bytes), 'pem' => chave privada]. Gera na 1.ª vez. */
+function chat_vapid(PDO $pdo): array {
+    $r = $pdo->query('SELECT public_key, private_pem FROM chat_push_config WHERE id = 1')->fetch();
+    if ($r) return ['public' => $r['public_key'], 'pem' => $r['private_pem']];
+    if (!function_exists('openssl_pkey_new')) throw new RuntimeException('Extensão openssl do PHP não disponível');
+    $key = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+    if (!$key || !openssl_pkey_export($key, $pem)) throw new RuntimeException('Não foi possível gerar chaves VAPID: ' . openssl_error_string());
+    $d   = openssl_pkey_get_details($key);
+    $pub = "\x04" . str_pad($d['ec']['x'], 32, "\0", STR_PAD_LEFT) . str_pad($d['ec']['y'], 32, "\0", STR_PAD_LEFT);
+    $pdo->prepare('INSERT IGNORE INTO chat_push_config (id, public_key, private_pem) VALUES (1, ?, ?)')->execute([chat_b64u($pub), $pem]);
+    return chat_vapid($pdo); // relê (em caso de corrida ganha a primeira)
+}
+
+/** Assinatura DER (openssl) → r||s com 64 bytes (formato JWS ES256). */
+function chat_der_to_raw(string $der): string {
+    $o = 2;
+    if (ord($der[1]) & 0x80) $o += ord($der[1]) & 0x7f;
+    $o++; $lr = ord($der[$o++]); $r = substr($der, $o, $lr); $o += $lr;
+    $o++; $ls = ord($der[$o++]); $s = substr($der, $o, $ls);
+    return str_pad(ltrim($r, "\0"), 32, "\0", STR_PAD_LEFT) . str_pad(ltrim($s, "\0"), 32, "\0", STR_PAD_LEFT);
+}
+
+function chat_vapid_jwt(array $vapid, string $aud): string {
+    $host = parse_url((isset($_SERVER['HTTP_HOST']) ? 'https://' . $_SERVER['HTTP_HOST'] : 'https://localhost'), PHP_URL_HOST);
+    $h = chat_b64u(json_encode(['typ' => 'JWT', 'alg' => 'ES256']));
+    $c = chat_b64u(json_encode(['aud' => $aud, 'exp' => time() + 12 * 3600, 'sub' => 'mailto:noreply@' . ($host ?: 'pikachupm.local')]));
+    if (!openssl_sign("$h.$c", $der, $vapid['pem'], OPENSSL_ALGO_SHA256)) throw new RuntimeException('Falha a assinar JWT VAPID');
+    return "$h.$c." . chat_b64u(chat_der_to_raw($der));
+}
+
+/** Envia um push (sem payload) a todas as subscrições dos utilizadores indicados. Devolve nº enviados com sucesso. */
+function chat_push_users(PDO $pdo, array $userIds): int {
+    $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+    if (!$userIds || !function_exists('curl_multi_init')) return 0;
+    $in = implode(',', $userIds);
+    $subs = $pdo->query("SELECT id, endpoint FROM chat_push_subs WHERE user_id IN ($in)")->fetchAll();
+    if (!$subs) return 0;
+    try { $vapid = chat_vapid($pdo); } catch (Throwable $e) { error_log('chat push: ' . $e->getMessage()); return 0; }
+
+    $mh = curl_multi_init();
+    $handles = [];
+    $jwts = [];
+    foreach ($subs as $s) {
+        $p = parse_url($s['endpoint']);
+        if (empty($p['scheme']) || empty($p['host']) || $p['scheme'] !== 'https') continue;
+        $aud = $p['scheme'] . '://' . $p['host'] . (isset($p['port']) ? ':' . $p['port'] : '');
+        try { $jwts[$aud] = $jwts[$aud] ?? chat_vapid_jwt($vapid, $aud); } catch (Throwable $e) { error_log('chat push: ' . $e->getMessage()); return 0; }
+        $ch = curl_init($s['endpoint']);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => '',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 6,
+            CURLOPT_CONNECTTIMEOUT => 4,
+            CURLOPT_HTTPHEADER     => [
+                'TTL: 86400',
+                'Urgency: high',
+                'Content-Length: 0',
+                'Authorization: vapid t=' . $jwts[$aud] . ', k=' . $vapid['public'],
+            ],
+        ]);
+        curl_multi_add_handle($mh, $ch);
+        $handles[(int)$s['id']] = $ch;
+    }
+    do { $st = curl_multi_exec($mh, $running); if ($running) curl_multi_select($mh, 1.0); } while ($running && $st === CURLM_OK);
+
+    $ok = 0; $gone = [];
+    foreach ($handles as $sid => $ch) {
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        if ($code >= 200 && $code < 300) $ok++;
+        elseif ($code === 404 || $code === 410) $gone[] = $sid;           // subscrição expirada/cancelada
+        else error_log("chat push: HTTP $code para subscrição $sid: " . substr((string)curl_multi_getcontent($ch), 0, 200));
+        curl_multi_remove_handle($mh, $ch);
+        curl_close($ch);
+    }
+    curl_multi_close($mh);
+    if ($gone) $pdo->exec('DELETE FROM chat_push_subs WHERE id IN (' . implode(',', $gone) . ')');
+    return $ok;
+}
+
+/** Responde ao cliente já e continua a trabalhar (envio dos pushes) sem o fazer esperar. */
+function chat_json_then($data, callable $after): void {
+    $body = json_encode($data, JSON_UNESCAPED_UNICODE);
+    ignore_user_abort(true);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    if (function_exists('fastcgi_finish_request')) {
+        echo $body;
+        fastcgi_finish_request();
+    } else {
+        header('Connection: close');
+        header('Content-Length: ' . strlen($body));
+        echo $body;
+        while (ob_get_level() > 0) ob_end_flush();
+        flush();
+    }
+    try { $after(); } catch (Throwable $e) { error_log('chat after: ' . $e->getMessage()); }
+    exit;
+}
+
 // ── Router ──────────────────────────────────────────────────────
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $action = (string)($_GET['action'] ?? $_POST['action'] ?? '');
 
-$POST_ACTIONS = ['send', 'edit', 'delete', 'react', 'pin', 'read', 'typing'];
+$POST_ACTIONS = ['send', 'edit', 'delete', 'react', 'pin', 'read', 'typing', 'push_subscribe', 'push_unsubscribe', 'push_test', 'push_inbox'];
 if (in_array($action, $POST_ACTIONS, true) && $method !== 'POST') chat_err(405, 'Use POST');
 
 // Pedido maior que post_max_size → o PHP descarta $_POST/$_FILES sem aviso
@@ -669,7 +812,62 @@ switch ($action) {
 
         $st = $pdo->prepare(CHAT_MSG_SELECT . ' WHERE m.id = ?');
         $st->execute([$msgId]);
-        chat_json(['ok' => true, 'message' => chat_hydrate($pdo, $st->fetchAll(), $uid)[0]]);
+        $out = ['ok' => true, 'message' => chat_hydrate($pdo, $st->fetchAll(), $uid)[0]];
+        // Notificação push para todos os membros do canal (menos quem enviou)
+        $recipients = array_filter(array_map(fn($m) => $m['user_id'], chat_members($pdo, $type, $id, $info)), fn($u) => $u !== $uid);
+        chat_json_then($out, fn() => chat_push_users($pdo, $recipients));
+    }
+
+    // ── Web Push ────────────────────────────────────────────────
+    case 'push_key':
+        try { chat_json(['public_key' => chat_vapid($pdo)['public']]); }
+        catch (Throwable $e) { chat_err(500, $e->getMessage()); }
+
+    case 'push_subscribe': {
+        $ep = (string)($SRC['endpoint'] ?? '');
+        if (!preg_match('#^https://#', $ep) || strlen($ep) > 2000) chat_err(400, 'Endpoint inválido');
+        $keys = is_array($SRC['keys'] ?? null) ? $SRC['keys'] : [];
+        $pdo->prepare('INSERT INTO chat_push_subs (user_id, endpoint, endpoint_hash, p256dh, auth, user_agent, last_used)
+                       VALUES (?, ?, ?, ?, ?, ?, NOW())
+                       ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), p256dh = VALUES(p256dh), auth = VALUES(auth),
+                                               user_agent = VALUES(user_agent), last_used = NOW()')
+            ->execute([$uid, $ep, hash('sha256', $ep), mb_substr((string)($keys['p256dh'] ?? ''), 0, 255),
+                       mb_substr((string)($keys['auth'] ?? ''), 0, 255), mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255)]);
+        chat_json(['ok' => true]);
+    }
+
+    case 'push_unsubscribe': {
+        $ep = (string)($SRC['endpoint'] ?? '');
+        $pdo->prepare('DELETE FROM chat_push_subs WHERE endpoint_hash = ? AND user_id = ?')->execute([hash('sha256', $ep), $uid]);
+        chat_json(['ok' => true]);
+    }
+
+    case 'push_test': {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM chat_push_subs WHERE user_id = ?');
+        $st->execute([$uid]);
+        $n = (int)$st->fetchColumn();
+        if (!$n) chat_err(409, 'Este utilizador ainda não tem nenhum dispositivo subscrito');
+        $pdo->prepare('UPDATE chat_push_subs SET pending_test = 1 WHERE user_id = ?')->execute([$uid]);
+        chat_json(['ok' => true, 'devices' => $n, 'sent' => chat_push_users($pdo, [$uid])]);
+    }
+
+    // Chamado pelo service worker ao receber um push: o que mostrar na notificação
+    case 'push_inbox': {
+        $list = array_values(array_filter(chat_user_channels($pdo, $uid), fn($c) => $c['unread'] > 0 && !$c['closed']));
+        usort($list, fn($a, $b) => strcmp($b['last']['created_at'] ?? '', $a['last']['created_at'] ?? ''));
+        $epHash = hash('sha256', (string)($SRC['endpoint'] ?? ''));
+        $st = $pdo->prepare('SELECT pending_test FROM chat_push_subs WHERE endpoint_hash = ?');
+        $st->execute([$epHash]);
+        $isTest = (bool)$st->fetchColumn();
+        if ($isTest) $pdo->prepare('UPDATE chat_push_subs SET pending_test = 0 WHERE endpoint_hash = ?')->execute([$epHash]);
+        chat_json([
+            'test'         => $isTest,
+            'unread_total' => array_sum(array_map(fn($c) => $c['unread'], $list)),
+            'channels'     => array_slice(array_map(fn($c) => [
+                'type' => $c['type'], 'id' => $c['id'], 'title' => $c['title'],
+                'unread' => $c['unread'], 'mentions' => $c['mentions'], 'last' => $c['last'],
+            ], $list), 0, 4),
+        ]);
     }
 
     case 'edit': {

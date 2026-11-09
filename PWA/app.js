@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 // VERSION — must match sw.js cache number
 // ══════════════════════════════════════════════════════
-const APP_VER = 42;
+const APP_VER = 43;
 
 // ══════════════════════════════════════════════════════
 // CONFIG
@@ -1807,6 +1807,18 @@ function attachEvents() {
 
   // Chat
   document.getElementById('btn-chat')?.addEventListener('click', () => openChat());
+  document.getElementById('btn-chat-notif')?.addEventListener('click', chatNotifButton);
+  document.getElementById('btn-chat-notif-test')?.addEventListener('click', async () => {
+    try {
+      const d = await apiFetch('chat.php?action=push_test', { method: 'POST', body: '{}' });
+      showToast(`Teste enviado para ${d.devices} dispositivo(s) — deve chegar em segundos`, 'success');
+    } catch (e) { showToast('Activa primeiro as notificações neste dispositivo', 'error'); }
+  });
+  const soundCb = document.getElementById('cfg-chat-sound');
+  if (soundCb && typeof PKChat !== 'undefined') {
+    soundCb.checked = PKChat.soundEnabled();
+    soundCb.addEventListener('change', () => { PKChat.setSound(soundCb.checked); if (soundCb.checked) PKChat.ding(); });
+  }
   document.getElementById('bottom-panel')?.addEventListener('click', e => {
     const b = e.target.closest('.pk-chat-btn');
     if (!b) return;
@@ -2063,6 +2075,7 @@ async function triggerInstall() {
 let chatApp      = null;   // instância PKChat montada
 let chatAppKey   = '';     // apiUrl|token com que foi montada
 let chatWatcher  = null;   // polling do badge quando o chat está fechado
+let chatPushOk   = false;  // push activo neste dispositivo → evita notificações duplicadas
 
 function chatSetBadge(n) {
   const b = document.getElementById('chat-badge');
@@ -2074,10 +2087,81 @@ function chatSetBadge(n) {
 function chatStartWatcher() {
   chatStopWatcher();
   if (!isConfigured() || typeof PKChat === 'undefined') return;
-  chatWatcher = PKChat.watchUnread({ api: apiUrl('chat.php'), token: cfg.token, notify: true }, total => chatSetBadge(total), 30000);
+  chatWatcher = PKChat.watchUnread({ api: apiUrl('chat.php'), token: cfg.token, notify: !chatPushOk }, total => chatSetBadge(total), 30000);
 }
 function chatStopWatcher() {
   if (chatWatcher) { chatWatcher.stop(); chatWatcher = null; }
+}
+
+// ── Notificações push (chegam com a app fechada) ─────────
+function b64uToBytes(s) {
+  const b = atob((s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(b, c => c.charCodeAt(0));
+}
+function bytesToB64u(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * Activa as notificações push do chat neste dispositivo.
+ * ask=true pede autorização ao utilizador (tem de vir de um clique).
+ * Devolve: 'ok' | 'denied' | 'default' | 'unsupported' | mensagem de erro.
+ */
+async function chatEnablePush(ask = false) {
+  if (!isConfigured()) return 'unsupported';
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return 'unsupported';
+  if (Notification.permission === 'default' && ask) await Notification.requestPermission();
+  if (Notification.permission !== 'granted') return Notification.permission;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    // O service worker precisa de saber a que API perguntar quando chega um push
+    const c = await caches.open('pk-chat-cfg');
+    await c.put('chat-cfg', new Response(JSON.stringify({ api: apiUrl('chat.php') }), { headers: { 'Content-Type': 'application/json' } }));
+
+    const { public_key } = await apiFetch('chat.php?action=push_key');
+    let sub = await reg.pushManager.getSubscription();
+    // Subscrição feita com a chave de outra instância → refazer
+    if (sub && sub.options && sub.options.applicationServerKey && bytesToB64u(sub.options.applicationServerKey) !== public_key) {
+      await sub.unsubscribe();
+      sub = null;
+    }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(public_key) });
+    await apiFetch('chat.php?action=push_subscribe', { method: 'POST', body: JSON.stringify(sub.toJSON()) });
+    chatPushOk = true;
+    if (chatWatcher) chatStartWatcher();
+    return 'ok';
+  } catch (e) {
+    console.warn('push:', e);
+    return e.message || 'erro';
+  }
+}
+
+function chatUpdateNotifSetting(r) {
+  const el = document.getElementById('chat-notif-status');
+  if (!el) return;
+  const txt = {
+    ok: '✅ Notificações activas neste dispositivo (também com a app fechada).',
+    denied: '⛔ Bloqueadas — activa-as nas definições do browser/telemóvel.',
+    default: 'Ainda não activadas neste dispositivo.',
+    unsupported: /iPhone|iPad/.test(navigator.userAgent)
+      ? 'No iPhone só funcionam com a app instalada no ecrã principal (iOS 16.4+).'
+      : 'Este browser não suporta notificações push.',
+  }[r] || ('Erro: ' + r);
+  el.textContent = txt;
+}
+
+async function chatNotifButton() {
+  const r = await chatEnablePush(true);
+  if (r === 'ok') {
+    showToast('🔔 Notificações activadas neste dispositivo', 'success');
+    try { await apiFetch('chat.php?action=push_test', { method: 'POST', body: '{}' }); } catch (e) {}
+  } else if (r === 'denied') showToast('Notificações bloqueadas — activa-as nas definições do browser/telemóvel', 'error');
+  else if (r === 'unsupported') showToast(/iPhone|iPad/.test(navigator.userAgent)
+    ? 'No iPhone: adiciona a app ao ecrã principal (Partilhar → Adicionar ao ecrã) e abre-a a partir daí'
+    : 'Este browser não suporta notificações push', 'error');
+  else if (r !== 'default') showToast('Erro ao activar notificações: ' + r, 'error');
+  chatUpdateNotifSetting(r);
+  return r;
 }
 
 function openChat(type = null, id = null) {
@@ -2096,10 +2180,11 @@ function openChat(type = null, id = null) {
       mode:     'full',
       theme:    'dark',
       linkBase: null,
-      notify:   true,
+      notify:   !chatPushOk,      // com push activo quem notifica é o service worker
       channel:  type && id ? { type, id: +id } : null,
       onUnread: total => chatSetBadge(total),
       onClose:  closeChat,
+      onNotifications: chatNotifButton,
     });
   } else {
     if (type && id) chatApp.open(type, +id);
@@ -2154,6 +2239,8 @@ function registerSW() {
       showToast('✨ App actualizada — a recarregar…', 'success');
       setTimeout(() => window.location.reload(), 1200);
     }
+    // Toque numa notificação do chat com a app já aberta
+    if (e.data?.type === 'OPEN_CHAT') openChat(e.data.chatType, e.data.chatId);
   });
 
   // Fallback: controllerchange também força reload
@@ -2233,6 +2320,11 @@ function init() {
     loadTodos();
     loadCalendar(); calendar_loaded = true;
     chatStartWatcher();
+    // Renova a subscrição push em silêncio (só se já houver autorização)
+    chatEnablePush(false).then(r => chatUpdateNotifSetting(r));
+    // Aberto a partir de uma notificação: #chat=sprint:3
+    const m = location.hash.match(/^#chat(?:=(sprint|prototype|lead):(\d+))?$/);
+    if (m) { history.replaceState(null, '', location.pathname + location.search); openChat(m[1] || null, m[2] || null); }
 
     if (typeof mqtt !== 'undefined') mqttConnect();
     else {

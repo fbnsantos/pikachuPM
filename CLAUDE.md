@@ -246,6 +246,9 @@ Chat estilo Teams. Canais = sprints, protótipos e leads; membros = `responsavel
 - `assets/chat/pkchat.js`: widget partilhado — `PKChat.mount(el, {api, token, mode:'full'|'embedded', channel, theme})` e `PKChat.watchUnread(...)`. Polling (3 s activo / 15 s em segundo plano).
 - Secção "Conversa da equipa" no fim de sprint/protótipo/lead via `tabs/chat_embed.php` → `pk_chat_embed($type, $id, $closed)`.
 - PWA: botão 💬 no cabeçalho + 💬 nas linhas de sprints/leads; carrega `../assets/chat/pkchat.*` (pré-cache no `sw.js`).
+- **Web Push** (notificações com a app fechada): chaves VAPID geradas e guardadas em `chat_push_config`; subscrições em `chat_push_subs`. Cada `send` faz push **sem payload** aos membros (`chat_push_users`, curl_multi, depois de responder ao cliente). O `sw.js` recebe o push, chama `POST ?action=push_inbox {endpoint}` (o endpoint identifica o utilizador) e mostra a notificação; o URL da API está na cache `pk-chat-cfg`. Requer HTTPS e extensões `openssl` + `curl`. iPhone: só com a PWA instalada no ecrã principal (iOS 16.4+).
+- Som: Web Audio em `pkchat.js` (`PKChat.ding`); preferência em `localStorage.pkchat_sound`.
+- Versão da PWA: subir em conjunto `?v=` no `index.html`, `CACHE`/`V` no `sw.js` e `APP_VER` no `app.js`.
 
 ---
 

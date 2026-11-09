@@ -27,6 +27,8 @@
   const EMOJIS = ('😀 😃 😄 😁 😆 😅 😂 🙂 😉 😊 😍 😘 😎 🤔 😐 🙄 😴 😮 😢 😭 😡 🤯 🥳 🤝 ' +
                   '👍 👎 👏 🙌 🙏 💪 👀 ✅ ❌ ⚠️ 🔥 🎉 🚀 💡 📌 📎 ❤️ 💯 ⭐ ☕ 🐛 ✨ 📅 📈').split(' ');
   const POLL_ACTIVE = 3000, POLL_HIDDEN = 15000, CHANNELS_EVERY = 20000;
+  // Polling adaptativo: com conversa activa (mensagem ou "a escrever" no último minuto) o canal aberto actualiza a cada 1 s
+  const POLL_FAST = 1000, HOT_WINDOW = 60000;
 
   // ── utilitários ─────────────────────────────────────────────
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -225,7 +227,7 @@
       msgs: new Map(), order: [], lastId: 0, since: '', hasMore: false, loadingOlder: false,
       firstUnreadId: 0, readSent: 0, reads: [], typing: [],
       view: 'chat', replyTo: null, editingId: null, pending: [], sending: false,
-      pollTimer: null, chanTimer: null, lastChannelsAt: 0, lastTypingSent: 0,
+      pollTimer: null, chanTimer: null, lastActivity: 0, inPoll: false, pollKick: false, lastChannelsAt: 0, lastTypingSent: 0,
       blobUrls: new Map(), prevLast: null, newWhileUp: 0, destroyed: false, gen: 0,
     };
 
@@ -499,7 +501,10 @@
           : `<div class="pkc-err">Erro ao abrir conversa: ${esc(e.message)}</div>`;
         return;
       }
-      schedulePoll(POLL_ACTIVE);
+      // Conversa com mensagem no último minuto → começa logo em modo rápido
+      const lastM = S.msgs.get(S.lastId);
+      S.lastActivity = lastM && (Date.now() - parseTs(lastM.created_at)) < HOT_WINDOW ? Date.now() : 0;
+      schedulePoll(nextPollDelay());
     }
 
     function upsert(m) {
@@ -663,6 +668,17 @@
 
     // ── polling ────────────────────────────────────────────────
     function stopPoll() { clearTimeout(S.pollTimer); S.pollTimer = null; }
+    function nextPollDelay() {
+      if (document.hidden) return POLL_HIDDEN;
+      return Date.now() - S.lastActivity < HOT_WINDOW ? POLL_FAST : POLL_ACTIVE;
+    }
+    function touchActivity() { S.lastActivity = Date.now(); }
+    // Pede novidades já (ex.: depois de enviar); se houver um poll a decorrer, repete logo a seguir
+    function kickPoll() {
+      if (!S.cur || S.destroyed) return;
+      if (S.inPoll) { S.pollKick = true; return; }
+      stopPoll(); poll();
+    }
     function schedulePoll(ms) {
       stopPoll();
       if (S.destroyed) return;
@@ -671,9 +687,10 @@
     async function poll() {
       if (!S.cur || S.destroyed) return;
       const gen = S.gen;
+      S.inPoll = true; S.pollKick = false;
       try {
         const d = await api.get('poll', { type: S.cur.type, id: S.cur.id, after_id: S.lastId, since: S.since });
-        if (gen !== S.gen) return;
+        if (gen !== S.gen) { S.inPoll = false; return; }
         const wasBottom = nearBottom();
         let newFromOthers = 0, changed = false, mentioned = false;
         d.messages.forEach(m => {
@@ -703,6 +720,7 @@
         }
         if ((changed || readsChanged) && !S.editingId) renderMessages();
         if (newFromOthers && !wasBottom) { S.newWhileUp += newFromOthers; D.jump.hidden = false; D.jump.textContent = `↓ ${S.newWhileUp} nova${S.newWhileUp > 1 ? 's' : ''} mensage${S.newWhileUp > 1 ? 'ns' : 'm'}`; }
+        if (newFromOthers || (d.typing && d.typing.length)) touchActivity();
         if (JSON.stringify(S.typing) !== JSON.stringify(d.typing)) { S.typing = d.typing; renderTyping(); }
         if (newFromOthers) ding(mentioned ? 'mention' : 'msg');
         if (newFromOthers && document.hidden && opts.notify && !full) {
@@ -712,7 +730,8 @@
         markRead();
       } catch (e) { /* rede instável: tenta de novo */ }
       if (full && Date.now() - S.lastChannelsAt > CHANNELS_EVERY) loadChannels(true);
-      if (gen === S.gen) schedulePoll(document.hidden ? POLL_HIDDEN : POLL_ACTIVE);
+      S.inPoll = false;
+      if (gen === S.gen) schedulePoll(S.pollKick ? 0 : nextPollDelay());
     }
 
     function markRead() {
@@ -785,6 +804,7 @@
         S.replyTo = null; renderReply();
         const c = S.channels.find(x => x.type === S.cur.type && x.id === S.cur.id);
         if (c) { c.last = { id: d.message.id, username: S.me.username, body: body || '📎 Anexo', created_at: d.message.created_at }; renderChannels(); }
+        touchActivity(); kickPoll();
       } catch (e) {
         toast('Não foi possível enviar: ' + e.message, true);
       } finally {
@@ -799,6 +819,7 @@
       const now = Date.now();
       if (now - S.lastTypingSent < 3000) return;
       S.lastTypingSent = now;
+      touchActivity();
       api.post('typing', { type: S.cur.type, id: S.cur.id }).catch(() => {});
     }
 

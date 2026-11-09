@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 // VERSION — must match sw.js cache number
 // ══════════════════════════════════════════════════════
-const APP_VER = 43;
+const APP_VER = 44;
 
 // ══════════════════════════════════════════════════════
 // CONFIG
@@ -2082,6 +2082,15 @@ function chatSetBadge(n) {
   if (!b) return;
   b.textContent = n > 99 ? '99+' : String(n || '');
   b.style.display = n ? '' : 'none';
+  chatSetAppBadge(n);
+}
+
+// Número no ícone da app instalada (Badging API: Windows/macOS/ChromeOS, iOS 16.4+ no ecrã principal)
+function chatSetAppBadge(n) {
+  try {
+    if (n > 0 && navigator.setAppBadge) navigator.setAppBadge(n).catch(() => {});
+    else if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+  } catch (e) {}
 }
 
 function chatStartWatcher() {

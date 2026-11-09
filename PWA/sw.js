@@ -1,5 +1,5 @@
-const CACHE = 'pikachu-pwa-v43';
-const V = '?v=43';
+const CACHE = 'pikachu-pwa-v44';
+const V = '?v=44';
 const CHAT_CFG_CACHE = 'pk-chat-cfg'; // guarda o URL da API do chat para o handler de push
 // Os URLs têm de coincidir com os do index.html (incluindo ?v=), para servir offline
 const SHELL = [
@@ -86,6 +86,14 @@ async function onChatPush(e) {
       if (r.ok) data = await r.json();
     }
   } catch (err) { /* sem rede → notificação genérica */ }
+
+  // Número de mensagens por ler no ícone da app
+  try {
+    if (data && typeof data.unread_total === 'number') {
+      if (data.unread_total > 0 && self.navigator.setAppBadge) await self.navigator.setAppBadge(data.unread_total);
+      else if (self.navigator.clearAppBadge) await self.navigator.clearAppBadge();
+    }
+  } catch (err) {}
 
   // App aberta e visível → o próprio chat mostra/toca a mensagem
   const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });

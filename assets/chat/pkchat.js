@@ -118,6 +118,7 @@
         err.status = resp.status;
         throw err;
       }
+      if (!data || typeof data !== 'object') throw new Error('Resposta inválida do servidor (api/chat.php)');
       return data;
     }
     return {
@@ -362,6 +363,13 @@
       if (!full) return;
       const f = S.filter.trim().toLowerCase();
       const groups = { sprint: [], prototype: [], lead: [] };
+      // Abertos primeiro; dentro disso, mensagem mais recente primeiro; sem mensagens no fim (por nome)
+      S.channels.sort((a, b) => {
+        if (a.closed !== b.closed) return a.closed ? 1 : -1;
+        const ta = a.last ? a.last.created_at : '', tb = b.last ? b.last.created_at : '';
+        if (ta !== tb) return ta < tb ? 1 : -1;
+        return a.title.localeCompare(b.title, 'pt');
+      });
       S.channels.forEach(c => {
         if (c.closed && !S.showClosed && !(S.cur && S.cur.type === c.type && S.cur.id === c.id)) return;
         if (f && !c.title.toLowerCase().includes(f)) return;
@@ -633,10 +641,20 @@
           upsert(m);
         });
         S.since = d.server_time;
+        const newest = d.messages.filter(m => !m.deleted).pop();
+        const cc = S.channels.find(x => x.type === S.cur.type && x.id === S.cur.id);
+        if (cc && newest && (!cc.last || newest.id > cc.last.id)) {
+          cc.last = { id: newest.id, username: newest.username, body: newest.body || '📎 Anexo', created_at: newest.created_at };
+          renderChannels();
+        }
         const readsChanged = JSON.stringify(S.reads) !== JSON.stringify(d.reads);
         S.reads = d.reads;
-        if (S.chan && (S.chan.can_write !== d.can_write || S.chan.closed !== d.closed)) {
-          S.chan.can_write = d.can_write; S.chan.closed = d.closed; renderHead(); changed = true;
+        if (S.chan && (S.chan.can_write !== d.can_write || S.chan.closed !== d.closed || (d.estado && S.chan.estado !== d.estado))) {
+          S.chan.can_write = d.can_write; S.chan.closed = d.closed;
+          if (d.estado) S.chan.estado = d.estado;
+          const lc = S.channels.find(x => x.type === S.cur.type && x.id === S.cur.id);
+          if (lc) lc.closed = d.closed;
+          renderHead(); renderChannels(); changed = true;
         }
         if ((changed || readsChanged) && !S.editingId) renderMessages();
         if (newFromOthers && !wasBottom) { S.newWhileUp += newFromOthers; D.jump.hidden = false; D.jump.textContent = `↓ ${S.newWhileUp} nova${S.newWhileUp > 1 ? 's' : ''} mensage${S.newWhileUp > 1 ? 'ns' : 'm'}`; }

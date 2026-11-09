@@ -564,6 +564,7 @@ switch ($action) {
             'typing'      => $typing,
             'reads'       => $reads,
             'closed'      => $info['closed'],
+            'estado'      => $info['estado'],
             'can_write'   => $canWrite,
             'server_time' => $now,
         ]);

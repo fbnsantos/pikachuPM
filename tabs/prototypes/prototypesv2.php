@@ -4662,6 +4662,12 @@ if ($selectedPrototype && $checkTodos) {
                 <div id="protoMediaImages" class="row g-2"></div>
             </div>
 
+            <!-- Conversa / histórico do protótipo (chat) -->
+            <?php
+            include_once __DIR__ . '/../chat_embed.php';
+            pk_chat_embed('prototype', (int)$selectedPrototype['id'], ($selectedPrototype['estado'] ?? 'ativo') === 'fechado');
+            ?>
+
             <!-- Form oculto para eliminar -->
             <form id="deleteForm" method="POST" style="display: none;">
                 <input type="hidden" name="action" value="delete_prototype">

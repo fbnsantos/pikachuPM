@@ -1476,3 +1476,25 @@ html, body {
 .inv-hdelta { font-weight: 700; font-size: 13px; }
 .inv-hdelta.p { color: #22c55e; } .inv-hdelta.m { color: #ef4444; }
 .inv-hmeta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+/* ── Chat ── */
+.chat-btn { position: relative; }
+.chat-badge {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
+  background: var(--danger); color: #fff; font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+.chat-screen {
+  position: fixed; inset: 0; z-index: 110;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  padding-top: var(--safe-top); padding-bottom: var(--safe-bottom);
+}
+#chat-root { flex: 1; min-height: 0; display: flex; }
+#chat-root > .pkc { flex: 1; height: auto; min-height: 0; }
+.pk-chat-btn {
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  font-size: 12px; padding: 1px 6px; cursor: pointer; margin-left: auto; flex-shrink: 0;
+}
+.pk-chat-btn:active { border-color: var(--primary); }

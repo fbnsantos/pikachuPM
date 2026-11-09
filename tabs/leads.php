@@ -1366,6 +1366,12 @@ $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY use
                         </div>
                     </div>
                 </div>
+
+                <!-- Conversa / histórico do lead (chat) -->
+                <?php
+                include_once __DIR__ . '/chat_embed.php';
+                pk_chat_embed('lead', (int)$selected_lead['id'], ($selected_lead['estado'] ?? '') === 'fechada');
+                ?>
             <?php endif; ?>
         </div>
     </div>

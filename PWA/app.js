@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 // VERSION — must match sw.js cache number
 // ══════════════════════════════════════════════════════
-const APP_VER = 37;
+const APP_VER = 40;
 
 // ══════════════════════════════════════════════════════
 // CONFIG
@@ -172,6 +172,7 @@ function instSwitch(id) {
     document.getElementById('main-content').style.display = '';
     loadTodos();
     if (typeof mqtt !== 'undefined') mqttConnect();
+    chatStartWatcher();
   }
   showToast(`⚡ ${inst.name || instHostname(inst.apiUrl)}`, 'success');
 }
@@ -511,7 +512,7 @@ async function loadTodos() {
 // ══════════════════════════════════════════════════════
 // RENDER: BOTTOM PANELS
 // ══════════════════════════════════════════════════════
-function buildPkRow(item, isLead = false) {
+function buildPkRow(item, isLead = false, chatType = null) {
   const relevDots = item.relevancia
     ? '★'.repeat(Math.min(5, item.relevancia)) + '☆'.repeat(Math.max(0, 5 - item.relevancia))
     : '';
@@ -527,6 +528,7 @@ function buildPkRow(item, isLead = false) {
   return `<div class="pk-row">
     <div class="pk-row-main">
       <span class="pk-title">${escHtml(titulo)}</span>
+      ${chatType && item.id ? `<button class="pk-chat-btn" data-chat-type="${chatType}" data-chat-id="${item.id}" title="Abrir conversa">💬</button>` : ''}
       ${relevDots ? `<span class="pk-relevance">${relevDots}</span>` : ''}
       ${isLead ? `<span class="pk-role ${roleClass}">${roleLabel}</span>` : ''}
     </div>
@@ -544,7 +546,7 @@ async function loadSprints() {
   listEl.innerHTML = '<div class="pk-empty">A carregar…</div>';
   try {
     const items = await fetchSprints();
-    listEl.innerHTML = items.map(s => buildPkRow(s)).join('');
+    listEl.innerHTML = items.map(s => buildPkRow(s, false, 'sprint')).join('');
     emptyEl.style.display = items.length === 0 ? '' : 'none';
     errEl.style.display   = 'none';
   } catch(e) {
@@ -578,7 +580,7 @@ async function loadLeads() {
   listEl.innerHTML = '<div class="pk-empty">A carregar…</div>';
   try {
     const items = await fetchLeads();
-    listEl.innerHTML = items.map(s => buildPkRow(s, true)).join('');
+    listEl.innerHTML = items.map(s => buildPkRow(s, true, 'lead')).join('');
     emptyEl.style.display = items.length === 0 ? '' : 'none';
     errEl.style.display   = 'none';
   } catch(e) {
@@ -1803,6 +1805,15 @@ function attachEvents() {
   // Install
   document.getElementById('btn-install').addEventListener('click', triggerInstall);
 
+  // Chat
+  document.getElementById('btn-chat')?.addEventListener('click', () => openChat());
+  document.getElementById('bottom-panel')?.addEventListener('click', e => {
+    const b = e.target.closest('.pk-chat-btn');
+    if (!b) return;
+    e.stopPropagation();
+    openChat(b.dataset.chatType, b.dataset.chatId);
+  });
+
   // Settings
   document.getElementById('btn-settings').addEventListener('click', openSettings);
   document.getElementById('btn-settings-close').addEventListener('click', closeSettings);
@@ -2047,6 +2058,73 @@ async function triggerInstall() {
 }
 
 // ══════════════════════════════════════════════════════
+// CHAT (sprints / protótipos / leads) — UI em ../assets/chat/pkchat.js
+// ══════════════════════════════════════════════════════
+let chatApp      = null;   // instância PKChat montada
+let chatAppKey   = '';     // apiUrl|token com que foi montada
+let chatWatcher  = null;   // polling do badge quando o chat está fechado
+
+function chatSetBadge(n) {
+  const b = document.getElementById('chat-badge');
+  if (!b) return;
+  b.textContent = n > 99 ? '99+' : String(n || '');
+  b.style.display = n ? '' : 'none';
+}
+
+function chatStartWatcher() {
+  chatStopWatcher();
+  if (!isConfigured() || typeof PKChat === 'undefined') return;
+  chatWatcher = PKChat.watchUnread({ api: apiUrl('chat.php'), token: cfg.token, notify: true }, total => chatSetBadge(total), 30000);
+}
+function chatStopWatcher() {
+  if (chatWatcher) { chatWatcher.stop(); chatWatcher = null; }
+}
+
+function openChat(type = null, id = null) {
+  if (!isConfigured()) return;
+  if (typeof PKChat === 'undefined') { showToast('Chat indisponível (recarrega a app)', 'error'); return; }
+  const screen = document.getElementById('chat-screen');
+  screen.style.display = '';
+  chatStopWatcher();
+  const key = cfg.apiUrl + '|' + cfg.token;
+  if (!chatApp || chatAppKey !== key) {
+    if (chatApp) chatApp.destroy();
+    chatAppKey = key;
+    chatApp = PKChat.mount(document.getElementById('chat-root'), {
+      api:      apiUrl('chat.php'),
+      token:    cfg.token,
+      mode:     'full',
+      theme:    'dark',
+      linkBase: null,
+      notify:   true,
+      channel:  type && id ? { type, id: +id } : null,
+      onUnread: total => chatSetBadge(total),
+      onClose:  closeChat,
+    });
+  } else {
+    if (type && id) chatApp.open(type, +id);
+    else chatApp.refresh();
+  }
+  history.pushState({ pkChat: 1 }, '');
+}
+
+function closeChat(fromHistory = false) {
+  const screen = document.getElementById('chat-screen');
+  if (screen.style.display === 'none') return;
+  screen.style.display = 'none';
+  // destrói para parar o polling do canal aberto; o badge continua via watcher
+  if (chatApp) { chatApp.destroy(); chatApp = null; chatAppKey = ''; }
+  chatStartWatcher();
+  if (!fromHistory && history.state && history.state.pkChat) history.back();
+}
+
+// Botão "voltar" do Android fecha o chat em vez de sair da app
+window.addEventListener('popstate', () => {
+  const screen = document.getElementById('chat-screen');
+  if (screen && screen.style.display !== 'none') closeChat(true);
+});
+
+// ══════════════════════════════════════════════════════
 // SERVICE WORKER
 // ══════════════════════════════════════════════════════
 let _swReg = null;
@@ -2154,6 +2232,7 @@ function init() {
     document.getElementById('main-content').style.display = '';
     loadTodos();
     loadCalendar(); calendar_loaded = true;
+    chatStartWatcher();
 
     if (typeof mqtt !== 'undefined') mqttConnect();
     else {

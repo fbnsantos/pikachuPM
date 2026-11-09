@@ -136,6 +136,7 @@ $tabs = [
     'todos' => 'To Do',
     'phd_kanban' => 'PhD&MSc plan',
     'leads' => 'Leads',
+    'chat' => 'Chat',
     'equipa' => 'Daily Meeting',
     'calendar' => 'Calendar',
     'links' => 'Search & Links', 
@@ -1906,6 +1907,34 @@ document.addEventListener('keydown', e => {
         e.stopImmediatePropagation(); e.preventDefault();
         if (confirm('Tens alterações não guardadas. Fechar na mesma?')) _forceClose(m);
     }, true);
+})();
+</script>
+
+<!-- Chat: badge de mensagens não lidas no menu -->
+<style>
+    .pkchat-nav-badge { display:inline-block; min-width:18px; height:18px; padding:0 5px; margin-left:4px; border-radius:9px;
+        background:#c4314b; color:#fff; font-size:11px; font-weight:700; line-height:18px; text-align:center; vertical-align:middle; }
+</style>
+<script>
+(function () {
+    var link = document.querySelector('nav a[href="?tab=chat"]');
+    if (!link) return;
+    window.pkChatSetNavBadge = function (n) {
+        var b = link.querySelector('.pkchat-nav-badge');
+        if (!n) { if (b) b.remove(); return; }
+        if (!b) { b = document.createElement('span'); b.className = 'pkchat-nav-badge'; link.appendChild(b); }
+        b.textContent = n > 99 ? '99+' : n;
+        link.title = n + ' mensage' + (n === 1 ? 'm' : 'ns') + ' por ler';
+    };
+    if (<?= json_encode($tabSelecionada === 'chat') ?>) return; // a própria tab do chat actualiza o badge
+    function tick() {
+        fetch('api/chat.php?action=unread', { credentials: 'same-origin', cache: 'no-store' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) { if (d) window.pkChatSetNavBadge(d.unread_total); })
+            .catch(function () {});
+        setTimeout(tick, document.hidden ? 120000 : 45000);
+    }
+    tick();
 })();
 </script>
 

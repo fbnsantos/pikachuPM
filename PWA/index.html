@@ -12,6 +12,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="img/icon-192x192.png">
   <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="../assets/chat/pkchat.css">
 </head>
 <body>
 <div class="app" id="app">
@@ -19,10 +20,11 @@
   <!-- ── Header ── -->
   <header class="header">
     <div class="header-left">
-      <span class="logo">⚡ pikachuPM<span class="logo-version">v1.2.2 <span id="sw-ver"></span><button id="btn-update-app" class="btn-update-ver" title="Verificar actualização">↺</button></span></span>
+      <span class="logo">⚡ pikachuPM<span class="logo-version">v1.3.0 <span id="sw-ver"></span><button id="btn-update-app" class="btn-update-ver" title="Verificar actualização">↺</button></span></span>
     </div>
     <div class="header-actions">
       <button class="icon-btn" id="btn-install" title="Instalar app" style="display:none">⬇</button>
+      <button class="icon-btn chat-btn" id="btn-chat" title="Chat da equipa">💬<span class="chat-badge" id="chat-badge" style="display:none"></span></button>
       <button class="icon-btn" id="btn-refresh" title="Atualizar">↻</button>
       <button class="icon-btn" id="btn-inst-switch" title="Mudar instância">🔗</button>
       <button class="icon-btn" id="btn-settings" title="Definições">⚙</button>
@@ -304,6 +306,11 @@
     </div>
   </div>
 
+  <!-- ── Chat (sprints / protótipos / leads) ── -->
+  <div class="chat-screen" id="chat-screen" style="display:none">
+    <div id="chat-root"></div>
+  </div>
+
   <!-- ── Modal: Create/Edit Todo ── -->
   <div class="modal-overlay" id="modal-overlay" style="display:none">
     <div class="modal">
@@ -482,6 +489,7 @@
 </div><!-- /app -->
 
 <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script src="../assets/chat/pkchat.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

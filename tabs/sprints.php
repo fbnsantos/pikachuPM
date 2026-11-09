@@ -2344,6 +2344,12 @@ if ($selectedSprint) {
                 <i class="bi bi-info-circle"></i> Instale o módulo de ToDos para gerenciar tasks nas sprints.
             </div>
             <?php endif; ?>
+
+            <!-- Conversa / histórico da sprint (chat) -->
+            <?php
+            include_once __DIR__ . '/chat_embed.php';
+            pk_chat_embed('sprint', (int)$selectedSprint['id'], in_array($selectedSprint['estado'], ['concluída', 'concluida', 'fechada'], true));
+            ?>
         <?php endif; ?>
     </div>
 </div>

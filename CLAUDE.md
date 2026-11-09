@@ -240,6 +240,15 @@ Agregação de métricas de projectos, sprints e tarefas.
 
 ---
 
+### Chat — `tabs/chat.php` + `api/chat.php` + `assets/chat/pkchat.{js,css}`
+Chat estilo Teams. Canais = sprints, protótipos e leads; membros = `responsavel_id` + `sprint_members` / `prototype_members` / `lead_members` (admins acedem a tudo). Entidade fechada → canal arquivado (só leitura), histórico mantém-se.
+- `api/chat.php`: autentica por sessão (web) ou `Authorization: Bearer <token>` (PWA). Acções GET `channels|unread|messages|poll|members|pinned|files|search|file|export`, POST `send|edit|delete|react|pin|read|typing`. Tabelas criadas inline: `chat_messages`, `chat_attachments`, `chat_reactions`, `chat_reads`, `chat_typing`. Ficheiros em `files/chat/YYYYMM/` (servidos só via `?action=file`, com `.htaccess` deny).
+- `assets/chat/pkchat.js`: widget partilhado — `PKChat.mount(el, {api, token, mode:'full'|'embedded', channel, theme})` e `PKChat.watchUnread(...)`. Polling (3 s activo / 15 s em segundo plano).
+- Secção "Conversa da equipa" no fim de sprint/protótipo/lead via `tabs/chat_embed.php` → `pk_chat_embed($type, $id, $closed)`.
+- PWA: botão 💬 no cabeçalho + 💬 nas linhas de sprints/leads; carrega `../assets/chat/pkchat.*` (pré-cache no `sw.js`).
+
+---
+
 ## Notas de ambiente
 
 - **PWA / Android Chrome**: nunca usar `window.location.reload()` para forçar update de SW. Usar navegação com `?_sw=timestamp`.

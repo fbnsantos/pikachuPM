@@ -697,30 +697,23 @@ $openApiSchema"],
       <span class="badge bg-light text-dark border"><?= count($notes) ?> <i class="bi bi-chat-dots"></i></span>
     </div>
     <div id="<?= $fcId ?>" class="d-none">
-      <div class="card-body pb-2">
-        <!-- Campos principais em grid -->
+      <!-- ── Vista de leitura ── -->
+      <div class="card-body pb-2" id="<?= $fcId ?>-view">
         <div class="row g-2 mb-3">
           <?php
-          $fields = [
-            ['Área / Oportunidade', $fc['area']],
-            ['Encaixe TRIBE', $fc['encaixe']],
-            ['Tipo e TRL', $fc['tipo_trl']],
-            ['Financiamento', $fc['financiamento']],
-            ['Projetos apoiados', $fc['projetos_apoiados']],
-            ['Duração', $fc['duracao']],
-            ['Datas e prazo', $fc['datas']],
-            ['Elegibilidade', $fc['elegibilidade']],
-            ['Sucesso anteriores', $fc['sucesso_anteriores']],
-            ['Probabilidade TRIBE', $fc['probabilidade']],
-            ['Próximo passo', $fc['proximo_passo']],
-            ['Fontes', $fc['fontes']],
+          $viewFields = [
+            ['Área / Oportunidade','area'],['Encaixe TRIBE','encaixe'],['Tipo e TRL','tipo_trl'],
+            ['Financiamento','financiamento'],['Projetos apoiados','projetos_apoiados'],
+            ['Duração','duracao'],['Datas e prazo','datas'],['Elegibilidade','elegibilidade'],
+            ['Sucesso anteriores','sucesso_anteriores'],['Probabilidade TRIBE','probabilidade'],
+            ['Próximo passo','proximo_passo'],['Fontes','fontes'],
           ];
-          foreach ($fields as [$label, $val]):
-            if (!trim($val)) continue; ?>
+          foreach ($viewFields as [$label, $key]):
+            if (!trim($fc[$key] ?? '')) continue; ?>
           <div class="col-12 col-md-6">
             <div class="bg-light rounded p-2" style="font-size:0.85rem">
               <div class="text-muted" style="font-size:0.75rem"><?= $label ?></div>
-              <div><?= nl2br(htmlspecialchars($val)) ?></div>
+              <div><?= nl2br(htmlspecialchars($fc[$key])) ?></div>
             </div>
           </div>
           <?php endforeach; ?>
@@ -734,11 +727,11 @@ $openApiSchema"],
           <?php endif; ?>
         </div>
 
-        <!-- Notas/comentários da equipa -->
+        <!-- Notas da equipa -->
         <div class="border-top pt-2 mb-2">
           <div class="fw-semibold small mb-2"><i class="bi bi-chat-dots me-1"></i>Notas da equipa (<?= count($notes) ?>)</div>
           <?php if ($notes): ?>
-          <div class="fc-notes-list" style="max-height:200px;overflow-y:auto">
+          <div class="fc-notes-list mb-2" style="max-height:200px;overflow-y:auto">
             <?php foreach ($notes as $n): ?>
             <div class="d-flex gap-2 mb-2">
               <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center flex-shrink-0" style="width:28px;height:28px;font-size:0.7rem"><?= strtoupper(substr($n['username'] ?? '?', 0, 1)) ?></div>
@@ -749,21 +742,19 @@ $openApiSchema"],
             </div>
             <?php endforeach; ?>
           </div>
-          <?php else: ?><p class="text-muted small">Sem notas ainda.</p><?php endif; ?>
-
-          <!-- Adicionar nota -->
-          <form method="post" class="mt-2 d-flex gap-2">
+          <?php else: ?><p class="text-muted small mb-2">Sem notas ainda.</p><?php endif; ?>
+          <form method="post" class="d-flex gap-2">
             <input type="hidden" name="fc_action" value="add_note">
             <input type="hidden" name="subtab" value="exploracao">
             <input type="hidden" name="call_id" value="<?= $fc['id'] ?>">
-            <textarea name="note_text" class="form-control form-control-sm" rows="2" placeholder="Adicionar nota ou comentário..."></textarea>
+            <textarea name="note_text" class="form-control form-control-sm" rows="2" placeholder="Adicionar nota..."></textarea>
             <button type="submit" class="btn btn-sm btn-primary align-self-end">Enviar</button>
           </form>
         </div>
 
-        <!-- Botões de ação -->
+        <!-- Botões -->
         <div class="d-flex gap-2 border-top pt-2 flex-wrap align-items-center">
-          <button class="btn btn-sm btn-outline-secondary" onclick="fcOpenEdit(<?= $fc['id'] ?>)"><i class="bi bi-pencil me-1"></i>Editar</button>
+          <button class="btn btn-sm btn-outline-secondary" onclick="fcToggleEdit('<?= $fcId ?>')"><i class="bi bi-pencil me-1"></i>Editar</button>
           <?php if ($fc['url']): ?>
           <a href="<?= htmlspecialchars($fc['url']) ?>" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-up-right me-1"></i>Abrir Call</a>
           <?php endif; ?>
@@ -777,7 +768,6 @@ $openApiSchema"],
             <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-people me-1"></i>Converter em Lead</button>
           </form>
           <?php endif; ?>
-          <!-- Arquivar / Apagar -->
           <div class="ms-auto d-flex gap-1">
             <?php if ($fc['estado'] !== 'arquivada'): ?>
             <form method="post" class="d-inline" onsubmit="return confirm('Arquivar esta oportunidade?')">
@@ -795,6 +785,102 @@ $openApiSchema"],
             </form>
           </div>
         </div>
+      </div>
+
+      <!-- ── Formulário de edição inline ── -->
+      <div id="<?= $fcId ?>-edit" class="d-none">
+        <form method="post" class="card-body pt-2">
+          <input type="hidden" name="fc_action" value="edit_call">
+          <input type="hidden" name="subtab" value="exploracao">
+          <input type="hidden" name="call_id" value="<?= $fc['id'] ?>">
+          <div class="row g-3">
+            <div class="col-12 col-md-8">
+              <label class="form-label fw-semibold">Título <span class="text-danger">*</span></label>
+              <input type="text" name="titulo" class="form-control" value="<?= htmlspecialchars($fc['titulo']) ?>" required>
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label fw-semibold">Prioridade</label>
+              <select name="prioridade" class="form-select">
+                <option value="A" <?= $fc['prioridade']==='A'?'selected':'' ?>>A — Principal</option>
+                <option value="B" <?= $fc['prioridade']==='B'?'selected':'' ?>>B — Secundária</option>
+                <option value="C" <?= $fc['prioridade']==='C'?'selected':'' ?>>C — Radar</option>
+              </select>
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label fw-semibold">Estado</label>
+              <select name="estado" class="form-select">
+                <option value="aberta" <?= $fc['estado']==='aberta'?'selected':'' ?>>Aberta</option>
+                <option value="radar" <?= $fc['estado']==='radar'?'selected':'' ?>>Radar</option>
+                <option value="fechada" <?= $fc['estado']==='fechada'?'selected':'' ?>>Fechada</option>
+                <option value="arquivada" <?= $fc['estado']==='arquivada'?'selected':'' ?>>Arquivada</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">URL oficial</label>
+              <input type="url" name="url" class="form-control" value="<?= htmlspecialchars($fc['url'] ?? '') ?>" placeholder="https://...">
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Etiqueta de prioridade</label>
+              <input type="text" name="prioridade_label" class="form-control" value="<?= htmlspecialchars($fc['prioridade_label'] ?? '') ?>">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-semibold">Área / Oportunidade</label>
+              <textarea name="area" class="form-control" rows="3"><?= htmlspecialchars($fc['area'] ?? '') ?></textarea>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-semibold">Encaixe TRIBE / Papel</label>
+              <textarea name="encaixe" class="form-control" rows="3"><?= htmlspecialchars($fc['encaixe'] ?? '') ?></textarea>
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label fw-semibold">Tipo e TRL</label>
+              <textarea name="tipo_trl" class="form-control" rows="2"><?= htmlspecialchars($fc['tipo_trl'] ?? '') ?></textarea>
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label fw-semibold">Financiamento</label>
+              <textarea name="financiamento" class="form-control" rows="2"><?= htmlspecialchars($fc['financiamento'] ?? '') ?></textarea>
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label fw-semibold">Projetos apoiados</label>
+              <input type="text" name="projetos_apoiados" class="form-control" value="<?= htmlspecialchars($fc['projetos_apoiados'] ?? '') ?>">
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label fw-semibold">Duração</label>
+              <textarea name="duracao" class="form-control" rows="2"><?= htmlspecialchars($fc['duracao'] ?? '') ?></textarea>
+            </div>
+            <div class="col-12 col-md-8">
+              <label class="form-label fw-semibold">Datas e prazo</label>
+              <textarea name="datas" class="form-control" rows="2"><?= htmlspecialchars($fc['datas'] ?? '') ?></textarea>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Elegibilidade / Consórcio</label>
+              <textarea name="elegibilidade" class="form-control" rows="2"><?= htmlspecialchars($fc['elegibilidade'] ?? '') ?></textarea>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-semibold">Sucesso nas últimas 3 edições</label>
+              <textarea name="sucesso_anteriores" class="form-control" rows="2"><?= htmlspecialchars($fc['sucesso_anteriores'] ?? '') ?></textarea>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-semibold">Probabilidade TRIBE</label>
+              <textarea name="probabilidade" class="form-control" rows="2"><?= htmlspecialchars($fc['probabilidade'] ?? '') ?></textarea>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Próximo passo</label>
+              <textarea name="proximo_passo" class="form-control" rows="2"><?= htmlspecialchars($fc['proximo_passo'] ?? '') ?></textarea>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Fontes documentais</label>
+              <textarea name="fontes" class="form-control" rows="2"><?= htmlspecialchars($fc['fontes'] ?? '') ?></textarea>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Notas internas</label>
+              <textarea name="notas_internas" class="form-control" rows="2" placeholder="Não visíveis a assistentes externos"><?= htmlspecialchars($fc['notas_internas'] ?? '') ?></textarea>
+            </div>
+          </div>
+          <div class="d-flex gap-2 mt-3 pt-2 border-top">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Guardar alterações</button>
+            <button type="button" class="btn btn-outline-secondary" onclick="fcToggleEdit('<?= $fcId ?>')">Cancelar</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
@@ -971,22 +1057,31 @@ function fcShowAdd() {
 
 // ─── Abrir modal de editar ──────────────────────────────────────────────────
 function fcOpenEdit(id) {
-    const c = FC_CALLS_MAP[id];
-    if (!c) return;
-    document.getElementById('fcModalTitle').textContent = 'Editar: ' + c.titulo;
-    document.getElementById('fc_form_action').value = 'edit_call';
-    document.getElementById('fc_form_call_id').value = c.id;
-    document.getElementById('fcSubmitBtn').textContent = 'Guardar alterações';
-    const fields = ['titulo','url','prioridade_label','area','encaixe','tipo_trl','financiamento',
-     'projetos_apoiados','duracao','datas','elegibilidade','sucesso_anteriores',
-     'probabilidade','proximo_passo','fontes','notas_internas'];
-    fields.forEach(f => {
-        const el = document.getElementById('fc_f_' + f);
-        if (el) el.value = c[f] ?? '';
-    });
-    document.getElementById('fc_f_prioridade').value = c.prioridade || 'B';
-    document.getElementById('fc_f_estado').value = c.estado || 'aberta';
-    fcOpenOverlay();
+    // legacy: redirect to inline edit toggle
+    const card = document.querySelector('[data-call-id="' + id + '"]');
+    if (card) {
+        const fcId = card.closest('[id$="-view"]');
+        if (fcId) {
+            const base = fcId.id.replace('-view','');
+            fcToggleEdit(base);
+            return;
+        }
+    }
+}
+
+function fcToggleEdit(fcId) {
+    const viewEl = document.getElementById(fcId + '-view');
+    const editEl = document.getElementById(fcId + '-edit');
+    if (!viewEl || !editEl) return;
+    const editing = !editEl.classList.contains('d-none');
+    if (editing) {
+        editEl.classList.add('d-none');
+        viewEl.classList.remove('d-none');
+    } else {
+        viewEl.classList.add('d-none');
+        editEl.classList.remove('d-none');
+        editEl.querySelector('input[name="titulo"]')?.focus();
+    }
 }
 
 // ─── Prompts para IA Scout ──────────────────────────────────────────────────

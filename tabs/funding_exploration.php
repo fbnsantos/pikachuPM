@@ -302,27 +302,31 @@ $estadoBadge = [
 </div>
 
 <style>
-/* Garantir que os modais de oportunidades funcionam corretamente */
-#fcAddModal,
-#fcScoutPromptsModal {
+/* Modal de edição/adição de oportunidade */
+#fcAddModal {
     position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
+    top: 0 !important; left: 0 !important;
+    width: 100% !important; height: 100% !important;
     z-index: 1055 !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
 }
 #fcAddModal .modal-dialog {
-    max-height: 90vh;
-    margin: 5vh auto;
+    height: calc(100vh - 3.5rem);
+    margin: 1.75rem auto;
 }
 #fcAddModal .modal-content {
-    max-height: 90vh;
+    height: 100%;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 #fcAddModal .modal-body {
-    overflow-y: auto;
     flex: 1 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
+#fcAddModal .modal-header,
 #fcAddModal .modal-footer {
     flex-shrink: 0;
 }

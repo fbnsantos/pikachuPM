@@ -22,6 +22,8 @@
     sprint:    { label: 'Sprints',    one: 'Sprint',    icon: '🏃' },
     prototype: { label: 'Protótipos', one: 'Protótipo', icon: '🧪' },
     lead:      { label: 'Leads',      one: 'Lead',      icon: '🎯' },
+    project:   { label: 'Projetos',   one: 'Projeto',   icon: '📁' },
+    lab:       { label: 'Lab',        one: 'Lab Chat',  icon: '🔬' },
   };
   const QUICK  = ['👍', '❤️', '😆', '😮', '😢', '🎉'];
   const EMOJIS = ('😀 😃 😄 😁 😆 😅 😂 🙂 😉 😊 😍 😘 😎 🤔 😐 🙄 😴 😮 😢 😭 😡 🤯 🥳 🤝 ' +
@@ -227,6 +229,7 @@
       msgs: new Map(), order: [], lastId: 0, since: '', hasMore: false, loadingOlder: false,
       firstUnreadId: 0, readSent: 0, reads: [], typing: [],
       view: 'chat', replyTo: null, editingId: null, pending: [], sending: false,
+      topicFilter: 0, topics: opts.topics || [], requireTopic: !!opts.require_topic,
       pollTimer: null, chanTimer: null, lastActivity: 0, inPoll: false, pollKick: false, lastChannelsAt: 0, lastTypingSent: 0,
       blobUrls: new Map(), prevLast: null, newWhileUp: 0, destroyed: false, gen: 0,
     };
@@ -285,6 +288,12 @@
             <div class="pkc-reply-bar" hidden></div>
             <div class="pkc-pending"></div>
             <div class="pkc-progress" hidden><div></div></div>
+            <div class="pkc-topic-bar" hidden>
+              <label style="font-size:.8em;font-weight:600;margin-right:4px">📌 Assunto:</label>
+              <select class="pkc-topic-select" style="flex:1;font-size:.85em;padding:2px 6px;border-radius:4px;border:1px solid #ccc;"></select>
+              <button class="pkc-ibtn pkc-topic-filter-btn" title="Filtrar mensagens por assunto" style="font-size:.8em;padding:2px 6px;white-space:nowrap">🔍 Filtrar</button>
+              <button class="pkc-ibtn pkc-topic-clear-btn" title="Limpar filtro" hidden style="font-size:.8em;padding:2px 6px">✕ Todos</button>
+            </div>
             <div class="pkc-input-wrap">
               <textarea rows="1" placeholder="Escrever uma mensagem…" maxlength="10000"></textarea>
               <div class="pkc-tools">
@@ -315,6 +324,7 @@
       banner: $('.pkc-banner'), body: $('.pkc-body'), msgs: $('.pkc-msgs'), panel: $('.pkc-panel'),
       jump: $('.pkc-jump'), drop: $('.pkc-drop'), typing: $('.pkc-typing'),
       composer: $('.pkc-composer'), replyBar: $('.pkc-reply-bar'), pending: $('.pkc-pending'), progress: $('.pkc-progress'),
+      topicBar: $('.pkc-topic-bar'), topicSelect: $('.pkc-topic-select'), topicFilterBtn: $('.pkc-topic-filter-btn'), topicClearBtn: $('.pkc-topic-clear-btn'),
       input: $('.pkc-composer textarea'), file: $('.pkc-file'), mentionPop: $('.pkc-mention-pop'), emojiPop: $('.pkc-emoji-pop'),
       menu: $('.pkc-menu'), lightbox: $('.pkc-lightbox'), toast: $('.pkc-toast'),
     };
@@ -463,7 +473,7 @@
       S.cur = { type, id };
       S.msgs.clear(); S.order = []; S.lastId = 0; S.since = ''; S.hasMore = false;
       S.replyTo = null; S.editingId = null; S.pending = []; S.readSent = 0; S.newWhileUp = 0;
-      S.typing = []; S.reads = []; S.view = 'chat';
+      S.typing = []; S.reads = []; S.view = 'chat'; S.topicFilter = 0;
       try { localStorage.setItem(LS_KEY, type + ':' + id); } catch (e) {}
       wrap.classList.add('pkc-has-conv');
       D.placeholder.hidden = true;
@@ -489,6 +499,10 @@
         renderHead();
         renderMessages({ toBottom: true, toUnread: !!S.firstUnreadId });
         markRead();
+        // Tópicos para canal lab
+        S.requireTopic = type === 'lab' || !!opts.require_topic;
+        if (S.requireTopic) loadTopics();
+        else if (D.topicBar) D.topicBar.hidden = true;
         const c = S.channels.find(x => x.type === type && x.id === id);
         if (c) { c.unread = 0; c.mentions = 0; renderChannels(); emitUnread(); }
         if (!wrap.classList.contains('pkc-narrow')) D.input.focus({ preventScroll: true });
@@ -779,6 +793,13 @@
       if (S.sending || !S.chan || !S.chan.can_write) return;
       const body = D.input.value.trim();
       if (!body && !S.pending.length) return;
+      // Canal lab exige tópico
+      const topicId = D.topicSelect ? (parseInt(D.topicSelect.value, 10) || 0) : 0;
+      if (S.requireTopic && !topicId) {
+        toast('Escolhe um assunto antes de enviar', true);
+        D.topicSelect && D.topicSelect.focus();
+        return;
+      }
       S.sending = true;
       D.composer.classList.add('pkc-busy');
       const fd = new FormData();
@@ -786,6 +807,7 @@
       fd.append('id', S.cur.id);
       fd.append('body', body);
       if (S.replyTo) fd.append('reply_to', S.replyTo.id);
+      if (topicId)   fd.append('topic_id', topicId);
       S.pending.forEach(p => fd.append('files[]', p.file, p.file.name));
       const hasFiles = S.pending.length > 0;
       if (hasFiles) { D.progress.hidden = false; D.progress.firstElementChild.style.width = '0%'; }
@@ -812,6 +834,29 @@
         D.composer.classList.remove('pkc-busy');
         D.progress.hidden = true;
       }
+    }
+
+    // ── Tópicos (canal lab) ────────────────────────────────────
+    function renderTopicBar() {
+      if (!D.topicBar) return;
+      const show = S.requireTopic && S.topics.length > 0;
+      D.topicBar.hidden = !show;
+      if (!show) return;
+      const sel = D.topicSelect;
+      const prev = sel.value;
+      sel.innerHTML = '<option value="">— Escolher assunto —</option>' +
+        S.topics.map(t => `<option value="${t.id}"${String(t.id) === prev ? ' selected' : ''}>${esc(t.titulo)}</option>`).join('');
+      if (prev) sel.value = prev;
+      if (D.topicClearBtn) D.topicClearBtn.hidden = !S.topicFilter;
+    }
+
+    async function loadTopics() {
+      if (!S.requireTopic || !S.cur) return;
+      try {
+        const d = await api.get('topics', { type: S.cur.type, id: S.cur.id });
+        S.topics = d.topics || [];
+        renderTopicBar();
+      } catch { /* silencioso */ }
     }
 
     function sendTyping() {
@@ -1172,6 +1217,37 @@
         : new File([f], `imagem_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}${i ? '_' + i : ''}.${(f.type.split('/')[1] || 'png')}`, { type: f.type }))); }
     });
     D.file.addEventListener('change', () => { addFiles([...D.file.files]); D.file.value = ''; });
+
+    // Filtro por tópico (canal lab)
+    if (D.topicFilterBtn) {
+      D.topicFilterBtn.addEventListener('click', () => {
+        const tid = D.topicSelect ? (parseInt(D.topicSelect.value, 10) || 0) : 0;
+        if (!tid) { toast('Escolhe um assunto para filtrar', true); return; }
+        S.topicFilter = tid;
+        if (D.topicClearBtn) D.topicClearBtn.hidden = false;
+        // recarregar mensagens com filtro
+        if (S.cur) {
+          S.msgs.clear(); S.order = []; S.lastId = 0; S.since = ''; S.hasMore = false;
+          D.msgs.innerHTML = '<div class="pkc-muted pkc-pad">A filtrar…</div>';
+          api.get('messages', { type: S.cur.type, id: S.cur.id, topic_id: tid, limit: 50 }).then(d => {
+            d.messages.forEach(upsert);
+            S.hasMore = d.has_more;
+            renderMessages({ toBottom: true });
+            const topicTitle = S.topics.find(t => t.id == tid)?.titulo || '';
+            if (D.banner) { D.banner.hidden = false; D.banner.innerHTML = `🔍 A mostrar mensagens do assunto: <strong>${esc(topicTitle)}</strong>`; }
+          }).catch(e => toast('Erro ao filtrar: ' + e.message, true));
+        }
+      });
+    }
+    if (D.topicClearBtn) {
+      D.topicClearBtn.addEventListener('click', () => {
+        S.topicFilter = 0;
+        D.topicClearBtn.hidden = true;
+        if (D.banner) D.banner.hidden = true;
+        if (D.topicSelect) D.topicSelect.value = '';
+        if (S.cur) openChannel(S.cur.type, S.cur.id);
+      });
+    }
 
     // drag & drop
     let dragDepth = 0;

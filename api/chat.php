@@ -119,6 +119,18 @@ function chat_ensure_schema(PDO $pdo): void {
 }
 try {
     if (!$pdo->query("SHOW TABLES LIKE 'chat_typing'")->fetch()) chat_ensure_schema($pdo);
+    // Migrações incrementais
+    // Alargar ENUM para incluir project e lab
+    $enumCheck = $pdo->query("SHOW COLUMNS FROM chat_messages LIKE 'channel_type'")->fetch();
+    if ($enumCheck && strpos($enumCheck['Type'], 'project') === false) {
+        $pdo->exec("ALTER TABLE chat_messages MODIFY channel_type ENUM('sprint','prototype','lead','project','lab') NOT NULL");
+        $pdo->exec("ALTER TABLE chat_reads    MODIFY channel_type ENUM('sprint','prototype','lead','project','lab') NOT NULL");
+        $pdo->exec("ALTER TABLE chat_typing   MODIFY channel_type ENUM('sprint','prototype','lead','project','lab') NOT NULL");
+    }
+    // Coluna topic_id para mensagens do canal lab
+    if (!$pdo->query("SHOW COLUMNS FROM chat_messages LIKE 'topic_id'")->fetch()) {
+        $pdo->exec("ALTER TABLE chat_messages ADD COLUMN topic_id INT NULL DEFAULT NULL AFTER reply_to, ADD INDEX idx_topic (topic_id)");
+    }
     if (!$pdo->query("SHOW TABLES LIKE 'chat_push_subs'")->fetch()) {
         // Subscrições Web Push (uma por browser/dispositivo)
         $pdo->exec("CREATE TABLE IF NOT EXISTS chat_push_subs (
@@ -194,7 +206,7 @@ function chat_is_admin(PDO $pdo, int $uid): bool {
     return (bool)$st->fetchColumn();
 }
 
-const CHAT_TYPES = ['sprint', 'prototype', 'lead'];
+const CHAT_TYPES = ['sprint', 'prototype', 'lead', 'project', 'lab'];
 
 /** Metadados da entidade dona do canal, ou null se não existir. */
 function chat_channel_info(PDO $pdo, string $type, int $id): ?array {
@@ -227,6 +239,19 @@ function chat_channel_info(PDO $pdo, string $type, int $id): ?array {
         $r['url'] = '?tab=leads&lead_id=' . $id;
         return $r;
     }
+    if ($type === 'project' && chat_table_exists($pdo, 'projects')) {
+        $st = $pdo->prepare('SELECT id, COALESCE(NULLIF(short_name,\'\'), title) AS title, estado, owner_id AS responsavel_id FROM projects WHERE id = ?');
+        $st->execute([$id]);
+        $r = $st->fetch();
+        if (!$r) return null;
+        $r['closed'] = in_array($r['estado'], ['fechado', 'concluído', 'arquivado'], true);
+        $r['url'] = '?tab=projectos&project_id=' . $id;
+        return $r;
+    }
+    if ($type === 'lab') {
+        // Canal único do laboratório (channel_id = 1)
+        return ['id' => 1, 'title' => 'Lab Chat', 'estado' => 'ativo', 'responsavel_id' => 0, 'closed' => false, 'url' => '?tab=lab_management'];
+    }
     return null;
 }
 
@@ -235,7 +260,9 @@ function chat_member_table(string $type): array {
         'sprint'    => ['sprint_members',    'sprint_id'],
         'prototype' => ['prototype_members', 'prototype_id'],
         'lead'      => ['lead_members',      'lead_id'],
-    ][$type];
+        'project'   => ['project_members',   'project_id'],
+        'lab'       => ['lab_authorized_users', null],
+    ][$type] ?? ['', ''];
 }
 
 /** Lista de membros: responsável + tabela de membros. */
@@ -243,17 +270,34 @@ function chat_members(PDO $pdo, string $type, int $id, ?array $info = null): arr
     $info = $info ?? chat_channel_info($pdo, $type, $id);
     if (!$info) return [];
     $members = [];
-    if (!empty($info['responsavel_id'])) {
-        $members[(int)$info['responsavel_id']] = 'responsável';
-    }
-    [$tbl, $col] = chat_member_table($type);
-    if (chat_table_exists($pdo, $tbl)) {
-        $st = $pdo->prepare("SELECT user_id FROM `$tbl` WHERE `$col` = ?");
-        $st->execute([$id]);
-        foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $u) {
-            if (!isset($members[(int)$u])) $members[(int)$u] = 'membro';
+
+    if ($type === 'lab') {
+        // Lab: membros = todos os utilizadores autorizados
+        if (chat_table_exists($pdo, 'lab_authorized_users')) {
+            $st = $pdo->query('SELECT user_id FROM lab_authorized_users');
+            foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $u) {
+                $members[(int)$u] = 'membro';
+            }
+        }
+    } else {
+        if (!empty($info['responsavel_id'])) {
+            $members[(int)$info['responsavel_id']] = 'responsável';
+        }
+        [$tbl, $col] = chat_member_table($type);
+        if ($tbl && chat_table_exists($pdo, $tbl)) {
+            if ($type === 'project') {
+                $st = $pdo->prepare("SELECT user_id FROM `$tbl` WHERE `$col` = ?");
+                $st->execute([$id]);
+            } else {
+                $st = $pdo->prepare("SELECT user_id FROM `$tbl` WHERE `$col` = ?");
+                $st->execute([$id]);
+            }
+            foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $u) {
+                if (!isset($members[(int)$u])) $members[(int)$u] = 'membro';
+            }
         }
     }
+
     if (!$members) return [];
     $ids = array_keys($members);
     $in  = implode(',', array_fill(0, count($ids), '?'));
@@ -351,6 +395,7 @@ function chat_hydrate(PDO $pdo, array $rows, int $uid): array {
             'pinned'      => (bool)$r['is_pinned'],
             'system'      => (bool)$r['is_system'],
             'reply_to'    => $r['reply_to'] ? ($replies[(int)$r['reply_to']] ?? null) : null,
+            'topic_id'    => isset($r['topic_id']) ? ($r['topic_id'] !== null ? (int)$r['topic_id'] : null) : null,
             'attachments' => $deleted ? [] : ($atts[$id] ?? []),
             'reactions'   => $deleted ? [] : array_values($reacts[$id] ?? []),
         ];
@@ -403,6 +448,22 @@ function chat_user_channels(PDO $pdo, int $uid): array {
         $parts[] = "SELECT 'lead' AS type, l.id, l.titulo AS title, (l.estado = 'fechada') AS closed
                     FROM leads l WHERE l.responsavel_id = ? $mem";
         $params[] = $uid; if ($mem) $params[] = $uid;
+    }
+    if (chat_table_exists($pdo, 'projects')) {
+        $mem = chat_table_exists($pdo, 'project_members')
+            ? 'OR EXISTS (SELECT 1 FROM project_members x WHERE x.project_id = pj.id AND x.user_id = ?)' : '';
+        $parts[] = "SELECT 'project' AS type, pj.id, COALESCE(NULLIF(pj.short_name,''), pj.title) AS title,
+                           (pj.estado IN ('fechado','concluído','arquivado')) AS closed
+                    FROM projects pj WHERE pj.owner_id = ? $mem";
+        $params[] = $uid; if ($mem) $params[] = $uid;
+    }
+    // Canal lab: aparece se o utilizador for authorized
+    if (chat_table_exists($pdo, 'lab_authorized_users')) {
+        $st2 = $pdo->prepare('SELECT 1 FROM lab_authorized_users WHERE user_id = ?');
+        $st2->execute([$uid]);
+        if ($st2->fetchColumn()) {
+            $parts[] = "SELECT 'lab' AS type, 1 AS id, 'Lab Chat' AS title, 0 AS closed FROM DUAL";
+        }
     }
     if (!$parts) return [];
     $st = $pdo->prepare(implode(' UNION ALL ', $parts));
@@ -650,15 +711,31 @@ switch ($action) {
             ], array_filter($list, fn($c) => $c['unread'] > 0))),
         ]);
 
+    // ── Tópicos (assuntos abertos do lab) ──────────────────────
+    case 'topics': {
+        [$type, $id, $info, $canWrite] = chat_require_channel($pdo, $uid, $SRC);
+        if ($type !== 'lab') chat_err(400, 'Tópicos só disponíveis no canal Lab');
+        $topics = [];
+        if (chat_table_exists($pdo, 'lab_issues')) {
+            $st = $pdo->query("SELECT id, titulo, status, prioridade FROM lab_issues WHERE status NOT IN ('resolvido','fechado') ORDER BY prioridade DESC, id DESC");
+            $topics = $st->fetchAll();
+        }
+        chat_json(['topics' => $topics]);
+    }
+
     // ── Mensagens (página inicial / mais antigas) ───────────────
     case 'messages': {
         [$type, $id, $info, $canWrite] = chat_require_channel($pdo, $uid, $SRC);
-        $limit  = max(1, min(100, (int)($SRC['limit'] ?? 50)));
-        $before = (int)($SRC['before_id'] ?? 0);
-        $sql = CHAT_MSG_SELECT . " WHERE m.channel_type = ? AND m.channel_id = ?"
-             . ($before ? ' AND m.id < ?' : '') . " ORDER BY m.id DESC LIMIT $limit";
+        $limit   = max(1, min(100, (int)($SRC['limit'] ?? 50)));
+        $before  = (int)($SRC['before_id'] ?? 0);
+        $topicFilter = (int)($SRC['topic_id'] ?? 0);
+        $params = [$type, $id];
+        $where  = " WHERE m.channel_type = ? AND m.channel_id = ?";
+        if ($topicFilter) { $where .= ' AND m.topic_id = ?'; $params[] = $topicFilter; }
+        if ($before)      { $where .= ' AND m.id < ?';       $params[] = $before; }
+        $sql = CHAT_MSG_SELECT . $where . " ORDER BY m.id DESC LIMIT $limit";
         $st = $pdo->prepare($sql);
-        $st->execute($before ? [$type, $id, $before] : [$type, $id]);
+        $st->execute($params);
         $rows = array_reverse($st->fetchAll());
 
         $st = $pdo->prepare('SELECT last_read_id FROM chat_reads WHERE user_id = ? AND channel_type = ? AND channel_id = ?');
@@ -763,6 +840,9 @@ switch ($action) {
         if (!$canWrite) chat_err(409, 'Canal arquivado — apenas leitura');
         $body    = trim(str_replace("\r\n", "\n", (string)($SRC['body'] ?? '')));
         $replyTo = (int)($SRC['reply_to'] ?? 0) ?: null;
+        $topicId = (int)($SRC['topic_id'] ?? 0) ?: null;
+        // Canal lab exige topic_id
+        if ($type === 'lab' && !$topicId) chat_err(400, 'É obrigatório selecionar um assunto para mensagens do Lab Chat');
         $files   = array_values(array_filter(chat_uploaded_files(), fn($f) => $f['error'] !== UPLOAD_ERR_NO_FILE));
         if ($body === '' && !$files) chat_err(400, 'Mensagem vazia');
         if (mb_strlen($body) > 10000) chat_err(400, 'Mensagem demasiado longa (máx. 10000 caracteres)');
@@ -776,9 +856,9 @@ switch ($action) {
         if ($replyTo) chat_load_msg($pdo, $replyTo, $type, $id); // garante que pertence ao canal
 
         $pdo->beginTransaction();
-        $st = $pdo->prepare('INSERT INTO chat_messages (channel_type, channel_id, user_id, body, reply_to, created_at, updated_at)
-                             VALUES (?, ?, ?, ?, ?, NOW(3), NOW(3))');
-        $st->execute([$type, $id, $uid, $body, $replyTo]);
+        $st = $pdo->prepare('INSERT INTO chat_messages (channel_type, channel_id, user_id, body, reply_to, topic_id, created_at, updated_at)
+                             VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))');
+        $st->execute([$type, $id, $uid, $body, $replyTo, $topicId]);
         $msgId = (int)$pdo->lastInsertId();
 
         $moved = [];

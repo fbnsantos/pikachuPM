@@ -922,6 +922,22 @@ if ($view_issue_id) {
         </div>
     </div>
 
+<?php
+// Chat do laboratório (só para utilizadores autorizados)
+if ($is_authorized) {
+    // Assuntos em aberto para usar como tópicos obrigatórios
+    $labTopics = [];
+    $stTopics = $db->prepare("SELECT id, titulo, prioridade FROM lab_issues WHERE status NOT IN ('resolvido','fechado') ORDER BY FIELD(prioridade,'urgente','alta','media','baixa'), id DESC");
+    $stTopics->execute();
+    $rTopics = $stTopics->get_result();
+    while ($t = $rTopics->fetch_assoc()) $labTopics[] = $t;
+    $stTopics->close();
+
+    include_once __DIR__ . '/chat_embed.php';
+    pk_chat_embed('lab', 1, false, ['topics' => $labTopics]);
+}
+?>
+
 <?php endif; ?>
 
 <?php $db->close(); ?>

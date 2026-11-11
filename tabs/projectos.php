@@ -2025,6 +2025,13 @@ if (isset($_GET['project_id'])) {
                     </form>
                 </div>
             <?php endif; ?>
+
+            <?php
+            // Chat do projeto
+            include_once __DIR__ . '/chat_embed.php';
+            $projClosed = in_array($selectedProject['estado'] ?? '', ['fechado', 'concluído', 'arquivado'], true);
+            pk_chat_embed('project', (int)$selectedProject['id'], $projClosed);
+            ?>
         </div>
     </div>
 </div>

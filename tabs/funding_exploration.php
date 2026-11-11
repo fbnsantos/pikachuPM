@@ -367,6 +367,68 @@ document.addEventListener('DOMContentLoaded', function() {
       $apiEndpoint = $baseUrl . '/PK/api/opportunities_context.php';
       $key = $sk['api_key'];
       $name = $sk['name'];
+      // Schema OpenAPI como string literal (sem interpolação dupla)
+      $openApiSchema = 'openapi: 3.1.0
+info:
+  title: TRIBE Opportunities API
+  version: 1.0.0
+servers:
+  - url: ' . $baseUrl . '/PK/api
+paths:
+  /opportunities_context.php:
+    get:
+      operationId: getTribeOpportunities
+      summary: List all funding opportunities
+      parameters:
+        - name: estado
+          in: query
+          schema: {type: string, enum: [aberta, radar, fechada, arquivada]}
+        - name: prioridade
+          in: query
+          schema: {type: string, enum: [A, B, C]}
+      security:
+        - ApiKeyAuth: []
+    post:
+      operationId: writeOpportunity
+      summary: Add note, update fields, or create a new opportunity
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [add_note, update_call, add_call]
+                call_id:
+                  type: integer
+                  description: Required for add_note and update_call
+                note_text:
+                  type: string
+                  description: Required for add_note
+                titulo:
+                  type: string
+                  description: Required for add_call; optional for update_call
+                url: {type: string}
+                prioridade: {type: string, enum: [A, B, C]}
+                estado: {type: string, enum: [aberta, fechada, radar, arquivada]}
+                area: {type: string}
+                encaixe: {type: string}
+                financiamento: {type: string}
+                datas: {type: string}
+                elegibilidade: {type: string}
+                probabilidade: {type: string}
+                proximo_passo: {type: string}
+                notas_internas: {type: string}
+      security:
+        - ApiKeyAuth: []
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key';
       $prompts = [
         ['icon'=>'🤖','label'=>'Claude Project — Instruções do Sistema','nota'=>'Cole em Settings → Project Instructions do Claude Project. Inclui a chave diretamente nas instruções.','text'=>
 "És um assistente especializado no scouting de oportunidades de financiamento para a equipa TRIBE do INESC TEC.
@@ -427,13 +489,13 @@ Quando interages com a equipa ou fazes pesquisa autónoma, DEVES:
 5. **Responde em português europeu.** Ao atualizar ou criar, confirma sempre título e ID."],
         ['icon'=>'⚙️','label'=>'Claude Project — MCP Config JSON','nota'=>'Cole em Settings → Integrations → MCP do Claude Project (apenas o JSON, sem as instruções acima).','text'=>
 "{\n  \"mcpServers\": {\n    \"tribe-opportunities\": {\n      \"type\": \"http\",\n      \"url\": \"{$apiEndpoint}\",\n      \"headers\": {\n        \"X-Api-Key\": \"{$key}\"\n      }\n    }\n  }\n}"],
-        ['icon'=>'🟢','label'=>'Custom GPT — Instruções + Action OpenAPI','nota'=>'Cole em Configure → Instructions. Depois cria uma Action com o schema OpenAPI abaixo.','text'=>
+        ['icon'=>'🟢','label'=>'Custom GPT — Instruções (cole em Instructions)','nota'=>'Cole em Configure → Instructions do Custom GPT.','text'=>
 "You are a funding opportunity scout for the TRIBE team at INESC TEC.
 Team skills: mobile robotics, UAV, computer vision, AI/ML, IoT, agricultural/forest monitoring, environmental sensors.
 
 ## API Access
 Base URL: {$apiEndpoint}
-Authentication: API Key in header X-Api-Key
+Authentication: API Key in header X-Api-Key (configure in Actions → Authentication)
 
 Use getTribeOpportunities to fetch all funding calls before any analysis.
 
@@ -453,71 +515,8 @@ Use getTribeOpportunities to fetch all funding calls before any analysis.
 
 4. **Alert on deadlines** — flag calls with deadlines within 30 days.
 
-Always respond in European Portuguese. Confirm title and ID after every write operation.
-
----
-# OpenAPI Schema (paste in Configure → Actions → Schema)
-openapi: 3.1.0
-info:
-  title: TRIBE Opportunities API
-  version: 1.0.0
-servers:
-  - url: {$baseUrl}/PK/api
-paths:
-  /opportunities_context.php:
-    get:
-      operationId: getTribeOpportunities
-      summary: List all funding opportunities
-      parameters:
-        - name: estado
-          in: query
-          schema: {{type: string, enum: [aberta, radar, fechada, arquivada]}}
-        - name: prioridade
-          in: query
-          schema: {{type: string, enum: [A, B, C]}}
-      security:
-        - ApiKeyAuth: []
-    post:
-      operationId: writeOpportunity
-      summary: Add note, update fields, or create a new opportunity
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [action]
-              properties:
-                action:
-                  type: string
-                  enum: [add_note, update_call, add_call]
-                call_id:
-                  type: integer
-                  description: Required for add_note and update_call
-                note_text:
-                  type: string
-                  description: Required for add_note
-                titulo:
-                  type: string
-                  description: Required for add_call; optional for update_call
-                url: {{type: string}}
-                prioridade: {{type: string, enum: [A, B, C]}}
-                estado: {{type: string, enum: [aberta, fechada, radar, arquivada]}}
-                area: {{type: string}}
-                encaixe: {{type: string}}
-                financiamento: {{type: string}}
-                datas: {{type: string}}
-                elegibilidade: {{type: string}}
-                probabilidade: {{type: string}}
-                proximo_passo: {{type: string}}
-                notas_internas: {{type: string}}
-      security:
-        - ApiKeyAuth: []
-components:
-  securitySchemes:
-    ApiKeyAuth:
-      type: apiKey
-      in: header
-      name: X-Api-Key"],
+Always respond in European Portuguese. Confirm title and ID after every write operation."],
+        ['icon'=>'📋','label'=>'Custom GPT — Schema OpenAPI (cole em Actions → Schema)','nota'=>'Em Configure → Actions → criar nova Action → colar este schema. Depois configurar Authentication → API Key → Header: X-Api-Key.','text'=> $openApiSchema],
         ['icon'=>'🔑','label'=>'Custom GPT — Chave de API','nota'=>'Em Configure → Actions → Authentication → API Key → Header Name: X-Api-Key','text'=> $key],
         ['icon'=>'💻','label'=>'cURL — Testar no terminal','nota'=>'Copia e cola diretamente no terminal para testar a ligação.','text'=>
 "# ── Listar todas as oportunidades ──────────────────────────

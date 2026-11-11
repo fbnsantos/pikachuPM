@@ -151,7 +151,8 @@ $tabs = [
             'rh_imputacao' => 'Imputação RH',
             'peer_evaluation' => 'Avaliação entre Pares',
             'skills' => 'Competências',
-            'admin' => 'Administration'
+            'admin' => 'Administration',
+            'ai_management' => '🤖 Gestão IA',
         ]
     ],
     
@@ -176,6 +177,33 @@ if (!empty($allowed_tabs_for_user)) {
     }
     $tabs = $filtered_tabs;
 }
+
+// Filtrar ai_management: visível apenas para admins e delegates
+try {
+    $stAiAdm = $pdo_config->prepare("SELECT id FROM admin_users WHERE user_id = ?");
+    $stAiAdm->execute([$_SESSION['user_id'] ?? 0]);
+    $isAiAdmin = (bool)$stAiAdm->fetch();
+    if (!$isAiAdmin) {
+        $pdo_config->exec("CREATE TABLE IF NOT EXISTS ai_delegates (
+            id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, granted_by INT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uk_user (user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $stAiDel = $pdo_config->prepare("SELECT id FROM ai_delegates WHERE user_id = ?");
+        $stAiDel->execute([$_SESSION['user_id'] ?? 0]);
+        $isAiDelegate = (bool)$stAiDel->fetch();
+    } else {
+        $isAiDelegate = false;
+    }
+    if (!$isAiAdmin && !$isAiDelegate) {
+        foreach ($tabs as $gKey => $gVal) {
+            if (is_array($gVal) && isset($gVal['submenu']) && isset($gVal['submenu']['ai_management'])) {
+                unset($tabs[$gKey]['submenu']['ai_management']);
+                if (empty($tabs[$gKey]['submenu'])) unset($tabs[$gKey]);
+                break;
+            }
+        }
+    }
+} catch (Exception $e) { /* tabelas ainda não existem */ }
 
 $tabSelecionada = $_GET['tab'] ?? 'dashboard';
 

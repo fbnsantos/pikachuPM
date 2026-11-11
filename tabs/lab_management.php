@@ -723,6 +723,23 @@ if ($view_issue_id) {
         </div>
     </div>
 
+    <?php if ($is_authorized): ?>
+    <?php
+    include_once __DIR__ . '/chat_embed.php';
+    // Passa o assunto actual como tópico pré-seleccionado; os restantes abertos como opções
+    $labTopicsForIssue = [];
+    $stTI = $db->prepare("SELECT id, titulo, prioridade FROM lab_issues WHERE status NOT IN ('resolvido','fechado') ORDER BY FIELD(prioridade,'urgente','alta','media','baixa'), id DESC");
+    $stTI->execute();
+    $rTI = $stTI->get_result();
+    while ($t = $rTI->fetch_assoc()) $labTopicsForIssue[] = $t;
+    $stTI->close();
+    pk_chat_embed('lab', 1, false, [
+        'topics'        => $labTopicsForIssue,
+        'default_topic' => $view_issue_id,
+    ]);
+    ?>
+    <?php endif; ?>
+
 <?php else: ?>
     <!-- LISTAGEM DE ASSUNTOS -->
     

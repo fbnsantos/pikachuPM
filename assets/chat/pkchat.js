@@ -856,7 +856,29 @@
         const d = await api.get('topics', { type: S.cur.type, id: S.cur.id });
         S.topics = d.topics || [];
         renderTopicBar();
+        // Pré-seleccionar e filtrar automaticamente se vier default_topic
+        const defTopic = opts.default_topic || 0;
+        if (defTopic && S.topics.some(t => t.id == defTopic)) {
+          if (D.topicSelect) D.topicSelect.value = String(defTopic);
+          applyTopicFilter(defTopic);
+        }
       } catch { /* silencioso */ }
+    }
+
+    function applyTopicFilter(tid) {
+      tid = parseInt(tid, 10) || 0;
+      if (!tid || !S.cur) return;
+      S.topicFilter = tid;
+      if (D.topicClearBtn) D.topicClearBtn.hidden = false;
+      S.msgs.clear(); S.order = []; S.lastId = 0; S.since = ''; S.hasMore = false;
+      D.msgs.innerHTML = '<div class="pkc-muted pkc-pad">A carregar…</div>';
+      api.get('messages', { type: S.cur.type, id: S.cur.id, topic_id: tid, limit: 50 }).then(d => {
+        d.messages.forEach(upsert);
+        S.hasMore = d.has_more;
+        renderMessages({ toBottom: true });
+        const topicTitle = S.topics.find(t => t.id == tid)?.titulo || '';
+        if (D.banner) { D.banner.hidden = false; D.banner.innerHTML = `🔍 A mostrar mensagens do assunto: <strong>${esc(topicTitle)}</strong>`; }
+      }).catch(e => toast('Erro ao filtrar: ' + e.message, true));
     }
 
     function sendTyping() {
@@ -1223,20 +1245,7 @@
       D.topicFilterBtn.addEventListener('click', () => {
         const tid = D.topicSelect ? (parseInt(D.topicSelect.value, 10) || 0) : 0;
         if (!tid) { toast('Escolhe um assunto para filtrar', true); return; }
-        S.topicFilter = tid;
-        if (D.topicClearBtn) D.topicClearBtn.hidden = false;
-        // recarregar mensagens com filtro
-        if (S.cur) {
-          S.msgs.clear(); S.order = []; S.lastId = 0; S.since = ''; S.hasMore = false;
-          D.msgs.innerHTML = '<div class="pkc-muted pkc-pad">A filtrar…</div>';
-          api.get('messages', { type: S.cur.type, id: S.cur.id, topic_id: tid, limit: 50 }).then(d => {
-            d.messages.forEach(upsert);
-            S.hasMore = d.has_more;
-            renderMessages({ toBottom: true });
-            const topicTitle = S.topics.find(t => t.id == tid)?.titulo || '';
-            if (D.banner) { D.banner.hidden = false; D.banner.innerHTML = `🔍 A mostrar mensagens do assunto: <strong>${esc(topicTitle)}</strong>`; }
-          }).catch(e => toast('Erro ao filtrar: ' + e.message, true));
-        }
+        applyTopicFilter(tid);
       });
     }
     if (D.topicClearBtn) {

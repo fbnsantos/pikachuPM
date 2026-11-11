@@ -27,15 +27,17 @@ if (!function_exists('pk_chat_embed')) {
             echo '<link rel="stylesheet" href="assets/chat/pkchat.css?v=' . $v . '">';
             echo '<script src="assets/chat/pkchat.js?v=' . $v . '"></script>';
         }
-        $topics     = $opts['topics'] ?? [];
-        $isLab      = $type === 'lab';
-        $mountOpts  = json_encode([
-            'api'     => 'api/chat.php',
-            'mode'    => 'embedded',
-            'channel' => ['type' => $type, 'id' => (int)$id],
-            'notify'  => false,
-            'topics'  => $topics,
+        $topics       = $opts['topics'] ?? [];
+        $defaultTopic = isset($opts['default_topic']) ? (int)$opts['default_topic'] : 0;
+        $isLab        = $type === 'lab';
+        $mountOpts    = json_encode([
+            'api'           => 'api/chat.php',
+            'mode'          => 'embedded',
+            'channel'       => ['type' => $type, 'id' => (int)$id],
+            'notify'        => false,
+            'topics'        => $topics,
             'require_topic' => $isLab,
+            'default_topic' => $defaultTopic,
         ]);
         ?>
         <div class="detail-section mt-4 pkchat-embed-section" id="chat-section">

@@ -302,36 +302,51 @@ $estadoBadge = [
 </div>
 
 <style>
-#fcAddModal {
-    position: fixed !important;
-    inset: 0 !important;
-    z-index: 1055 !important;
-    overflow: hidden !important;
+/* Overlay custom — independente do Bootstrap modal */
+#fcOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0,0,0,.5);
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2vh 1vw;
 }
-#fcAddModal .modal-dialog {
-    position: absolute !important;
-    top: 2vh !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    width: min(95vw, 1140px) !important;
-    max-width: none !important;
-    margin: 0 !important;
-    height: 96vh !important;
+#fcOverlay.fc-open { display: flex; }
+#fcOverlay .fc-dialog {
+    background: #fff;
+    border-radius: 8px;
+    width: min(96vw, 1140px);
+    height: 96vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 40px rgba(0,0,0,.3);
+    overflow: hidden;
 }
-#fcAddModal .modal-content {
-    height: 100% !important;
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: hidden !important;
-    border-radius: 8px !important;
+#fcOverlay .fc-dlg-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid #dee2e6;
+    flex-shrink: 0;
 }
-#fcAddModal .modal-header { flex: 0 0 auto; }
-#fcAddModal .modal-body {
-    flex: 1 1 0 !important;
-    overflow-y: scroll !important;
-    min-height: 0 !important;
+#fcOverlay .fc-dlg-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: scroll;
+    padding: 20px;
 }
-#fcAddModal .modal-footer { flex: 0 0 auto; }
+#fcOverlay .fc-dlg-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid #dee2e6;
+    flex-shrink: 0;
+    background: #f8f9fa;
+}
 </style>
 
 <div id="fc-section">
@@ -790,109 +805,107 @@ $openApiSchema"],
 </div><!-- /fc-section -->
 </div><!-- /mt-5 -->
 
-<!-- ─── Modal: Adicionar / Editar Oportunidade ──────────────────────────────── -->
-<div class="modal fade" id="fcAddModal" tabindex="-1" aria-labelledby="fcModalTitle" aria-hidden="true">
-  <div class="modal-dialog modal-xl">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="fcModalTitle">Nova Oportunidade</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <form method="post" id="fcAddForm">
-        <input type="hidden" name="fc_action" id="fc_form_action" value="add_call">
-        <input type="hidden" name="subtab" value="exploracao">
-        <input type="hidden" name="call_id" id="fc_form_call_id" value="">
-        <div class="modal-body">
-          <div class="row g-3">
-            <div class="col-12 col-md-8">
-              <label class="form-label">Título <span class="text-danger">*</span></label>
-              <input type="text" name="titulo" id="fc_f_titulo" class="form-control" required>
-            </div>
-            <div class="col-6 col-md-2">
-              <label class="form-label">Prioridade</label>
-              <select name="prioridade" id="fc_f_prioridade" class="form-select">
-                <option value="A">A — Principal</option>
-                <option value="B" selected>B — Secundária</option>
-                <option value="C">C — Radar</option>
-              </select>
-            </div>
-            <div class="col-6 col-md-2">
-              <label class="form-label">Estado</label>
-              <select name="estado" id="fc_f_estado" class="form-select">
-                <option value="aberta">Aberta</option>
-                <option value="radar">Radar</option>
-                <option value="fechada">Fechada</option>
-                <option value="arquivada">Arquivada</option>
-              </select>
-            </div>
-            <div class="col-12">
-              <label class="form-label">URL oficial</label>
-              <input type="url" name="url" id="fc_f_url" class="form-control" placeholder="https://...">
-            </div>
-            <div class="col-12">
-              <label class="form-label">Etiqueta de prioridade (ex: "A — Seleção principal — Aberto")</label>
-              <input type="text" name="prioridade_label" id="fc_f_prioridade_label" class="form-control">
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Área / Oportunidade</label>
-              <textarea name="area" id="fc_f_area" class="form-control" rows="3"></textarea>
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Encaixe TRIBE / Papel</label>
-              <textarea name="encaixe" id="fc_f_encaixe" class="form-control" rows="3"></textarea>
-            </div>
-            <div class="col-12 col-md-4">
-              <label class="form-label">Tipo e TRL</label>
-              <textarea name="tipo_trl" id="fc_f_tipo_trl" class="form-control" rows="2"></textarea>
-            </div>
-            <div class="col-12 col-md-4">
-              <label class="form-label">Financiamento</label>
-              <textarea name="financiamento" id="fc_f_financiamento" class="form-control" rows="2"></textarea>
-            </div>
-            <div class="col-12 col-md-4">
-              <label class="form-label">Projetos apoiados</label>
-              <input type="text" name="projetos_apoiados" id="fc_f_projetos_apoiados" class="form-control">
-            </div>
-            <div class="col-12 col-md-4">
-              <label class="form-label">Duração</label>
-              <textarea name="duracao" id="fc_f_duracao" class="form-control" rows="2"></textarea>
-            </div>
-            <div class="col-12 col-md-8">
-              <label class="form-label">Datas e prazo</label>
-              <textarea name="datas" id="fc_f_datas" class="form-control" rows="2"></textarea>
-            </div>
-            <div class="col-12">
-              <label class="form-label">Elegibilidade / Consórcio</label>
-              <textarea name="elegibilidade" id="fc_f_elegibilidade" class="form-control" rows="2"></textarea>
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Sucesso nas últimas 3 edições</label>
-              <textarea name="sucesso_anteriores" id="fc_f_sucesso_anteriores" class="form-control" rows="2"></textarea>
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Probabilidade TRIBE</label>
-              <textarea name="probabilidade" id="fc_f_probabilidade" class="form-control" rows="2"></textarea>
-            </div>
-            <div class="col-12">
-              <label class="form-label">Próximo passo</label>
-              <textarea name="proximo_passo" id="fc_f_proximo_passo" class="form-control" rows="2"></textarea>
-            </div>
-            <div class="col-12">
-              <label class="form-label">Fontes documentais / verificação</label>
-              <textarea name="fontes" id="fc_f_fontes" class="form-control" rows="2"></textarea>
-            </div>
-            <div class="col-12">
-              <label class="form-label">Notas internas</label>
-              <textarea name="notas_internas" id="fc_f_notas_internas" class="form-control" rows="2" placeholder="Notas de gestão interna (não visíveis a assistentes externos)"></textarea>
-            </div>
+<!-- ─── Overlay custom: Adicionar / Editar Oportunidade ─────────────────────── -->
+<div id="fcOverlay" onclick="if(event.target===this)fcCloseOverlay()">
+  <div class="fc-dialog">
+    <div class="fc-dlg-header">
+      <h5 class="mb-0 fw-semibold" id="fcModalTitle">Nova Oportunidade</h5>
+      <button type="button" class="btn-close" onclick="fcCloseOverlay()"></button>
+    </div>
+    <form method="post" id="fcAddForm">
+      <input type="hidden" name="fc_action" id="fc_form_action" value="add_call">
+      <input type="hidden" name="subtab" value="exploracao">
+      <input type="hidden" name="call_id" id="fc_form_call_id" value="">
+      <div class="fc-dlg-body">
+        <div class="row g-3">
+          <div class="col-12 col-md-8">
+            <label class="form-label">Título <span class="text-danger">*</span></label>
+            <input type="text" name="titulo" id="fc_f_titulo" class="form-control" required>
+          </div>
+          <div class="col-6 col-md-2">
+            <label class="form-label">Prioridade</label>
+            <select name="prioridade" id="fc_f_prioridade" class="form-select">
+              <option value="A">A — Principal</option>
+              <option value="B" selected>B — Secundária</option>
+              <option value="C">C — Radar</option>
+            </select>
+          </div>
+          <div class="col-6 col-md-2">
+            <label class="form-label">Estado</label>
+            <select name="estado" id="fc_f_estado" class="form-select">
+              <option value="aberta">Aberta</option>
+              <option value="radar">Radar</option>
+              <option value="fechada">Fechada</option>
+              <option value="arquivada">Arquivada</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">URL oficial</label>
+            <input type="url" name="url" id="fc_f_url" class="form-control" placeholder="https://...">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Etiqueta de prioridade</label>
+            <input type="text" name="prioridade_label" id="fc_f_prioridade_label" class="form-control" placeholder='ex: "A — Seleção principal — Aberto"'>
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label">Área / Oportunidade</label>
+            <textarea name="area" id="fc_f_area" class="form-control" rows="3"></textarea>
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label">Encaixe TRIBE / Papel</label>
+            <textarea name="encaixe" id="fc_f_encaixe" class="form-control" rows="3"></textarea>
+          </div>
+          <div class="col-12 col-md-4">
+            <label class="form-label">Tipo e TRL</label>
+            <textarea name="tipo_trl" id="fc_f_tipo_trl" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="col-12 col-md-4">
+            <label class="form-label">Financiamento</label>
+            <textarea name="financiamento" id="fc_f_financiamento" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="col-12 col-md-4">
+            <label class="form-label">Projetos apoiados</label>
+            <input type="text" name="projetos_apoiados" id="fc_f_projetos_apoiados" class="form-control">
+          </div>
+          <div class="col-12 col-md-4">
+            <label class="form-label">Duração</label>
+            <textarea name="duracao" id="fc_f_duracao" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="col-12 col-md-8">
+            <label class="form-label">Datas e prazo</label>
+            <textarea name="datas" id="fc_f_datas" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Elegibilidade / Consórcio</label>
+            <textarea name="elegibilidade" id="fc_f_elegibilidade" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label">Sucesso nas últimas 3 edições</label>
+            <textarea name="sucesso_anteriores" id="fc_f_sucesso_anteriores" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label">Probabilidade TRIBE</label>
+            <textarea name="probabilidade" id="fc_f_probabilidade" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Próximo passo</label>
+            <textarea name="proximo_passo" id="fc_f_proximo_passo" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Fontes documentais / verificação</label>
+            <textarea name="fontes" id="fc_f_fontes" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Notas internas</label>
+            <textarea name="notas_internas" id="fc_f_notas_internas" class="form-control" rows="2" placeholder="Não visíveis a assistentes externos"></textarea>
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="fcSubmitBtn">Guardar</button>
-        </div>
-      </form>
-    </div>
+      </div>
+      <div class="fc-dlg-footer">
+        <button type="button" class="btn btn-secondary" onclick="fcCloseOverlay()">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="fcSubmitBtn">Guardar</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -953,7 +966,7 @@ function fcShowAdd() {
     });
     document.getElementById('fc_f_prioridade').value = 'B';
     document.getElementById('fc_f_estado').value = 'aberta';
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('fcAddModal')).show();
+    fcOpenOverlay();
 }
 
 // ─── Abrir modal de editar ──────────────────────────────────────────────────
@@ -973,7 +986,7 @@ function fcOpenEdit(id) {
     });
     document.getElementById('fc_f_prioridade').value = c.prioridade || 'B';
     document.getElementById('fc_f_estado').value = c.estado || 'aberta';
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('fcAddModal')).show();
+    fcOpenOverlay();
 }
 
 // ─── Prompts para IA Scout ──────────────────────────────────────────────────
@@ -1081,14 +1094,23 @@ function escH(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Mover modais para o body para evitar problemas de overflow/stacking em containers com altura fixa
+// Overlay custom — abrir/fechar
+function fcOpenOverlay() {
+    const o = document.getElementById('fcOverlay');
+    o.classList.add('fc-open');
+    document.body.style.overflow = 'hidden';
+    o.querySelector('.fc-dlg-body').scrollTop = 0;
+}
+function fcCloseOverlay() {
+    document.getElementById('fcOverlay').classList.remove('fc-open');
+    document.body.style.overflow = '';
+}
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') fcCloseOverlay(); });
+
 document.addEventListener('DOMContentLoaded', function() {
-    ['fcAddModal','fcScoutPromptsModal'].forEach(function(id) {
-        var el = document.getElementById(id);
-        if (el && el.parentElement !== document.body) {
-            document.body.appendChild(el);
-        }
-    });
+    // Mover overlay para o body
+    var ov = document.getElementById('fcOverlay');
+    if (ov && ov.parentElement !== document.body) document.body.appendChild(ov);
     fcFilter();
 });
 </script>

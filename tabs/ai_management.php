@@ -533,6 +533,7 @@ security:
         if (el) TOKEN = el.textContent.trim();
     }
     const BASE = window.location.href.split('?')[0].replace(/\/[^/]*$/, '/');
+    console.log('[AI] TOKEN length:', TOKEN ? TOKEN.length : 0, '| BASE:', BASE);
 
     window.aiRunSummary = function() {
         const btn = document.getElementById('ai-run-btn');

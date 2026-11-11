@@ -535,8 +535,18 @@ Adicionar nova oportunidade:
    com todos os campos que conseguires preencher.
    Estado: 'radar' se ainda não aberta; 'aberta' se já tem prazo ativo.
 
-3. REGISTAR notas — após cada pesquisa ou análise, usa add_note com data e fonte.
-   Prefere factos concretos; evita opiniões sem base.
+3. REGISTAR NOTAS — usa add_note sistematicamente nos seguintes casos:
+   a) Líderes e parceiros — quando identificares instituições, empresas ou pessoas com
+      relevância para liderar ou integrar o consórcio de uma call, regista numa nota:
+      nome, papel recomendado (líder científico, líder empresarial, piloto, copromotor),
+      justificação breve e fonte. Exemplo:
+      \"[Liderança] SENSEFiNiTY — líder empresarial recomendado. Demonstrador agrícola
+       com tecnologia TRIBE já validada. Fonte: email 27/10/2026.\"
+   b) Análise e investigação — após cada sessão de pesquisa, regista o que verificaste,
+      o que ficou por confirmar e as fontes consultadas.
+   c) Alertas e mudanças — quando detectares alteração de prazo, dotação ou elegibilidade,
+      regista a mudança com data e fonte antes de usar update_call.
+   Prefere factos concretos; evita opiniões sem base. Inclui sempre a data no texto da nota.
 
 4. ALERTAR prazos — sinaliza calls com prazo nos próximos 30 dias.
 
@@ -585,8 +595,18 @@ Add a new opportunity:
    with every field you can populate.
    Use estado=radar if not yet open; estado=aberta if the deadline is already active.
 
-3. LOG notes — after each research session or analysis, use add_note with date and source.
-   Prefer concrete facts; avoid unsupported opinions.
+3. LOG NOTES — use add_note systematically in the following cases:
+   a) Leaders and partners — when you identify institutions, companies or individuals with
+      high relevance to lead or join the consortium for a call, log a note with:
+      name, recommended role (scientific lead, company lead, pilot site, co-promoter),
+      brief justification and source. Example:
+      \"[Leadership] SENSEFiNiTY — recommended company lead. Agricultural demonstrator
+       with validated TRIBE technology. Source: email 27/10/2026.\"
+   b) Research sessions — after each search or analysis, log what you verified,
+      what remains to confirm, and the sources consulted.
+   c) Alerts and changes — when you detect a change in deadline, budget or eligibility,
+      log the change with date and source before calling update_call.
+   Prefer concrete facts; avoid unsupported opinions. Always include the date in the note text.
 
 4. ALERT on deadlines — flag calls with deadlines within 30 days.
 

@@ -301,6 +301,33 @@ $estadoBadge = [
   </div>
 </div>
 
+<style>
+/* Garantir que os modais de oportunidades funcionam corretamente */
+#fcAddModal,
+#fcScoutPromptsModal {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    z-index: 1055 !important;
+}
+#fcAddModal .modal-dialog {
+    max-height: 90vh;
+    margin: 5vh auto;
+}
+#fcAddModal .modal-content {
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+}
+#fcAddModal .modal-body {
+    overflow-y: auto;
+    flex: 1 1 auto;
+}
+#fcAddModal .modal-footer {
+    flex-shrink: 0;
+}
+</style>
+
 <div id="fc-section">
 
 <?php if (str_starts_with($fcMsg,'lead_created:')): $newLeadId = (int)substr($fcMsg,13); ?>
@@ -920,7 +947,7 @@ function fcShowAdd() {
     });
     document.getElementById('fc_f_prioridade').value = 'B';
     document.getElementById('fc_f_estado').value = 'aberta';
-    new bootstrap.Modal(document.getElementById('fcAddModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('fcAddModal')).show();
 }
 
 // ─── Abrir modal de editar ──────────────────────────────────────────────────
@@ -940,7 +967,7 @@ function fcOpenEdit(id) {
     });
     document.getElementById('fc_f_prioridade').value = c.prioridade || 'B';
     document.getElementById('fc_f_estado').value = c.estado || 'aberta';
-    new bootstrap.Modal(document.getElementById('fcAddModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('fcAddModal')).show();
 }
 
 // ─── Prompts para IA Scout ──────────────────────────────────────────────────
@@ -1041,7 +1068,7 @@ curl -X POST \\
     });
 
     document.getElementById('fcScoutPromptsBody').innerHTML = html;
-    new bootstrap.Modal(document.getElementById('fcScoutPromptsModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('fcScoutPromptsModal')).show();
 }
 
 function escH(s) {

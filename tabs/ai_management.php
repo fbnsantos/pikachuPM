@@ -129,6 +129,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
         $pdo->prepare("DELETE FROM ai_api_keys WHERE id = ?")->execute([$kid]);
         $flash = '<div class="alert alert-warning"><i class="bi bi-trash"></i> Chave revogada.</div>';
     }
+
+    elseif ($action === 'show_prompts') {
+        $kid = (int)($_POST['key_id'] ?? 0);
+        $st = $pdo->prepare("SELECT name, api_key FROM ai_api_keys WHERE id = ?");
+        $st->execute([$kid]);
+        $showPromptsRow = $st->fetch(PDO::FETCH_ASSOC);
+        if ($showPromptsRow) {
+            $newKey     = $showPromptsRow['api_key'];
+            $newKeyName = $showPromptsRow['name'];
+        }
+    }
 }
 
 // Load current config
@@ -431,14 +442,16 @@ Liga a saída deste nó a um AI Agent node (OpenAI/Claude) com o prompt:
   -H \"X-Api-Key: {$newKey}\"",
                     ],
                 ];
-                foreach ($prompts as $label => [$icon, $text]):
+                foreach ($prompts as $label => $p):
+                    $icon     = $p['icon'];
+                    $text     = $p['text'];
                     $safeText = htmlspecialchars($text);
                     $jsText   = json_encode($text);
                 ?>
                 <div class="border rounded p-2" style="background:rgba(255,255,255,.5)">
                     <div class="d-flex align-items-center gap-2 mb-1">
                         <span><?= $icon ?></span>
-                        <span class="small fw-semibold"><?= $label ?></span>
+                        <span class="small fw-semibold"><?= htmlspecialchars($label) ?></span>
                         <button class="btn btn-xs btn-outline-secondary ms-auto"
                                 style="font-size:.75rem; padding:1px 8px"
                                 onclick="navigator.clipboard.writeText(<?= $jsText ?>);this.textContent='✓ Copiado';setTimeout(()=>this.textContent='Copiar',2000)">Copiar</button>
@@ -560,6 +573,11 @@ security:
                 <span class="flex-grow-1 fw-medium"><?= htmlspecialchars($k['name']) ?></span>
                 <code class="text-muted" style="font-size:.8rem"><?= htmlspecialchars($k['key_preview']) ?></code>
                 <small class="text-muted"><?= $k['last_used_at'] ? 'usado ' . date('d/m H:i', strtotime($k['last_used_at'])) : 'nunca usado' ?></small>
+                <form method="post" class="mb-0">
+                    <input type="hidden" name="action" value="show_prompts">
+                    <input type="hidden" name="key_id" value="<?= $k['id'] ?>">
+                    <button type="submit" class="btn btn-sm btn-outline-primary"><i class="bi bi-code-square"></i> Prompts</button>
+                </form>
                 <form method="post" class="mb-0">
                     <input type="hidden" name="action" value="revoke_api_key">
                     <input type="hidden" name="key_id" value="<?= $k['id'] ?>">

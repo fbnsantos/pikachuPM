@@ -33,6 +33,7 @@ try {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     // Adicionar lead_id se a tabela já existia sem a coluna
     try { $pdo->exec("ALTER TABLE funding_calls ADD COLUMN lead_id INT NULL"); } catch (Exception $e) {}
+    try { $pdo->exec("ALTER TABLE funding_calls ADD COLUMN deadline DATE NULL"); } catch (Exception $e) {}
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS funding_call_notes (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -114,7 +115,9 @@ if ($fcAction === 'add_note' && $currentUserId) {
     $callId = (int)($_POST['call_id'] ?? 0);
     if ($callId) {
         try {
-            $pdo->prepare("UPDATE funding_calls SET titulo=?, url=?, prioridade=?, prioridade_label=?, area=?, encaixe=?, tipo_trl=?, financiamento=?, projetos_apoiados=?, duracao=?, datas=?, elegibilidade=?, sucesso_anteriores=?, probabilidade=?, proximo_passo=?, fontes=?, estado=?, notas_internas=? WHERE id=?")
+            $dlRaw = trim($_POST['deadline'] ?? '');
+            $dlVal = ($dlRaw && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dlRaw)) ? $dlRaw : null;
+            $pdo->prepare("UPDATE funding_calls SET titulo=?, url=?, prioridade=?, prioridade_label=?, area=?, encaixe=?, tipo_trl=?, financiamento=?, projetos_apoiados=?, duracao=?, datas=?, elegibilidade=?, sucesso_anteriores=?, probabilidade=?, proximo_passo=?, fontes=?, estado=?, notas_internas=?, deadline=? WHERE id=?")
                 ->execute([
                     trim($_POST['titulo'] ?? ''), trim($_POST['url'] ?? ''),
                     trim($_POST['prioridade'] ?? 'C'), trim($_POST['prioridade_label'] ?? ''),
@@ -124,7 +127,7 @@ if ($fcAction === 'add_note' && $currentUserId) {
                     trim($_POST['datas'] ?? ''), trim($_POST['elegibilidade'] ?? ''),
                     trim($_POST['sucesso_anteriores'] ?? ''), trim($_POST['probabilidade'] ?? ''),
                     trim($_POST['proximo_passo'] ?? ''), trim($_POST['fontes'] ?? ''),
-                    trim($_POST['estado'] ?? 'aberta'), trim($_POST['notas_internas'] ?? ''),
+                    trim($_POST['estado'] ?? 'aberta'), trim($_POST['notas_internas'] ?? ''), $dlVal,
                     $callId
                 ]);
             $fcMsg = 'edit_ok';
@@ -248,8 +251,9 @@ function fcExtractDeadline(string $datas): ?DateTime {
 // empate de deadline desempata por prioridade A→B→C, depois título.
 $prioOrder = ['A' => 0, 'B' => 1, 'C' => 2];
 usort($allCalls, function($a, $b) use ($prioOrder) {
-    $da = fcExtractDeadline($a['datas'] ?? '');
-    $db = fcExtractDeadline($b['datas'] ?? '');
+    // Usar coluna deadline se disponível, senão extrair do texto datas
+    $da = (!empty($a['deadline']) ? new DateTime($a['deadline']) : null) ?? fcExtractDeadline($a['datas'] ?? '');
+    $db = (!empty($b['deadline']) ? new DateTime($b['deadline']) : null) ?? fcExtractDeadline($b['datas'] ?? '');
     if (!$da && !$db) {
         // Ambas sem deadline: ordena por prioridade depois título
         $pa = $prioOrder[$a['prioridade']] ?? 2;
@@ -699,7 +703,14 @@ $openApiSchema"],
     <div id="<?= $fcId ?>" class="d-none">
       <!-- ── Vista de leitura ── -->
       <div class="card-body pb-2" id="<?= $fcId ?>-view">
-        <div class="row g-2 mb-3">
+        <?php if (!empty($fc['deadline'])): ?>
+        <div class="px-3 pt-2">
+          <span class="badge bg-danger bg-opacity-75 fs-6 py-1 px-2">
+            <i class="bi bi-calendar-event me-1"></i>Deadline: <?= date('d/m/Y', strtotime($fc['deadline'])) ?>
+          </span>
+        </div>
+        <?php endif; ?>
+        <div class="row g-2 mb-3 px-3 pt-2">
           <?php
           $viewFields = [
             ['Área / Oportunidade','area'],['Encaixe TRIBE','encaixe'],['Tipo e TRL','tipo_trl'],
@@ -847,8 +858,12 @@ $openApiSchema"],
               <label class="form-label fw-semibold">Duração</label>
               <textarea name="duracao" class="form-control" rows="2"><?= htmlspecialchars($fc['duracao'] ?? '') ?></textarea>
             </div>
-            <div class="col-12 col-md-8">
-              <label class="form-label fw-semibold">Datas e prazo</label>
+            <div class="col-12 col-md-4">
+              <label class="form-label fw-semibold">Deadline <span class="text-muted fw-normal">(data de fecho)</span></label>
+              <input type="date" name="deadline" class="form-control" value="<?= htmlspecialchars($fc['deadline'] ?? '') ?>">
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label fw-semibold">Datas e prazo <span class="text-muted fw-normal">(texto livre)</span></label>
               <textarea name="datas" class="form-control" rows="2"><?= htmlspecialchars($fc['datas'] ?? '') ?></textarea>
             </div>
             <div class="col-12">

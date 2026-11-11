@@ -209,6 +209,22 @@ if ($fcAction === 'add_note' && $currentUserId) {
             }
         } catch (Exception $e) { $fcMsg = 'erro'; }
     }
+} elseif ($fcAction === 'archive_call') {
+    $callId = (int)($_POST['call_id'] ?? 0);
+    if ($callId) {
+        try {
+            $pdo->prepare("UPDATE funding_calls SET estado='arquivada' WHERE id=?")->execute([$callId]);
+            $fcMsg = 'archived';
+        } catch (Exception $e) { $fcMsg = 'erro'; }
+    }
+} elseif ($fcAction === 'delete_call') {
+    $callId = (int)($_POST['call_id'] ?? 0);
+    if ($callId) {
+        try {
+            $pdo->prepare("DELETE FROM funding_calls WHERE id=?")->execute([$callId]);
+            $fcMsg = 'deleted';
+        } catch (Exception $e) { $fcMsg = 'erro'; }
+    }
 }
 
 // ─── Carregar dados ────────────────────────────────────────────────────────────
@@ -293,6 +309,8 @@ $estadoBadge = [
 <?php if ($fcMsg === 'nota_ok'): ?><div class="alert alert-success alert-dismissible py-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>Nota adicionada.</div><?php endif; ?>
 <?php if ($fcMsg === 'edit_ok'): ?><div class="alert alert-success alert-dismissible py-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>Oportunidade atualizada.</div><?php endif; ?>
 <?php if ($fcMsg === 'add_ok'): ?><div class="alert alert-success alert-dismissible py-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>Oportunidade adicionada.</div><?php endif; ?>
+<?php if ($fcMsg === 'archived'): ?><div class="alert alert-secondary alert-dismissible py-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>Oportunidade arquivada. <a href="?tab=leads&subtab=exploracao&show_archived=1" class="alert-link">Ver arquivadas</a></div><?php endif; ?>
+<?php if ($fcMsg === 'deleted'): ?><div class="alert alert-warning alert-dismissible py-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>Oportunidade eliminada definitivamente.</div><?php endif; ?>
 <?php if ($fcMsg === 'key_revoked'): ?><div class="alert alert-info alert-dismissible py-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>Chave removida.</div><?php endif; ?>
 <?php if (str_starts_with($fcMsg, 'key_created:')): $newCreatedKey = substr($fcMsg, 12);
 // Encontrar o nome desta chave para mostrar nos prompts
@@ -389,12 +407,24 @@ proximo_passo, fontes, estado (aberta/fechada/radar/arquivada), notas_internas
 \"estado\":\"radar\",\"area\":\"...\",\"encaixe\":\"...\",\"datas\":\"prazo: dd/mm/aaaa\"}}
 Apenas titulo é obrigatório; todos os outros campos são opcionais.
 
-## Comportamento esperado
-- Responde em português europeu
-- Prioriza calls com estado=aberta, depois radar
-- Alerta para prazos nos próximos 30 dias
-- Identifica as calls com melhor encaixe para a equipa
-- Ao atualizar ou criar, confirma sempre o título e ID resultante"],
+## Comportamento esperado — IMPORTANTE
+Quando interages com a equipa ou fazes pesquisa autónoma, DEVES:
+
+1. **Atualizar informação existente** — sempre que encontrares dados mais recentes sobre
+   uma call já registada (novo prazo, nova dotação, elegibilidade revista, link correto),
+   usa update_call para corrigir o campo em causa. Não deixes informação desatualizada.
+
+2. **Adicionar novas oportunidades** — sempre que identificares uma call relevante para
+   a equipa (robótica, UAV, IA, IoT, monitorização agrícola/florestal, sensores) que ainda
+   não esteja na lista, usa add_call para a registar com todos os campos que conseguires
+   preencher. Estado inicial: 'radar' se ainda não aberta, 'aberta' se já com prazo ativo.
+
+3. **Adicionar notas de análise** — após cada pesquisa ou análise, usa add_note para
+   registar o que descobriste, com data e fonte. Prefere factos concretos a opiniões.
+
+4. **Alertar para prazos** — sinaliza calls com prazo nos próximos 30 dias.
+
+5. **Responde em português europeu.** Ao atualizar ou criar, confirma sempre título e ID."],
         ['icon'=>'⚙️','label'=>'Claude Project — MCP Config JSON','nota'=>'Cole em Settings → Integrations → MCP do Claude Project (apenas o JSON, sem as instruções acima).','text'=>
 "{\n  \"mcpServers\": {\n    \"tribe-opportunities\": {\n      \"type\": \"http\",\n      \"url\": \"{$apiEndpoint}\",\n      \"headers\": {\n        \"X-Api-Key\": \"{$key}\"\n      }\n    }\n  }\n}"],
         ['icon'=>'🟢','label'=>'Custom GPT — Instruções + Action OpenAPI','nota'=>'Cole em Configure → Instructions. Depois cria uma Action com o schema OpenAPI abaixo.','text'=>
@@ -405,10 +435,25 @@ Team skills: mobile robotics, UAV, computer vision, AI/ML, IoT, agricultural/for
 Base URL: {$apiEndpoint}
 Authentication: API Key in header X-Api-Key
 
-Use the getTribeOpportunities action to fetch all funding calls.
-Use the addOpportunityNote action to add notes (always confirm call_id and title first).
+Use getTribeOpportunities to fetch all funding calls before any analysis.
 
-Always respond in European Portuguese. Prioritize open calls with near deadlines.
+## Mandatory proactive behaviour
+1. **Update existing records** — whenever you find more recent or corrected information
+   about a call already in the list (new deadline, revised budget, corrected URL, updated
+   eligibility), call writeOpportunity with action=update_call immediately. Never leave
+   stale data in the system.
+
+2. **Add newly discovered calls** — whenever you identify a funding opportunity relevant
+   to the team (robotics, UAV, AI/ML, IoT, agricultural/forest monitoring, sensors) that
+   is NOT yet in the list, call writeOpportunity with action=add_call and fill in every
+   field you can find. Use estado=radar if not yet open, estado=aberta if deadline is active.
+
+3. **Log analysis notes** — after each research session or analysis, call writeOpportunity
+   with action=add_note to record what you found, including source and date.
+
+4. **Alert on deadlines** — flag calls with deadlines within 30 days.
+
+Always respond in European Portuguese. Confirm title and ID after every write operation.
 
 ---
 # OpenAPI Schema (paste in Configure → Actions → Schema)
@@ -701,7 +746,7 @@ add_call(\"Horizon 2027 — Nova Call\", url=\"https://...\", prioridade=\"B\", 
         </div>
 
         <!-- Botões de ação -->
-        <div class="d-flex gap-2 border-top pt-2 flex-wrap">
+        <div class="d-flex gap-2 border-top pt-2 flex-wrap align-items-center">
           <button class="btn btn-sm btn-outline-secondary" onclick="fcOpenEdit(<?= $fc['id'] ?>)"><i class="bi bi-pencil me-1"></i>Editar</button>
           <?php if ($fc['url']): ?>
           <a href="<?= htmlspecialchars($fc['url']) ?>" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-up-right me-1"></i>Abrir Call</a>
@@ -716,6 +761,23 @@ add_call(\"Horizon 2027 — Nova Call\", url=\"https://...\", prioridade=\"B\", 
             <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-people me-1"></i>Converter em Lead</button>
           </form>
           <?php endif; ?>
+          <!-- Arquivar / Apagar -->
+          <div class="ms-auto d-flex gap-1">
+            <?php if ($fc['estado'] !== 'arquivada'): ?>
+            <form method="post" class="d-inline" onsubmit="return confirm('Arquivar esta oportunidade?')">
+              <input type="hidden" name="fc_action" value="archive_call">
+              <input type="hidden" name="subtab" value="exploracao">
+              <input type="hidden" name="call_id" value="<?= $fc['id'] ?>">
+              <button type="submit" class="btn btn-sm btn-outline-secondary" title="Arquivar"><i class="bi bi-archive"></i></button>
+            </form>
+            <?php endif; ?>
+            <form method="post" class="d-inline" onsubmit="return confirm('Eliminar definitivamente «<?= htmlspecialchars(addslashes($fc['titulo'])) ?>»?\n\nEsta ação não pode ser desfeita.')">
+              <input type="hidden" name="fc_action" value="delete_call">
+              <input type="hidden" name="subtab" value="exploracao">
+              <input type="hidden" name="call_id" value="<?= $fc['id'] ?>">
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="bi bi-trash"></i></button>
+            </form>
+          </div>
         </div>
       </div>
     </div>
@@ -862,11 +924,18 @@ function fcFilter() {
         const t = el.dataset.titulo;
         const p = el.dataset.prio;
         const e = el.dataset.estado;
-        const show = (!q || t.includes(q)) && (!prio || p === prio) && (!estado || e === estado);
+        // Sem filtro de estado: oculta arquivadas por defeito
+        const estadoMatch = estado ? e === estado : e !== 'arquivada';
+        const show = (!q || t.includes(q)) && (!prio || p === prio) && estadoMatch;
         el.style.display = show ? '' : 'none';
         if (show) count++;
     });
-    document.getElementById('fc-count-label').textContent = count + ' oportunidades';
+    const hasArchived = document.querySelectorAll('.fc-card-item[data-estado="arquivada"]').length;
+    const label = document.getElementById('fc-count-label');
+    label.textContent = count + ' oportunidades';
+    if (!estado && hasArchived) {
+        label.innerHTML = count + ' oportunidades <a href="#" class="ms-2 text-muted small" onclick="document.getElementById(\'fc-filter-estado\').value=\'arquivada\';fcFilter();return false">+ ' + hasArchived + ' arquivada' + (hasArchived>1?'s':'') + '</a>';
+    }
 }
 
 // ─── Abrir modal de adicionar ───────────────────────────────────────────────

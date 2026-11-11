@@ -168,7 +168,34 @@ if ($fcAction === 'add_note' && $currentUserId) {
 }
 
 // ─── Carregar dados ────────────────────────────────────────────────────────────
-$allCalls = $pdo->query("SELECT * FROM funding_calls ORDER BY FIELD(prioridade,'A','B','C'), estado, titulo")->fetchAll(PDO::FETCH_ASSOC);
+$allCalls = $pdo->query("SELECT * FROM funding_calls ORDER BY FIELD(prioridade,'A','B','C'), titulo")->fetchAll(PDO::FETCH_ASSOC);
+
+// Extrair deadline do campo 'datas' e ordenar: prioridade A→B→C, depois deadline asc (sem data fica no fim)
+function fcExtractDeadline(string $datas): ?DateTime {
+    // procura padrões dd/mm/yyyy ou yyyy-mm-dd
+    if (preg_match('/(\d{2})\/(\d{2})\/(\d{4})/', $datas, $m)) {
+        $d = DateTime::createFromFormat('d/m/Y', $m[0]);
+        return $d ?: null;
+    }
+    if (preg_match('/(\d{4})-(\d{2})-(\d{2})/', $datas, $m)) {
+        $d = DateTime::createFromFormat('Y-m-d', $m[0]);
+        return $d ?: null;
+    }
+    return null;
+}
+
+$prioOrder = ['A' => 0, 'B' => 1, 'C' => 2];
+usort($allCalls, function($a, $b) use ($prioOrder) {
+    $pa = $prioOrder[$a['prioridade']] ?? 2;
+    $pb = $prioOrder[$b['prioridade']] ?? 2;
+    if ($pa !== $pb) return $pa - $pb;
+    $da = fcExtractDeadline($a['datas'] ?? '');
+    $db = fcExtractDeadline($b['datas'] ?? '');
+    if (!$da && !$db) return strcmp($a['titulo'], $b['titulo']);
+    if (!$da) return 1;
+    if (!$db) return -1;
+    return $da <=> $db;
+});
 
 $scoutKeys = [];
 try {
@@ -213,17 +240,27 @@ $estadoBadge = [
 <?php if ($fcMsg === 'edit_ok'): ?><div class="alert alert-success alert-dismissible py-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>Oportunidade atualizada.</div><?php endif; ?>
 <?php if ($fcMsg === 'add_ok'): ?><div class="alert alert-success alert-dismissible py-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>Oportunidade adicionada.</div><?php endif; ?>
 <?php if ($fcMsg === 'key_revoked'): ?><div class="alert alert-info alert-dismissible py-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>Chave removida.</div><?php endif; ?>
-<?php if (str_starts_with($fcMsg, 'key_created:')): $newCreatedKey = substr($fcMsg, 12); ?>
+<?php if (str_starts_with($fcMsg, 'key_created:')): $newCreatedKey = substr($fcMsg, 12);
+// Encontrar o nome desta chave para mostrar nos prompts
+$newKeyName = '';
+foreach ($scoutKeys as $sk) { if ($sk['api_key'] === $newCreatedKey) { $newKeyName = $sk['name']; break; } }
+?>
 <div class="alert alert-success alert-dismissible">
   <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-  <strong>Chave criada!</strong> Guarda agora — só é mostrada uma vez:<br>
-  <code class="user-select-all"><?= htmlspecialchars($newCreatedKey) ?></code>
-  <button class="btn btn-sm btn-outline-secondary ms-2" onclick="navigator.clipboard.writeText('<?= htmlspecialchars($newCreatedKey) ?>')">Copiar</button>
+  <strong>Chave criada!</strong> Guarda agora — só é mostrada uma vez:
+  <code class="user-select-all ms-1"><?= htmlspecialchars($newCreatedKey) ?></code>
+  <button class="btn btn-sm btn-outline-secondary ms-2" onclick="navigator.clipboard.writeText(<?= json_encode($newCreatedKey) ?>)">Copiar</button>
+  <button class="btn btn-sm btn-outline-primary ms-1" onclick="fcShowScoutPrompts(<?= json_encode($newCreatedKey) ?>, <?= json_encode($newKeyName) ?>)">Ver Prompts</button>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    fcShowScoutPrompts(<?= json_encode($newCreatedKey) ?>, <?= json_encode($newKeyName) ?>);
+});
+</script>
 <?php endif; ?>
 
 <!-- Painel de Chaves IA Scout -->
-<div id="fc-scout-panel" class="d-none mb-3">
+<div id="fc-scout-panel" class="<?= (str_starts_with($fcMsg,'key_created:') || $fcMsg==='key_revoked') ? '' : 'd-none' ?> mb-3">
   <div class="card border-0 shadow-sm">
     <div class="card-body">
       <h6 class="mb-3"><i class="bi bi-robot me-1"></i>Chaves IA Scout para Oportunidades</h6>
@@ -285,6 +322,17 @@ $estadoBadge = [
 <?php foreach ($allCalls as $fc):
     $notes = $allNotes[$fc['id']] ?? [];
     $fcId = 'fc-card-' . $fc['id'];
+    $fcDeadline = fcExtractDeadline($fc['datas'] ?? '');
+    $now = new DateTime();
+    $daysLeft = $fcDeadline ? (int)$now->diff($fcDeadline)->format('%r%a') : null;
+    if ($fcDeadline && $daysLeft !== null) {
+        if ($daysLeft < 0) $deadlineBadge = '<span class="badge bg-secondary ms-1" title="' . htmlspecialchars($fc['datas']) . '"><i class="bi bi-calendar-x me-1"></i>Encerrado</span>';
+        elseif ($daysLeft <= 7) $deadlineBadge = '<span class="badge bg-danger ms-1" title="' . htmlspecialchars($fc['datas']) . '"><i class="bi bi-alarm me-1"></i>' . $fcDeadline->format('d/m/Y') . ' (' . $daysLeft . 'd)</span>';
+        elseif ($daysLeft <= 30) $deadlineBadge = '<span class="badge bg-warning text-dark ms-1" title="' . htmlspecialchars($fc['datas']) . '"><i class="bi bi-calendar-event me-1"></i>' . $fcDeadline->format('d/m/Y') . ' (' . $daysLeft . 'd)</span>';
+        else $deadlineBadge = '<span class="badge bg-light text-dark border ms-1" title="' . htmlspecialchars($fc['datas']) . '"><i class="bi bi-calendar me-1"></i>' . $fcDeadline->format('d/m/Y') . '</span>';
+    } else {
+        $deadlineBadge = '';
+    }
 ?>
 <div class="fc-card-item mb-2"
      data-titulo="<?= strtolower(htmlspecialchars($fc['titulo'] . ' ' . $fc['area'])) ?>"
@@ -295,10 +343,10 @@ $estadoBadge = [
       <?= $pBadge[$fc['prioridade']] ?? '' ?>
       <?= $estadoBadge[$fc['estado']] ?? '' ?>
       <span class="fw-semibold flex-grow-1"><?= htmlspecialchars($fc['titulo']) ?></span>
+      <?= $deadlineBadge ?>
       <?php if ($fc['url']): ?>
         <a href="<?= htmlspecialchars($fc['url']) ?>" target="_blank" class="btn btn-sm btn-link p-0 text-muted" onclick="event.stopPropagation()" title="Abrir call"><i class="bi bi-box-arrow-up-right"></i></a>
       <?php endif; ?>
-      <small class="text-muted d-none d-md-inline" style="font-size:0.75rem"><?= htmlspecialchars(substr($fc['prioridade_label'] ?? '', 0, 50)) ?></small>
       <span class="badge bg-light text-dark border"><?= count($notes) ?> <i class="bi bi-chat-dots"></i></span>
     </div>
     <div id="<?= $fcId ?>" class="d-none">

@@ -32,7 +32,7 @@ try {
 }
 
 // Validate token
-$stTok = $pdo->prepare("SELECT user_id, username FROM user_tokens WHERE token = ? AND expires_at > NOW()");
+$stTok = $pdo->prepare("SELECT user_id, username FROM user_tokens WHERE token = ?");
 $stTok->execute([$token]);
 $tokenRow = $stTok->fetch(PDO::FETCH_ASSOC);
 if (!$tokenRow) {

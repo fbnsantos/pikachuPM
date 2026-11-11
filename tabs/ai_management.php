@@ -128,7 +128,7 @@ $summaries = $pdo->query("SELECT s.id, s.window_type, s.provider, s.model, LEFT(
     ORDER BY s.created_at DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);
 
 // Get user token for JS
-$stToken = $pdo->prepare("SELECT token FROM user_tokens WHERE user_id = ? AND expires_at > NOW() ORDER BY expires_at DESC LIMIT 1");
+$stToken = $pdo->prepare("SELECT token FROM user_tokens WHERE user_id = ? LIMIT 1");
 $stToken->execute([$currentUserId]);
 $userToken = ($stToken->fetch(PDO::FETCH_ASSOC))['token'] ?? '';
 

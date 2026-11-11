@@ -20,7 +20,7 @@ try {
     http_response_code(500); echo json_encode(['error'=>'DB error']); exit;
 }
 
-$stTok = $pdo->prepare("SELECT user_id FROM user_tokens WHERE token = ? AND expires_at > NOW()");
+$stTok = $pdo->prepare("SELECT user_id FROM user_tokens WHERE token = ?");
 $stTok->execute([$token]);
 $tokenRow = $stTok->fetch(PDO::FETCH_ASSOC);
 if (!$tokenRow) { http_response_code(401); echo json_encode(['error'=>'Invalid token']); exit; }

@@ -5,22 +5,11 @@
 
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Headers: Authorization, Content-Type');
+header('Access-Control-Allow-Headers: Authorization, Content-Type, X-Api-Key');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
 require_once __DIR__ . '/../config.php';
-
-// --- Auth via Bearer token ---
-$auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-if (!$auth) $auth = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
-if (preg_match('/Bearer\s+(.+)/i', $auth, $m)) {
-    $token = trim($m[1]);
-} else {
-    http_response_code(401);
-    echo json_encode(['error' => 'Bearer token required']);
-    exit;
-}
 
 try {
     $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
@@ -31,38 +20,55 @@ try {
     exit;
 }
 
-// Validate token
-$stTok = $pdo->prepare("SELECT user_id, username FROM user_tokens WHERE token = ?");
-$stTok->execute([$token]);
-$tokenRow = $stTok->fetch(PDO::FETCH_ASSOC);
-if (!$tokenRow) {
+// --- Auth: X-Api-Key header (AI assistants) OR Bearer token (user) ---
+$xApiKey = $_SERVER['HTTP_X_API_KEY'] ?? $_GET['api_key'] ?? '';
+$auth    = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+
+$accessGranted = false;
+
+if ($xApiKey) {
+    // Dedicated AI API key
+    $pdo->exec("CREATE TABLE IF NOT EXISTS ai_api_keys (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        api_key VARCHAR(64) NOT NULL,
+        created_by INT NOT NULL,
+        last_used_at DATETIME NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_key (api_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $stKey = $pdo->prepare("SELECT id FROM ai_api_keys WHERE api_key = ?");
+    $stKey->execute([$xApiKey]);
+    if ($stKey->fetch()) {
+        $accessGranted = true;
+        // Update last_used_at
+        $pdo->prepare("UPDATE ai_api_keys SET last_used_at = NOW() WHERE api_key = ?")->execute([$xApiKey]);
+    }
+} elseif (preg_match('/Bearer\s+(.+)/i', $auth, $m)) {
+    $token = trim($m[1]);
+    $stTok = $pdo->prepare("SELECT user_id FROM user_tokens WHERE token = ?");
+    $stTok->execute([$token]);
+    $tokenRow = $stTok->fetch(PDO::FETCH_ASSOC);
+    if ($tokenRow) {
+        $stAdm = $pdo->prepare("SELECT id FROM admin_users WHERE user_id = ?");
+        $stAdm->execute([$tokenRow['user_id']]);
+        $isAdmin = (bool)$stAdm->fetch();
+        if ($isAdmin) {
+            $accessGranted = true;
+        } else {
+            $stDel = $pdo->prepare("SELECT id FROM ai_delegates WHERE user_id = ?");
+            $stDel->execute([$tokenRow['user_id']]);
+            if ($stDel->fetch()) $accessGranted = true;
+        }
+    }
+}
+
+if (!$accessGranted) {
     http_response_code(401);
-    echo json_encode(['error' => 'Invalid or expired token']);
+    echo json_encode(['error' => 'Unauthorized. Use X-Api-Key header or Bearer token.']);
     exit;
 }
 
-// Check admin or delegate
-$stAdm = $pdo->prepare("SELECT id FROM admin_users WHERE user_id = ?");
-$stAdm->execute([$tokenRow['user_id']]);
-$isAdmin = (bool)$stAdm->fetch();
-
-if (!$isAdmin) {
-    // Check delegate
-    $pdo->exec("CREATE TABLE IF NOT EXISTS ai_delegates (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL,
-        granted_by INT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY uk_user (user_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    $stDel = $pdo->prepare("SELECT id FROM ai_delegates WHERE user_id = ?");
-    $stDel->execute([$tokenRow['user_id']]);
-    if (!$stDel->fetch()) {
-        http_response_code(403);
-        echo json_encode(['error' => 'Access denied']);
-        exit;
-    }
-}
 
 $window = $_GET['window'] ?? '1h';
 $since = match($window) {

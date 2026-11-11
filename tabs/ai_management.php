@@ -105,6 +105,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
         $pdo->prepare("DELETE FROM ai_delegates WHERE user_id = ?")->execute([$uid]);
         $flash = '<div class="alert alert-warning"><i class="bi bi-person-dash"></i> Delegado removido.</div>';
     }
+
+    elseif ($action === 'create_api_key') {
+        $keyName = trim($_POST['key_name'] ?? '');
+        if ($keyName) {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS ai_api_keys (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                api_key VARCHAR(64) NOT NULL,
+                created_by INT NOT NULL,
+                last_used_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uk_key (api_key)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            $newKey = 'pk-' . bin2hex(random_bytes(24));
+            $pdo->prepare("INSERT INTO ai_api_keys (name, api_key, created_by) VALUES (?,?,?)")->execute([$keyName, $newKey, $currentUserId]);
+            $flash = '<div class="alert alert-success"><i class="bi bi-key"></i> Chave criada: <code>' . htmlspecialchars($newKey) . '</code> — copia agora, não será mostrada novamente.</div>';
+        }
+    }
+
+    elseif ($action === 'revoke_api_key') {
+        $kid = (int)($_POST['key_id'] ?? 0);
+        $pdo->prepare("DELETE FROM ai_api_keys WHERE id = ?")->execute([$kid]);
+        $flash = '<div class="alert alert-warning"><i class="bi bi-trash"></i> Chave revogada.</div>';
+    }
 }
 
 // Load current config
@@ -114,12 +138,25 @@ $cfgApiKey    = getSetting($pdo, 'ai_api_key', '');
 $cfgOllamaUrl = getSetting($pdo, 'ai_ollama_url', 'http://localhost:11434');
 $hasKey       = !empty($cfgApiKey);
 
-// Load delegates (admin only)
-$delegates = [];
+// Load delegates + API keys (admin only)
+$delegates  = [];
+$apiKeys    = [];
 if ($isAdmin) {
     $delegates = $pdo->query("SELECT ad.user_id, ut.username, ad.created_at FROM ai_delegates ad LEFT JOIN (SELECT DISTINCT user_id, username FROM user_tokens) ut ON ut.user_id = ad.user_id ORDER BY ad.created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
-    $allUsers = $pdo->query("SELECT DISTINCT user_id as id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
+    $allUsers  = $pdo->query("SELECT DISTINCT user_id as id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
     $delegateIds = array_column($delegates, 'user_id');
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS ai_api_keys (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            api_key VARCHAR(64) NOT NULL,
+            created_by INT NOT NULL,
+            last_used_at DATETIME NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uk_key (api_key)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $apiKeys = $pdo->query("SELECT id, name, CONCAT(LEFT(api_key,10),'…') as key_preview, last_used_at, created_at FROM ai_api_keys ORDER BY created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {}
 }
 
 // Recent summaries
@@ -320,6 +357,138 @@ $defaultModels = [
         </div>
         <?php endif; ?>
     </div>
+
+    <!-- API Keys para assistentes externos -->
+    <div class="ai-mgmt-card">
+        <h5 class="mb-3"><i class="bi bi-key"></i> API Keys — Assistentes Externos</h5>
+        <p class="text-muted small mb-3">Permite que um AI assistente externo (Claude Project, Custom GPT, n8n, etc.) aceda aos dados do PikachuPM directamente.</p>
+
+        <?php
+        $baseUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http')
+            . '://' . $_SERVER['HTTP_HOST']
+            . rtrim(dirname($_SERVER['PHP_SELF']), '/') . '/api/context.php';
+        ?>
+        <div class="mb-3 p-3 rounded" style="background:var(--bs-tertiary-bg); font-size:.85rem">
+            <div class="fw-bold mb-1"><i class="bi bi-link-45deg"></i> Endpoint</div>
+            <div class="d-flex gap-2 align-items-center">
+                <code id="ctx-endpoint" class="flex-grow-1" style="word-break:break-all"><?= htmlspecialchars($baseUrl) ?>?window=24h</code>
+                <button class="btn btn-sm btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('ctx-endpoint').textContent)"><i class="bi bi-clipboard"></i></button>
+            </div>
+            <div class="mt-2 text-muted">
+                Parâmetro <code>window</code>: <code>1h</code> · <code>24h</code> · <code>7d</code> · <code>all</code><br>
+                Autenticação: header <code>X-Api-Key: &lt;chave&gt;</code>
+            </div>
+        </div>
+
+        <!-- Instruções rápidas por assistente -->
+        <div class="mb-3">
+            <button class="btn btn-sm btn-outline-info" data-bs-toggle="collapse" data-bs-target="#ai-ext-howto">
+                <i class="bi bi-question-circle"></i> Como ligar ao meu assistente
+            </button>
+            <div class="collapse mt-2" id="ai-ext-howto">
+                <div class="card card-body border-0 bg-light" style="font-size:.82rem">
+                    <ul class="nav nav-tabs nav-tabs-sm mb-3">
+                        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#ext-claude">Claude Project</button></li>
+                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#ext-gpt">Custom GPT</button></li>
+                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#ext-n8n">n8n / Make</button></li>
+                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#ext-curl">cURL / API</button></li>
+                    </ul>
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="ext-claude">
+                            <ol>
+                                <li>Cria um <strong>Claude Project</strong> em claude.ai</li>
+                                <li>Em <em>Project Instructions</em>, adiciona:<br>
+                                <pre style="font-size:.8rem; background:#eee; padding:.5rem; border-radius:4px">Tens acesso aos dados em tempo real do sistema PikachuPM via:
+GET <?= htmlspecialchars($baseUrl) ?>?window=24h
+Header: X-Api-Key: &lt;a_tua_chave&gt;
+
+Usa window=1h para a última hora, 24h para o dia, 7d para a semana, all para tudo.
+Quando te perguntarem sobre o estado da equipa, tarefas, sprints ou lab, consulta este endpoint primeiro.</pre>
+                                </li>
+                                <li>Podes usar a ferramenta <strong>Web Search / HTTP tool</strong> ou um MCP server para fazer o fetch</li>
+                            </ol>
+                        </div>
+                        <div class="tab-pane fade" id="ext-gpt">
+                            <ol>
+                                <li>Em <strong>ChatGPT → My GPTs → Create</strong>, vai a <em>Actions</em></li>
+                                <li>Clica <strong>Import from URL</strong> ou adiciona manualmente com schema:</li>
+                            </ol>
+                            <pre style="font-size:.78rem; background:#eee; padding:.5rem; border-radius:4px; overflow:auto">openapi: 3.0.0
+info:
+  title: PikachuPM Context
+  version: "1.0"
+servers:
+  - url: <?= htmlspecialchars(dirname($baseUrl)) ?>
+
+paths:
+  /context.php:
+    get:
+      operationId: getPikachuContext
+      summary: Get PikachuPM team data
+      parameters:
+        - name: window
+          in: query
+          schema:
+            type: string
+            enum: [1h, 24h, 7d, all]
+      responses:
+        "200":
+          description: Context data
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+security:
+  - ApiKeyAuth: []</pre>
+                            <p class="mb-0 mt-2">Cola a chave no campo de autenticação do GPT.</p>
+                        </div>
+                        <div class="tab-pane fade" id="ext-n8n">
+                            <ol>
+                                <li>Adiciona um nó <strong>HTTP Request</strong></li>
+                                <li>Method: <code>GET</code>, URL: <code><?= htmlspecialchars($baseUrl) ?>?window=24h</code></li>
+                                <li>Em <em>Headers</em> adiciona: <code>X-Api-Key</code> → <em>a tua chave</em></li>
+                                <li>Liga ao nó de AI Agent como <em>tool</em> ou processa o JSON directamente</li>
+                            </ol>
+                        </div>
+                        <div class="tab-pane fade" id="ext-curl">
+                            <pre style="font-size:.82rem; background:#eee; padding:.5rem; border-radius:4px; overflow:auto">curl "<?= htmlspecialchars($baseUrl) ?>?window=24h" \
+  -H "X-Api-Key: pk-a_tua_chave"</pre>
+                            <p class="mt-2 mb-0">Devolve JSON com todos os dados agregados da janela pedida.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Criar nova chave -->
+        <form method="post" class="d-flex gap-2 mb-3">
+            <input type="hidden" name="action" value="create_api_key">
+            <input type="text" name="key_name" class="form-control form-control-sm" style="max-width:280px" placeholder="Nome da chave (ex: Claude Assistant)" required>
+            <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-plus-circle"></i> Criar chave</button>
+        </form>
+
+        <?php if (empty($apiKeys)): ?>
+        <p class="text-muted small"><i class="bi bi-info-circle"></i> Nenhuma chave criada.</p>
+        <?php else: ?>
+        <div class="list-group list-group-flush">
+            <?php foreach ($apiKeys as $k): ?>
+            <div class="list-group-item d-flex align-items-center gap-2 px-0">
+                <i class="bi bi-key-fill text-warning"></i>
+                <span class="flex-grow-1 fw-medium"><?= htmlspecialchars($k['name']) ?></span>
+                <code class="text-muted" style="font-size:.8rem"><?= htmlspecialchars($k['key_preview']) ?></code>
+                <small class="text-muted"><?= $k['last_used_at'] ? 'usado ' . date('d/m H:i', strtotime($k['last_used_at'])) : 'nunca usado' ?></small>
+                <form method="post" class="mb-0">
+                    <input type="hidden" name="action" value="revoke_api_key">
+                    <input type="hidden" name="key_id" value="<?= $k['id'] ?>">
+                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Revogar esta chave?')"><i class="bi bi-trash"></i></button>
+                </form>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+    </div>
     <?php endif; ?>
 
     <!-- Histórico de resumos -->
@@ -357,13 +526,25 @@ $defaultModels = [
 
 <script>
 (function(){
-    const TOKEN = <?= json_encode($userToken) ?>;
-    const BASE  = window.location.href.split('?')[0].replace(/\/[^/]*$/, '/');
+    // Token from PHP scope; fallback to DOM element set by index.php
+    let TOKEN = <?= json_encode($userToken) ?>;
+    if (!TOKEN) {
+        const el = document.getElementById('pk-token-value');
+        if (el) TOKEN = el.textContent.trim();
+    }
+    const BASE = window.location.href.split('?')[0].replace(/\/[^/]*$/, '/');
 
     window.aiRunSummary = function() {
         const btn = document.getElementById('ai-run-btn');
         const status = document.getElementById('ai-status');
         const output = document.getElementById('ai-output');
+
+        if (!TOKEN || TOKEN === '(token não disponível)') {
+            output.style.display = '';
+            output.textContent = '❌ Sem token de autenticação. Recarrega a página.';
+            return;
+        }
+
         btn.disabled = true;
         status.style.display = '';
         output.style.display = 'none';

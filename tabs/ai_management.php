@@ -120,7 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
             $newKey = 'pk-' . bin2hex(random_bytes(24));
             $pdo->prepare("INSERT INTO ai_api_keys (name, api_key, created_by) VALUES (?,?,?)")->execute([$keyName, $newKey, $currentUserId]);
-            $flash = '<div class="alert alert-success"><i class="bi bi-key"></i> Chave criada: <code>' . htmlspecialchars($newKey) . '</code> — copia agora, não será mostrada novamente.</div>';
+            $newKeyName = $keyName; // used below to render prompt panel
         }
     }
 
@@ -367,7 +367,88 @@ $defaultModels = [
         $baseUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http')
             . '://' . $_SERVER['HTTP_HOST']
             . rtrim(dirname($_SERVER['PHP_SELF']), '/') . '/api/context.php';
+
+        // Show prompt panel immediately after key creation
+        if (!empty($newKey)):
         ?>
+        <div class="alert alert-success border-0 mb-3">
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <i class="bi bi-key-fill fs-5"></i>
+                <strong>Chave criada: <?= htmlspecialchars($newKeyName) ?></strong>
+                <span class="badge bg-warning text-dark ms-auto">Guarda agora — não será mostrada novamente</span>
+            </div>
+            <div class="input-group input-group-sm mb-3">
+                <input type="text" id="new-key-val" class="form-control font-monospace" value="<?= htmlspecialchars($newKey) ?>" readonly>
+                <button class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('new-key-val').value);this.textContent='✓ Copiado'">
+                    <i class="bi bi-clipboard"></i> Copiar
+                </button>
+            </div>
+
+            <div class="fw-semibold mb-2 small">Prompts prontos a usar — clica para copiar:</div>
+            <div class="d-flex flex-column gap-2">
+
+                <?php
+                $ep = htmlspecialchars($baseUrl);
+                $key = htmlspecialchars($newKey);
+                $prompts = [
+                    'Claude Project (Project Instructions)' => [
+                        'icon' => '🤖',
+                        'text' => "Tens acesso em tempo real aos dados do sistema de gestão PikachuPM.
+
+Endpoint: GET {$baseUrl}?window=24h
+Autenticação: header X-Api-Key: {$newKey}
+
+Parâmetro window: 1h (última hora) | 24h (últimas 24h) | 7d (últimos 7 dias) | all (tudo)
+
+Quando te perguntarem sobre o estado da equipa, tarefas, sprints, issues do laboratório, leads ou projetos, consulta sempre este endpoint antes de responder. Devolve uma análise crítica (bloqueios, riscos, atrasos) e não crítica (progresso normal), com recomendações concretas.",
+                    ],
+                    'Custom GPT (System Prompt)' => [
+                        'icon' => '🟢',
+                        'text' => "You have access to real-time data from PikachuPM project management system.
+
+Use the getPikachuContext action to fetch current team data before answering questions about tasks, sprints, lab issues, leads, or projects.
+
+Always call the API with the appropriate window parameter:
+- window=1h for recent activity (last hour)
+- window=24h for daily overview
+- window=7d for weekly summary
+- window=all for full history
+
+Analyze the data and provide structured insights: critical issues (blockers, risks, delays) vs non-critical progress, with actionable recommendations.",
+                    ],
+                    'n8n / Make — HTTP Request node' => [
+                        'icon' => '⚙️',
+                        'text' => "URL: {$baseUrl}?window=24h
+Method: GET
+Header: X-Api-Key = {$newKey}
+
+Liga a saída deste nó a um AI Agent node (OpenAI/Claude) com o prompt:
+\"Analisa os dados do sistema PikachuPM em JSON e faz um resumo executivo com: (1) Crítico — bloqueios e riscos, (2) Progresso — tarefas em curso, (3) Recomendações para as próximas horas.\"",
+                    ],
+                    'cURL / Terminal' => [
+                        'icon' => '💻',
+                        'text' => "curl \"{$baseUrl}?window=24h\" \\
+  -H \"X-Api-Key: {$newKey}\"",
+                    ],
+                ];
+                foreach ($prompts as $label => [$icon, $text]):
+                    $safeText = htmlspecialchars($text);
+                    $jsText   = json_encode($text);
+                ?>
+                <div class="border rounded p-2" style="background:rgba(255,255,255,.5)">
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <span><?= $icon ?></span>
+                        <span class="small fw-semibold"><?= $label ?></span>
+                        <button class="btn btn-xs btn-outline-secondary ms-auto"
+                                style="font-size:.75rem; padding:1px 8px"
+                                onclick="navigator.clipboard.writeText(<?= $jsText ?>);this.textContent='✓ Copiado';setTimeout(()=>this.textContent='Copiar',2000)">Copiar</button>
+                    </div>
+                    <pre style="font-size:.75rem; background:rgba(0,0,0,.04); border-radius:4px; padding:.5rem; margin:0; white-space:pre-wrap; max-height:120px; overflow:auto"><?= $safeText ?></pre>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
         <div class="mb-3 p-3 rounded" style="background:var(--bs-tertiary-bg); font-size:.85rem">
             <div class="fw-bold mb-1"><i class="bi bi-link-45deg"></i> Endpoint</div>
             <div class="d-flex gap-2 align-items-center">

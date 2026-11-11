@@ -12,12 +12,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); echo json_
 
 require_once __DIR__ . '/../config.php';
 
-$auth = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
-if (!preg_match('/Bearer\s+(.+)/i', $auth, $m)) {
-    http_response_code(401); echo json_encode(['error'=>'Bearer token required']); exit;
-}
-$token = trim($m[1]);
-
 try {
     $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -25,13 +19,36 @@ try {
     http_response_code(500); echo json_encode(['error'=>'DB error']); exit;
 }
 
-$stTok = $pdo->prepare("SELECT user_id FROM user_tokens WHERE token = ?");
-$stTok->execute([$token]);
-$tokenRow = $stTok->fetch(PDO::FETCH_ASSOC);
-if (!$tokenRow) { http_response_code(401); echo json_encode(['error'=>'Invalid token']); exit; }
+// Auth: Bearer token OR PHP session (same-site calls; Apache often strips Authorization header)
+$userId = null;
 
+$auth = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+if (preg_match('/Bearer\s+(.+)/i', $auth, $m)) {
+    $stTok = $pdo->prepare("SELECT user_id FROM user_tokens WHERE token = ?");
+    $stTok->execute([trim($m[1])]);
+    $row = $stTok->fetch(PDO::FETCH_ASSOC);
+    if ($row) $userId = (int)$row['user_id'];
+}
+
+if (!$userId) {
+    // Fallback: PHP session (browser requests from same domain)
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+    if (!empty($_SESSION['user_id'])) {
+        $userId = (int)$_SESSION['user_id'];
+    }
+}
+
+if (!$userId) {
+    http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized']);
+    exit;
+}
+
+// Check admin or delegate
 $stAdm = $pdo->prepare("SELECT id FROM admin_users WHERE user_id = ?");
-$stAdm->execute([$tokenRow['user_id']]);
+$stAdm->execute([$userId]);
 $isAdmin = (bool)$stAdm->fetch();
 if (!$isAdmin) {
     $pdo->exec("CREATE TABLE IF NOT EXISTS ai_delegates (
@@ -41,9 +58,11 @@ if (!$isAdmin) {
         UNIQUE KEY uk_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     $stDel = $pdo->prepare("SELECT id FROM ai_delegates WHERE user_id = ?");
-    $stDel->execute([$tokenRow['user_id']]);
+    $stDel->execute([$userId]);
     if (!$stDel->fetch()) { http_response_code(403); echo json_encode(['error'=>'Access denied']); exit; }
 }
+
+$tokenRow = ['user_id' => $userId];
 
 $input = json_decode(file_get_contents('php://input'), true) ?: [];
 $window = $input['window'] ?? '24h';

@@ -274,7 +274,6 @@ $estadoBadge = [
   </h5>
   <div class="d-flex gap-2">
     <button class="btn btn-sm btn-outline-primary" onclick="fcShowAdd()"><i class="bi bi-plus-lg me-1"></i>Nova Oportunidade</button>
-    <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('fc-scout-panel').classList.toggle('d-none')"><i class="bi bi-robot me-1"></i>Chaves IA Scout</button>
   </div>
 </div>
 
@@ -314,42 +313,116 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 <?php endif; ?>
 
-<!-- Painel de Chaves IA Scout -->
-<div id="fc-scout-panel" class="<?= (str_starts_with($fcMsg,'key_created:') || $fcMsg==='key_revoked') ? '' : 'd-none' ?> mb-3">
-  <div class="card border-0 shadow-sm">
-    <div class="card-body">
-      <h6 class="mb-3"><i class="bi bi-robot me-1"></i>Chaves IA Scout para Oportunidades</h6>
-      <p class="text-muted small mb-3">Estas chaves dão acesso externo ao endpoint <code>/api/opportunities_context.php</code> para assistentes de IA pesquisarem e atualizarem oportunidades.</p>
-      <form method="post" class="d-flex gap-2 mb-3">
-        <input type="hidden" name="fc_action" value="create_scout_key">
-        <input type="hidden" name="subtab" value="exploracao">
-        <input type="text" name="key_name" class="form-control form-control-sm" placeholder="Nome da chave (ex: Claude Scout)" required style="max-width:280px">
-        <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-plus-lg me-1"></i>Criar Chave</button>
-      </form>
-      <?php if ($scoutKeys): ?>
-      <table class="table table-sm table-hover mb-0">
-        <thead><tr><th>Nome</th><th>Criada por</th><th>Último uso</th><th></th></tr></thead>
-        <tbody>
-        <?php foreach ($scoutKeys as $sk): ?>
-        <tr>
-          <td><i class="bi bi-key-fill text-warning me-1"></i><?= htmlspecialchars($sk['name']) ?></td>
-          <td><?= htmlspecialchars($sk['username'] ?? '—') ?></td>
-          <td><?= $sk['last_used_at'] ? date('d/m/Y H:i', strtotime($sk['last_used_at'])) : '<span class="text-muted">Nunca</span>' ?></td>
-          <td>
-            <button class="btn btn-sm btn-outline-info" onclick="fcShowScoutPrompts('<?= htmlspecialchars($sk['api_key']) ?>', '<?= htmlspecialchars($sk['name']) ?>')">Prompts</button>
-            <form method="post" class="d-inline" onsubmit="return confirm('Revogar esta chave?')">
-              <input type="hidden" name="fc_action" value="revoke_scout_key">
-              <input type="hidden" name="subtab" value="exploracao">
-              <input type="hidden" name="key_id" value="<?= $sk['id'] ?>">
-              <button class="btn btn-sm btn-outline-danger" type="submit">Revogar</button>
-            </form>
-          </td>
-        </tr>
+<!-- ── Chaves IA Scout — sempre visível ───────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent d-flex align-items-center justify-content-between py-2"
+       style="cursor:pointer" onclick="this.nextElementSibling.classList.toggle('d-none')">
+    <span class="fw-semibold"><i class="bi bi-robot me-2 text-primary"></i>Assistentes IA Scout
+      <small class="text-muted fw-normal ms-2"><?= count($scoutKeys) ?> chave<?= count($scoutKeys) != 1 ? 's' : '' ?></small>
+    </span>
+    <i class="bi bi-chevron-down text-muted"></i>
+  </div>
+  <div class="card-body pt-2<?= $scoutKeys ? '' : '' ?>">
+    <p class="text-muted small mb-3">
+      Cada chave permite a um assistente de IA aceder às oportunidades via
+      <code>GET <?= htmlspecialchars((isset($_SERVER['HTTPS'])&&$_SERVER['HTTPS']==='on'?'https':'http').'://'.$_SERVER['HTTP_HOST']) ?>/PK/api/opportunities_context.php</code>
+      e adicionar notas via POST. Cria uma chave por assistente.
+    </p>
+
+    <!-- Criar nova chave -->
+    <form method="post" class="d-flex gap-2 mb-3 align-items-end">
+      <input type="hidden" name="fc_action" value="create_scout_key">
+      <input type="hidden" name="subtab" value="exploracao">
+      <div>
+        <label class="form-label small mb-1">Nome do assistente</label>
+        <input type="text" name="key_name" class="form-control form-control-sm" placeholder="ex: Claude Scout, GPT Opportunities…" required style="min-width:260px">
+      </div>
+      <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-plus-lg me-1"></i>Criar Chave</button>
+    </form>
+
+    <?php if ($scoutKeys): ?>
+    <div class="d-flex flex-column gap-2">
+    <?php foreach ($scoutKeys as $sk):
+      $skPanelId = 'sk-panel-' . $sk['id'];
+      $autoOpen = str_starts_with($fcMsg, 'key_created:') && substr($fcMsg, 12) === $sk['api_key'];
+      $baseUrl = (isset($_SERVER['HTTPS'])&&$_SERVER['HTTPS']==='on'?'https':'http').'://'.$_SERVER['HTTP_HOST'];
+      $apiEndpoint = $baseUrl . '/PK/api/opportunities_context.php';
+      $key = $sk['api_key'];
+      $name = $sk['name'];
+      $prompts = [
+        ['icon'=>'🤖','label'=>'Claude Project — Instruções (sem chave)','nota'=>'Cole em Settings → Project Instructions do Claude Project.','text'=>
+"És um assistente especializado no scouting de oportunidades de financiamento para a equipa TRIBE do INESC TEC.
+
+A equipa tem competências em: robótica móvel, UAV, visão computacional, IA, IoT, monitorização agrícola/florestal, sensores ambientais.
+
+Para acederes às oportunidades usa o endpoint:
+GET {$apiEndpoint}
+
+Este endpoint (autenticado com X-Api-Key no config MCP) devolve a lista completa de calls em JSON com todos os campos: título, área, encaixe, financiamento, datas, elegibilidade, probabilidade e próximo passo.
+
+Podes:
+- Listar e resumir oportunidades abertas por prazo
+- Identificar as mais relevantes para o perfil da equipa
+- Alertar para prazos a ≤30 dias
+- Propor próximos passos e adicionar notas via POST {\"action\":\"add_note\",\"call_id\":N,\"note_text\":\"...\"}
+
+Responde sempre em português europeu. Sê conciso e orientado para ação."],
+        ['icon'=>'🔑','label'=>'Claude Project — MCP Config (com chave)','nota'=>'Cole em Settings → Integrations → MCP do Claude Project.','text'=>
+"{\n  \"mcpServers\": {\n    \"tribe-opportunities\": {\n      \"type\": \"http\",\n      \"url\": \"{$apiEndpoint}\",\n      \"headers\": {\n        \"X-Api-Key\": \"{$key}\"\n      }\n    }\n  }\n}"],
+        ['icon'=>'🟢','label'=>'Custom GPT — System Prompt (sem chave)','nota'=>'Cole em Configure → Instructions do Custom GPT.','text'=>
+"You are a funding opportunity scout for the TRIBE team at INESC TEC (robotics, UAV, AI, IoT, agricultural/forest monitoring).
+
+Use the action \"getOpportunities\" to fetch the current list of funding calls and provide analysis in European Portuguese. Focus on: deadlines, fit with team skills, priority level, and recommended next steps.
+
+To add a note to a call use action \"addNote\" with call_id and note_text."],
+        ['icon'=>'🔑','label'=>'Custom GPT — Chave de autenticação','nota'=>'Cole no campo "API Key" em Configure → Actions → Authentication → API Key.','text'=> $key],
+        ['icon'=>'⚙️','label'=>'n8n / Make — HTTP Request (com chave)','nota'=>'Configure um nó HTTP Request com estes parâmetros.','text'=>
+"URL: {$apiEndpoint}\nMethod: GET\nHeaders:\n  X-Api-Key: {$key}\n  Content-Type: application/json\n\n// Adicionar nota a uma oportunidade (call_id=1):\n// Method: POST\n// Body: {\"action\":\"add_note\",\"call_id\":1,\"note_text\":\"Nota do assistente\"}"],
+        ['icon'=>'💻','label'=>'cURL (com chave)','nota'=>'Execute no terminal para testar.','text'=>
+"# Listar oportunidades\ncurl -H \"X-Api-Key: {$key}\" \"{$apiEndpoint}\"\n\n# Adicionar nota (call_id=1)\ncurl -X POST \\\n  -H \"X-Api-Key: {$key}\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"action\":\"add_note\",\"call_id\":1,\"note_text\":\"Nota do assistente\"}' \\\n  \"{$apiEndpoint}\""],
+      ];
+    ?>
+    <div class="border rounded">
+      <!-- Cabeçalho da chave -->
+      <div class="d-flex align-items-center gap-2 px-3 py-2 bg-light rounded-top"
+           style="cursor:pointer" onclick="document.getElementById('<?= $skPanelId ?>').classList.toggle('d-none')">
+        <i class="bi bi-key-fill text-warning"></i>
+        <span class="fw-semibold"><?= htmlspecialchars($name) ?></span>
+        <span class="text-muted small ms-1">· <?= htmlspecialchars($sk['username'] ?? '') ?></span>
+        <span class="text-muted small ms-auto me-2">último uso: <?= $sk['last_used_at'] ? date('d/m/Y H:i', strtotime($sk['last_used_at'])) : 'nunca' ?></span>
+        <form method="post" class="d-inline" onsubmit="return confirm('Revogar a chave \'<?= htmlspecialchars($name) ?>\'?')">
+          <input type="hidden" name="fc_action" value="revoke_scout_key">
+          <input type="hidden" name="subtab" value="exploracao">
+          <input type="hidden" name="key_id" value="<?= $sk['id'] ?>">
+          <button class="btn btn-sm btn-outline-danger py-0 px-2" type="submit" onclick="event.stopPropagation()">Revogar</button>
+        </form>
+        <i class="bi bi-chevron-<?= $autoOpen ? 'up' : 'down' ?> text-muted"></i>
+      </div>
+      <!-- Prompts da chave -->
+      <div id="<?= $skPanelId ?>" class="<?= $autoOpen ? '' : 'd-none' ?> p-3">
+        <p class="text-muted small mb-3">Instrui o teu assistente com um destes blocos. Os blocos <strong>sem chave</strong> vão nas instruções do sistema; os <strong>com chave</strong> vão na configuração de autenticação/integração.</p>
+        <div class="row g-2">
+        <?php foreach ($prompts as $p): ?>
+        <div class="col-12 col-lg-6">
+          <div class="border rounded p-2 h-100">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <strong style="font-size:0.85rem"><?= $p['icon'] ?> <?= htmlspecialchars($p['label']) ?></strong>
+              <button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem"
+                      onclick="navigator.clipboard.writeText(this.closest('.border').querySelector('pre').textContent).then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='Copiar',1500)})">Copiar</button>
+            </div>
+            <div class="text-muted mb-1" style="font-size:0.75rem"><?= htmlspecialchars($p['nota']) ?></div>
+            <pre class="bg-light rounded p-2 mb-0" style="font-size:0.72rem;white-space:pre-wrap;max-height:140px;overflow:auto"><?= htmlspecialchars($p['text']) ?></pre>
+          </div>
+        </div>
         <?php endforeach; ?>
-        </tbody>
-      </table>
-      <?php else: ?><p class="text-muted small">Sem chaves criadas.</p><?php endif; ?>
+        </div>
+      </div>
     </div>
+    <?php endforeach; ?>
+    </div>
+    <?php else: ?>
+    <p class="text-muted small mb-0">Sem chaves criadas. Cria uma chave para ligar um assistente de IA.</p>
+    <?php endif; ?>
   </div>
 </div>
 

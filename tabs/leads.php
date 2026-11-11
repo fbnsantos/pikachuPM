@@ -242,8 +242,8 @@ function converterColunaReverso($pdo, $valor_banco) {
     return $valor_banco;
 }
 
-// Processar ações
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Processar ações (fc_action é tratado por funding_exploration.php — não interceptar)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST['fc_action'])) {
     try {
         $action = $_POST['action'] ?? '';
         

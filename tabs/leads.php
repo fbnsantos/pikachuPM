@@ -617,6 +617,31 @@ if ($selected_lead_id) {
 $all_users = $pdo->query("SELECT user_id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
+<!-- Sub-navegação Leads / Exploração -->
+<?php
+$activeSubTab = $_GET['subtab'] ?? 'leads';
+// Permitir POST preservar subtab
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subtab'])) {
+    $activeSubTab = $_POST['subtab'];
+}
+$activeSubTab = in_array($activeSubTab, ['leads','exploracao']) ? $activeSubTab : 'leads';
+?>
+<ul class="nav nav-tabs mb-3" id="leadsSubTabs">
+  <li class="nav-item">
+    <a class="nav-link<?= $activeSubTab === 'leads' ? ' active' : '' ?>"
+       href="?tab=leads&subtab=leads">
+      <i class="bi bi-people-fill me-1"></i>Leads
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link<?= $activeSubTab === 'exploracao' ? ' active' : '' ?>"
+       href="?tab=leads&subtab=exploracao">
+      <i class="bi bi-telescope-fill me-1"></i>Exploração de Oportunidades
+    </a>
+  </li>
+</ul>
+
+<div id="subtab-leads" <?= $activeSubTab !== 'leads' ? 'style="display:none"' : '' ?>>
 <style>
     .leads-container {
         display: flex;
@@ -1966,4 +1991,8 @@ function lnLightbox(src) {
 }
 </script>
 
+</div><!-- /subtab-leads -->
+
+<div id="subtab-exploracao" <?= $activeSubTab !== 'exploracao' ? 'style="display:none"' : '' ?>>
 <?php require_once __DIR__ . '/funding_exploration.php'; ?>
+</div><!-- /subtab-exploracao -->

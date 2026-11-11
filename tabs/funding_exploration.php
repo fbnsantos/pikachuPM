@@ -194,17 +194,13 @@ $estadoBadge = [
 ];
 ?>
 
-<!-- ════════════════════════════════════════════════════════════════════════════ -->
-<!-- SECÇÃO DE EXPLORAÇÃO DE OPORTUNIDADES ══════════════════════════════════════ -->
-<!-- ════════════════════════════════════════════════════════════════════════════ -->
-<div class="mt-5">
-<div class="d-flex align-items-center justify-content-between mb-2">
-  <h4 class="mb-0 d-flex align-items-center gap-2" style="cursor:pointer" onclick="document.getElementById('fc-section').classList.toggle('d-none');this.querySelector('.fc-chevron').classList.toggle('bi-chevron-down');this.querySelector('.fc-chevron').classList.toggle('bi-chevron-right');">
+<div>
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h5 class="mb-0 d-flex align-items-center gap-2">
     <i class="bi bi-telescope-fill text-primary"></i>
-    <span>Exploração de Oportunidades</span>
+    <span>Oportunidades de Financiamento</span>
     <small class="text-muted fs-6">(<?= count($allCalls) ?> calls)</small>
-    <i class="bi bi-chevron-down fc-chevron ms-1" style="font-size:0.9rem"></i>
-  </h4>
+  </h5>
   <div class="d-flex gap-2">
     <button class="btn btn-sm btn-outline-primary" onclick="fcShowAdd()"><i class="bi bi-plus-lg me-1"></i>Nova Oportunidade</button>
     <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('fc-scout-panel').classList.toggle('d-none')"><i class="bi bi-robot me-1"></i>Chaves IA Scout</button>
@@ -234,6 +230,7 @@ $estadoBadge = [
       <p class="text-muted small mb-3">Estas chaves dão acesso externo ao endpoint <code>/api/opportunities_context.php</code> para assistentes de IA pesquisarem e atualizarem oportunidades.</p>
       <form method="post" class="d-flex gap-2 mb-3">
         <input type="hidden" name="fc_action" value="create_scout_key">
+        <input type="hidden" name="subtab" value="exploracao">
         <input type="text" name="key_name" class="form-control form-control-sm" placeholder="Nome da chave (ex: Claude Scout)" required style="max-width:280px">
         <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-plus-lg me-1"></i>Criar Chave</button>
       </form>
@@ -250,6 +247,7 @@ $estadoBadge = [
             <button class="btn btn-sm btn-outline-info" onclick="fcShowScoutPrompts('<?= htmlspecialchars($sk['api_key']) ?>', '<?= htmlspecialchars($sk['name']) ?>')">Prompts</button>
             <form method="post" class="d-inline" onsubmit="return confirm('Revogar esta chave?')">
               <input type="hidden" name="fc_action" value="revoke_scout_key">
+              <input type="hidden" name="subtab" value="exploracao">
               <input type="hidden" name="key_id" value="<?= $sk['id'] ?>">
               <button class="btn btn-sm btn-outline-danger" type="submit">Revogar</button>
             </form>
@@ -361,6 +359,7 @@ $estadoBadge = [
           <!-- Adicionar nota -->
           <form method="post" class="mt-2 d-flex gap-2">
             <input type="hidden" name="fc_action" value="add_note">
+            <input type="hidden" name="subtab" value="exploracao">
             <input type="hidden" name="call_id" value="<?= $fc['id'] ?>">
             <textarea name="note_text" class="form-control form-control-sm" rows="2" placeholder="Adicionar nota ou comentário..."></textarea>
             <button type="submit" class="btn btn-sm btn-primary align-self-end">Enviar</button>
@@ -394,6 +393,7 @@ $estadoBadge = [
       </div>
       <form method="post" id="fcAddForm">
         <input type="hidden" name="fc_action" id="fc_form_action" value="add_call">
+        <input type="hidden" name="subtab" value="exploracao">
         <input type="hidden" name="call_id" id="fc_form_call_id" value="">
         <div class="modal-body">
           <div class="row g-3">

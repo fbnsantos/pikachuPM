@@ -91,7 +91,89 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    http_response_code(400); echo json_encode(['error' => 'Unknown action']); exit;
+    // ── update_call: atualizar campos de uma oportunidade ────────────────────
+    if ($action === 'update_call') {
+        $callId = (int)($input['call_id'] ?? 0);
+        if (!$callId) { http_response_code(400); echo json_encode(['error' => 'call_id required']); exit; }
+
+        $allowed = ['titulo','url','prioridade','area','encaixe','tipo_trl','financiamento',
+                    'projetos_apoiados','duracao','datas','elegibilidade','sucesso_anteriores',
+                    'probabilidade','proximo_passo','fontes','estado','notas_internas'];
+        $fields = []; $params = [];
+        foreach ($allowed as $f) {
+            if (array_key_exists($f, $input)) {
+                if ($f === 'prioridade' && !in_array($input[$f], ['A','B','C'])) continue;
+                if ($f === 'estado' && !in_array($input[$f], ['aberta','fechada','radar','arquivada'])) continue;
+                $fields[] = "$f = ?";
+                $params[] = $input[$f];
+            }
+        }
+        if (!$fields) { http_response_code(400); echo json_encode(['error' => 'No valid fields to update']); exit; }
+        $params[] = $callId;
+        try {
+            $pdo->prepare("UPDATE funding_calls SET " . implode(', ', $fields) . " WHERE id = ?")->execute($params);
+            $updated = $pdo->prepare("SELECT id,titulo,prioridade,estado,datas FROM funding_calls WHERE id=?");
+            $updated->execute([$callId]);
+            echo json_encode(['ok' => true, 'message' => 'Call updated', 'call' => $updated->fetch(PDO::FETCH_ASSOC)]);
+        } catch (Exception $e) {
+            http_response_code(500); echo json_encode(['error' => 'DB error: ' . $e->getMessage()]);
+        }
+        exit;
+    }
+
+    // ── add_call: adicionar nova oportunidade ────────────────────────────────
+    if ($action === 'add_call') {
+        $titulo = trim($input['titulo'] ?? '');
+        if (!$titulo) { http_response_code(400); echo json_encode(['error' => 'titulo required']); exit; }
+
+        $userId = 1;
+        if ($scoutKeyId) {
+            $r = $pdo->prepare("SELECT created_by FROM funding_scout_keys WHERE id = ?");
+            $r->execute([$scoutKeyId]);
+            $row = $r->fetch(PDO::FETCH_ASSOC);
+            if ($row) $userId = $row['created_by'];
+        } elseif (isset($tokenRow['user_id'])) {
+            $userId = $tokenRow['user_id'];
+        }
+
+        $prioridade = in_array($input['prioridade'] ?? '', ['A','B','C']) ? $input['prioridade'] : 'C';
+        $estado = in_array($input['estado'] ?? '', ['aberta','fechada','radar','arquivada']) ? $input['estado'] : 'radar';
+
+        try {
+            $st = $pdo->prepare("INSERT INTO funding_calls
+                (titulo, url, prioridade, area, encaixe, tipo_trl, financiamento, projetos_apoiados,
+                 duracao, datas, elegibilidade, sucesso_anteriores, probabilidade, proximo_passo,
+                 fontes, estado, notas_internas, created_by)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            $st->execute([
+                $titulo,
+                $input['url'] ?? null,
+                $prioridade,
+                $input['area'] ?? null,
+                $input['encaixe'] ?? null,
+                $input['tipo_trl'] ?? null,
+                $input['financiamento'] ?? null,
+                $input['projetos_apoiados'] ?? null,
+                $input['duracao'] ?? null,
+                $input['datas'] ?? null,
+                $input['elegibilidade'] ?? null,
+                $input['sucesso_anteriores'] ?? null,
+                $input['probabilidade'] ?? null,
+                $input['proximo_passo'] ?? null,
+                $input['fontes'] ?? null,
+                $estado,
+                $input['notas_internas'] ?? null,
+                $userId,
+            ]);
+            $newId = (int)$pdo->lastInsertId();
+            echo json_encode(['ok' => true, 'message' => 'Call created', 'call_id' => $newId, 'titulo' => $titulo]);
+        } catch (Exception $e) {
+            http_response_code(500); echo json_encode(['error' => 'DB error: ' . $e->getMessage()]);
+        }
+        exit;
+    }
+
+    http_response_code(400); echo json_encode(['error' => 'Unknown action. Valid: add_note, update_call, add_call']); exit;
 }
 
 // GET: listar oportunidades

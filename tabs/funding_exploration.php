@@ -371,17 +371,30 @@ A resposta é JSON com a lista completa de calls, cada uma com:
 - elegibilidade, probabilidade, proximo_passo
 - notes[] (comentários da equipa)
 
-## Como adicionar uma nota
+## Ações disponíveis via POST
 POST {$apiEndpoint}
 Cabeçalhos: X-Api-Key: {$key} | Content-Type: application/json
-Body: {{\"action\":\"add_note\",\"call_id\":ID_DA_CALL,\"note_text\":\"Texto da nota\"}}
+
+### Adicionar nota
+{{\"action\":\"add_note\",\"call_id\":ID,\"note_text\":\"texto\"}}
+
+### Atualizar campos de uma oportunidade
+{{\"action\":\"update_call\",\"call_id\":ID,\"prioridade\":\"A\",\"estado\":\"aberta\",\"proximo_passo\":\"...\",\"probabilidade\":\"...\"}}
+Campos editáveis: titulo, url, prioridade (A/B/C), area, encaixe, tipo_trl, financiamento,
+projetos_apoiados, duracao, datas, elegibilidade, sucesso_anteriores, probabilidade,
+proximo_passo, fontes, estado (aberta/fechada/radar/arquivada), notas_internas
+
+### Adicionar nova oportunidade
+{{\"action\":\"add_call\",\"titulo\":\"Nome da call\",\"url\":\"https://...\",\"prioridade\":\"B\",
+\"estado\":\"radar\",\"area\":\"...\",\"encaixe\":\"...\",\"datas\":\"prazo: dd/mm/aaaa\"}}
+Apenas titulo é obrigatório; todos os outros campos são opcionais.
 
 ## Comportamento esperado
 - Responde em português europeu
 - Prioriza calls com estado=aberta, depois radar
 - Alerta para prazos nos próximos 30 dias
 - Identifica as calls com melhor encaixe para a equipa
-- Quando adicionas uma nota, confirma com o ID e título da call"],
+- Ao atualizar ou criar, confirma sempre o título e ID resultante"],
         ['icon'=>'⚙️','label'=>'Claude Project — MCP Config JSON','nota'=>'Cole em Settings → Integrations → MCP do Claude Project (apenas o JSON, sem as instruções acima).','text'=>
 "{\n  \"mcpServers\": {\n    \"tribe-opportunities\": {\n      \"type\": \"http\",\n      \"url\": \"{$apiEndpoint}\",\n      \"headers\": {\n        \"X-Api-Key\": \"{$key}\"\n      }\n    }\n  }\n}"],
         ['icon'=>'🟢','label'=>'Custom GPT — Instruções + Action OpenAPI','nota'=>'Cole em Configure → Instructions. Depois cria uma Action com o schema OpenAPI abaixo.','text'=>
@@ -420,18 +433,38 @@ paths:
       security:
         - ApiKeyAuth: []
     post:
-      operationId: addOpportunityNote
-      summary: Add a note to an opportunity
+      operationId: writeOpportunity
+      summary: Add note, update fields, or create a new opportunity
       requestBody:
         content:
           application/json:
             schema:
               type: object
-              required: [action, call_id, note_text]
+              required: [action]
               properties:
-                action: {{type: string, enum: [add_note]}}
-                call_id: {{type: integer}}
-                note_text: {{type: string}}
+                action:
+                  type: string
+                  enum: [add_note, update_call, add_call]
+                call_id:
+                  type: integer
+                  description: Required for add_note and update_call
+                note_text:
+                  type: string
+                  description: Required for add_note
+                titulo:
+                  type: string
+                  description: Required for add_call; optional for update_call
+                url: {{type: string}}
+                prioridade: {{type: string, enum: [A, B, C]}}
+                estado: {{type: string, enum: [aberta, fechada, radar, arquivada]}}
+                area: {{type: string}}
+                encaixe: {{type: string}}
+                financiamento: {{type: string}}
+                datas: {{type: string}}
+                elegibilidade: {{type: string}}
+                probabilidade: {{type: string}}
+                proximo_passo: {{type: string}}
+                notas_internas: {{type: string}}
       security:
         - ApiKeyAuth: []
 components:
@@ -446,35 +479,65 @@ components:
 curl -s -H \"X-Api-Key: {$key}\" \\
   \"{$apiEndpoint}\" | python3 -m json.tool
 
-# ── Filtrar só abertas com prioridade A ──────────────────────
+# ── Filtrar abertas com prioridade A ─────────────────────────
 curl -s -H \"X-Api-Key: {$key}\" \\
   \"{$apiEndpoint}?estado=aberta&prioridade=A\" | python3 -m json.tool
 
-# ── Adicionar nota à oportunidade com id=1 ───────────────────
+# ── Adicionar nota à call id=1 ────────────────────────────────
 curl -s -X POST \\
   -H \"X-Api-Key: {$key}\" \\
   -H \"Content-Type: application/json\" \\
-  -d '{{\"action\":\"add_note\",\"call_id\":1,\"note_text\":\"Analisada pelo assistente — prazo a 30 dias, encaixe forte.\"}}' \\
+  -d '{{\"action\":\"add_note\",\"call_id\":1,\"note_text\":\"Prazo iminente — encaixe forte.\"}}' \\
+  \"{$apiEndpoint}\"
+
+# ── Atualizar campos da call id=1 ─────────────────────────────
+curl -s -X POST \\
+  -H \"X-Api-Key: {$key}\" \\
+  -H \"Content-Type: application/json\" \\
+  -d '{{\"action\":\"update_call\",\"call_id\":1,\"probabilidade\":\"Alta\",\"proximo_passo\":\"Submeter esboço até 20/11\"}}' \\
+  \"{$apiEndpoint}\"
+
+# ── Adicionar nova oportunidade ───────────────────────────────
+curl -s -X POST \\
+  -H \"X-Api-Key: {$key}\" \\
+  -H \"Content-Type: application/json\" \\
+  -d '{{\"action\":\"add_call\",\"titulo\":\"Nova Call Horizon 2027\",\"url\":\"https://...\",\"prioridade\":\"B\",\"estado\":\"radar\",\"datas\":\"prazo: 15/03/2027\"}}' \\
   \"{$apiEndpoint}\""],
         ['icon'=>'🐍','label'=>'Python — Script de integração','nota'=>'Script pronto a usar para explorar as oportunidades programaticamente.','text'=>
-"import requests, json
+"import requests
 
 API_KEY = \"{$key}\"
 BASE_URL = \"{$apiEndpoint}\"
-HEADERS = {{\"X-Api-Key\": API_KEY}}
+H = {{\"X-Api-Key\": API_KEY, \"Content-Type\": \"application/json\"}}
 
-# Listar oportunidades abertas
-resp = requests.get(BASE_URL, headers=HEADERS, params={{\"estado\": \"aberta\"}})
-data = resp.json()
-print(f\"Total: {{data['total']}} oportunidades\")
-for call in data['calls']:
-    print(f\"[{{call['prioridade']}}] {{call['titulo']}} — {{call['datas']}}\")
+def list_calls(estado=None, prioridade=None):
+    params = {{k: v for k, v in {{\"estado\": estado, \"prioridade\": prioridade}}.items() if v}}
+    return requests.get(BASE_URL, headers=H, params=params).json()
 
-# Adicionar nota a uma call (substituir call_id)
 def add_note(call_id: int, note: str):
-    r = requests.post(BASE_URL, headers={{**HEADERS, 'Content-Type': 'application/json'}},
-                      json={{\"action\": \"add_note\", \"call_id\": call_id, \"note_text\": note}})
-    return r.json()"],
+    return requests.post(BASE_URL, headers=H,
+        json={{\"action\": \"add_note\", \"call_id\": call_id, \"note_text\": note}}).json()
+
+def update_call(call_id: int, **fields):
+    \"\"\"Atualizar campos: prioridade, estado, proximo_passo, probabilidade, etc.\"\"\"
+    return requests.post(BASE_URL, headers=H,
+        json={{\"action\": \"update_call\", \"call_id\": call_id, **fields}}).json()
+
+def add_call(titulo: str, **fields):
+    \"\"\"Adicionar nova oportunidade. Apenas titulo é obrigatório.\"\"\"
+    return requests.post(BASE_URL, headers=H,
+        json={{\"action\": \"add_call\", \"titulo\": titulo, **fields}}).json()
+
+# Exemplo: listar abertas
+data = list_calls(estado=\"aberta\")
+for c in data[\"calls\"]:
+    print(f\"[{{c['prioridade']}}] {{c['id']}} — {{c['titulo']}} | {{c['datas']}}\")
+
+# Exemplo: atualizar probabilidade da call id=1
+update_call(1, probabilidade=\"Alta\", proximo_passo=\"Submeter esboço até 20/11\")
+
+# Exemplo: nova oportunidade
+add_call(\"Horizon 2027 — Nova Call\", url=\"https://...\", prioridade=\"B\", estado=\"radar\", datas=\"15/03/2027\")"],
       ];
     ?>
     <div class="border rounded">

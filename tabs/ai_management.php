@@ -1,6 +1,9 @@
 <?php
 // tabs/ai_management.php — Gestão de IA: configuração de provider, delegados, histórico de resumos
 
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
 require_once __DIR__ . '/../config.php';
 
 try {

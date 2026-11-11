@@ -1965,3 +1965,5 @@ function lnLightbox(src) {
     lb.style.display = 'flex';
 }
 </script>
+
+<?php require_once __DIR__ . '/funding_exploration.php'; ?>

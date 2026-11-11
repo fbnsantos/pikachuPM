@@ -244,17 +244,25 @@ function fcExtractDeadline(string $datas): ?DateTime {
     return null;
 }
 
+// Ordenação por omissão: deadline mais próxima primeiro; sem deadline fica no fim;
+// empate de deadline desempata por prioridade A→B→C, depois título.
 $prioOrder = ['A' => 0, 'B' => 1, 'C' => 2];
 usort($allCalls, function($a, $b) use ($prioOrder) {
-    $pa = $prioOrder[$a['prioridade']] ?? 2;
-    $pb = $prioOrder[$b['prioridade']] ?? 2;
-    if ($pa !== $pb) return $pa - $pb;
     $da = fcExtractDeadline($a['datas'] ?? '');
     $db = fcExtractDeadline($b['datas'] ?? '');
-    if (!$da && !$db) return strcmp($a['titulo'], $b['titulo']);
-    if (!$da) return 1;
+    if (!$da && !$db) {
+        // Ambas sem deadline: ordena por prioridade depois título
+        $pa = $prioOrder[$a['prioridade']] ?? 2;
+        $pb = $prioOrder[$b['prioridade']] ?? 2;
+        return $pa !== $pb ? $pa - $pb : strcmp($a['titulo'], $b['titulo']);
+    }
+    if (!$da) return 1;   // sem deadline vai para o fim
     if (!$db) return -1;
-    return $da <=> $db;
+    if ($da != $db) return $da <=> $db;  // deadline mais próxima primeiro
+    // Mesma deadline: desempata por prioridade
+    $pa = $prioOrder[$a['prioridade']] ?? 2;
+    $pb = $prioOrder[$b['prioridade']] ?? 2;
+    return $pa !== $pb ? $pa - $pb : strcmp($a['titulo'], $b['titulo']);
 });
 
 $scoutKeys = [];

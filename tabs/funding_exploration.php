@@ -758,8 +758,8 @@ $openApiSchema"],
 </div><!-- /mt-5 -->
 
 <!-- ─── Modal: Adicionar / Editar Oportunidade ──────────────────────────────── -->
-<div class="modal fade" id="fcAddModal" tabindex="-1">
-  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+<div class="modal fade" id="fcAddModal" tabindex="-1" aria-labelledby="fcModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable" style="max-height:90vh">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="fcModalTitle">Nova Oportunidade</h5>
@@ -1048,6 +1048,14 @@ function escH(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Ocultar arquivadas ao carregar
-document.addEventListener('DOMContentLoaded', fcFilter);
+// Mover modais para o body para evitar problemas de overflow/stacking em containers com altura fixa
+document.addEventListener('DOMContentLoaded', function() {
+    ['fcAddModal','fcScoutPromptsModal'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el && el.parentElement !== document.body) {
+            document.body.appendChild(el);
+        }
+    });
+    fcFilter();
+});
 </script>

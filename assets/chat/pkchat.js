@@ -416,7 +416,7 @@
     function renderChannels() {
       if (!full) return;
       const f = S.filter.trim().toLowerCase();
-      const groups = { sprint: [], prototype: [], lead: [] };
+      const groups = { sprint: [], prototype: [], lead: [], project: [], lab: [] };
       // Abertos primeiro; dentro disso, mensagem mais recente primeiro; sem mensagens no fim (por nome)
       S.channels.sort((a, b) => {
         if (a.closed !== b.closed) return a.closed ? 1 : -1;
@@ -430,7 +430,7 @@
         groups[c.type].push(c);
       });
       let html = '';
-      for (const type of ['sprint', 'prototype', 'lead']) {
+      for (const type of ['sprint', 'prototype', 'lead', 'project', 'lab']) {
         const list = groups[type];
         const unread = list.reduce((a, c) => a + c.unread, 0);
         const col = S.collapsed[type];
@@ -460,7 +460,7 @@
         html += '</div>';
       }
       if (!S.channels.length) {
-        html = '<div class="pkc-muted pkc-pad">Ainda não pertences a nenhuma sprint, protótipo ou lead. Quando fores adicionado como membro ou responsável, o canal aparece aqui.</div>';
+        html = '<div class="pkc-muted pkc-pad">Ainda não pertences a nenhum canal. Quando fores adicionado como membro ou responsável de uma sprint, protótipo, lead ou projeto, o canal aparece aqui.</div>';
       }
       D.chanList.innerHTML = html;
     }

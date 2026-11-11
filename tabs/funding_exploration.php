@@ -27,9 +27,12 @@ try {
         created_by INT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        lead_id INT NULL,
         INDEX idx_fc_prio (prioridade),
         INDEX idx_fc_estado (estado)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    // Adicionar lead_id se a tabela já existia sem a coluna
+    try { $pdo->exec("ALTER TABLE funding_calls ADD COLUMN lead_id INT NULL"); } catch (Exception $e) {}
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS funding_call_notes (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -165,6 +168,47 @@ if ($fcAction === 'add_note' && $currentUserId) {
             $fcMsg = 'key_revoked';
         } catch (Exception $e) { $fcMsg = 'erro'; }
     }
+} elseif ($fcAction === 'convert_to_lead' && $currentUserId) {
+    $callId = (int)($_POST['call_id'] ?? 0);
+    if ($callId) {
+        try {
+            $fc = $pdo->prepare("SELECT * FROM funding_calls WHERE id=?");
+            $fc->execute([$callId]);
+            $fc = $fc->fetch(PDO::FETCH_ASSOC);
+            if ($fc && !$fc['lead_id']) {
+                // Extrair deadline para data_fim
+                $fcDl = fcExtractDeadline($fc['datas'] ?? '');
+                $dataFim = $fcDl ? $fcDl->format('Y-m-d') : null;
+                // relevancia: A=9, B=6, C=3
+                $relevancia = ['A'=>9,'B'=>6,'C'=>3][$fc['prioridade']] ?? 5;
+                $descricao = implode("\n\n", array_filter([
+                    $fc['area'] ? "**Área:** " . $fc['area'] : '',
+                    $fc['encaixe'] ? "**Encaixe TRIBE:** " . $fc['encaixe'] : '',
+                    $fc['financiamento'] ? "**Financiamento:** " . $fc['financiamento'] : '',
+                    $fc['datas'] ? "**Datas:** " . $fc['datas'] : '',
+                    $fc['elegibilidade'] ? "**Elegibilidade:** " . $fc['elegibilidade'] : '',
+                    $fc['proximo_passo'] ? "**Próximo passo:** " . $fc['proximo_passo'] : '',
+                    $fc['url'] ? "**Link oficial:** " . $fc['url'] : '',
+                ]));
+                $stLead = $pdo->prepare("INSERT INTO leads (titulo, descricao, relevancia, responsavel_id, data_fim, estado) VALUES (?,?,?,?,?,'aberta')");
+                $stLead->execute([$fc['titulo'], $descricao, $relevancia, $currentUserId, $dataFim]);
+                $leadId = (int)$pdo->lastInsertId();
+                // Ligar a call à lead
+                $pdo->prepare("UPDATE funding_calls SET lead_id=? WHERE id=?")->execute([$leadId, $callId]);
+                // Adicionar link da call à lead
+                if ($fc['url']) {
+                    $pdo->prepare("INSERT INTO lead_links (lead_id, titulo, url) VALUES (?,?,?)")
+                        ->execute([$leadId, $fc['titulo'], $fc['url']]);
+                }
+                // Nota de origem
+                $pdo->prepare("INSERT INTO lead_notes (lead_id, user_id, note_text) VALUES (?,?,?)")
+                    ->execute([$leadId, $currentUserId, "Lead criada a partir da oportunidade de financiamento: " . $fc['titulo'] . " (Prioridade " . $fc['prioridade'] . ")"]);
+                $fcMsg = 'lead_created:' . $leadId;
+            } elseif ($fc && $fc['lead_id']) {
+                $fcMsg = 'lead_exists:' . $fc['lead_id'];
+            }
+        } catch (Exception $e) { $fcMsg = 'erro'; }
+    }
 }
 
 // ─── Carregar dados ────────────────────────────────────────────────────────────
@@ -236,6 +280,17 @@ $estadoBadge = [
 
 <div id="fc-section">
 
+<?php if (str_starts_with($fcMsg,'lead_created:')): $newLeadId = (int)substr($fcMsg,13); ?>
+<div class="alert alert-success alert-dismissible"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  <i class="bi bi-check-circle me-1"></i><strong>Lead criada!</strong>
+  <a href="?tab=leads&subtab=leads&lead_id=<?= $newLeadId ?>" class="alert-link ms-2">Ver Lead →</a>
+</div>
+<?php elseif (str_starts_with($fcMsg,'lead_exists:')): $existsLeadId = (int)substr($fcMsg,12); ?>
+<div class="alert alert-info alert-dismissible"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  <i class="bi bi-info-circle me-1"></i>Já existe uma lead para esta oportunidade.
+  <a href="?tab=leads&subtab=leads&lead_id=<?= $existsLeadId ?>" class="alert-link ms-2">Ver Lead →</a>
+</div>
+<?php endif; ?>
 <?php if ($fcMsg === 'nota_ok'): ?><div class="alert alert-success alert-dismissible py-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>Nota adicionada.</div><?php endif; ?>
 <?php if ($fcMsg === 'edit_ok'): ?><div class="alert alert-success alert-dismissible py-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>Oportunidade atualizada.</div><?php endif; ?>
 <?php if ($fcMsg === 'add_ok'): ?><div class="alert alert-success alert-dismissible py-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>Oportunidade adicionada.</div><?php endif; ?>
@@ -415,10 +470,20 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
 
         <!-- Botões de ação -->
-        <div class="d-flex gap-2 border-top pt-2">
+        <div class="d-flex gap-2 border-top pt-2 flex-wrap">
           <button class="btn btn-sm btn-outline-secondary" onclick="fcOpenEdit(<?= $fc['id'] ?>)"><i class="bi bi-pencil me-1"></i>Editar</button>
           <?php if ($fc['url']): ?>
           <a href="<?= htmlspecialchars($fc['url']) ?>" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-up-right me-1"></i>Abrir Call</a>
+          <?php endif; ?>
+          <?php if ($fc['lead_id']): ?>
+          <a href="?tab=leads&subtab=leads&lead_id=<?= (int)$fc['lead_id'] ?>" class="btn btn-sm btn-success"><i class="bi bi-people-fill me-1"></i>Ver Lead</a>
+          <?php else: ?>
+          <form method="post" class="d-inline" onsubmit="return confirm('Criar lead a partir desta oportunidade?')">
+            <input type="hidden" name="fc_action" value="convert_to_lead">
+            <input type="hidden" name="subtab" value="exploracao">
+            <input type="hidden" name="call_id" value="<?= $fc['id'] ?>">
+            <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-people me-1"></i>Converter em Lead</button>
+          </form>
           <?php endif; ?>
         </div>
       </div>

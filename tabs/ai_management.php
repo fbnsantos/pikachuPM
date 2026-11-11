@@ -402,19 +402,26 @@ $defaultModels = [
                 $ep = htmlspecialchars($baseUrl);
                 $key = htmlspecialchars($newKey);
                 $prompts = [
-                    'Claude Project (Project Instructions)' => [
+                    'Claude Project — Project Instructions' => [
                         'icon' => '🤖',
-                        'text' => "Tens acesso em tempo real aos dados do sistema de gestão PikachuPM.
+                        'nota' => 'Cola em Project Instructions. A chave vai nas definições do MCP/tool, não aqui.',
+                        'text' => "Tens acesso em tempo real aos dados do sistema de gestão PikachuPM via um tool HTTP.
 
-Endpoint: GET {$baseUrl}?window=24h
-Autenticação: header X-Api-Key: {$newKey}
+Endpoint: GET {$baseUrl}
+Parâmetro window: 1h | 24h | 7d | all
 
-Parâmetro window: 1h (última hora) | 24h (últimas 24h) | 7d (últimos 7 dias) | all (tudo)
-
-Quando te perguntarem sobre o estado da equipa, tarefas, sprints, issues do laboratório, leads ou projetos, consulta sempre este endpoint antes de responder. Devolve uma análise crítica (bloqueios, riscos, atrasos) e não crítica (progresso normal), com recomendações concretas.",
+Quando te perguntarem sobre o estado da equipa, tarefas, sprints, issues do laboratório, leads ou projetos, consulta sempre este endpoint antes de responder.
+Devolve uma análise estruturada com: (1) Crítico — bloqueios, riscos, atrasos; (2) Progresso — trabalho em curso; (3) Recomendações concretas para as próximas horas.",
                     ],
-                    'Custom GPT (System Prompt)' => [
+                    'Claude Project — MCP / HTTP tool config' => [
+                        'icon' => '🔑',
+                        'nota' => 'Configuração do tool/MCP — inclui a chave. Cola na config do conector HTTP.',
+                        'text' => "URL: {$baseUrl}?window=24h
+Header: X-Api-Key: {$newKey}",
+                    ],
+                    'Custom GPT — System Prompt' => [
                         'icon' => '🟢',
+                        'nota' => 'Cola em Instructions. A chave vai no campo Authentication do GPT Action, não aqui.',
                         'text' => "You have access to real-time data from PikachuPM project management system.
 
 Use the getPikachuContext action to fetch current team data before answering questions about tasks, sprints, lab issues, leads, or projects.
@@ -425,26 +432,34 @@ Always call the API with the appropriate window parameter:
 - window=7d for weekly summary
 - window=all for full history
 
-Analyze the data and provide structured insights: critical issues (blockers, risks, delays) vs non-critical progress, with actionable recommendations.",
+Provide structured insights: critical issues (blockers, risks, delays) vs non-critical progress, with actionable recommendations.",
+                    ],
+                    'Custom GPT — Action Authentication' => [
+                        'icon' => '🔑',
+                        'nota' => 'No GPT Action: Auth Type = API Key, Header = X-Api-Key.',
+                        'text' => $newKey,
                     ],
                     'n8n / Make — HTTP Request node' => [
                         'icon' => '⚙️',
+                        'nota' => 'Configuração completa do nó HTTP.',
                         'text' => "URL: {$baseUrl}?window=24h
 Method: GET
 Header: X-Api-Key = {$newKey}
 
-Liga a saída deste nó a um AI Agent node (OpenAI/Claude) com o prompt:
-\"Analisa os dados do sistema PikachuPM em JSON e faz um resumo executivo com: (1) Crítico — bloqueios e riscos, (2) Progresso — tarefas em curso, (3) Recomendações para as próximas horas.\"",
+Prompt para o AI Agent node:
+Analisa os dados do sistema PikachuPM em JSON e faz um resumo executivo com: (1) Crítico — bloqueios e riscos, (2) Progresso — tarefas em curso, (3) Recomendações para as próximas horas.",
                     ],
                     'cURL / Terminal' => [
                         'icon' => '💻',
-                        'text' => "curl \"{$baseUrl}?window=24h\" \\
-  -H \"X-Api-Key: {$newKey}\"",
+                        'nota' => 'Testa o endpoint diretamente.',
+                        'text' => "curl \"{$baseUrl}?window=24h\" \\\n  -H \"X-Api-Key: {$newKey}\"",
                     ],
                 ];
                 foreach ($prompts as $label => $p):
                     $icon     = $p['icon'];
+                    $nota     = $p['nota'] ?? '';
                     $text     = $p['text'];
+                    $isKeyOnly = ($text === $newKey);
                     $safeText = htmlspecialchars($text);
                     $jsText   = json_encode($text);
                 ?>
@@ -456,7 +471,8 @@ Liga a saída deste nó a um AI Agent node (OpenAI/Claude) com o prompt:
                                 style="font-size:.75rem; padding:1px 8px"
                                 onclick="navigator.clipboard.writeText(<?= $jsText ?>);this.textContent='✓ Copiado';setTimeout(()=>this.textContent='Copiar',2000)">Copiar</button>
                     </div>
-                    <pre style="font-size:.75rem; background:rgba(0,0,0,.04); border-radius:4px; padding:.5rem; margin:0; white-space:pre-wrap; max-height:120px; overflow:auto"><?= $safeText ?></pre>
+                    <?php if ($nota): ?><div class="text-muted" style="font-size:.75rem; margin-bottom:.3rem"><i class="bi bi-info-circle"></i> <?= htmlspecialchars($nota) ?></div><?php endif; ?>
+                    <pre style="font-size:.75rem; background:rgba(0,0,0,.04); border-radius:4px; padding:.5rem; margin:0; white-space:pre-wrap; max-height:<?= $isKeyOnly ? '40px' : '110px' ?>; overflow:auto"><?= $safeText ?></pre>
                 </div>
                 <?php endforeach; ?>
             </div>

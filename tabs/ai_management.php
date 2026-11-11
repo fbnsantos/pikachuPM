@@ -190,7 +190,58 @@ $defaultModels = [
     <?php if ($isAdmin): ?>
     <!-- Configuração do provider (admin only) -->
     <div class="ai-mgmt-card">
-        <h5 class="mb-3"><i class="bi bi-gear"></i> Configuração do Provider</h5>
+        <div class="d-flex align-items-center gap-2 mb-3">
+            <h5 class="mb-0"><i class="bi bi-gear"></i> Configuração do Provider</h5>
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" data-bs-toggle="collapse" data-bs-target="#ai-howto" aria-expanded="false">
+                <i class="bi bi-question-circle"></i> Como configurar
+            </button>
+        </div>
+
+        <div class="collapse mb-3" id="ai-howto">
+            <div class="card card-body border-0 bg-light" style="font-size:.875rem">
+                <ul class="nav nav-tabs nav-tabs-sm mb-3" id="howtoTabs">
+                    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#howto-claude">🤖 Claude</button></li>
+                    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#howto-openai">🟢 OpenAI</button></li>
+                    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#howto-ollama">🦙 Ollama</button></li>
+                </ul>
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="howto-claude">
+                        <ol class="mb-2">
+                            <li>Cria conta em <strong>console.anthropic.com</strong></li>
+                            <li>Vai a <em>API Keys</em> → <strong>Create Key</strong></li>
+                            <li>Copia a chave (<code>sk-ant-…</code>) e cola no campo <em>API Key</em></li>
+                            <li>Escolhe o modelo — recomendado: <code>claude-haiku-5-5</code> (rápido/barato) ou <code>claude-sonnet-4-5</code> (melhor qualidade)</li>
+                        </ol>
+                        <div class="alert alert-warning py-1 px-2 mb-0" style="font-size:.8rem">
+                            <i class="bi bi-exclamation-triangle"></i> Requer créditos na conta Anthropic. Os custos são muito baixos para uso ocasional.
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="howto-openai">
+                        <ol class="mb-2">
+                            <li>Cria conta em <strong>platform.openai.com</strong></li>
+                            <li>Vai a <em>API Keys</em> → <strong>Create new secret key</strong></li>
+                            <li>Copia a chave (<code>sk-…</code>) e cola no campo <em>API Key</em></li>
+                            <li>Escolhe o modelo — recomendado: <code>gpt-4o-mini</code> (barato) ou <code>gpt-4o</code> (melhor)</li>
+                        </ol>
+                        <div class="alert alert-warning py-1 px-2 mb-0" style="font-size:.8rem">
+                            <i class="bi bi-exclamation-triangle"></i> Requer créditos na conta OpenAI. Certifica-te que há saldo em <em>Billing</em>.
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="howto-ollama">
+                        <ol class="mb-2">
+                            <li>Instala o Ollama: <code>curl -fsSL https://ollama.com/install.sh | sh</code></li>
+                            <li>Descarrega um modelo: <code>ollama pull llama3</code> (ou <code>mistral</code>, <code>phi3</code>)</li>
+                            <li>O servidor fica disponível em <code>http://localhost:11434</code></li>
+                            <li>Se o Ollama corre noutro servidor, indica o URL completo no campo <em>URL do Ollama</em></li>
+                        </ol>
+                        <div class="alert alert-info py-1 px-2 mb-0" style="font-size:.8rem">
+                            <i class="bi bi-info-circle"></i> Ollama é gratuito e corre localmente. Não envia dados para serviços externos. Requer uma máquina com RAM suficiente (≥8 GB para modelos pequenos).
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <form method="post">
             <input type="hidden" name="action" value="save_config">
 

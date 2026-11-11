@@ -302,34 +302,36 @@ $estadoBadge = [
 </div>
 
 <style>
-/* Modal de edição/adição de oportunidade */
 #fcAddModal {
     position: fixed !important;
-    top: 0 !important; left: 0 !important;
-    width: 100% !important; height: 100% !important;
+    inset: 0 !important;
     z-index: 1055 !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
+    overflow: hidden !important;
 }
 #fcAddModal .modal-dialog {
-    height: calc(100vh - 3.5rem);
-    margin: 1.75rem auto;
+    position: absolute !important;
+    top: 2vh !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: min(95vw, 1140px) !important;
+    max-width: none !important;
+    margin: 0 !important;
+    height: 96vh !important;
 }
 #fcAddModal .modal-content {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    border-radius: 8px !important;
 }
+#fcAddModal .modal-header { flex: 0 0 auto; }
 #fcAddModal .modal-body {
-    flex: 1 1 auto;
-    overflow-y: auto;
-    overscroll-behavior: contain;
+    flex: 1 1 0 !important;
+    overflow-y: scroll !important;
+    min-height: 0 !important;
 }
-#fcAddModal .modal-header,
-#fcAddModal .modal-footer {
-    flex-shrink: 0;
-}
+#fcAddModal .modal-footer { flex: 0 0 auto; }
 </style>
 
 <div id="fc-section">
@@ -790,7 +792,7 @@ $openApiSchema"],
 
 <!-- ─── Modal: Adicionar / Editar Oportunidade ──────────────────────────────── -->
 <div class="modal fade" id="fcAddModal" tabindex="-1" aria-labelledby="fcModalTitle" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-scrollable" style="max-height:90vh">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="fcModalTitle">Nova Oportunidade</h5>

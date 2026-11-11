@@ -350,36 +350,131 @@ document.addEventListener('DOMContentLoaded', function() {
       $key = $sk['api_key'];
       $name = $sk['name'];
       $prompts = [
-        ['icon'=>'🤖','label'=>'Claude Project — Instruções (sem chave)','nota'=>'Cole em Settings → Project Instructions do Claude Project.','text'=>
+        ['icon'=>'🤖','label'=>'Claude Project — Instruções do Sistema','nota'=>'Cole em Settings → Project Instructions do Claude Project. Inclui a chave diretamente nas instruções.','text'=>
 "És um assistente especializado no scouting de oportunidades de financiamento para a equipa TRIBE do INESC TEC.
 
-A equipa tem competências em: robótica móvel, UAV, visão computacional, IA, IoT, monitorização agrícola/florestal, sensores ambientais.
+## Contexto da equipa
+Competências: robótica móvel, UAV (drones), visão computacional, IA/ML, IoT, monitorização agrícola e florestal, sensores ambientais, telemetria, edge computing.
 
-Para acederes às oportunidades usa o endpoint:
-GET {$apiEndpoint}
+## Como aceder às oportunidades
+Endpoint: GET {$apiEndpoint}
+Autenticação: cabeçalho HTTP  X-Api-Key: {$key}
 
-Este endpoint (autenticado com X-Api-Key no config MCP) devolve a lista completa de calls em JSON com todos os campos: título, área, encaixe, financiamento, datas, elegibilidade, probabilidade e próximo passo.
+Exemplo de chamada:
+curl -H \"X-Api-Key: {$key}\" \"{$apiEndpoint}\"
 
-Podes:
-- Listar e resumir oportunidades abertas por prazo
-- Identificar as mais relevantes para o perfil da equipa
-- Alertar para prazos a ≤30 dias
-- Propor próximos passos e adicionar notas via POST {\"action\":\"add_note\",\"call_id\":N,\"note_text\":\"...\"}
+A resposta é JSON com a lista completa de calls, cada uma com:
+- id, titulo, url (link para a call)
+- prioridade (A/B/C), estado (aberta/radar/fechada/arquivada)
+- area, encaixe (relevância para a equipa)
+- financiamento, duracao, datas (prazo de candidatura)
+- elegibilidade, probabilidade, proximo_passo
+- notes[] (comentários da equipa)
 
-Responde sempre em português europeu. Sê conciso e orientado para ação."],
-        ['icon'=>'🔑','label'=>'Claude Project — MCP Config (com chave)','nota'=>'Cole em Settings → Integrations → MCP do Claude Project.','text'=>
+## Como adicionar uma nota
+POST {$apiEndpoint}
+Cabeçalhos: X-Api-Key: {$key} | Content-Type: application/json
+Body: {{\"action\":\"add_note\",\"call_id\":ID_DA_CALL,\"note_text\":\"Texto da nota\"}}
+
+## Comportamento esperado
+- Responde em português europeu
+- Prioriza calls com estado=aberta, depois radar
+- Alerta para prazos nos próximos 30 dias
+- Identifica as calls com melhor encaixe para a equipa
+- Quando adicionas uma nota, confirma com o ID e título da call"],
+        ['icon'=>'⚙️','label'=>'Claude Project — MCP Config JSON','nota'=>'Cole em Settings → Integrations → MCP do Claude Project (apenas o JSON, sem as instruções acima).','text'=>
 "{\n  \"mcpServers\": {\n    \"tribe-opportunities\": {\n      \"type\": \"http\",\n      \"url\": \"{$apiEndpoint}\",\n      \"headers\": {\n        \"X-Api-Key\": \"{$key}\"\n      }\n    }\n  }\n}"],
-        ['icon'=>'🟢','label'=>'Custom GPT — System Prompt (sem chave)','nota'=>'Cole em Configure → Instructions do Custom GPT.','text'=>
-"You are a funding opportunity scout for the TRIBE team at INESC TEC (robotics, UAV, AI, IoT, agricultural/forest monitoring).
+        ['icon'=>'🟢','label'=>'Custom GPT — Instruções + Action OpenAPI','nota'=>'Cole em Configure → Instructions. Depois cria uma Action com o schema OpenAPI abaixo.','text'=>
+"You are a funding opportunity scout for the TRIBE team at INESC TEC.
+Team skills: mobile robotics, UAV, computer vision, AI/ML, IoT, agricultural/forest monitoring, environmental sensors.
 
-Use the action \"getOpportunities\" to fetch the current list of funding calls and provide analysis in European Portuguese. Focus on: deadlines, fit with team skills, priority level, and recommended next steps.
+## API Access
+Base URL: {$apiEndpoint}
+Authentication: API Key in header X-Api-Key
 
-To add a note to a call use action \"addNote\" with call_id and note_text."],
-        ['icon'=>'🔑','label'=>'Custom GPT — Chave de autenticação','nota'=>'Cole no campo "API Key" em Configure → Actions → Authentication → API Key.','text'=> $key],
-        ['icon'=>'⚙️','label'=>'n8n / Make — HTTP Request (com chave)','nota'=>'Configure um nó HTTP Request com estes parâmetros.','text'=>
-"URL: {$apiEndpoint}\nMethod: GET\nHeaders:\n  X-Api-Key: {$key}\n  Content-Type: application/json\n\n// Adicionar nota a uma oportunidade (call_id=1):\n// Method: POST\n// Body: {\"action\":\"add_note\",\"call_id\":1,\"note_text\":\"Nota do assistente\"}"],
-        ['icon'=>'💻','label'=>'cURL (com chave)','nota'=>'Execute no terminal para testar.','text'=>
-"# Listar oportunidades\ncurl -H \"X-Api-Key: {$key}\" \"{$apiEndpoint}\"\n\n# Adicionar nota (call_id=1)\ncurl -X POST \\\n  -H \"X-Api-Key: {$key}\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"action\":\"add_note\",\"call_id\":1,\"note_text\":\"Nota do assistente\"}' \\\n  \"{$apiEndpoint}\""],
+Use the getTribeOpportunities action to fetch all funding calls.
+Use the addOpportunityNote action to add notes (always confirm call_id and title first).
+
+Always respond in European Portuguese. Prioritize open calls with near deadlines.
+
+---
+# OpenAPI Schema (paste in Configure → Actions → Schema)
+openapi: 3.1.0
+info:
+  title: TRIBE Opportunities API
+  version: 1.0.0
+servers:
+  - url: {$baseUrl}/PK/api
+paths:
+  /opportunities_context.php:
+    get:
+      operationId: getTribeOpportunities
+      summary: List all funding opportunities
+      parameters:
+        - name: estado
+          in: query
+          schema: {{type: string, enum: [aberta, radar, fechada, arquivada]}}
+        - name: prioridade
+          in: query
+          schema: {{type: string, enum: [A, B, C]}}
+      security:
+        - ApiKeyAuth: []
+    post:
+      operationId: addOpportunityNote
+      summary: Add a note to an opportunity
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, call_id, note_text]
+              properties:
+                action: {{type: string, enum: [add_note]}}
+                call_id: {{type: integer}}
+                note_text: {{type: string}}
+      security:
+        - ApiKeyAuth: []
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key"],
+        ['icon'=>'🔑','label'=>'Custom GPT — Chave de API','nota'=>'Em Configure → Actions → Authentication → API Key → Header Name: X-Api-Key','text'=> $key],
+        ['icon'=>'💻','label'=>'cURL — Testar no terminal','nota'=>'Copia e cola diretamente no terminal para testar a ligação.','text'=>
+"# ── Listar todas as oportunidades ──────────────────────────
+curl -s -H \"X-Api-Key: {$key}\" \\
+  \"{$apiEndpoint}\" | python3 -m json.tool
+
+# ── Filtrar só abertas com prioridade A ──────────────────────
+curl -s -H \"X-Api-Key: {$key}\" \\
+  \"{$apiEndpoint}?estado=aberta&prioridade=A\" | python3 -m json.tool
+
+# ── Adicionar nota à oportunidade com id=1 ───────────────────
+curl -s -X POST \\
+  -H \"X-Api-Key: {$key}\" \\
+  -H \"Content-Type: application/json\" \\
+  -d '{{\"action\":\"add_note\",\"call_id\":1,\"note_text\":\"Analisada pelo assistente — prazo a 30 dias, encaixe forte.\"}}' \\
+  \"{$apiEndpoint}\""],
+        ['icon'=>'🐍','label'=>'Python — Script de integração','nota'=>'Script pronto a usar para explorar as oportunidades programaticamente.','text'=>
+"import requests, json
+
+API_KEY = \"{$key}\"
+BASE_URL = \"{$apiEndpoint}\"
+HEADERS = {{\"X-Api-Key\": API_KEY}}
+
+# Listar oportunidades abertas
+resp = requests.get(BASE_URL, headers=HEADERS, params={{\"estado\": \"aberta\"}})
+data = resp.json()
+print(f\"Total: {{data['total']}} oportunidades\")
+for call in data['calls']:
+    print(f\"[{{call['prioridade']}}] {{call['titulo']}} — {{call['datas']}}\")
+
+# Adicionar nota a uma call (substituir call_id)
+def add_note(call_id: int, note: str):
+    r = requests.post(BASE_URL, headers={{**HEADERS, 'Content-Type': 'application/json'}},
+                      json={{\"action\": \"add_note\", \"call_id\": call_id, \"note_text\": note}})
+    return r.json()"],
       ];
     ?>
     <div class="border rounded">
@@ -411,7 +506,7 @@ To add a note to a call use action \"addNote\" with call_id and note_text."],
                       onclick="navigator.clipboard.writeText(this.closest('.border').querySelector('pre').textContent).then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='Copiar',1500)})">Copiar</button>
             </div>
             <div class="text-muted mb-1" style="font-size:0.75rem"><?= htmlspecialchars($p['nota']) ?></div>
-            <pre class="bg-light rounded p-2 mb-0" style="font-size:0.72rem;white-space:pre-wrap;max-height:140px;overflow:auto"><?= htmlspecialchars($p['text']) ?></pre>
+            <pre class="bg-light rounded p-2 mb-0" style="font-size:0.72rem;white-space:pre-wrap;max-height:220px;overflow:auto"><?= htmlspecialchars($p['text']) ?></pre>
           </div>
         </div>
         <?php endforeach; ?>

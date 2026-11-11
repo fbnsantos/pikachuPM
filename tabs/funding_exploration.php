@@ -343,10 +343,10 @@ document.addEventListener('DOMContentLoaded', function() {
       <?= $pBadge[$fc['prioridade']] ?? '' ?>
       <?= $estadoBadge[$fc['estado']] ?? '' ?>
       <span class="fw-semibold flex-grow-1"><?= htmlspecialchars($fc['titulo']) ?></span>
-      <?= $deadlineBadge ?>
       <?php if ($fc['url']): ?>
-        <a href="<?= htmlspecialchars($fc['url']) ?>" target="_blank" class="btn btn-sm btn-link p-0 text-muted" onclick="event.stopPropagation()" title="Abrir call"><i class="bi bi-box-arrow-up-right"></i></a>
+        <a href="<?= htmlspecialchars($fc['url']) ?>" target="_blank" class="btn btn-sm btn-outline-secondary btn-sm py-0 px-2" onclick="event.stopPropagation()" title="Abrir call" style="font-size:0.75rem"><i class="bi bi-box-arrow-up-right me-1"></i>Call</a>
       <?php endif; ?>
+      <?= $deadlineBadge ?>
       <span class="badge bg-light text-dark border"><?= count($notes) ?> <i class="bi bi-chat-dots"></i></span>
     </div>
     <div id="<?= $fcId ?>" class="d-none">

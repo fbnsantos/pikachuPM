@@ -88,34 +88,9 @@ if (!$apiKey) {
     exit;
 }
 
-// Get context from api/context.php logic (inline call)
-$contextUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http')
-    . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost')
-    . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/') . '/context.php?window=' . urlencode($window);
-
-$ch = curl_init($contextUrl);
-curl_setopt_array($ch, [
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token],
-    CURLOPT_TIMEOUT => 30,
-    CURLOPT_SSL_VERIFYPEER => false,
-]);
-$contextJson = curl_exec($ch);
-$curlErr = curl_error($ch);
-curl_close($ch);
-
-if ($curlErr || !$contextJson) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Failed to fetch context: ' . $curlErr]);
-    exit;
-}
-
-$context = json_decode($contextJson, true);
-if (!$context || isset($context['error'])) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Context error: ' . ($context['error'] ?? 'unknown')]);
-    exit;
-}
+// Load context data directly (no HTTP self-call — avoids Apache stripping Authorization)
+require_once __DIR__ . '/_context_data.php';
+$context = $ctx;
 
 // Build system prompt
 $sysPrompt = "És um assistente de gestão de projeto para uma equipa de investigação e desenvolvimento. "

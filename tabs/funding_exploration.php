@@ -673,7 +673,8 @@ $openApiSchema"],
 <?php foreach ($allCalls as $fc):
     $notes = $allNotes[$fc['id']] ?? [];
     $fcId = 'fc-card-' . $fc['id'];
-    $fcDeadline = fcExtractDeadline($fc['datas'] ?? '');
+    // Coluna deadline tem prioridade; fallback para parse do texto datas
+    $fcDeadline = (!empty($fc['deadline']) ? new DateTime($fc['deadline']) : null) ?? fcExtractDeadline($fc['datas'] ?? '');
     $now = new DateTime();
     $daysLeft = $fcDeadline ? (int)$now->diff($fcDeadline)->format('%r%a') : null;
     if ($fcDeadline && $daysLeft !== null) {

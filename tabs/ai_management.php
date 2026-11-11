@@ -57,16 +57,20 @@ if (!$isAdmin && !$isDelegate) {
 }
 
 // Helper
+if (!function_exists('getSetting')) :
 function getSetting(PDO $pdo, string $key, string $default = ''): string {
     $st = $pdo->prepare("SELECT setting_value FROM app_settings WHERE setting_key = ?");
     $st->execute([$key]);
     $row = $st->fetch(PDO::FETCH_ASSOC);
     return $row ? $row['setting_value'] : $default;
 }
+endif;
+if (!function_exists('setSetting')) :
 function setSetting(PDO $pdo, string $key, string $value): void {
     $pdo->prepare("INSERT INTO app_settings (setting_key, setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)")
         ->execute([$key, $value]);
 }
+endif;
 
 // --- Process POST (admin only for config changes) ---
 $flash = '';
@@ -110,14 +114,14 @@ $hasKey       = !empty($cfgApiKey);
 // Load delegates (admin only)
 $delegates = [];
 if ($isAdmin) {
-    $delegates = $pdo->query("SELECT ad.user_id, u.username, ad.created_at FROM ai_delegates ad LEFT JOIN utilizadores u ON u.id = ad.user_id ORDER BY ad.created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
-    $allUsers = $pdo->query("SELECT id, username FROM utilizadores WHERE ativo = 1 ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
+    $delegates = $pdo->query("SELECT ad.user_id, ut.username, ad.created_at FROM ai_delegates ad LEFT JOIN (SELECT DISTINCT user_id, username FROM user_tokens) ut ON ut.user_id = ad.user_id ORDER BY ad.created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+    $allUsers = $pdo->query("SELECT DISTINCT user_id as id, username FROM user_tokens ORDER BY username")->fetchAll(PDO::FETCH_ASSOC);
     $delegateIds = array_column($delegates, 'user_id');
 }
 
 // Recent summaries
-$summaries = $pdo->query("SELECT s.id, s.window_type, s.provider, s.model, LEFT(s.summary, 300) as preview, s.created_at, u.username
-    FROM ai_summaries s LEFT JOIN utilizadores u ON u.id = s.user_id
+$summaries = $pdo->query("SELECT s.id, s.window_type, s.provider, s.model, LEFT(s.summary, 300) as preview, s.created_at, ut.username
+    FROM ai_summaries s LEFT JOIN (SELECT DISTINCT user_id, username FROM user_tokens) ut ON ut.user_id = s.user_id
     ORDER BY s.created_at DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);
 
 // Get user token for JS

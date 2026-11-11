@@ -127,10 +127,13 @@ $summaries = $pdo->query("SELECT s.id, s.window_type, s.provider, s.model, LEFT(
     FROM ai_summaries s LEFT JOIN (SELECT DISTINCT user_id, username FROM user_tokens) ut ON ut.user_id = s.user_id
     ORDER BY s.created_at DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);
 
-// Get user token for JS
-$stToken = $pdo->prepare("SELECT token FROM user_tokens WHERE user_id = ? LIMIT 1");
-$stToken->execute([$currentUserId]);
-$userToken = ($stToken->fetch(PDO::FETCH_ASSOC))['token'] ?? '';
+// $user_api_token is set by index.php before including this tab
+$userToken = $user_api_token ?? '';
+if (!$userToken) {
+    $stToken = $pdo->prepare("SELECT token FROM user_tokens WHERE user_id = ? LIMIT 1");
+    $stToken->execute([$currentUserId]);
+    $userToken = ($stToken->fetch(PDO::FETCH_ASSOC))['token'] ?? '';
+}
 
 $defaultModels = [
     'claude' => 'claude-haiku-5-5',

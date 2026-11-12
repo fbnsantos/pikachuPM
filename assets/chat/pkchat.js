@@ -167,6 +167,13 @@
   // Gerado com Web Audio (sem ficheiros). Os browsers só deixam tocar depois de
   // um clique/toque na página, por isso o contexto é "desbloqueado" no 1.º gesto.
   const SOUND_KEY = 'pkchat_sound';
+  const LISTMODE_KEY = 'pkchat_list_mode';
+  const LISTMODES = {
+    all:      { toast: 'A mostrar todos os canais' },
+    unread:   { toast: '🔵 Só canais com mensagens por ler' },
+    mentions: { toast: '@ Só canais com mensagens por ler que te mencionam' },
+  };
+  function savedListMode() { try { const v = localStorage.getItem(LISTMODE_KEY); return LISTMODES[v] ? v : 'all'; } catch (e) { return 'all'; } }
   let audioCtx = null, lastDing = 0;
   function soundEnabled() { try { return localStorage.getItem(SOUND_KEY) !== '0'; } catch (e) { return true; } }
   function setSound(on) { try { localStorage.setItem(SOUND_KEY, on ? '1' : '0'); } catch (e) {} }
@@ -229,6 +236,7 @@
       msgs: new Map(), order: [], lastId: 0, since: '', hasMore: false, loadingOlder: false,
       firstUnreadId: 0, readSent: 0, reads: [], typing: [],
       view: 'chat', replyTo: null, editingId: null, pending: [], sending: false,
+      listMode: savedListMode(),
       topicFilter: 0, topics: opts.topics || [], requireTopic: !!opts.require_topic,
       pollTimer: null, chanTimer: null, lastActivity: 0, inPoll: false, pollKick: false, lastChannelsAt: 0, lastTypingSent: 0,
       blobUrls: new Map(), prevLast: null, newWhileUp: 0, destroyed: false, gen: 0,
@@ -246,6 +254,8 @@
           <span class="pkc-side-title">💬 Chat</span>
           <button class="pkc-ibtn pkc-sound-btn" data-act="sound" title="Som das mensagens">${soundEnabled() ? '🔊' : '🔇'}</button>
           <button class="pkc-ibtn" data-act="notif" title="Activar notificações">🔔</button>
+          <button class="pkc-ibtn pkc-listmode-btn" data-act="listmode" data-mode="unread" title="Mostrar só canais com mensagens por ler">🔵</button>
+          <button class="pkc-ibtn pkc-listmode-btn pkc-listmode-at" data-act="listmode" data-mode="mentions" title="Mostrar só canais com mensagens por ler que te mencionam (@)">@</button>
           ${opts.onClose ? '<button class="pkc-ibtn" data-act="close" title="Fechar">✕</button>' : ''}
         </div>
         <div class="pkc-side-search"><input type="search" class="pkc-chan-filter" placeholder="Procurar canal…" autocomplete="off"></div>
@@ -413,12 +423,17 @@
       opts.onUnread(t, m);
     }
 
+    function renderListModeBtn() {
+      wrap.querySelectorAll('.pkc-listmode-btn').forEach(b => b.classList.toggle('pkc-on', b.dataset.mode === S.listMode));
+    }
     function renderChannels() {
       if (!full) return;
       const f = S.filter.trim().toLowerCase();
       const groups = { sprint: [], prototype: [], lead: [], project: [], lab: [] };
       // Abertos primeiro; dentro disso, mensagem mais recente primeiro; sem mensagens no fim (por nome)
+      const mode = S.listMode; // 'all' | 'unread' (só por ler) | 'mentions' (só por ler com o meu nome)
       S.channels.sort((a, b) => {
+        if (mode !== 'all' && !!a.unread !== !!b.unread) return a.unread ? -1 : 1;
         if (a.closed !== b.closed) return a.closed ? 1 : -1;
         const ta = a.last ? a.last.created_at : '', tb = b.last ? b.last.created_at : '';
         if (ta !== tb) return ta < tb ? 1 : -1;
@@ -427,10 +442,23 @@
       S.channels.forEach(c => {
         if (c.closed && !S.showClosed && !(S.cur && S.cur.type === c.type && S.cur.id === c.id)) return;
         if (f && !c.title.toLowerCase().includes(f)) return;
+        const isCur = S.cur && S.cur.type === c.type && S.cur.id === c.id;
+        if (mode === 'unread' && !c.unread && !isCur) return;
+        if (mode === 'mentions' && !c.mentions && !isCur) return;
         groups[c.type].push(c);
       });
       let html = '';
-      for (const type of ['sprint', 'prototype', 'lead', 'project', 'lab']) {
+      // Com filtro activo: só grupos com resultados, os que têm mensagens por ler primeiro
+      let types = ['sprint', 'prototype', 'lead', 'project', 'lab'];
+      if (mode !== 'all') {
+        const hasUnread = t => groups[t].some(c => c.unread);
+        types = types.filter(t => groups[t].length);
+        types = types.filter(hasUnread).concat(types.filter(t => !hasUnread(t)));
+        if (!types.length && S.channels.length) {
+          html = `<div class="pkc-muted pkc-pad">${mode === 'mentions' ? 'Não tens menções por ler' : 'Não tens mensagens por ler'} 🎉${f ? ' nesses canais' : ''}.</div>`;
+        }
+      }
+      for (const type of types) {
         const list = groups[type];
         const unread = list.reduce((a, c) => a + c.unread, 0);
         const col = S.collapsed[type];
@@ -1137,6 +1165,15 @@
         case 'group': S.collapsed[t.dataset.type] = !S.collapsed[t.dataset.type]; renderChannels(); break;
         case 'back': wrap.classList.remove('pkc-has-conv'); stopPoll(); S.cur = null; S.gen++; renderChannels(); loadChannels(true); break;
         case 'close': opts.onClose && opts.onClose(); break;
+        case 'listmode': {
+          // Os dois botões são interruptores: clicar no activo volta a mostrar todos
+          const next = S.listMode === t.dataset.mode ? 'all' : t.dataset.mode;
+          S.listMode = next;
+          try { localStorage.setItem(LISTMODE_KEY, next); } catch (e) {}
+          renderListModeBtn(); renderChannels();
+          toast(LISTMODES[next].toast);
+          break;
+        }
         case 'sound': {
           const on = !soundEnabled();
           setSound(on);
@@ -1335,6 +1372,7 @@
     document.addEventListener('keydown', onKey);
 
     // canais sem conversa aberta: actualizar a lista periodicamente
+    renderListModeBtn();
     if (full) S.chanTimer = setInterval(() => { if (!S.cur && !document.hidden) loadChannels(true); }, CHANNELS_EVERY);
 
     // ══ ARRANQUE ═══════════════════════════════════════════════

@@ -287,3 +287,7 @@
 .pkc-topic-tag.closed { border-color: var(--pkc-border); background: var(--pkc-hover); color: var(--pkc-muted); }
 .pkc-menu .pkc-current { font-weight: 700; color: var(--pkc-accent); }
 .pkc-menu { max-height: 320px; overflow-y: auto; }
+
+/* Filtros da lista de canais: 🔵 só por ler, @ só menções por ler */
+.pkc-listmode-at { font-weight: 700; color: var(--pkc-accent); }
+.pkc-listmode-btn.pkc-on { background: var(--pkc-accent-soft); outline: 1px solid var(--pkc-accent); }

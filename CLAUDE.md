@@ -250,6 +250,7 @@ Chat estilo Teams. Canais = sprints, protótipos e leads; membros = `responsavel
 - Som: Web Audio em `pkchat.js` (`PKChat.ding`); preferência em `localStorage.pkchat_sound`.
 - Badge no ícone da app (Badging API): `chatSetAppBadge` em `PWA/app.js` (a partir do contador de não lidas) e `navigator.setAppBadge(unread_total)` no `sw.js` ao receber push. Funciona em PWA instalada no Windows/macOS/ChromeOS (Chrome/Edge) e iOS 16.4+; no Android o launcher mostra ponto/contagem a partir das notificações.
 - Lab Chat (canal `lab:1`): cada mensagem tem `topic_id` → `lab_issues` (obrigatório ao enviar). A API devolve `topic_title`; `topics` lista abertos + fechados que já têm mensagens (`closed`); `set_topic` (POST, autor ou admin) muda o assunto. No widget: etiqueta 🏷️ clicável em cada mensagem (filtra), "🏷️ Mudar assunto" no menu ⋯, e com filtro activo o poll ignora mensagens de outros assuntos.
+- Filtros da lista de canais (cabeçalho da barra lateral, ao lado de 🔊🔔): 🔵 só canais com mensagens por ler, @ só canais com menções por ler (`c.mentions`). São interruptores (clicar no activo volta a "todos"); o canal aberto nunca desaparece; preferência em `localStorage.pkchat_list_mode`.
 - Versão da PWA: subir em conjunto `?v=` no `index.html`, `CACHE`/`V` no `sw.js` e `APP_VER` no `app.js`.
 
 ---

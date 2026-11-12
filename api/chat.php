@@ -380,6 +380,15 @@ function chat_hydrate(PDO $pdo, array $rows, int $uid): array {
         }
     }
 
+    // Títulos dos assuntos (Lab Chat → lab_issues)
+    $topicTitles = [];
+    $topicIds = array_values(array_unique(array_filter(array_map(fn($r) => (int)($r['topic_id'] ?? 0), $rows))));
+    if ($topicIds && chat_table_exists($pdo, 'lab_issues')) {
+        foreach ($pdo->query('SELECT id, titulo FROM lab_issues WHERE id IN (' . implode(',', $topicIds) . ')') as $t) {
+            $topicTitles[(int)$t['id']] = $t['titulo'];
+        }
+    }
+
     $out = [];
     foreach ($rows as $r) {
         $id      = (int)$r['id'];
@@ -396,6 +405,7 @@ function chat_hydrate(PDO $pdo, array $rows, int $uid): array {
             'system'      => (bool)$r['is_system'],
             'reply_to'    => $r['reply_to'] ? ($replies[(int)$r['reply_to']] ?? null) : null,
             'topic_id'    => isset($r['topic_id']) ? ($r['topic_id'] !== null ? (int)$r['topic_id'] : null) : null,
+            'topic_title' => !empty($r['topic_id']) ? ($topicTitles[(int)$r['topic_id']] ?? ('Assunto #' . (int)$r['topic_id'])) : null,
             'attachments' => $deleted ? [] : ($atts[$id] ?? []),
             'reactions'   => $deleted ? [] : array_values($reacts[$id] ?? []),
         ];
@@ -667,7 +677,7 @@ function chat_json_then($data, callable $after): void {
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $action = (string)($_GET['action'] ?? $_POST['action'] ?? '');
 
-$POST_ACTIONS = ['send', 'edit', 'delete', 'react', 'pin', 'read', 'typing', 'push_subscribe', 'push_unsubscribe', 'push_test', 'push_inbox'];
+$POST_ACTIONS = ['send', 'edit', 'set_topic', 'delete', 'react', 'pin', 'read', 'typing', 'push_subscribe', 'push_unsubscribe', 'push_test', 'push_inbox'];
 if (in_array($action, $POST_ACTIONS, true) && $method !== 'POST') chat_err(405, 'Use POST');
 
 // Pedido maior que post_max_size → o PHP descarta $_POST/$_FILES sem aviso
@@ -717,10 +727,38 @@ switch ($action) {
         if ($type !== 'lab') chat_err(400, 'Tópicos só disponíveis no canal Lab');
         $topics = [];
         if (chat_table_exists($pdo, 'lab_issues')) {
-            $st = $pdo->query("SELECT id, titulo, status, prioridade FROM lab_issues WHERE status NOT IN ('resolvido','fechado') ORDER BY prioridade DESC, id DESC");
-            $topics = $st->fetchAll();
+            // Abertos + fechados que já têm mensagens (para continuar a poder filtrar o histórico)
+            $st = $pdo->query("SELECT id, titulo, status, prioridade, (status IN ('resolvido','fechado')) AS closed
+                               FROM lab_issues
+                               WHERE status NOT IN ('resolvido','fechado')
+                                  OR id IN (SELECT DISTINCT topic_id FROM chat_messages
+                                            WHERE channel_type = 'lab' AND topic_id IS NOT NULL)
+                               ORDER BY closed, prioridade DESC, id DESC");
+            $topics = array_map(function ($t) {
+                $t['id'] = (int)$t['id'];
+                $t['closed'] = (bool)$t['closed'];
+                return $t;
+            }, $st->fetchAll());
         }
         chat_json(['topics' => $topics]);
+    }
+
+    // ── Mudar o assunto de uma mensagem (Lab Chat) ──────────────
+    case 'set_topic': {
+        [$type, $id, , $canWrite] = chat_require_channel($pdo, $uid, $SRC);
+        if ($type !== 'lab') chat_err(400, 'Assuntos só disponíveis no canal Lab');
+        if (!$canWrite) chat_err(409, 'Canal arquivado — apenas leitura');
+        $m = chat_load_msg($pdo, (int)($SRC['message_id'] ?? 0), $type, $id);
+        if ((int)$m['user_id'] !== $uid && !chat_is_admin($pdo, $uid)) chat_err(403, 'Só podes mudar o assunto das tuas mensagens');
+        if ($m['deleted_at']) chat_err(409, 'Mensagem eliminada');
+        $topicId = (int)($SRC['topic_id'] ?? 0);
+        if (!$topicId || !chat_table_exists($pdo, 'lab_issues')) chat_err(400, 'Assunto inválido');
+        $st = $pdo->prepare('SELECT 1 FROM lab_issues WHERE id = ?');
+        $st->execute([$topicId]);
+        if (!$st->fetchColumn()) chat_err(404, 'Assunto não encontrado');
+        $pdo->prepare('UPDATE chat_messages SET topic_id = ?, updated_at = NOW(3) WHERE id = ?')
+            ->execute([$topicId, (int)$m['id']]);
+        chat_json(['ok' => true]);
     }
 
     // ── Mensagens (página inicial / mais antigas) ───────────────

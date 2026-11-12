@@ -1,5 +1,5 @@
-const CACHE = 'pikachu-pwa-v45';
-const V = '?v=45';
+const CACHE = 'pikachu-pwa-v46';
+const V = '?v=46';
 const CHAT_CFG_CACHE = 'pk-chat-cfg'; // guarda o URL da API do chat para o handler de push
 // Os URLs têm de coincidir com os do index.html (incluindo ?v=), para servir offline
 const SHELL = [

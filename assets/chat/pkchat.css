@@ -277,3 +277,13 @@
 .pkc.pkc-narrow .pkc-hint { visibility: hidden; }
 .pkc.pkc-narrow .pkc-table th:nth-child(3), .pkc.pkc-narrow .pkc-table td:nth-child(3) { display: none; }
 .pkc.pkc-narrow .pkc-emoji-pop, .pkc.pkc-narrow .pkc-mention-pop { left: 8px; right: 8px; width: auto; }
+
+/* Etiqueta de assunto (Lab Chat) */
+.pkc-topic-tag { display: inline-flex; align-items: center; gap: 3px; max-width: 100%; margin: 2px 0 4px; padding: 1px 8px;
+  border: 1px solid var(--pkc-accent); border-radius: 999px; background: var(--pkc-accent-soft); color: var(--pkc-accent);
+  font-size: .76em; font-weight: 600; line-height: 1.5; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pkc-topic-tag:hover { filter: brightness(.95); text-decoration: underline; }
+.pkc-topic-tag.active { background: var(--pkc-accent); color: #fff; }
+.pkc-topic-tag.closed { border-color: var(--pkc-border); background: var(--pkc-hover); color: var(--pkc-muted); }
+.pkc-menu .pkc-current { font-weight: 700; color: var(--pkc-accent); }
+.pkc-menu { max-height: 320px; overflow-y: auto; }

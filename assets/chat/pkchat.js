@@ -592,6 +592,7 @@
         <div class="pkc-av" style="background:${avColor(m.user_id)}" title="${esc(m.username)}">${esc(initials(m.username))}</div>
         <div class="pkc-bubble">
           <div class="pkc-meta"><b>${esc(m.username)}</b><span title="${d.toLocaleString('pt-PT')}">${fmtTime(d)}</span>${m.edited ? '<span class="pkc-muted">Editada</span>' : ''}${m.pinned ? '<span title="Afixada">📌</span>' : ''}</div>
+          ${m.topic_id && !m.deleted ? topicTagHtml(m) : ''}
           ${m.reply_to ? `<button class="pkc-quote" data-act="goto" data-target="${m.reply_to.id}"><b>${esc(m.reply_to.username)}</b><span>${esc(m.reply_to.body)}</span></button>` : ''}
           ${editing
             ? `<div class="pkc-edit"><textarea>${esc(m.body)}</textarea><div class="pkc-edit-btns"><button data-act="edit-cancel">Cancelar</button><button class="pkc-primary" data-act="edit-save">Guardar</button></div></div>`
@@ -663,7 +664,7 @@
       S.loadingOlder = true;
       const gen = S.gen;
       try {
-        const d = await api.get('messages', { type: S.cur.type, id: S.cur.id, before_id: S.order[0], limit: 50 });
+        const d = await api.get('messages', { type: S.cur.type, id: S.cur.id, before_id: S.order[0], limit: 50, ...(S.topicFilter ? { topic_id: S.topicFilter } : {}) });
         if (gen !== S.gen) return;
         d.messages.forEach(upsert);
         S.order.sort((a, b) => a - b);
@@ -709,6 +710,12 @@
         let newFromOthers = 0, changed = false, mentioned = false;
         d.messages.forEach(m => {
           const old = S.msgs.get(m.id);
+          // Filtro por assunto activo: ignora (ou retira) mensagens de outros assuntos
+          if (S.topicFilter && m.topic_id != S.topicFilter) {
+            if (old) { S.msgs.delete(m.id); S.order = S.order.filter(x => x !== m.id); changed = true; }
+            if (m.id > S.lastId) S.lastId = m.id;
+            return;
+          }
           if (!old && S.me && m.user_id !== S.me.user_id && !m.deleted) {
             newFromOthers++;
             if (mentionsMe(m)) mentioned = true;
@@ -837,6 +844,20 @@
     }
 
     // ── Tópicos (canal lab) ────────────────────────────────────
+    function topicTitle(tid, fallback) {
+      const t = S.topics.find(x => x.id == tid);
+      if (t) return t.titulo;
+      if (fallback) return fallback;
+      const m = [...S.msgs.values()].find(x => x.topic_id == tid && x.topic_title);
+      return m ? m.topic_title : 'Assunto #' + tid;
+    }
+    function topicTagHtml(m) {
+      const t = S.topics.find(x => x.id == m.topic_id);
+      const closed = t && t.closed;
+      const title = topicTitle(m.topic_id, m.topic_title);
+      return `<button class="pkc-topic-tag${closed ? ' closed' : ''}${S.topicFilter == m.topic_id ? ' active' : ''}" data-act="topic" data-topic="${m.topic_id}"
+        title="${closed ? 'Assunto fechado — ' : ''}Mostrar só as mensagens deste assunto">🏷️ ${esc(title)}${closed ? ' ✓' : ''}</button>`;
+    }
     function renderTopicBar() {
       if (!D.topicBar) return;
       const show = S.requireTopic && S.topics.length > 0;
@@ -844,10 +865,21 @@
       if (!show) return;
       const sel = D.topicSelect;
       const prev = sel.value;
+      const opt = t => `<option value="${t.id}">${esc(t.titulo)}</option>`;
+      const open = S.topics.filter(t => !t.closed), closed = S.topics.filter(t => t.closed);
       sel.innerHTML = '<option value="">— Escolher assunto —</option>' +
-        S.topics.map(t => `<option value="${t.id}"${String(t.id) === prev ? ' selected' : ''}>${esc(t.titulo)}</option>`).join('');
+        (closed.length ? `<optgroup label="Abertos">${open.map(opt).join('')}</optgroup><optgroup label="Fechados">${closed.map(opt).join('')}</optgroup>`
+                       : open.map(opt).join(''));
       if (prev) sel.value = prev;
       if (D.topicClearBtn) D.topicClearBtn.hidden = !S.topicFilter;
+    }
+    // Menu ⋯ → "Mudar assunto": lista os assuntos abertos (e o actual, se estiver fechado)
+    function openTopicMenu(m) {
+      const list = S.topics.filter(t => !t.closed || t.id == m.topic_id);
+      if (!list.length) { toast('Não há assuntos abertos', true); closePops(); return; }
+      D.menu.innerHTML = '<div class="pkc-pop-title">Mudar assunto</div>' + list.map(t =>
+        `<button data-act="m-settopic" data-mid="${m.id}" data-topic="${t.id}"${t.id == m.topic_id ? ' class="pkc-current"' : ''}>${t.id == m.topic_id ? '✓ ' : ''}${esc(t.titulo)}${t.closed ? ' (fechado)' : ''}</button>`).join('');
+      D.menu.hidden = false;
     }
 
     async function loadTopics() {
@@ -856,8 +888,11 @@
         const d = await api.get('topics', { type: S.cur.type, id: S.cur.id });
         S.topics = d.topics || [];
         renderTopicBar();
-        // Pré-seleccionar e filtrar automaticamente se vier default_topic
-        const defTopic = opts.default_topic || 0;
+        if (S.msgs.size && !S.editingId) renderMessages(); // etiquetas: estado aberto/fechado
+        // Pré-seleccionar e filtrar automaticamente se vier default_topic (só na primeira vez,
+        // para o "✕ Todos" não voltar a aplicar o filtro)
+        const defTopic = S.defTopicUsed ? 0 : (opts.default_topic || 0);
+        S.defTopicUsed = true;
         if (defTopic && S.topics.some(t => t.id == defTopic)) {
           if (D.topicSelect) D.topicSelect.value = String(defTopic);
           applyTopicFilter(defTopic);
@@ -876,8 +911,8 @@
         d.messages.forEach(upsert);
         S.hasMore = d.has_more;
         renderMessages({ toBottom: true });
-        const topicTitle = S.topics.find(t => t.id == tid)?.titulo || '';
-        if (D.banner) { D.banner.hidden = false; D.banner.innerHTML = `🔍 A mostrar mensagens do assunto: <strong>${esc(topicTitle)}</strong>`; }
+        if (D.topicSelect && S.topics.some(t => t.id == tid)) D.topicSelect.value = String(tid);
+        if (D.banner) { D.banner.hidden = false; D.banner.innerHTML = `🔍 A mostrar mensagens do assunto: <strong>${esc(topicTitle(tid))}</strong>`; }
       }).catch(e => toast('Erro ao filtrar: ' + e.message, true));
     }
 
@@ -1031,6 +1066,7 @@
       if (canWrite) items.push(['pin', m.pinned ? '📌 Desafixar' : '📌 Afixar']);
       if (canWrite) items.push(['emoji-react', '😊 Outra reacção…']);
       if (mine && canWrite && m.body !== undefined) items.push(['edit', '✏️ Editar']);
+      if (S.requireTopic && canWrite && (mine || isAdmin) && !m.deleted && !m.system) items.push(['topic', '🏷️ Mudar assunto']);
       if ((mine && canWrite) || isAdmin) items.push(['delete', '🗑 Eliminar']);
       D.menu.innerHTML = items.map(([a, l]) => `<button data-act="m-${a}" data-mid="${m.id}"${a === 'delete' ? ' class="pkc-danger"' : ''}>${l}</button>`).join('');
       D.menu.hidden = false;
@@ -1071,8 +1107,9 @@
     async function act(action, data) {
       try {
         await api.post(action, Object.assign({ type: S.cur.type, id: S.cur.id }, data));
-        stopPoll(); poll();
-      } catch (e) { toast(e.message, true); }
+        kickPoll();
+        return true;
+      } catch (e) { toast(e.message, true); return false; }
     }
 
     // ══ EVENTOS ════════════════════════════════════════════════
@@ -1169,6 +1206,15 @@
         case 'm-delete':
           if (confirm('Eliminar esta mensagem? Os anexos também serão removidos.')) act('delete', { message_id: mid });
           break;
+        case 'm-topic': if (S.msgs.get(mid)) openTopicMenu(S.msgs.get(mid)); break;
+        case 'm-settopic': {
+          const tid = parseInt(t.dataset.topic, 10) || 0;
+          closePops();
+          const cm = S.msgs.get(mid);
+          if (tid && cm && cm.topic_id != tid) act('set_topic', { message_id: mid, topic_id: tid }).then(ok => ok && toast('Assunto alterado'));
+          break;
+        }
+        case 'topic': closePops(); applyTopicFilter(t.dataset.topic); break;
         case 'edit-cancel': S.editingId = null; renderMessages(); break;
         case 'edit-save': saveEdit(); break;
         case 'goto': gotoMsg(t.dataset.target); break;

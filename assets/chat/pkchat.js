@@ -76,7 +76,65 @@
     if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return '🎬';
     if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) return '🎵';
     if (['stl', 'step', 'stp', 'dxf', 'dwg'].includes(ext)) return '📐';
+    if (['md', 'markdown'].includes(ext)) return '📝';
     return '📄';
+  }
+
+  // ── Ficheiros que abrem no visualizador do chat (em vez de descarregar) ──
+  const VIEW_EXT = { md: 'md', markdown: 'md', txt: 'text', log: 'text', json: 'json', csv: 'csv' };
+  const VIEW_MAX = 2 * 1048576; // acima disto descarrega
+  function viewKind(name, size) {
+    const k = VIEW_EXT[String(name).split('.').pop().toLowerCase()] || null;
+    return k && !(size > VIEW_MAX) ? k : null;
+  }
+  const MD_LIBS = [
+    ['marked', 'https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js'],
+    ['DOMPurify', 'https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js'],
+  ];
+  let mdLibsP = null;
+  function loadScript(src) {
+    return new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = src; s.async = true; s.onload = res; s.onerror = () => rej(new Error('Falha ao carregar ' + src));
+      document.head.appendChild(s);
+    });
+  }
+  /** Carrega marked + DOMPurify só quando é preciso (1.º .md aberto). */
+  function loadMdLibs() {
+    if (window.marked && window.DOMPurify) return Promise.resolve();
+    if (!mdLibsP) mdLibsP = Promise.all(MD_LIBS.map(([g, src]) => window[g] ? null : loadScript(src)))
+      .catch(e => { mdLibsP = null; throw e; });
+    return mdLibsP;
+  }
+  function mdToSafeHtml(src) {
+    const mk = window.marked;
+    const html = typeof mk.parse === 'function' ? mk.parse(src, { gfm: true }) : mk(src);
+    return window.DOMPurify.sanitize(html, {
+      ALLOW_DATA_ATTR: false, // impede que o ficheiro injecte data-act e dispare acções do chat
+      FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select', 'iframe'],
+      FORBID_ATTR: ['style'],
+    });
+  }
+  /** CSV simples (aspas, ; ou , ou tab) → linhas. */
+  function parseCsv(text) {
+    const first = text.split('\n', 1)[0];
+    const cnt = c => first.split(c).length;
+    const sep = [';', '\t', ','].reduce((b, c) => cnt(c) > cnt(b) ? c : b, ',');
+    const rows = []; let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) {
+        if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+        else cell += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === sep) { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += ch;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    return rows;
   }
 
   /** Markdown leve: ```bloco```, `código`, **negrito**, _itálico_, ~~riscado~~, links e @menções. */
@@ -321,6 +379,17 @@
       </section>
       <div class="pkc-pop pkc-menu" hidden></div>
       <div class="pkc-lightbox" hidden><img alt=""><button class="pkc-ibtn" data-act="lb-close">✕</button></div>
+      <div class="pkc-viewer" hidden>
+        <div class="pkc-viewer-box" role="dialog" aria-modal="true">
+          <header class="pkc-viewer-head">
+            <span class="pkc-viewer-ico"></span><b class="pkc-viewer-name"></b>
+            <button class="pkc-ibtn pkc-viewer-raw" data-act="v-raw" title="Alternar entre o documento formatado e o texto original">&lt;/&gt;</button>
+            <button class="pkc-ibtn" data-act="v-dl" title="Descarregar o ficheiro">⤓</button>
+            <button class="pkc-ibtn" data-act="v-close" title="Fechar (Esc)">✕</button>
+          </header>
+          <div class="pkc-viewer-body"></div>
+        </div>
+      </div>
       <div class="pkc-toast" hidden></div>`;
     root.appendChild(wrap);
 
@@ -336,7 +405,7 @@
       composer: $('.pkc-composer'), replyBar: $('.pkc-reply-bar'), pending: $('.pkc-pending'), progress: $('.pkc-progress'),
       topicBar: $('.pkc-topic-bar'), topicSelect: $('.pkc-topic-select'), topicFilterBtn: $('.pkc-topic-filter-btn'), topicClearBtn: $('.pkc-topic-clear-btn'),
       input: $('.pkc-composer textarea'), file: $('.pkc-file'), mentionPop: $('.pkc-mention-pop'), emojiPop: $('.pkc-emoji-pop'),
-      menu: $('.pkc-menu'), lightbox: $('.pkc-lightbox'), toast: $('.pkc-toast'),
+      menu: $('.pkc-menu'), lightbox: $('.pkc-lightbox'), toast: $('.pkc-toast'), viewer: $('.pkc-viewer'),
     };
 
     // modo compacto (telemóvel)
@@ -380,6 +449,61 @@
         setTimeout(() => URL.revokeObjectURL(a.href), 4000);
       } catch (e) { toast('Erro ao descarregar: ' + e.message, true); }
     }
+
+    // ── Visualizador de .md / .txt / .json / .csv ──────────────
+    const V = { id: 0, name: '', kind: null, text: '', raw: false, noLib: false, seq: 0 };
+    const vBody = () => D.viewer.querySelector('.pkc-viewer-body');
+    async function openViewer(id, name) {
+      const kind = viewKind(name);
+      if (!kind) return download(id, name);
+      closePops();
+      const seq = ++V.seq;
+      Object.assign(V, { id, name, kind, text: '', raw: false, noLib: false });
+      D.viewer.querySelector('.pkc-viewer-name').textContent = name;
+      D.viewer.querySelector('.pkc-viewer-ico').textContent = fileIcon(name);
+      D.viewer.querySelector('.pkc-viewer-raw').hidden = kind === 'text';
+      vBody().innerHTML = '<div class="pkc-muted pkc-pad">A carregar…</div>';
+      D.viewer.hidden = false;
+      try {
+        const b = await api.blob('file', { file_id: id });
+        const text = (await b.text()).replace(/^﻿/, '');
+        if (kind === 'md') { try { await loadMdLibs(); } catch (_) { V.noLib = true; } }
+        if (seq !== V.seq || D.viewer.hidden) return;
+        V.text = text;
+        renderViewer();
+      } catch (e) {
+        if (seq === V.seq) vBody().innerHTML = `<div class="pkc-err pkc-pad">Não foi possível abrir o ficheiro: ${esc(e.message)}</div>`;
+      }
+    }
+    function renderViewer() {
+      const body = vBody();
+      D.viewer.querySelector('.pkc-viewer-raw').classList.toggle('pkc-on', V.raw);
+      const pre = (t, note) => (note ? `<div class="pkc-viewer-note">${esc(note)}</div>` : '') + `<pre class="pkc-viewer-pre">${esc(t)}</pre>`;
+      if (V.raw || V.kind === 'text') body.innerHTML = pre(V.text);
+      else if (V.kind === 'md') {
+        if (V.noLib) body.innerHTML = pre(V.text, 'Sem ligação para formatar o Markdown — a mostrar o texto original.');
+        else {
+          body.innerHTML = `<div class="pkc-md">${mdToSafeHtml(V.text)}</div>`;
+          body.querySelectorAll('a[href]').forEach(a => {
+            if (a.getAttribute('href').startsWith('#')) return;
+            a.target = '_blank'; a.rel = 'noopener noreferrer';
+          });
+          body.querySelectorAll('img').forEach(i => { i.loading = 'lazy'; i.referrerPolicy = 'no-referrer'; });
+        }
+      } else if (V.kind === 'json') {
+        try { body.innerHTML = pre(JSON.stringify(JSON.parse(V.text), null, 2)); }
+        catch (e) { body.innerHTML = pre(V.text, 'JSON inválido: ' + e.message); }
+      } else if (V.kind === 'csv') {
+        const rows = parseCsv(V.text).filter(r => r.some(c => c.trim() !== ''));
+        if (!rows.length) { body.innerHTML = '<div class="pkc-muted pkc-pad">Ficheiro vazio.</div>'; return; }
+        const LIM = 2000, head = rows[0], rest = rows.slice(1, LIM + 1);
+        body.innerHTML = (rows.length - 1 > LIM ? `<div class="pkc-viewer-note">A mostrar as primeiras ${LIM} de ${rows.length - 1} linhas.</div>` : '') +
+          `<div class="pkc-viewer-csv"><table><thead><tr>${head.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>` +
+          `<tbody>${rest.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      }
+      body.scrollTop = 0;
+    }
+    function closeViewer() { D.viewer.hidden = true; V.seq++; vBody().innerHTML = ''; }
 
     // ══ LISTA DE CANAIS ════════════════════════════════════════
     async function loadChannels(silent) {
@@ -605,6 +729,11 @@
       const editing = S.editingId === m.id;
       const atts = m.attachments.map(a => a.is_image
         ? `<button class="pkc-att-img" data-act="lightbox" data-att="${a.id}" title="${esc(a.name)}"><img data-att="${a.id}" alt="${esc(a.name)}" loading="lazy"></button>`
+        : viewKind(a.name, a.size)
+        ? `<button class="pkc-att-file" data-act="view" data-att="${a.id}" data-name="${esc(a.name)}" title="Abrir ${esc(a.name)} no chat">
+             <span class="pkc-att-ico">${fileIcon(a.name, a.mime)}</span>
+             <span class="pkc-att-txt"><span class="pkc-att-name">${esc(a.name)}</span><span class="pkc-muted pkc-small">${fmtSize(a.size)}</span></span>
+             <span class="pkc-att-dl">👁</span></button>`
         : `<button class="pkc-att-file" data-act="download" data-att="${a.id}" data-name="${esc(a.name)}">
              <span class="pkc-att-ico">${fileIcon(a.name, a.mime)}</span>
              <span class="pkc-att-txt"><span class="pkc-att-name">${esc(a.name)}</span><span class="pkc-muted pkc-small">${fmtSize(a.size)}</span></span>
@@ -1026,7 +1155,7 @@
           (imgs.length ? `<div class="pkc-panel-title">Imagens (${imgs.length})</div><div class="pkc-gallery">${imgs.map(f =>
             `<button class="pkc-att-img" data-act="lightbox" data-att="${f.id}" title="${esc(f.name)} — ${esc(f.username)}"><img data-att="${f.id}" alt="${esc(f.name)}" loading="lazy"></button>`).join('')}</div>` : '') +
           (docs.length ? `<div class="pkc-panel-title">Ficheiros (${docs.length})</div><table class="pkc-table"><thead><tr><th>Nome</th><th>Partilhado por</th><th>Data</th><th>Tamanho</th></tr></thead><tbody>${docs.map(f => `
-            <tr data-act="download" data-att="${f.id}" data-name="${esc(f.name)}"><td>${fileIcon(f.name, f.mime)} ${esc(f.name)}</td><td>${esc(f.username)}</td>
+            <tr data-act="${viewKind(f.name, f.size) ? 'view' : 'download'}" data-att="${f.id}" data-name="${esc(f.name)}"><td>${fileIcon(f.name, f.mime)} ${esc(f.name)}</td><td>${esc(f.username)}</td>
             <td>${parseTs(f.created_at).toLocaleDateString('pt-PT')}</td><td>${fmtSize(f.size)}</td></tr>`).join('')}</tbody></table>` : '');
         hydrateImages(D.panel);
       } catch (e) { D.panel.innerHTML = `<div class="pkc-err pkc-pad">${esc(e.message)}</div>`; }
@@ -1265,8 +1394,13 @@
         }
         case 'lb-close': D.lightbox.hidden = true; break;
         case 'download': download(+t.dataset.att, t.dataset.name); break;
+        case 'view': openViewer(+t.dataset.att, t.dataset.name); break;
+        case 'v-close': closeViewer(); break;
+        case 'v-dl': download(V.id, V.name); break;
+        case 'v-raw': V.raw = !V.raw; renderViewer(); break;
       }
     });
+    D.viewer.addEventListener('click', e => { if (e.target === D.viewer) closeViewer(); });
 
     D.lightbox.addEventListener('click', e => { if (e.target === D.lightbox) D.lightbox.hidden = true; });
     D.lightbox.querySelector('img').addEventListener('dblclick', () => download(+D.lightbox.dataset.att, ''));
@@ -1368,7 +1502,12 @@
       if (!document.hidden) { markRead(); if (S.cur) { stopPoll(); poll(); } else if (full) loadChannels(true); }
     };
     document.addEventListener('visibilitychange', onVis);
-    const onKey = e => { if (e.key === 'Escape') { if (!D.lightbox.hidden) D.lightbox.hidden = true; closePops(); } };
+    const onKey = e => {
+      if (e.key !== 'Escape') return;
+      if (!D.viewer.hidden) { closeViewer(); return; }
+      if (!D.lightbox.hidden) D.lightbox.hidden = true;
+      closePops();
+    };
     document.addEventListener('keydown', onKey);
 
     // ── Dicas ao passar o rato (substitui o "title" nativo, que é lento e às vezes não aparece) ──

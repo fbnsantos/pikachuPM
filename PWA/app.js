@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 // VERSION — must match sw.js cache number
 // ══════════════════════════════════════════════════════
-const APP_VER = 48;
+const APP_VER = 50;
 
 // ══════════════════════════════════════════════════════
 // CONFIG
@@ -1804,6 +1804,7 @@ function attachEvents() {
 
   // Install
   document.getElementById('btn-install').addEventListener('click', triggerInstall);
+  iosInstallSetup();
 
   // Chat
   document.getElementById('btn-chat')?.addEventListener('click', () => openChat());
@@ -2054,8 +2055,43 @@ window.addEventListener('appinstalled', () => {
   showToast('App instalada! 🎉', 'success');
 });
 
+// iPhone / iPad (o iPadOS identifica-se como "Macintosh", mas tem ecrã táctil)
+function isIOSDevice() {
+  const ua = navigator.userAgent;
+  return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+function isStandaloneApp() {
+  return navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
+// No iOS nunca há "beforeinstallprompt" (nem no Chrome, que usa o motor do Safari):
+// mostrar o botão ⬇ com instruções para "Adicionar ao ecrã principal"
+function iosInstallSetup() {
+  if (!isIOSDevice() || isStandaloneApp()) return;
+  const btn = document.getElementById('btn-install');
+  if (btn) btn.style.display = '';
+  document.getElementById('btn-ios-install-close').addEventListener('click', () => {
+    document.getElementById('ios-install-overlay').style.display = 'none';
+  });
+  document.getElementById('ios-install-overlay').addEventListener('click', e => {
+    if (e.target.id === 'ios-install-overlay') e.currentTarget.style.display = 'none';
+  });
+}
+function showIOSInstall() {
+  const ua = navigator.userAgent;
+  document.getElementById('ios-install-dev').textContent = /iPhone|iPod/.test(ua) ? 'iPhone' : 'iPad';
+  // Onde fica o botão Partilhar depende do browser
+  const where = /CriOS/.test(ua) ? 'na barra de endereço, em cima à direita (no Chrome)'
+              : /EdgiOS/.test(ua) ? 'no menu ⋯ (no Edge)'
+              : /FxiOS/.test(ua) ? 'no menu ☰ (no Firefox)'
+              : /iPhone|iPod/.test(ua) ? 'na barra de baixo (no Safari)' : 'na barra de cima (no Safari)';
+  document.getElementById('ios-install-step1').innerHTML =
+    `Toca no botão <b>Partilhar</b> <span class="ios-share-ico">⬆︎</span> ${where}`;
+  document.getElementById('ios-install-overlay').style.display = '';
+}
+
 async function triggerInstall() {
   if (!_installPrompt) {
+    if (isIOSDevice()) { showIOSInstall(); return; }
     // Fallback: instructions if prompt not available
     showToast('Chrome ⋮ → "Adicionar ao ecrã principal"', '');
     return;

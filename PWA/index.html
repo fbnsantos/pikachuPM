@@ -11,8 +11,8 @@
   <title>pikachuPM</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="img/icon-192x192.png">
-  <link rel="stylesheet" href="app.css?v=48">
-  <link rel="stylesheet" href="../assets/chat/pkchat.css?v=48">
+  <link rel="stylesheet" href="app.css?v=50">
+  <link rel="stylesheet" href="../assets/chat/pkchat.css?v=50">
 </head>
 <body>
 <div class="app" id="app">
@@ -20,7 +20,7 @@
   <!-- ── Header ── -->
   <header class="header">
     <div class="header-left">
-      <span class="logo">⚡ pikachuPM<span class="logo-version">v1.4.5 <span id="sw-ver"></span><button id="btn-update-app" class="btn-update-ver" title="Verificar actualização">↺</button></span></span>
+      <span class="logo">⚡ pikachuPM<span class="logo-version">v1.4.7 <span id="sw-ver"></span><button id="btn-update-app" class="btn-update-ver" title="Verificar actualização">↺</button></span></span>
     </div>
     <div class="header-actions">
       <button class="icon-btn" id="btn-install" title="Instalar app" style="display:none">⬇</button>
@@ -403,6 +403,25 @@
     </div>
   </div>
 
+  <!-- ── Modal: instalar no iPhone/iPad (o iOS não tem botão "Instalar") ── -->
+  <div class="modal-overlay" id="ios-install-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Instalar no <span id="ios-install-dev">iPad</span></h3>
+        <button class="icon-btn modal-close" id="btn-ios-install-close">✕</button>
+      </div>
+      <div class="modal-body ios-install-body">
+        <p>No iPhone e no iPad não há botão "Instalar": a app é adicionada ao ecrã principal a partir do menu Partilhar.</p>
+        <ol>
+          <li id="ios-install-step1">Toca no botão <b>Partilhar</b> <span class="ios-share-ico">⬆︎</span></li>
+          <li>Escolhe <b>Adicionar ao ecrã principal</b> (se não aparecer, desliza a lista para baixo ou toca em <b>Mais</b>)</li>
+          <li>Toca em <b>Adicionar</b> e abre a app pelo ícone ⚡ pikachuPM</li>
+        </ol>
+        <p class="ios-install-note">Só a app aberta pelo ícone recebe notificações do chat e mostra o número de mensagens por ler (iOS/iPadOS 16.4 ou mais recente).</p>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Modal: Criar Bug / Feature em Protótipo ── -->
   <div class="modal-overlay" id="story-overlay" style="display:none">
     <div class="modal">
@@ -501,7 +520,7 @@
 </div><!-- /app -->
 
 <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-<script src="../assets/chat/pkchat.js?v=48"></script>
-<script src="app.js?v=48"></script>
+<script src="../assets/chat/pkchat.js?v=50"></script>
+<script src="app.js?v=50"></script>
 </body>
 </html>

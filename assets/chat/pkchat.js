@@ -252,8 +252,8 @@
       <aside class="pkc-side">
         <div class="pkc-side-head">
           <span class="pkc-side-title">💬 Chat</span>
-          <button class="pkc-ibtn pkc-sound-btn" data-act="sound" title="Som das mensagens">${soundEnabled() ? '🔊' : '🔇'}</button>
-          <button class="pkc-ibtn" data-act="notif" title="Activar notificações">🔔</button>
+          <button class="pkc-ibtn pkc-sound-btn" data-act="sound" title="Ligar/desligar o som quando chegam mensagens novas">${soundEnabled() ? '🔊' : '🔇'}</button>
+          <button class="pkc-ibtn" data-act="notif" title="Activar notificações de mensagens novas (mesmo com a app fechada)">🔔</button>
           <button class="pkc-ibtn pkc-listmode-btn" data-act="listmode" data-mode="unread" title="Mostrar só canais com mensagens por ler">🔵</button>
           <button class="pkc-ibtn pkc-listmode-btn pkc-listmode-at" data-act="listmode" data-mode="mentions" title="Mostrar só canais com mensagens por ler que te mencionam (@)">@</button>
           ${opts.onClose ? '<button class="pkc-ibtn" data-act="close" title="Fechar">✕</button>' : ''}
@@ -1371,6 +1371,41 @@
     const onKey = e => { if (e.key === 'Escape') { if (!D.lightbox.hidden) D.lightbox.hidden = true; closePops(); } };
     document.addEventListener('keydown', onKey);
 
+    // ── Dicas ao passar o rato (substitui o "title" nativo, que é lento e às vezes não aparece) ──
+    const tip = document.createElement('div');
+    tip.className = 'pkc-tip' + (opts.theme === 'dark' ? ' pkc-tip-dark' : '');
+    tip.hidden = true;
+    document.body.appendChild(tip);
+    let tipEl = null, tipT = null;
+    const hideTip = () => { clearTimeout(tipT); tipT = null; tipEl = null; tip.hidden = true; };
+    const showTip = el => {
+      if (!el.isConnected || !el.dataset.tip) return;
+      tip.textContent = el.dataset.tip;
+      tip.hidden = false;
+      const r = el.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+      let top = r.bottom + 6;
+      if (top + th > window.innerHeight - 4) top = r.top - th - 6;
+      const left = Math.max(4, Math.min(r.left + r.width / 2 - tw / 2, window.innerWidth - tw - 4));
+      tip.style.top = Math.max(4, top) + 'px';
+      tip.style.left = left + 'px';
+    };
+    if (window.matchMedia && window.matchMedia('(hover: hover)').matches) {
+      wrap.addEventListener('mouseover', e => {
+        const el = e.target.closest('[title], [data-tip]');
+        if (!el || !wrap.contains(el) || el === tipEl) return;
+        if (el.title) { el.dataset.tip = el.title; el.removeAttribute('title'); }
+        if (!el.dataset.tip) return;
+        hideTip();
+        tipEl = el;
+        tipT = setTimeout(() => showTip(el), 250);
+      });
+      wrap.addEventListener('mouseout', e => {
+        if (tipEl && (!e.relatedTarget || !tipEl.contains(e.relatedTarget))) hideTip();
+      });
+      wrap.addEventListener('mousedown', hideTip);
+      wrap.addEventListener('scroll', hideTip, true);
+    }
+
     // canais sem conversa aberta: actualizar a lista periodicamente
     renderListModeBtn();
     if (full) S.chanTimer = setInterval(() => { if (!S.cur && !document.hidden) loadChannels(true); }, CHANNELS_EVERY);
@@ -1400,6 +1435,7 @@
         ro.disconnect();
         document.removeEventListener('visibilitychange', onVis);
         document.removeEventListener('keydown', onKey);
+        hideTip(); tip.remove();
         S.blobUrls.forEach(u => URL.revokeObjectURL(u));
         root.innerHTML = '';
       },

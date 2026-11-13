@@ -291,3 +291,10 @@
 /* Filtros da lista de canais: 🔵 só por ler, @ só menções por ler */
 .pkc-listmode-at { font-weight: 700; color: var(--pkc-accent); }
 .pkc-listmode-btn.pkc-on { background: var(--pkc-accent-soft); outline: 1px solid var(--pkc-accent); }
+
+/* Dica ao passar o rato (fica no <body>, position:fixed, para não ser cortada) */
+.pkc-tip { position: fixed; z-index: 100000; max-width: 260px; padding: 5px 9px; border-radius: 6px;
+  background: #242424; color: #fff; font: 500 12px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+  box-shadow: 0 4px 14px rgba(0,0,0,.25); pointer-events: none; white-space: normal; }
+.pkc-tip.pkc-tip-dark { background: #f1f5f9; color: #0f172a; }
+.pkc-tip[hidden] { display: none; }

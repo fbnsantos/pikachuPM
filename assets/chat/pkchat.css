@@ -335,3 +335,10 @@
 .pkc.pkc-narrow .pkc-viewer { padding: 0; }
 .pkc.pkc-narrow .pkc-viewer-box { border-radius: 0; }
 .pkc.pkc-narrow .pkc-md { padding: 12px 14px 24px; }
+.pkc-viewer-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.pkc-viewer-zoom[hidden] { display: none; }
+.pkc-viewer-zval { min-width: 38px; text-align: center; }
+.pkc-pdf { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px 16px 24px; background: var(--pkc-bg); min-height: 100%; box-sizing: border-box; width: max-content; min-width: 100%; }
+.pkc-pdf-info { align-self: center; }
+.pkc-pdf-page { flex-shrink: 0; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .2); color: #555; display: flex; align-items: center; justify-content: center; }
+.pkc-pdf-page canvas { display: block; width: 100%; height: 100%; }

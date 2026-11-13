@@ -81,11 +81,22 @@
   }
 
   // ── Ficheiros que abrem no visualizador do chat (em vez de descarregar) ──
-  const VIEW_EXT = { md: 'md', markdown: 'md', txt: 'text', log: 'text', json: 'json', csv: 'csv' };
-  const VIEW_MAX = 2 * 1048576; // acima disto descarrega
+  const VIEW_EXT = { md: 'md', markdown: 'md', txt: 'text', log: 'text', json: 'json', csv: 'csv', pdf: 'pdf' };
+  const VIEW_MAX = 2 * 1048576, VIEW_MAX_PDF = 40 * 1048576; // acima disto descarrega
   function viewKind(name, size) {
     const k = VIEW_EXT[String(name).split('.').pop().toLowerCase()] || null;
-    return k && !(size > VIEW_MAX) ? k : null;
+    return k && !(size > (k === 'pdf' ? VIEW_MAX_PDF : VIEW_MAX)) ? k : null;
+  }
+  const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/';
+  let pdfLibP = null;
+  /** PDF.js (desenha em canvas → funciona igual no PC, Android e iPad). */
+  function loadPdfLib() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (!pdfLibP) pdfLibP = loadScript(PDFJS + 'pdf.min.js').then(() => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.js';
+      return window.pdfjsLib;
+    }).catch(e => { pdfLibP = null; throw e; });
+    return pdfLibP;
   }
   const MD_LIBS = [
     ['marked', 'https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js'],
@@ -383,6 +394,11 @@
         <div class="pkc-viewer-box" role="dialog" aria-modal="true">
           <header class="pkc-viewer-head">
             <span class="pkc-viewer-ico"></span><b class="pkc-viewer-name"></b>
+            <span class="pkc-viewer-zoom" hidden>
+              <button class="pkc-ibtn" data-act="v-zoom" data-z="-1" title="Reduzir">−</button>
+              <span class="pkc-viewer-zval pkc-muted pkc-small">100%</span>
+              <button class="pkc-ibtn" data-act="v-zoom" data-z="1" title="Ampliar">+</button>
+            </span>
             <button class="pkc-ibtn pkc-viewer-raw" data-act="v-raw" title="Alternar entre o documento formatado e o texto original">&lt;/&gt;</button>
             <button class="pkc-ibtn" data-act="v-dl" title="Descarregar o ficheiro">⤓</button>
             <button class="pkc-ibtn" data-act="v-close" title="Fechar (Esc)">✕</button>
@@ -457,15 +473,19 @@
       const kind = viewKind(name);
       if (!kind) return download(id, name);
       closePops();
+      cleanupPdf();
       const seq = ++V.seq;
-      Object.assign(V, { id, name, kind, text: '', raw: false, noLib: false });
+      Object.assign(V, { id, name, kind, text: '', raw: false, noLib: false, zoom: 1 });
       D.viewer.querySelector('.pkc-viewer-name').textContent = name;
       D.viewer.querySelector('.pkc-viewer-ico').textContent = fileIcon(name);
-      D.viewer.querySelector('.pkc-viewer-raw').hidden = kind === 'text';
+      D.viewer.querySelector('.pkc-viewer-raw').hidden = kind === 'text' || kind === 'pdf';
+      D.viewer.querySelector('.pkc-viewer-zoom').hidden = kind !== 'pdf';
+      D.viewer.querySelector('.pkc-viewer-zval').textContent = '100%';
       vBody().innerHTML = '<div class="pkc-muted pkc-pad">A carregar…</div>';
       D.viewer.hidden = false;
       try {
         const b = await api.blob('file', { file_id: id });
+        if (kind === 'pdf') return await openPdf(b, seq);
         const text = (await b.text()).replace(/^﻿/, '');
         if (kind === 'md') { try { await loadMdLibs(); } catch (_) { V.noLib = true; } }
         if (seq !== V.seq || D.viewer.hidden) return;
@@ -503,7 +523,72 @@
       }
       body.scrollTop = 0;
     }
-    function closeViewer() { D.viewer.hidden = true; V.seq++; vBody().innerHTML = ''; }
+    function closeViewer() { D.viewer.hidden = true; V.seq++; cleanupPdf(); vBody().innerHTML = ''; }
+
+    // ── PDF: páginas desenhadas só quando estão perto do ecrã (e libertadas ao afastar) ──
+    function cleanupPdf() {
+      if (V.pdfObs) { V.pdfObs.disconnect(); V.pdfObs = null; }
+      if (V.pdf) { try { V.pdf.destroy(); } catch (_) {} V.pdf = null; }
+    }
+    async function openPdf(blob, seq) {
+      let lib;
+      try { lib = await loadPdfLib(); }
+      catch (_) {
+        if (seq === V.seq) vBody().innerHTML = '<div class="pkc-err pkc-pad">Sem ligação para mostrar o PDF. Usa ⤓ para o descarregar.</div>';
+        return;
+      }
+      const data = new Uint8Array(await blob.arrayBuffer());
+      const doc = await lib.getDocument({ data, isEvalSupported: false, enableXfa: false }).promise;
+      if (seq !== V.seq || D.viewer.hidden) { doc.destroy(); return; }
+      V.pdf = doc;
+      await renderPdf();
+    }
+    async function renderPdf() {
+      const doc = V.pdf, body = vBody();
+      if (!doc) return;
+      if (V.pdfObs) V.pdfObs.disconnect();
+      const gen = V.pdfGen = (V.pdfGen || 0) + 1;
+      const keep = body.scrollHeight > body.clientHeight ? body.scrollTop / body.scrollHeight : 0;
+      const base = (await doc.getPage(1)).getViewport({ scale: 1 });
+      if (gen !== V.pdfGen) return;
+      const fit = Math.max(200, body.clientWidth - 32) / base.width;
+      const scale = fit * V.zoom;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      D.viewer.querySelector('.pkc-viewer-zval').textContent = Math.round(V.zoom * 100) + '%';
+      body.innerHTML = `<div class="pkc-pdf"><div class="pkc-pdf-info pkc-muted pkc-small">${doc.numPages} página${doc.numPages > 1 ? 's' : ''}</div></div>`;
+      const box = body.firstElementChild;
+      const draw = async ph => {
+        ph.dataset.st = 'busy';
+        try {
+          const page = await doc.getPage(+ph.dataset.page);
+          const css = page.getViewport({ scale });
+          // limita os píxeis por canvas (o iOS rejeita canvas muito grandes)
+          const rs = Math.min(scale * dpr, Math.sqrt(8e6 / (css.width / scale * css.height / scale)));
+          const vp = page.getViewport({ scale: rs });
+          const c = document.createElement('canvas');
+          c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+          ph.style.width = css.width + 'px'; ph.style.height = css.height + 'px';
+          await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+          if (gen !== V.pdfGen || ph.dataset.st !== 'busy') { c.width = c.height = 0; return; }
+          ph.replaceChildren(c); ph.dataset.st = 'done';
+        } catch (e) { if (gen === V.pdfGen) { ph.textContent = 'Erro ao mostrar a página ' + ph.dataset.page; ph.dataset.st = 'err'; } }
+      };
+      const obs = V.pdfObs = new IntersectionObserver(ents => ents.forEach(en => {
+        const ph = en.target, st = ph.dataset.st;
+        if (en.isIntersecting && !st) draw(ph);
+        else if (!en.isIntersecting && st) { // longe do ecrã → liberta a memória do canvas
+          const c = ph.querySelector('canvas'); if (c) c.width = c.height = 0;
+          ph.replaceChildren(); delete ph.dataset.st;
+        }
+      }), { root: body, rootMargin: '1200px 0px' });
+      for (let i = 1; i <= doc.numPages; i++) {
+        const ph = document.createElement('div');
+        ph.className = 'pkc-pdf-page'; ph.dataset.page = i;
+        ph.style.width = base.width * scale + 'px'; ph.style.height = base.height * scale + 'px';
+        box.appendChild(ph); obs.observe(ph);
+      }
+      body.scrollTop = keep * body.scrollHeight;
+    }
 
     // ══ LISTA DE CANAIS ════════════════════════════════════════
     async function loadChannels(silent) {
@@ -1398,6 +1483,10 @@
         case 'v-close': closeViewer(); break;
         case 'v-dl': download(V.id, V.name); break;
         case 'v-raw': V.raw = !V.raw; renderViewer(); break;
+        case 'v-zoom':
+          V.zoom = Math.min(4, Math.max(0.5, V.zoom * (+t.dataset.z > 0 ? 1.25 : 0.8)));
+          renderPdf();
+          break;
       }
     });
     D.viewer.addEventListener('click', e => { if (e.target === D.viewer) closeViewer(); });
@@ -1575,6 +1664,7 @@
         document.removeEventListener('visibilitychange', onVis);
         document.removeEventListener('keydown', onKey);
         hideTip(); tip.remove();
+        cleanupPdf();
         S.blobUrls.forEach(u => URL.revokeObjectURL(u));
         root.innerHTML = '';
       },

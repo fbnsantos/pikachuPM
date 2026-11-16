@@ -5,7 +5,7 @@
 //   • Web  → sessão PHP ($_SESSION['user_id'])
 //   • PWA  → header "Authorization: Bearer <token>" (user_tokens.token)
 //
-// Canais: channel_type ∈ {sprint, prototype, lead}, channel_id = id da entidade.
+// Canais: channel_type ∈ {sprint, prototype, lead, project, lab, phd}, channel_id = id da entidade (phd: user_id do doutorando).
 // Membros do canal = responsável + membros (sprint_members / prototype_members / lead_members).
 // Admins (admin_users) podem ler/escrever em qualquer canal.
 // Quando a entidade está fechada o canal fica só de leitura (histórico).
@@ -127,6 +127,13 @@ try {
         $pdo->exec("ALTER TABLE chat_reads    MODIFY channel_type ENUM('sprint','prototype','lead','project','lab') NOT NULL");
         $pdo->exec("ALTER TABLE chat_typing   MODIFY channel_type ENUM('sprint','prototype','lead','project','lab') NOT NULL");
     }
+    // Alargar ENUM para incluir phd (canal por doutoramento; channel_id = user_id do doutorando)
+    if ($enumCheck && strpos($enumCheck['Type'], "'phd'") === false) {
+        $enumPhd = "ENUM('sprint','prototype','lead','project','lab','phd') NOT NULL";
+        $pdo->exec("ALTER TABLE chat_messages MODIFY channel_type $enumPhd");
+        $pdo->exec("ALTER TABLE chat_reads    MODIFY channel_type $enumPhd");
+        $pdo->exec("ALTER TABLE chat_typing   MODIFY channel_type $enumPhd");
+    }
     // Coluna topic_id para mensagens do canal lab
     if (!$pdo->query("SHOW COLUMNS FROM chat_messages LIKE 'topic_id'")->fetch()) {
         $pdo->exec("ALTER TABLE chat_messages ADD COLUMN topic_id INT NULL DEFAULT NULL AFTER reply_to, ADD INDEX idx_topic (topic_id)");
@@ -206,7 +213,17 @@ function chat_is_admin(PDO $pdo, int $uid): bool {
     return (bool)$st->fetchColumn();
 }
 
-const CHAT_TYPES = ['sprint', 'prototype', 'lead', 'project', 'lab'];
+const CHAT_TYPES = ['sprint', 'prototype', 'lead', 'project', 'lab', 'phd'];
+
+function chat_col_exists(PDO $pdo, string $t, string $c): bool {
+    static $cache = [];
+    $k = "$t.$c";
+    if (!array_key_exists($k, $cache)) {
+        $cache[$k] = chat_table_exists($pdo, $t)
+            && (bool)$pdo->query("SHOW COLUMNS FROM `$t` LIKE " . $pdo->quote($c))->fetch();
+    }
+    return $cache[$k];
+}
 
 /** Metadados da entidade dona do canal, ou null se não existir. */
 function chat_channel_info(PDO $pdo, string $type, int $id): ?array {
@@ -252,6 +269,20 @@ function chat_channel_info(PDO $pdo, string $type, int $id): ?array {
         // Canal único do laboratório (channel_id = 1)
         return ['id' => 1, 'title' => 'Lab Chat', 'estado' => 'ativo', 'responsavel_id' => 0, 'closed' => false, 'url' => '?tab=lab_management'];
     }
+    if ($type === 'phd' && chat_table_exists($pdo, 'phd_info')) {
+        // Canal do doutoramento: channel_id = user_id do doutorando; inativo → arquivado (só leitura)
+        $ativo = chat_col_exists($pdo, 'phd_info', 'ativo') ? 'pi.ativo' : '1';
+        $st = $pdo->prepare("SELECT pi.user_id AS id, COALESCE(u.username, CONCAT('user', pi.user_id)) AS title,
+                                    $ativo AS ativo, pi.user_id AS responsavel_id
+                             FROM phd_info pi LEFT JOIN user_tokens u ON u.user_id = pi.user_id WHERE pi.user_id = ?");
+        $st->execute([$id]);
+        $r = $st->fetch();
+        if (!$r) return null;
+        $r['closed'] = !(int)$r['ativo'];
+        $r['estado'] = $r['closed'] ? 'inativo' : 'ativo';
+        $r['url'] = '?tab=phd_kanban&user=' . $id;
+        return $r;
+    }
     return null;
 }
 
@@ -262,6 +293,7 @@ function chat_member_table(string $type): array {
         'lead'      => ['lead_members',      'lead_id'],
         'project'   => ['project_members',   'project_id'],
         'lab'       => ['lab_authorized_users', null],
+        'phd'       => ['phd_members',       'phd_user_id'],
     ][$type] ?? ['', ''];
 }
 
@@ -281,19 +313,14 @@ function chat_members(PDO $pdo, string $type, int $id, ?array $info = null): arr
         }
     } else {
         if (!empty($info['responsavel_id'])) {
-            $members[(int)$info['responsavel_id']] = 'responsável';
+            $members[(int)$info['responsavel_id']] = $type === 'phd' ? 'doutorando' : 'responsável';
         }
         [$tbl, $col] = chat_member_table($type);
         if ($tbl && chat_table_exists($pdo, $tbl)) {
-            if ($type === 'project') {
-                $st = $pdo->prepare("SELECT user_id FROM `$tbl` WHERE `$col` = ?");
-                $st->execute([$id]);
-            } else {
-                $st = $pdo->prepare("SELECT user_id FROM `$tbl` WHERE `$col` = ?");
-                $st->execute([$id]);
-            }
+            $st = $pdo->prepare("SELECT user_id FROM `$tbl` WHERE `$col` = ?");
+            $st->execute([$id]);
             foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $u) {
-                if (!isset($members[(int)$u])) $members[(int)$u] = 'membro';
+                if (!isset($members[(int)$u])) $members[(int)$u] = $type === 'phd' ? 'coorientador' : 'membro';
             }
         }
     }
@@ -310,8 +337,8 @@ function chat_members(PDO $pdo, string $type, int $id, ?array $info = null): arr
         $out[] = ['user_id' => $u, 'username' => $names[$u] ?? ('user' . $u), 'role' => $role];
     }
     usort($out, function ($a, $b) {
-        $ra = $a['role'] === 'responsável' ? 0 : 1;
-        $rb = $b['role'] === 'responsável' ? 0 : 1;
+        $ra = in_array($a['role'], ['responsável', 'doutorando'], true) ? 0 : 1;
+        $rb = in_array($b['role'], ['responsável', 'doutorando'], true) ? 0 : 1;
         return $ra !== $rb ? $ra <=> $rb : strcasecmp($a['username'], $b['username']);
     });
     return $out;
@@ -465,6 +492,17 @@ function chat_user_channels(PDO $pdo, int $uid): array {
         $parts[] = "SELECT 'project' AS type, pj.id, COALESCE(NULLIF(pj.short_name,''), pj.title) AS title,
                            (pj.estado IN ('fechado','concluído','arquivado')) AS closed
                     FROM projects pj WHERE pj.owner_id = ? $mem";
+        $params[] = $uid; if ($mem) $params[] = $uid;
+    }
+    // Doutoramentos: o doutorando + co-orientadores (phd_members). Inativos → fechados.
+    if (chat_table_exists($pdo, 'phd_info')) {
+        $mem = chat_table_exists($pdo, 'phd_members')
+            ? 'OR EXISTS (SELECT 1 FROM phd_members x WHERE x.phd_user_id = pi.user_id AND x.user_id = ?)' : '';
+        $ativo = chat_col_exists($pdo, 'phd_info', 'ativo') ? '(pi.ativo = 0)' : '0';
+        $parts[] = "SELECT 'phd' AS type, pi.user_id AS id, COALESCE(u.username, CONCAT('user', pi.user_id)) AS title,
+                           $ativo AS closed
+                    FROM phd_info pi LEFT JOIN user_tokens u ON u.user_id = pi.user_id
+                    WHERE pi.user_id = ? $mem";
         $params[] = $uid; if ($mem) $params[] = $uid;
     }
     // Canal lab: aparece se o utilizador for authorized

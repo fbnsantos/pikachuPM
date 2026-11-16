@@ -7,7 +7,7 @@ if (!isset($_SESSION['username'])) {
 }
 $chatType = $_GET['type'] ?? '';
 $chatId   = (int)($_GET['id'] ?? 0);
-$chatInit = in_array($chatType, ['sprint', 'prototype', 'lead'], true) && $chatId > 0
+$chatInit = in_array($chatType, ['sprint', 'prototype', 'lead', 'project', 'lab', 'phd'], true) && $chatId > 0
     ? ['type' => $chatType, 'id' => $chatId] : null;
 $chatAssetV = @filemtime(__DIR__ . '/../assets/chat/pkchat.js') ?: 1;
 ?>

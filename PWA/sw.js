@@ -1,5 +1,5 @@
-const CACHE = 'pikachu-pwa-v51';
-const V = '?v=51';
+const CACHE = 'pikachu-pwa-v52';
+const V = '?v=52';
 const CHAT_CFG_CACHE = 'pk-chat-cfg'; // guarda o URL da API do chat para o handler de push
 // Os URLs têm de coincidir com os do index.html (incluindo ?v=), para servir offline
 const SHELL = [
@@ -64,7 +64,7 @@ self.addEventListener('fetch', e => {
 // ══ Notificações push do chat ══════════════════════════════
 // O servidor envia um push sem conteúdo; aqui perguntamos a api/chat.php?action=push_inbox
 // (o URL da API é guardado pela app na cache CHAT_CFG_CACHE) o que há por ler.
-const CHAT_ICONS = { sprint: '🏃', prototype: '🧪', lead: '🎯' };
+const CHAT_ICONS = { sprint: '🏃', prototype: '🧪', lead: '🎯', project: '📁', lab: '🔬', phd: '🎓' };
 
 async function chatCfg() {
   try {

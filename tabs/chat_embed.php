@@ -7,7 +7,7 @@
 
 if (!function_exists('pk_chat_embed')) {
     /**
-     * @param string $type    Canal: sprint|prototype|lead|project|lab
+     * @param string $type    Canal: sprint|prototype|lead|project|lab|phd
      * @param int    $id      ID da entidade (para lab usar 1)
      * @param bool   $closed  Só leitura
      * @param array  $opts    Opções extra: topics (array de assuntos abertos para lab)
@@ -15,11 +15,11 @@ if (!function_exists('pk_chat_embed')) {
     function pk_chat_embed(string $type, int $id, bool $closed = false, array $opts = []): void
     {
         static $assetsLoaded = false;
-        $validTypes = ['sprint', 'prototype', 'lead', 'project', 'lab'];
+        $validTypes = ['sprint', 'prototype', 'lead', 'project', 'lab', 'phd'];
         if ($id <= 0 || !in_array($type, $validTypes, true)) return;
-        $labels = ['sprint' => 'sprint', 'prototype' => 'protótipo', 'lead' => 'lead', 'project' => 'projeto', 'lab' => 'laboratório'];
+        $labels = ['sprint' => 'sprint', 'prototype' => 'protótipo', 'lead' => 'lead', 'project' => 'projeto', 'lab' => 'laboratório', 'phd' => 'doutoramento'];
         $label  = $labels[$type];
-        $artigo = in_array($type, ['prototype', 'project', 'lab'], true) ? 'o' : 'a';
+        $artigo = in_array($type, ['prototype', 'project', 'lab', 'phd'], true) ? 'o' : 'a';
         $domId  = 'pkchat-embed-' . $type . '-' . $id;
         $v      = @filemtime(__DIR__ . '/../assets/chat/pkchat.js') ?: 1;
         if (!$assetsLoaded) {

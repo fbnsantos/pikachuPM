@@ -444,6 +444,12 @@ if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
                             if ($has($mt)) { $sub .= " UNION SELECT $mc FROM $mt WHERE user_id = ?"; $accP[] = $gsUid; }
                             $acc[] = "(m.channel_type = ? AND m.channel_id IN ($sub))";
                         }
+                        // Doutoramentos: o próprio doutorando + co-orientadores (phd_members)
+                        if ($has('phd_info')) {
+                            $sub = "SELECT user_id FROM phd_info WHERE user_id = ?"; $accP[] = 'phd'; $accP[] = $gsUid;
+                            if ($has('phd_members')) { $sub .= " UNION SELECT phd_user_id FROM phd_members WHERE user_id = ?"; $accP[] = $gsUid; }
+                            $acc[] = "(m.channel_type = ? AND m.channel_id IN ($sub))";
+                        }
                     }
                     if ($isAdmin || $acc) {
                         $attCol = "COALESCE((SELECT GROUP_CONCAT(ca.file_name SEPARATOR ' ') FROM chat_attachments ca WHERE ca.message_id = m.id), '')";
@@ -452,10 +458,12 @@ if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
                         $tSprint = $has('sprints')    ? "(SELECT nome FROM sprints WHERE id = m.channel_id)" : "NULL";
                         $tProto  = $has('prototypes') ? "(SELECT COALESCE(NULLIF(short_name,''), name) FROM prototypes WHERE id = m.channel_id)" : "NULL";
                         $tLead   = $has('leads')      ? "(SELECT titulo FROM leads WHERE id = m.channel_id)" : "NULL";
+                        $tPhd    = "(SELECT username FROM user_tokens WHERE user_id = m.channel_id)";
                         $s = $pdo_s->prepare("SELECT m.id, m.channel_type, m.channel_id, m.body, m.created_at,
                                                      $attCol AS att_names,
                                                      CASE m.channel_type WHEN 'sprint' THEN $tSprint
                                                                          WHEN 'prototype' THEN $tProto
+                                                                         WHEN 'phd' THEN $tPhd
                                                                          ELSE $tLead END AS channel_title,
                                                      COALESCE(u.username,'') AS username
                                               FROM chat_messages m
@@ -724,7 +732,7 @@ $activeTypes = array_keys(array_filter($search_results, fn($r) => !empty($r)));
 
         <?php elseif ($key === 'chat'): ?>
             <?php
-            $chLbl = ['sprint' => ['🏃','sprint','#dbeafe;color:#1d4ed8'], 'prototype' => ['🔬','protótipo','#d1fae5;color:#065f46'], 'lead' => ['🎯','lead','#fef3c7;color:#92400e']];
+            $chLbl = ['sprint' => ['🏃','sprint','#dbeafe;color:#1d4ed8'], 'prototype' => ['🔬','protótipo','#d1fae5;color:#065f46'], 'lead' => ['🎯','lead','#fef3c7;color:#92400e'], 'phd' => ['🎓','doutoramento','#ede9fe;color:#5b21b6']];
             [$chIc, $chTxt, $chCol] = $chLbl[$r['channel_type']] ?? ['💬', $r['channel_type'], '#e5e7eb;color:#374151'];
             $chBody = trim((string)$r['body']);
             ?>

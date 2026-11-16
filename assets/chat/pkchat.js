@@ -24,6 +24,7 @@
     lead:      { label: 'Leads',      one: 'Lead',      icon: '🎯' },
     project:   { label: 'Projetos',   one: 'Projeto',   icon: '📁' },
     lab:       { label: 'Lab',        one: 'Lab Chat',  icon: '🔬' },
+    phd:       { label: 'Doutoramentos', one: 'Doutoramento', icon: '🎓' },
   };
   const QUICK  = ['👍', '❤️', '😆', '😮', '😢', '🎉'];
   const EMOJIS = ('😀 😃 😄 😁 😆 😅 😂 🙂 😉 😊 😍 😘 😎 🤔 😐 🙄 😴 😮 😢 😭 😡 🤯 🥳 🤝 ' +
@@ -638,7 +639,7 @@
     function renderChannels() {
       if (!full) return;
       const f = S.filter.trim().toLowerCase();
-      const groups = { sprint: [], prototype: [], lead: [], project: [], lab: [] };
+      const groups = { sprint: [], prototype: [], lead: [], project: [], lab: [], phd: [] };
       // Abertos primeiro; dentro disso, mensagem mais recente primeiro; sem mensagens no fim (por nome)
       const mode = S.listMode; // 'all' | 'unread' (só por ler) | 'mentions' (só por ler com o meu nome)
       S.channels.sort((a, b) => {
@@ -658,7 +659,7 @@
       });
       let html = '';
       // Com filtro activo: só grupos com resultados, os que têm mensagens por ler primeiro
-      let types = ['sprint', 'prototype', 'lead', 'project', 'lab'];
+      let types = ['sprint', 'prototype', 'lead', 'project', 'phd', 'lab'];
       if (mode !== 'all') {
         const hasUnread = t => groups[t].some(c => c.unread);
         types = types.filter(t => groups[t].length);
@@ -781,7 +782,7 @@
       } else D.openItem.hidden = true;
       if (c.closed) {
         D.banner.hidden = false;
-        D.banner.innerHTML = `🔒 ${TYPE_META[c.type].one} fechad${c.type === 'lead' ? 'a' : (c.type === 'sprint' ? 'a' : 'o')} — o canal está arquivado e o histórico mantém-se disponível só para leitura.`;
+        D.banner.innerHTML = `🔒 ${TYPE_META[c.type].one} ${c.type === 'phd' ? 'inativo' : 'fechad' + (c.type === 'lead' || c.type === 'sprint' ? 'a' : 'o')} — o canal está arquivado e o histórico mantém-se disponível só para leitura.`;
       } else D.banner.hidden = true;
       D.composer.classList.toggle('pkc-disabled', !c.can_write);
       D.input.disabled = !c.can_write;
@@ -792,7 +793,7 @@
       D.membersPop.innerHTML = `<div class="pkc-pop-title">Membros (${S.members.length})</div>` + S.members.map(m => `
         <div class="pkc-member"><span class="pkc-av pkc-av-sm" style="background:${avColor(m.user_id)}">${esc(initials(m.username))}</span>
         <span>${esc(m.username)}</span><span class="pkc-muted pkc-small">${esc(m.role)}</span></div>`).join('') +
-        `<div class="pkc-muted pkc-small pkc-pad-t">Os membros são geridos na página da ${esc(TYPE_META[S.chan.type].one.toLowerCase())}.</div>`;
+        `<div class="pkc-muted pkc-small pkc-pad-t">${S.chan.type === 'phd' ? 'Os co-orientadores são geridos em Doutoramento → Editar.' : 'Os membros são geridos na página d' + (['sprint', 'lead'].includes(S.chan.type) ? 'a ' : 'o ') + esc(TYPE_META[S.chan.type].one.toLowerCase()) + '.'}</div>`;
     }
 
     // ══ MENSAGENS ══════════════════════════════════════════════

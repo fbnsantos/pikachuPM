@@ -59,6 +59,19 @@ try {
     if ($res && $res->num_rows === 0) {
         $db->query("ALTER TABLE phd_info ADD COLUMN data_defesa DATE NULL AFTER data_inicio");
     }
+    // Migração: doutoramento ativo/inativo (inativo → chat arquivado, só leitura)
+    $res = $db->query("SHOW COLUMNS FROM phd_info LIKE 'ativo'");
+    if ($res && $res->num_rows === 0) {
+        $db->query("ALTER TABLE phd_info ADD COLUMN ativo TINYINT(1) NOT NULL DEFAULT 1 AFTER data_defesa");
+    }
+    // Co-orientadores que são utilizadores do PK (acompanham o chat do doutoramento)
+    $db->query('CREATE TABLE IF NOT EXISTS phd_members (
+        phd_user_id INT NOT NULL,
+        user_id INT NOT NULL,
+        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (phd_user_id, user_id),
+        INDEX idx_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 
     // Criar tabela para artigos do doutoramento
     $db->query('CREATE TABLE IF NOT EXISTS phd_artigos (
@@ -272,6 +285,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $link_tese    = trim($_POST['link_tese']);
     $notas        = trim($_POST['notas']);
     $selected_user = intval($_POST['selected_user']);
+    $ativo        = !empty($_POST['ativo']) ? 1 : 0;
+    $coIds = array_values(array_unique(array_filter(array_map('intval', (array)($_POST['co_users'] ?? [])),
+        function ($v) use ($selected_user) { return $v > 0 && $v !== $selected_user; })));
 
     $stmt = $db->prepare('SELECT id FROM phd_info WHERE user_id = ?');
     $stmt->bind_param('i', $selected_user);
@@ -285,9 +301,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $stmt = $db->prepare('INSERT INTO phd_info (user_id, data_inicio, data_defesa, titulo_doutoramento, orientador, coorientador, instituicao, departamento, link_tese, notas) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
         $stmt->bind_param('isssssssss', $selected_user, $data_inicio, $data_defesa, $titulo, $orientador, $coorientador, $instituicao, $departamento, $link_tese, $notas);
     }
-    
+
     if ($stmt->execute()) {
         $stmt->close();
+        // Estado ativo + co-orientadores (utilizadores do PK)
+        $st2 = $db->prepare('UPDATE phd_info SET ativo = ? WHERE user_id = ?');
+        $st2->bind_param('ii', $ativo, $selected_user);
+        $st2->execute();
+        $st2->close();
+        $st2 = $db->prepare('DELETE FROM phd_members WHERE phd_user_id = ?');
+        $st2->bind_param('i', $selected_user);
+        $st2->execute();
+        $st2->close();
+        if ($coIds) {
+            $st2 = $db->prepare('INSERT IGNORE INTO phd_members (phd_user_id, user_id) SELECT ?, user_id FROM user_tokens WHERE user_id = ?');
+            foreach ($coIds as $cid) {
+                $st2->bind_param('ii', $selected_user, $cid);
+                $st2->execute();
+            }
+            $st2->close();
+        }
         // Redirect
         $redirect_url = $_SERVER['PHP_SELF'] . '?tab=phd_kanban';
         if (isset($_GET['user'])) {
@@ -473,16 +506,21 @@ if ($pdo_phn && $_SERVER['REQUEST_METHOD'] === 'POST') {
 $all_users = [];
 $stmt = $db->query('
     SELECT ut.user_id, ut.username,
-           CASE WHEN pi.id IS NOT NULL THEN 1 ELSE 0 END as has_phd_info
-    FROM user_tokens ut 
+           CASE WHEN pi.id IS NOT NULL THEN 1 ELSE 0 END as has_phd_info,
+           COALESCE(pi.ativo, 0) as phd_ativo
+    FROM user_tokens ut
     LEFT JOIN phd_info pi ON ut.user_id = pi.user_id
-    ORDER BY has_phd_info DESC, ut.username ASC
+    ORDER BY has_phd_info DESC, phd_ativo DESC, ut.username ASC
 ');
 if ($stmt) {
     while ($row = $stmt->fetch_assoc()) {
         $all_users[] = $row;
     }
 }
+// Agrupar para o seletor: ativos / inativos / outros utilizadores
+$users_phd_active = array_values(array_filter($all_users, function ($u) { return $u['has_phd_info'] && $u['phd_ativo']; }));
+$users_phd_inactive = array_values(array_filter($all_users, function ($u) { return $u['has_phd_info'] && !$u['phd_ativo']; }));
+$users_other = array_values(array_filter($all_users, function ($u) { return !$u['has_phd_info']; }));
 
 // Determinar utilizador selecionado
 $selected_user = $user_id;
@@ -500,6 +538,18 @@ if ($result->num_rows > 0) {
     $phd_info = $result->fetch_assoc();
 }
 $stmt->close();
+
+// Co-orientadores do PK (membros do chat do doutoramento)
+$phd_co_users = [];
+$stmt = $db->prepare('SELECT pm.user_id, ut.username FROM phd_members pm JOIN user_tokens ut ON ut.user_id = pm.user_id WHERE pm.phd_user_id = ? ORDER BY ut.username');
+if ($stmt) {
+    $stmt->bind_param('i', $selected_user);
+    $stmt->execute();
+    $phd_co_users = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+}
+$phd_co_ids = array_map('intval', array_column($phd_co_users, 'user_id'));
+$phd_is_active = $phd_info ? (int)($phd_info['ativo'] ?? 1) === 1 : false;
 
 // Buscar notas do doutoramento (com ficheiros)
 $phd_notes_by_author = [];
@@ -784,13 +834,34 @@ $total_artigos = count($artigos);
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2><i class="bi bi-mortarboard"></i> Gestão do Doutoramento</h2>
         <div class="d-flex gap-2">
-            <select class="form-select" id="userSelector" style="width: 250px;">
-                <?php foreach ($all_users as $u): ?>
-                    <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $selected_user ? 'selected' : '' ?>>
-                        <?= $u['has_phd_info'] ? '⭐ ' : '' ?><?= htmlspecialchars($u['username']) ?>
-                    </option>
+            <?php $showAllPhd = !empty($_GET['all']); ?>
+            <select class="form-select" id="userSelector" style="width: 250px;" title="Doutorandos">
+                <?php
+                $phdGroups = [['⭐ Doutoramentos ativos', $users_phd_active, '⭐ ']];
+                if ($showAllPhd) {
+                    $phdGroups[] = ['💤 Doutoramentos inativos', $users_phd_inactive, '💤 '];
+                    $phdGroups[] = ['Outros utilizadores', $users_other, ''];
+                } else {
+                    // o utilizador aberto aparece sempre, mesmo que esteja fora dos ativos
+                    foreach (array_merge($users_phd_inactive, $users_other) as $u) {
+                        if ($u['user_id'] == $selected_user) $phdGroups[] = ['Selecionado', [$u], $u['has_phd_info'] ? '💤 ' : ''];
+                    }
+                }
+                foreach ($phdGroups as [$glabel, $glist, $gpre]):
+                    if (!$glist) continue; ?>
+                    <optgroup label="<?= htmlspecialchars($glabel) ?>">
+                    <?php foreach ($glist as $u): ?>
+                        <option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $selected_user ? 'selected' : '' ?>>
+                            <?= $gpre ?><?= htmlspecialchars($u['username']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                    </optgroup>
                 <?php endforeach; ?>
             </select>
+            <div class="form-check form-switch align-self-center mb-0" title="Mostrar também doutoramentos inativos e outros utilizadores">
+                <input class="form-check-input" type="checkbox" id="phdShowAll" <?= $showAllPhd ? 'checked' : '' ?>>
+                <label class="form-check-label small text-nowrap" for="phdShowAll">Mostrar todos</label>
+            </div>
             <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTaskModal">
                 <i class="bi bi-plus-circle"></i> Nova Tarefa
             </button>
@@ -824,7 +895,11 @@ $total_artigos = count($artigos);
     
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="bi bi-info-circle"></i> Informações do Doutoramento</h4>
+            <h4 class="mb-0"><i class="bi bi-info-circle"></i> Informações do Doutoramento
+                <?php if ($phd_info): ?>
+                    <span class="badge <?= $phd_is_active ? 'bg-success' : 'bg-secondary' ?> align-middle" style="font-size:.5em"><?= $phd_is_active ? 'Ativo' : 'Inativo' ?></span>
+                <?php endif; ?>
+            </h4>
             <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#phdInfoModal">
                 <i class="bi bi-pencil"></i> Editar
             </button>
@@ -860,6 +935,15 @@ $total_artigos = count($artigos);
                         </p>
                         <p><strong>Orientador:</strong> <?= htmlspecialchars($phd_info['orientador'] ?: 'N/A') ?></p>
                         <p><strong>Coorientador:</strong> <?= htmlspecialchars($phd_info['coorientador'] ?: 'N/A') ?></p>
+                        <p><strong>Acompanham o chat:</strong>
+                            <?php if ($phd_co_users): ?>
+                                <?php foreach ($phd_co_users as $cu): ?>
+                                    <span class="badge bg-light text-dark border"><i class="bi bi-person"></i> <?= htmlspecialchars($cu['username']) ?></span>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <span class="text-muted">ninguém (só o doutorando)</span>
+                            <?php endif; ?>
+                        </p>
                     </div>
                     <div class="col-md-6">
                         <p><strong>Instituição:</strong> <?= htmlspecialchars($phd_info['instituicao'] ?: 'N/A') ?></p>
@@ -1264,6 +1348,12 @@ $total_artigos = count($artigos);
             <?php endif; ?>
         </div>
     </div>
+
+    <?php if ($phd_info):
+        // Chat do doutoramento: doutorando + co-orientadores do PK (+ admins). Inativo → só leitura.
+        include_once __DIR__ . '/chat_embed.php';
+        pk_chat_embed('phd', (int)$selected_user, !$phd_is_active);
+    endif; ?>
 </div>
 
 <!-- Modal Adicionar Tarefa -->
@@ -1354,8 +1444,29 @@ $total_artigos = count($artigos);
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Coorientador</label>
-                            <input type="text" class="form-control" name="coorientador" 
+                            <input type="text" class="form-control" name="coorientador"
                                    value="<?= htmlspecialchars($phd_info['coorientador'] ?? '') ?>">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Estado</label>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" name="ativo" value="1" id="phdAtivo"
+                                       <?= (!$phd_info || $phd_is_active) ? 'checked' : '' ?>>
+                                <label class="form-check-label" for="phdAtivo">Doutoramento ativo</label>
+                            </div>
+                            <div class="form-text">Se ficar inativo, o chat é arquivado (o histórico continua disponível, só para leitura).</div>
+                        </div>
+                        <div class="col-12 mb-3">
+                            <label class="form-label">Co-orientadores no PK <small class="text-muted">(acompanham o chat do doutoramento)</small></label>
+                            <select class="form-select" name="co_users[]" id="phdCoUsers" multiple size="6">
+                                <?php foreach ($all_users as $u):
+                                    if ((int)$u['user_id'] === (int)$selected_user) continue; ?>
+                                    <option value="<?= (int)$u['user_id'] ?>" <?= in_array((int)$u['user_id'], $phd_co_ids, true) ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($u['username']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="form-text">Ctrl/⌘ + clique para escolher várias pessoas. Os escolhidos veem e escrevem no chat do doutoramento.</div>
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Instituição</label>
@@ -1607,7 +1718,16 @@ document.addEventListener('DOMContentLoaded', function() {
         const currentUrl = new URL(window.location.href);
         currentUrl.searchParams.set('tab', 'phd_kanban');
         currentUrl.searchParams.set('user', userId);
+        currentUrl.searchParams.delete('success');
         window.location.href = currentUrl.toString();
+    });
+    const phdShowAll = document.getElementById('phdShowAll');
+    if (phdShowAll) phdShowAll.addEventListener('change', function() {
+        const u = new URL(window.location.href);
+        u.searchParams.set('tab', 'phd_kanban');
+        if (this.checked) u.searchParams.set('all', '1'); else u.searchParams.delete('all');
+        u.searchParams.delete('success');
+        window.location.href = u.toString();
     });
     
     // Drag and Drop

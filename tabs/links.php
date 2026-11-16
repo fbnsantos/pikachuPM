@@ -458,7 +458,7 @@ if ($q !== '' && (!empty($gsTerms) || !empty($gsExcludes))) {
                         $tSprint = $has('sprints')    ? "(SELECT nome FROM sprints WHERE id = m.channel_id)" : "NULL";
                         $tProto  = $has('prototypes') ? "(SELECT COALESCE(NULLIF(short_name,''), name) FROM prototypes WHERE id = m.channel_id)" : "NULL";
                         $tLead   = $has('leads')      ? "(SELECT titulo FROM leads WHERE id = m.channel_id)" : "NULL";
-                        $tPhd    = "(SELECT username FROM user_tokens WHERE user_id = m.channel_id)";
+                        $tPhd    = "CONVERT((SELECT username FROM user_tokens WHERE user_id = m.channel_id) USING utf8mb4) COLLATE utf8mb4_unicode_ci";
                         $s = $pdo_s->prepare("SELECT m.id, m.channel_type, m.channel_id, m.body, m.created_at,
                                                      $attCol AS att_names,
                                                      CASE m.channel_type WHEN 'sprint' THEN $tSprint

@@ -465,7 +465,7 @@ function chat_user_channels(PDO $pdo, int $uid): array {
     if (chat_table_exists($pdo, 'sprints')) {
         $mem = chat_table_exists($pdo, 'sprint_members')
             ? 'OR EXISTS (SELECT 1 FROM sprint_members x WHERE x.sprint_id = s.id AND x.user_id = ?)' : '';
-        $parts[] = "SELECT 'sprint' AS type, s.id, s.nome AS title,
+        $parts[] = "SELECT 'sprint' AS type, s.id, CONVERT(s.nome USING utf8mb4) COLLATE utf8mb4_unicode_ci AS title,
                            (s.estado IN ('concluída','concluida','fechada')) AS closed
                     FROM sprints s WHERE s.responsavel_id = ? $mem";
         $params[] = $uid; if ($mem) $params[] = $uid;
@@ -474,7 +474,7 @@ function chat_user_channels(PDO $pdo, int $uid): array {
         $hasEstado = (bool)$pdo->query("SHOW COLUMNS FROM prototypes LIKE 'estado'")->fetch();
         $mem = chat_table_exists($pdo, 'prototype_members')
             ? 'OR EXISTS (SELECT 1 FROM prototype_members x WHERE x.prototype_id = p.id AND x.user_id = ?)' : '';
-        $parts[] = "SELECT 'prototype' AS type, p.id, COALESCE(NULLIF(p.short_name,''), p.name) AS title,
+        $parts[] = "SELECT 'prototype' AS type, p.id, CONVERT(COALESCE(NULLIF(p.short_name,''), p.name) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS title,
                            " . ($hasEstado ? "(p.estado = 'fechado')" : '0') . " AS closed
                     FROM prototypes p WHERE p.responsavel_id = ? $mem";
         $params[] = $uid; if ($mem) $params[] = $uid;
@@ -482,14 +482,14 @@ function chat_user_channels(PDO $pdo, int $uid): array {
     if (chat_table_exists($pdo, 'leads')) {
         $mem = chat_table_exists($pdo, 'lead_members')
             ? 'OR EXISTS (SELECT 1 FROM lead_members x WHERE x.lead_id = l.id AND x.user_id = ?)' : '';
-        $parts[] = "SELECT 'lead' AS type, l.id, l.titulo AS title, (l.estado = 'fechada') AS closed
+        $parts[] = "SELECT 'lead' AS type, l.id, CONVERT(l.titulo USING utf8mb4) COLLATE utf8mb4_unicode_ci AS title, (l.estado = 'fechada') AS closed
                     FROM leads l WHERE l.responsavel_id = ? $mem";
         $params[] = $uid; if ($mem) $params[] = $uid;
     }
     if (chat_table_exists($pdo, 'projects')) {
         $mem = chat_table_exists($pdo, 'project_members')
             ? 'OR EXISTS (SELECT 1 FROM project_members x WHERE x.project_id = pj.id AND x.user_id = ?)' : '';
-        $parts[] = "SELECT 'project' AS type, pj.id, COALESCE(NULLIF(pj.short_name,''), pj.title) AS title,
+        $parts[] = "SELECT 'project' AS type, pj.id, CONVERT(COALESCE(NULLIF(pj.short_name,''), pj.title) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS title,
                            (pj.estado IN ('fechado','concluído','arquivado')) AS closed
                     FROM projects pj WHERE pj.owner_id = ? $mem";
         $params[] = $uid; if ($mem) $params[] = $uid;
@@ -499,7 +499,7 @@ function chat_user_channels(PDO $pdo, int $uid): array {
         $mem = chat_table_exists($pdo, 'phd_members')
             ? 'OR EXISTS (SELECT 1 FROM phd_members x WHERE x.phd_user_id = pi.user_id AND x.user_id = ?)' : '';
         $ativo = chat_col_exists($pdo, 'phd_info', 'ativo') ? '(pi.ativo = 0)' : '0';
-        $parts[] = "SELECT 'phd' AS type, pi.user_id AS id, COALESCE(u.username, CONCAT('user', pi.user_id)) AS title,
+        $parts[] = "SELECT 'phd' AS type, pi.user_id AS id, CONVERT(COALESCE(u.username, CONCAT('user', pi.user_id)) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS title,
                            $ativo AS closed
                     FROM phd_info pi LEFT JOIN user_tokens u ON u.user_id = pi.user_id
                     WHERE pi.user_id = ? $mem";
@@ -510,7 +510,7 @@ function chat_user_channels(PDO $pdo, int $uid): array {
         $st2 = $pdo->prepare('SELECT 1 FROM lab_authorized_users WHERE user_id = ?');
         $st2->execute([$uid]);
         if ($st2->fetchColumn()) {
-            $parts[] = "SELECT 'lab' AS type, 1 AS id, 'Lab Chat' AS title, 0 AS closed FROM DUAL";
+            $parts[] = "SELECT 'lab' AS type, 1 AS id, CONVERT('Lab Chat' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS title, 0 AS closed FROM DUAL";
         }
     }
     if (!$parts) return [];

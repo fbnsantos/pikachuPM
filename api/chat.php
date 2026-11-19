@@ -715,7 +715,7 @@ function chat_json_then($data, callable $after): void {
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $action = (string)($_GET['action'] ?? $_POST['action'] ?? '');
 
-$POST_ACTIONS = ['send', 'edit', 'set_topic', 'delete', 'react', 'pin', 'read', 'typing', 'push_subscribe', 'push_unsubscribe', 'push_test', 'push_inbox'];
+$POST_ACTIONS = ['send', 'edit', 'set_topic', 'delete', 'react', 'pin', 'read', 'mark_unread', 'typing', 'push_subscribe', 'push_unsubscribe', 'push_test', 'push_inbox'];
 if (in_array($action, $POST_ACTIONS, true) && $method !== 'POST') chat_err(405, 'Use POST');
 
 // Pedido maior que post_max_size → o PHP descarta $_POST/$_FILES sem aviso
@@ -1101,6 +1101,23 @@ switch ($action) {
                        ON DUPLICATE KEY UPDATE last_read_id = GREATEST(last_read_id, VALUES(last_read_id)), updated_at = NOW(3)')
             ->execute([$uid, $type, $id, $last]);
         chat_json(['ok' => true]);
+    }
+
+    case 'mark_unread': {
+        // "Marcar como não lida": recua o ponto de leitura para antes desta mensagem
+        [$type, $id] = chat_require_channel($pdo, $uid, $SRC);
+        $mid = (int)($SRC['message_id'] ?? 0);
+        $st = $pdo->prepare('SELECT id FROM chat_messages WHERE id = ? AND channel_type = ? AND channel_id = ?');
+        $st->execute([$mid, $type, $id]);
+        if (!$st->fetchColumn()) chat_err(404, 'Mensagem não encontrada');
+        $st = $pdo->prepare('SELECT COALESCE(MAX(id),0) FROM chat_messages WHERE channel_type = ? AND channel_id = ? AND id < ?');
+        $st->execute([$type, $id, $mid]);
+        $last = (int)$st->fetchColumn();
+        $pdo->prepare('INSERT INTO chat_reads (user_id, channel_type, channel_id, last_read_id, updated_at)
+                       VALUES (?, ?, ?, ?, NOW(3))
+                       ON DUPLICATE KEY UPDATE last_read_id = VALUES(last_read_id), updated_at = NOW(3)')
+            ->execute([$uid, $type, $id, $last]);
+        chat_json(['ok' => true, 'last_read_id' => $last]);
     }
 
     case 'typing': {

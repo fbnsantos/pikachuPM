@@ -710,7 +710,7 @@
       const gen = ++S.gen;
       S.cur = { type, id };
       S.msgs.clear(); S.order = []; S.lastId = 0; S.since = ''; S.hasMore = false;
-      S.replyTo = null; S.editingId = null; S.pending = []; S.readSent = 0; S.newWhileUp = 0;
+      S.replyTo = null; S.editingId = null; S.pending = []; S.readSent = 0; S.newWhileUp = 0; S.holdRead = false;
       S.typing = []; S.reads = []; S.view = 'chat'; S.topicFilter = 0;
       try { localStorage.setItem(LS_KEY, type + ':' + id); } catch (e) {}
       wrap.classList.add('pkc-has-conv');
@@ -999,12 +999,34 @@
     }
 
     function markRead() {
-      if (!S.cur || document.hidden || !S.lastId || S.lastId <= S.readSent) return;
+      // depois de "Marcar como não lida" não volta a marcar como lida até sair do canal ou escrever
+      if (!S.cur || S.holdRead || document.hidden || !S.lastId || S.lastId <= S.readSent) return;
       if (S.view === 'chat' && !nearBottom() && S.msgs.size > 0) return;
       S.readSent = S.lastId;
       api.post('read', { type: S.cur.type, id: S.cur.id, last_id: S.lastId }).catch(() => { S.readSent = 0; });
       const c = S.channels.find(x => x.type === S.cur.type && x.id === S.cur.id);
       if (c && (c.unread || c.mentions)) { c.unread = 0; c.mentions = 0; renderChannels(); emitUnread(); }
+    }
+
+    /** Recua o ponto de leitura para antes da mensagem `mid` (ela e as seguintes ficam por ler). */
+    async function markUnread(mid) {
+      if (!S.cur) return;
+      const cur = S.cur;
+      try {
+        await api.post('mark_unread', { type: cur.type, id: cur.id, message_id: mid });
+      } catch (e) { toast(e.message, true); return; }
+      if (!S.cur || S.cur.type !== cur.type || S.cur.id !== cur.id) return;
+      S.holdRead = true;
+      S.readSent = mid - 1;
+      const meId = S.me && S.me.user_id;
+      const later = S.order.map(id => S.msgs.get(id)).filter(m => m && m.id >= mid && !m.deleted && m.user_id !== meId);
+      S.firstUnreadId = later.length ? later[0].id : mid;
+      const c = S.channels.find(x => x.type === cur.type && x.id === cur.id);
+      if (c) { c.unread = later.length; c.mentions = later.filter(mentionsMe).length; renderChannels(); emitUnread(); }
+      const keep = D.msgs.scrollTop;
+      renderMessages();
+      D.msgs.scrollTop = keep;
+      toast('Marcada como não lida');
     }
 
     // ══ COMPOSER ═══════════════════════════════════════════════
@@ -1041,6 +1063,7 @@
 
     async function send() {
       if (S.sending || !S.chan || !S.chan.can_write) return;
+      S.holdRead = false; // escrever no canal volta a marcá-lo como lido
       const body = D.input.value.trim();
       if (!body && !S.pending.length) return;
       // Canal lab exige tópico
@@ -1310,6 +1333,7 @@
       if (canWrite) items.push(['emoji-react', '😊 Outra reacção…']);
       if (mine && canWrite && m.body !== undefined) items.push(['edit', '✏️ Editar']);
       if (S.requireTopic && canWrite && (mine || isAdmin) && !m.deleted && !m.system) items.push(['topic', '🏷️ Mudar assunto']);
+      if (!mine) items.push(['unread', '🔵 Marcar como não lida']);
       if ((mine && canWrite) || isAdmin) items.push(['delete', '🗑 Eliminar']);
       D.menu.innerHTML = items.map(([a, l]) => `<button data-act="m-${a}" data-mid="${m.id}"${a === 'delete' ? ' class="pkc-danger"' : ''}>${l}</button>`).join('');
       D.menu.hidden = false;
@@ -1459,6 +1483,7 @@
           if (confirm('Eliminar esta mensagem? Os anexos também serão removidos.')) act('delete', { message_id: mid });
           break;
         case 'm-topic': if (S.msgs.get(mid)) openTopicMenu(S.msgs.get(mid)); break;
+        case 'm-unread': closePops(); markUnread(mid); break;
         case 'm-settopic': {
           const tid = parseInt(t.dataset.topic, 10) || 0;
           closePops();

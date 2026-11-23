@@ -88,6 +88,18 @@
     const k = VIEW_EXT[String(name).split('.').pop().toLowerCase()] || null;
     return k && !(size > (k === 'pdf' ? VIEW_MAX_PDF : VIEW_MAX)) ? k : null;
   }
+  // ── Vídeo / áudio tocados no próprio chat (formatos que os browsers reproduzem) ──
+  const MEDIA_TYPES = {
+    mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', ogv: 'video/ogg',
+    mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg',
+  };
+  const MEDIA_MAX = 200 * 1048576;
+  function mediaKind(name, size) {
+    const t = MEDIA_TYPES[String(name).split('.').pop().toLowerCase()];
+    if (!t || size > MEDIA_MAX) return null;
+    return t.startsWith('video/') ? 'video' : 'audio';
+  }
+  const mediaMime = name => MEDIA_TYPES[String(name).split('.').pop().toLowerCase()] || '';
   const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/';
   let pdfLibP = null;
   /** PDF.js (desenha em canvas → funciona igual no PC, Android e iPad). */
@@ -309,7 +321,7 @@
       listMode: savedListMode(),
       topicFilter: 0, topics: opts.topics || [], requireTopic: !!opts.require_topic,
       pollTimer: null, chanTimer: null, lastActivity: 0, inPoll: false, pollKick: false, lastChannelsAt: 0, lastTypingSent: 0,
-      blobUrls: new Map(), prevLast: null, newWhileUp: 0, destroyed: false, gen: 0,
+      blobUrls: new Map(), media: new Map(), prevLast: null, newWhileUp: 0, destroyed: false, gen: 0,
     };
 
     // ── DOM ────────────────────────────────────────────────────
@@ -467,11 +479,57 @@
       } catch (e) { toast('Erro ao descarregar: ' + e.message, true); }
     }
 
+    // ── Vídeo / áudio: blob com o tipo certo (o servidor envia octet-stream) → <video>/<audio> ──
+    async function mediaSrc(id, name) {
+      const k = 'm' + id;
+      if (S.blobUrls.has(k)) return S.blobUrls.get(k);
+      const b = await api.blob('file', { file_id: id });
+      const u = URL.createObjectURL(new Blob([b], { type: mediaMime(name) || b.type }));
+      S.blobUrls.set(k, u);
+      return u;
+    }
+    function mediaPlayer(id, autoplay) {
+      const info = S.media.get(id);
+      if (!info) return null;
+      const box = document.createElement('div');
+      box.className = 'pkc-media pkc-media-' + info.kind + ' pkc-media-loading';
+      box.dataset.att = id;
+      const el = document.createElement(info.kind);
+      el.controls = true; el.preload = 'metadata'; el.playsInline = true; el.setAttribute('playsinline', '');
+      el.addEventListener('loadedmetadata', () => box.classList.remove('pkc-media-loading'), { once: true });
+      const bar = document.createElement('div');
+      bar.className = 'pkc-media-bar';
+      bar.innerHTML = `<span class="pkc-att-name">${esc(info.name)}</span>
+        <button class="pkc-ibtn" data-act="download" data-att="${id}" data-name="${esc(info.name)}" title="Descarregar">⤓</button>
+        <button class="pkc-ibtn" data-act="media-close" data-att="${id}" title="Fechar o leitor">✕</button>`;
+      box.append(el, bar);
+      mediaSrc(id, info.name).then(u => {
+        el.src = u;
+        if (autoplay) el.play().catch(() => {});
+      }).catch(e => { box.classList.remove('pkc-media-loading'); bar.firstElementChild.textContent = 'Erro ao carregar: ' + e.message; });
+      return box;
+    }
+    function playMedia(id, name, btn) {
+      const kind = mediaKind(name);
+      if (!kind) return download(id, name);
+      S.media.set(id, { name, kind });
+      const p = mediaPlayer(id, true);
+      if (p && btn) btn.replaceWith(p);
+    }
+    function closeMedia(id) {
+      const box = D.msgs.querySelector(`.pkc-media[data-att="${id}"]`);
+      if (box) { const el = box.querySelector('video,audio'); if (el) el.pause(); }
+      S.media.delete(id);
+      const keep = D.msgs.scrollTop;
+      renderMessages();
+      D.msgs.scrollTop = keep;
+    }
+
     // ── Visualizador de .md / .txt / .json / .csv ──────────────
     const V = { id: 0, name: '', kind: null, text: '', raw: false, noLib: false, seq: 0 };
     const vBody = () => D.viewer.querySelector('.pkc-viewer-body');
     async function openViewer(id, name) {
-      const kind = viewKind(name);
+      const kind = mediaKind(name) || viewKind(name);
       if (!kind) return download(id, name);
       closePops();
       cleanupPdf();
@@ -479,11 +537,25 @@
       Object.assign(V, { id, name, kind, text: '', raw: false, noLib: false, zoom: 1 });
       D.viewer.querySelector('.pkc-viewer-name').textContent = name;
       D.viewer.querySelector('.pkc-viewer-ico').textContent = fileIcon(name);
-      D.viewer.querySelector('.pkc-viewer-raw').hidden = kind === 'text' || kind === 'pdf';
+      D.viewer.querySelector('.pkc-viewer-raw').hidden = ['text', 'pdf', 'video', 'audio'].includes(kind);
       D.viewer.querySelector('.pkc-viewer-zoom').hidden = kind !== 'pdf';
       D.viewer.querySelector('.pkc-viewer-zval').textContent = '100%';
       vBody().innerHTML = '<div class="pkc-muted pkc-pad">A carregar…</div>';
       D.viewer.hidden = false;
+      if (kind === 'video' || kind === 'audio') {
+        try {
+          const u = await mediaSrc(id, name);
+          if (seq !== V.seq || D.viewer.hidden) return;
+          const el = document.createElement(kind);
+          el.className = 'pkc-viewer-media'; el.controls = true; el.playsInline = true; el.setAttribute('playsinline', '');
+          el.src = u;
+          vBody().replaceChildren(el);
+          el.play().catch(() => {});
+        } catch (e) {
+          if (seq === V.seq) vBody().innerHTML = `<div class="pkc-err pkc-pad">Não foi possível abrir o ficheiro: ${esc(e.message)}</div>`;
+        }
+        return;
+      }
       try {
         const b = await api.blob('file', { file_id: id });
         if (kind === 'pdf') return await openPdf(b, seq);
@@ -711,7 +783,7 @@
       S.cur = { type, id };
       S.msgs.clear(); S.order = []; S.lastId = 0; S.since = ''; S.hasMore = false;
       S.replyTo = null; S.editingId = null; S.pending = []; S.readSent = 0; S.newWhileUp = 0; S.holdRead = false;
-      S.typing = []; S.reads = []; S.view = 'chat'; S.topicFilter = 0;
+      S.typing = []; S.reads = []; S.view = 'chat'; S.topicFilter = 0; S.media.clear();
       try { localStorage.setItem(LS_KEY, type + ':' + id); } catch (e) {}
       wrap.classList.add('pkc-has-conv');
       D.placeholder.hidden = true;
@@ -815,6 +887,13 @@
       const editing = S.editingId === m.id;
       const atts = m.attachments.map(a => a.is_image
         ? `<button class="pkc-att-img" data-act="lightbox" data-att="${a.id}" title="${esc(a.name)}"><img data-att="${a.id}" alt="${esc(a.name)}" loading="lazy"></button>`
+        : mediaKind(a.name, a.size)
+        ? (S.media.has(a.id)
+          ? `<div class="pkc-media-slot" data-att="${a.id}"></div>`
+          : `<button class="pkc-att-file pkc-att-play" data-act="play" data-att="${a.id}" data-name="${esc(a.name)}" title="Reproduzir ${esc(a.name)} no chat">
+             <span class="pkc-att-ico">${mediaKind(a.name) === 'video' ? '🎬' : '🎵'}</span>
+             <span class="pkc-att-txt"><span class="pkc-att-name">${esc(a.name)}</span><span class="pkc-muted pkc-small">${fmtSize(a.size)}</span></span>
+             <span class="pkc-att-dl">▶</span></button>`)
         : viewKind(a.name, a.size)
         ? `<button class="pkc-att-file" data-act="view" data-att="${a.id}" data-name="${esc(a.name)}" title="Abrir ${esc(a.name)} no chat">
              <span class="pkc-att-ico">${fileIcon(a.name, a.mime)}</span>
@@ -888,7 +967,14 @@
         prev = m;
       }
       html += seenHtml();
+      // leitores em reprodução sobrevivem ao re-render (re-inseridos no mesmo ciclo → não param)
+      const live = new Map();
+      D.msgs.querySelectorAll('.pkc-media[data-att]').forEach(el => live.set(el.dataset.att, el));
       D.msgs.innerHTML = html;
+      D.msgs.querySelectorAll('.pkc-media-slot').forEach(slot => {
+        const el = live.get(slot.dataset.att) || mediaPlayer(+slot.dataset.att, false);
+        if (el) slot.replaceWith(el); else slot.remove();
+      });
       hydrateImages(D.msgs);
       D.msgs.querySelectorAll('.pkc-att-img img').forEach(img => img.addEventListener('load', () => { if (stick) D.msgs.scrollTop = D.msgs.scrollHeight; }, { once: true }));
       if (toUnread) {
@@ -1264,7 +1350,7 @@
           (imgs.length ? `<div class="pkc-panel-title">Imagens (${imgs.length})</div><div class="pkc-gallery">${imgs.map(f =>
             `<button class="pkc-att-img" data-act="lightbox" data-att="${f.id}" title="${esc(f.name)} — ${esc(f.username)}"><img data-att="${f.id}" alt="${esc(f.name)}" loading="lazy"></button>`).join('')}</div>` : '') +
           (docs.length ? `<div class="pkc-panel-title">Ficheiros (${docs.length})</div><table class="pkc-table"><thead><tr><th>Nome</th><th>Partilhado por</th><th>Data</th><th>Tamanho</th></tr></thead><tbody>${docs.map(f => `
-            <tr data-act="${viewKind(f.name, f.size) ? 'view' : 'download'}" data-att="${f.id}" data-name="${esc(f.name)}"><td>${fileIcon(f.name, f.mime)} ${esc(f.name)}</td><td>${esc(f.username)}</td>
+            <tr data-act="${mediaKind(f.name, f.size) || viewKind(f.name, f.size) ? 'view' : 'download'}" data-att="${f.id}" data-name="${esc(f.name)}"><td>${fileIcon(f.name, f.mime)} ${esc(f.name)}</td><td>${esc(f.username)}</td>
             <td>${parseTs(f.created_at).toLocaleDateString('pt-PT')}</td><td>${fmtSize(f.size)}</td></tr>`).join('')}</tbody></table>` : '');
         hydrateImages(D.panel);
       } catch (e) { D.panel.innerHTML = `<div class="pkc-err pkc-pad">${esc(e.message)}</div>`; }
@@ -1506,6 +1592,8 @@
         case 'lb-close': D.lightbox.hidden = true; break;
         case 'download': download(+t.dataset.att, t.dataset.name); break;
         case 'view': openViewer(+t.dataset.att, t.dataset.name); break;
+        case 'play': playMedia(+t.dataset.att, t.dataset.name, t); break;
+        case 'media-close': closeMedia(+t.dataset.att); break;
         case 'v-close': closeViewer(); break;
         case 'v-dl': download(V.id, V.name); break;
         case 'v-raw': V.raw = !V.raw; renderViewer(); break;

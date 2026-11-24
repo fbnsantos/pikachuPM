@@ -889,6 +889,7 @@ if ($has_local_auth) {
     $all_available_tabs = [
         'dashboard'                  => 'Painel Principal',
         'research_ideas'             => 'Research Ideas',
+        'publication_venues'         => 'Onde Publicar',
         'equipment'                  => 'Infraestrutura',
         'prototypes/prototypesv2'    => 'Prototypes',
         'projectos'                  => 'Projects',

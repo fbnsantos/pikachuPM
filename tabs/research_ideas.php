@@ -396,6 +396,12 @@ function truncateText($text, $maxLength = 100) {
     }
 </style>
 
+<!-- Sub-navegação Research -->
+<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+    <a href="?tab=research_ideas" style="text-decoration:none;padding:5px 12px;border-radius:999px;background:#0d6efd;color:#fff;font-size:.9em">💡 Research Ideas</a>
+    <a href="?tab=publication_venues" style="text-decoration:none;padding:5px 12px;border-radius:999px;background:#eef1f5;color:#333;font-size:.9em">📅 Onde Publicar</a>
+</div>
+
 <!-- Mensagens de Feedback -->
 <?php if ($message): ?>
     <div class="alert alert-<?= $messageType ?> alert-dismissible fade show" role="alert">

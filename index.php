@@ -121,7 +121,13 @@ $HORA_TRANSICAO_CALENDARIO = "12:00"; // formato HH:MM - Hora para transição p
 // Tabs disponíveis
 $tabs = [
     'dashboard' => 'Painel Principal',
-    'research_ideas' => 'Research Ideas',
+    'Research' => [
+        'label'   => 'Research',
+        'submenu' => [
+            'research_ideas'     => 'Research Ideas',
+            'publication_venues' => 'Onde Publicar',
+        ]
+    ],
     'Infraestrutura' => [
         'label'   => 'Infraestrutura',
         'submenu' => [
@@ -160,6 +166,10 @@ $tabs = [
 
 // Filtrar tabs para utilizadores com acesso restrito
 if (!empty($allowed_tabs_for_user)) {
+    // Quem tem acesso a Research Ideas também vê "Onde Publicar"
+    if (in_array('research_ideas', $allowed_tabs_for_user) && !in_array('publication_venues', $allowed_tabs_for_user)) {
+        $allowed_tabs_for_user[] = 'publication_venues';
+    }
     $filtered_tabs = [];
     foreach ($tabs as $key => $value) {
         if (is_array($value) && isset($value['submenu'])) {

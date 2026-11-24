@@ -238,6 +238,9 @@ Vista de membros, funções e disponibilidade.
 ### `dashboard.php` — Dashboard
 Agregação de métricas de projectos, sprints e tarefas.
 
+### `publication_venues.php` — Onde Publicar (submenu "Research")
+Menu "Research" = `research_ideas` + `publication_venues`. Tabela `publication_venues` (criada inline): type ENUM(journal, conference, special_issue, workshop), name/acronym/publisher/url, ranking (Q1–Q4 ou A*/A/B/C, texto livre), impact_factor, open_access, location/country/event_start/event_end (só conferências/workshops), abstract/submission/notification/camera_ready, topics, notes, created_by. POST com `pv_action` = save|delete e PRG para `?tab=publication_venues&msg=`. Filtro por tipo, pesquisa e ordenação (deadline, nome, ranking, IF, evento, local, recentes) feitos no cliente sobre `data-*` das linhas; preferências em localStorage `pv_prefs`. Quem tem `research_ideas` em `user_tab_access` vê também esta página (index.php).
+
 ---
 
 ### Chat — `tabs/chat.php` + `api/chat.php` + `assets/chat/pkchat.{js,css}`
